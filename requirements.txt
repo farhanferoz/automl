@@ -1,0 +1,12 @@
+numpy
+scikit-learn
+jax[cpu]  # Or jax[cuda] if you have a compatible GPU
+optuna
+torch     # For CPU, or specify a CUDA version like torch==2.x.x+cu118
+xgboost
+lightgbm
+catboost
+flax
+optax
+scipy
+shap
