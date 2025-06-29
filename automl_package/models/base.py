@@ -1,17 +1,20 @@
 import abc
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any
 import numpy as np
-from ..enums import TaskType
-from ..logger import logger  # Import logger
 
 
 class BaseModel(abc.ABC):
     """
     Abstract base class for all machine learning models in the package.
-    Defines a common interface for fitting and predicting.
+    Defines a common interface for fitting, predicting, and hyperparameter search.
     """
 
     def __init__(self, **kwargs):
+        """
+        Initializes the base model with given parameters.
+        Args:
+            **kwargs: Arbitrary keyword arguments for model parameters.
+        """
         self.model = None
         self.params = kwargs
         self._is_regression_model = False  # Flag to indicate if model is for regression
@@ -19,7 +22,7 @@ class BaseModel(abc.ABC):
     @abc.abstractmethod
     def fit(self, X: np.ndarray, y: np.ndarray):
         """
-        Trains the model on the given data.
+        Fits the model to the training data.
 
         Args:
             X (np.ndarray): Feature matrix.

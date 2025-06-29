@@ -1,6 +1,5 @@
+from typing import Callable
 import optuna
-from typing import Dict, Any, Callable, Tuple
-import numpy as np
 
 
 class OptunaOptimizer:
@@ -29,8 +28,8 @@ class OptunaOptimizer:
         Args:
             objective_fn (Callable[[optuna.Trial], float]): A function that takes an Optuna trial object
                                                             and returns the metric to be optimized.
-            **kwargs: Placeholder for additional parameters, like search_space, but objective_fn
-                      now directly handles sampling using the trial object.
+            **kwargs: Additional keyword arguments for optuna.study.Study.optimize.
+                      (e.g., timeout, callbacks).
 
         Returns:
             optuna.study.Study: The Optuna study object containing optimization results.
@@ -38,6 +37,8 @@ class OptunaOptimizer:
         self.study = optuna.create_study(
             direction=self.direction, sampler=optuna.samplers.TPESampler(seed=self.seed), pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=30)
         )
-        # The objective_fn directly takes the trial object now
-        self.study.optimize(objective_fn, n_trials=self.n_trials, show_progress_bar=True)
+
+        # The objective_fn directly takes the trial object now.
+        # `show_progress_bar=True` is useful for interactive sessions.
+        self.study.optimize(objective_fn, n_trials=self.n_trials, show_progress_bar=True, **kwargs)
         return self.study

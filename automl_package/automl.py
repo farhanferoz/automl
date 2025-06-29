@@ -1,5 +1,6 @@
+from enum import Enum
 import numpy as np
-from enums import Enum
+import pandas as pd  # Import pandas for feature names in SHAP output
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error, accuracy_score, log_loss
 from typing import Dict, Any, Type, Union, List, Tuple
@@ -7,21 +8,21 @@ import optuna  # Import optuna for type hinting in objective function
 import json  # New import
 from datetime import datetime  # New import
 import joblib  # New import for model export/import
+import torch.nn as nn  # Import for activation functions
 
 from .models.base import BaseModel
 from .models.linear_regression import JAXLinearRegression
-from .models.neural_network import PyTorchNeuralNetwork
-from .models.xgboost_lgbm import XGBoostModel
+from .models.neural_network import PyTorchNeuralNetwork, FlexibleHiddenLayersNN  # <--- ADD FlexibleHiddenLayersNN
+from .models.xgboost_lgbm import XGBoostModel, LightGBMModel
 from .models.sklearn_logistic_regression import SKLearnLogisticRegression
 from .models.catboost_model import CatBoostModel
 from .models.probabilistic_regression import ProbabilisticRegressionModel
 from .models.jax_probabilistic_regression import JAXProbabilisticRegressionModel
 from .models.classifier_regression import ClassifierRegressionModel
 from .optimizers.optuna_optimizer import OptunaOptimizer
-from .utils.probability_mapper import ClassProbabilityMapper
-from .enums import UncertaintyMethod, RegressionStrategy, MapperType, TaskType, ModelName  # Import enums
-from .logger import logger  # Import logger
-from .explainers.feature_explainer import FeatureExplainer  # New import
+from .enums import UncertaintyMethod, RegressionStrategy, MapperType, TaskType, ModelName
+from .logger import logger
+from .explainers.feature_explainer import FeatureExplainer
 
 
 class AutoML:
@@ -37,7 +38,9 @@ class AutoML:
         n_trials: int = 20,
         n_splits: int = 5,
         random_state: int = 42,
-    ):
+        feature_scaler: Any = None,  # New: Optional feature scaler
+        target_scaler: Any = None,
+    ):  # New: Optional target scaler
         """
         Initializes the AutoML pipeline.
 
@@ -49,6 +52,10 @@ class AutoML:
             n_trials (int): Number of Optuna trials for hyperparameter optimization per model.
             n_splits (int): Number of folds for K-Fold cross-validation during optimization.
             random_state (int): Random seed for reproducibility.
+            feature_scaler (Any, optional): An unfitted scikit-learn compatible scaler for features (e.g., StandardScaler()).
+                                            If None, no feature scaling is applied by AutoML.
+            target_scaler (Any, optional): An unfitted scikit-learn compatible scaler for targets (e.g., StandardScaler()).
+                                            Only applicable for regression tasks. If None, no target scaling is applied.
         """
         self.task_type = task_type
         self.metric = metric
@@ -56,12 +63,23 @@ class AutoML:
         self.n_splits = n_splits
         self.random_state = random_state
 
+        # Initialize scalers
+        self.feature_scaler = feature_scaler
+        self.target_scaler = target_scaler if self.task_type == TaskType.REGRESSION else None
+
+        # Internal storage for fitted scalers
+        self._fitted_feature_scaler = None
+        self._fitted_target_scaler = None
+
         # Use ModelName enum for registry keys
         self.models_registry: Dict[ModelName, Type[BaseModel]] = {
             ModelName.JAX_LINEAR_REGRESSION: JAXLinearRegression,
             ModelName.PYTORCH_NEURAL_NETWORK: PyTorchNeuralNetwork,
+            # --- REGISTER THE NEW MODEL HERE ---
+            ModelName.FLEXIBLE_NEURAL_NETWORK: FlexibleHiddenLayersNN,
+            # -----------------------------------
             ModelName.XGBOOST: XGBoostModel,
-            # ModelName.LIGHTGBM: LightGBMModel,
+            ModelName.LIGHTGBM: LightGBMModel,
             ModelName.SKLEARN_LOGISTIC_REGRESSION: SKLearnLogisticRegression,
             ModelName.CATBOOST: CatBoostModel,
             ModelName.CLASSIFIER_REGRESSION: ClassifierRegressionModel,
@@ -69,25 +87,30 @@ class AutoML:
             ModelName.JAX_PROBABILISTIC_REGRESSION: JAXProbabilisticRegressionModel,
         }
         # Use ModelName enum for best_model_name storage
-        self.trained_models: Dict[ModelName, Tuple[BaseModel, Dict[str, Any], float]] = {}
+        self.trained_models: Dict[ModelName, Tuple[BaseModel, Dict[str, Any], float]] = {}  # Stores best_model_instance, best_params, best_score
         self.best_model_name: ModelName = None
         self.best_overall_metric: float = float("inf") if self._is_minimize_metric() else -float("inf")
 
-        # This will store the X_train data for SHAP background data when train is called.
-        self.X_train_for_shap: np.ndarray = None
+        self.optuna_optimizer = OptunaOptimizer(direction="minimize" if self._is_minimize_metric() else "maximize", n_trials=n_trials, seed=random_state)
+
+        self.X_train_for_shap: np.ndarray = None  # For SHAP background data
         self.leaderboard: List[Dict[str, Any]] = []  # New: Initialize leaderboard
 
         # Ensure regression-only models are only used for regression tasks
         if self.task_type == TaskType.CLASSIFICATION:
-            if ModelName.CLASSIFIER_REGRESSION in self.models_registry:
-                del self.models_registry[ModelName.CLASSIFIER_REGRESSION]
-                logger.info(f"{ModelName.CLASSIFIER_REGRESSION.value} model is only supported for regression tasks and has been removed from consideration.")
-            if ModelName.PROBABILISTIC_REGRESSION in self.models_registry:
-                del self.models_registry[ModelName.PROBABILISTIC_REGRESSION]
-                logger.info(f"{ModelName.PROBABILISTIC_REGRESSION.value} model is only supported for regression tasks and has been removed from consideration.")
-            if ModelName.JAX_PROBABILISTIC_REGRESSION in self.models_registry:
-                del self.models_registry[ModelName.JAX_PROBABILISTIC_REGRESSION]
-                logger.info(f"{ModelName.JAX_PROBABILISTIC_REGRESSION.value} model is only supported for regression tasks and has been removed from consideration.")
+            # Removed models that are strictly regression and not suitable for classification output
+            self.models_registry = {
+                k: v
+                for k, v in self.models_registry.items()
+                if k
+                not in [
+                    ModelName.CLASSIFIER_REGRESSION,  # ClassifierRegression output is continuous, for regression tasks
+                    ModelName.PROBABILISTIC_REGRESSION,
+                    ModelName.JAX_PROBABILISTIC_REGRESSION,
+                    ModelName.JAX_LINEAR_REGRESSION,
+                ]
+            }
+            logger.info(f"Removed regression-only models from consideration for {self.task_type.value} task.")
 
     def _is_minimize_metric(self) -> bool:
         """Determines if the metric should be minimized."""
@@ -104,15 +127,396 @@ class AutoML:
                 raise ValueError(f"Unsupported regression metric: {self.metric}")
         elif self.task_type == TaskType.CLASSIFICATION:
             if self.metric == "accuracy":
+                # y_pred for accuracy should be class labels (0 or 1)
                 return accuracy_score(y_true, y_pred)
             elif self.metric == "log_loss":
+                # y_proba for log_loss should be probabilities for the positive class (binary) or (N, num_classes) for multi-class
                 if y_proba is None:
                     raise ValueError("y_proba is required for 'log_loss' metric.")
-                return log_loss(y_true, y_proba)
+
+                # If y_proba is 1D (binary probabilities), reshape to (N, 2) for log_loss
+                if y_proba.ndim == 1:
+                    y_proba_for_logloss = np.vstack((1 - y_proba, y_proba)).T
+                else:
+                    y_proba_for_logloss = y_proba  # Already (N, num_classes)
+
+                return log_loss(y_true, y_proba_for_logloss)
             else:
                 raise ValueError(f"Unsupported classification metric: {self.metric}")
         else:
             raise ValueError("Task type must be 'regression' or 'classification'.")
+
+    def _instantiate_model(self, model_name: ModelName, params: Dict[str, Any], input_features: int, num_classes: int = None) -> BaseModel:
+        """Instantiates a model from the registry with given parameters."""
+        if model_name == ModelName.CLASSIFIER_REGRESSION:
+            # ClassifierRegressionModel needs special handling for its nested parameters
+            base_classifier_name_str = params.pop("base_classifier_name")
+            base_model_enum = ModelName(base_classifier_name_str)  # Convert string back to Enum
+            base_classifier_class = self.models_registry[base_model_enum]
+
+            mapper_type_str = params.pop("mapper_type", MapperType.SPLINE.value)
+            mapper_type = MapperType(mapper_type_str)
+
+            # Reconstruct base_classifier_params
+            base_classifier_params_reconstructed = {k.replace("base__", ""): v for k, v in params.items() if k.startswith("base__")}
+            for k in list(params.keys()):  # Remove consumed params from top-level `params`
+                if k.startswith("base__"):
+                    del params[k]
+
+            # Convert enum strings back to Enum objects within reconstructed params
+            if "uncertainty_method" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["uncertainty_method"], str):
+                base_classifier_params_reconstructed["uncertainty_method"] = UncertaintyMethod(base_classifier_params_reconstructed["uncertainty_method"])
+            if "activation" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["activation"], str):
+                base_classifier_params_reconstructed["activation"] = nn.ReLU if base_classifier_params_reconstructed["activation"] == "ReLU" else nn.Tanh
+
+            # Reconstruct mapper_params
+            mapper_params_reconstructed = {}
+            if mapper_type in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
+                mapper_params_reconstructed["n_partitions_min"] = params.pop("n_partitions_min_lookup", 5)
+                mapper_params_reconstructed["n_partitions_max"] = params.pop("n_partitions_max_lookup", np.inf)
+            elif mapper_type == MapperType.SPLINE:
+                mapper_params_reconstructed["spline_k"] = params.pop("spline_k", 3)
+                mapper_params_reconstructed["spline_s"] = params.pop("spline_s", None)
+
+            # Remove 'n_classes' from params before passing to ClassifierRegressionModel's init
+            n_classes = params.pop("n_classes")
+
+            # Handle specific parameters for internal models when passed through ClassifierRegression
+            if base_model_enum == ModelName.PYTORCH_NEURAL_NETWORK:
+                base_classifier_params_reconstructed["input_size"] = input_features
+                base_classifier_params_reconstructed["output_size"] = 1 if n_classes == 2 else n_classes  # n_classes from outer model
+                base_classifier_params_reconstructed["task_type"] = TaskType.CLASSIFICATION
+                # Convert string activation to Type[nn.Module]
+                if "activation" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["activation"], str):
+                    base_classifier_params_reconstructed["activation"] = nn.ReLU if base_classifier_params_reconstructed["activation"] == "ReLU" else nn.Tanh
+                # Ensure dropout_rate and n_mc_dropout_samples are set if uncertainty_method is MC_DROPOUT
+                if base_classifier_params_reconstructed.get("uncertainty_method") == UncertaintyMethod.MC_DROPOUT.value:
+                    base_classifier_params_reconstructed.setdefault("dropout_rate", 0.1)
+                    base_classifier_params_reconstructed.setdefault("n_mc_dropout_samples", 100)
+                else:  # If not MC_DROPOUT, ensure dropout is off
+                    base_classifier_params_reconstructed["dropout_rate"] = 0.0
+            elif base_model_enum == ModelName.FLEXIBLE_NEURAL_NETWORK:
+                base_classifier_params_reconstructed["input_size"] = input_features
+                base_classifier_params_reconstructed["output_size"] = 1 if n_classes == 2 else n_classes
+                base_classifier_params_reconstructed["task_type"] = TaskType.CLASSIFICATION
+                if "activation" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["activation"], str):
+                    base_classifier_params_reconstructed["activation"] = nn.ReLU if base_classifier_params_reconstructed["activation"] == "ReLU" else nn.Tanh
+                if base_classifier_params_reconstructed.get("uncertainty_method") == UncertaintyMethod.MC_DROPOUT.value:
+                    base_classifier_params_reconstructed.setdefault("dropout_rate", 0.1)
+                    base_classifier_params_reconstructed.setdefault("n_mc_dropout_samples", 100)
+                else:
+                    base_classifier_params_reconstructed["dropout_rate"] = 0.0
+            elif base_model_enum == ModelName.XGBOOST:
+                base_classifier_params_reconstructed["objective"] = "binary:logistic" if n_classes == 2 else "multi:softmax"
+                base_classifier_params_reconstructed["eval_metric"] = "logloss"
+            elif base_model_enum == ModelName.LIGHTGBM:
+                base_classifier_params_reconstructed["objective"] = "binary" if n_classes == 2 else "multiclass"
+                base_classifier_params_reconstructed["metric"] = "binary_logloss"
+            elif base_model_enum == ModelName.CATBOOST:
+                base_classifier_params_reconstructed["task_type"] = TaskType.CLASSIFICATION
+                base_classifier_params_reconstructed["loss_function"] = "Logloss" if n_classes == 2 else "MultiClass"
+
+            return ClassifierRegressionModel(
+                n_classes=n_classes,
+                base_classifier_class=base_classifier_class,
+                base_classifier_params=base_classifier_params_reconstructed,
+                mapper_type=mapper_type,
+                mapper_params=mapper_params_reconstructed,
+                **params,  # Pass any remaining top-level params for ClassifierRegressionModel
+            )
+        elif model_name == ModelName.PYTORCH_NEURAL_NETWORK:
+            # PyTorchNeuralNetwork parameters
+            hidden_sizes_list = [params.pop("hidden_size")] * params.pop("hidden_layers")
+            activation_str = params.pop("activation", "ReLU")
+            activation_fn = nn.ReLU if activation_str == "ReLU" else nn.Tanh
+            uncertainty_method_enum = UncertaintyMethod(params.pop("uncertainty_method"))
+
+            return self.models_registry[model_name](
+                input_size=input_features,
+                hidden_sizes=hidden_sizes_list,
+                output_size=1 if self.task_type == TaskType.REGRESSION else (1 if num_classes == 2 else num_classes),
+                learning_rate=params.pop("learning_rate"),
+                n_epochs=params.pop("n_epochs"),
+                batch_size=params.pop("batch_size"),
+                task_type=self.task_type,
+                use_batch_norm=params.pop("use_batch_norm"),
+                uncertainty_method=uncertainty_method_enum,
+                n_mc_dropout_samples=params.pop("n_mc_dropout_samples", 100),
+                dropout_rate=params.pop("dropout_rate", 0.1),
+                l1_lambda=params.pop("l1_lambda", 0.0),
+                l2_lambda=params.pop("l2_lambda", 0.0),
+                activation=activation_fn,
+                **params,  # Pass any remaining
+            )
+        # --- INSTANTIATE THE NEW FLEXIBLE_NEURAL_NETWORK MODEL HERE ---
+        elif model_name == ModelName.FLEXIBLE_NEURAL_NETWORK:
+            activation_str = params.pop("activation", "ReLU")
+            activation_fn = nn.ReLU if activation_str == "ReLU" else nn.Tanh
+            uncertainty_method_enum = UncertaintyMethod(params.pop("uncertainty_method"))
+
+            return self.models_registry[model_name](
+                input_size=input_features,
+                max_hidden_layers=params.pop("max_hidden_layers"),
+                hidden_size=params.pop("hidden_size"),
+                output_size=1 if self.task_type == TaskType.REGRESSION else (1 if num_classes == 2 else num_classes),
+                learning_rate=params.pop("learning_rate"),
+                n_epochs=params.pop("n_epochs"),
+                batch_size=params.pop("batch_size"),
+                task_type=self.task_type,
+                use_batch_norm=params.pop("use_batch_norm"),
+                uncertainty_method=uncertainty_method_enum,
+                n_mc_dropout_samples=params.pop("n_mc_dropout_samples", 100),
+                dropout_rate=params.pop("dropout_rate", 0.1),
+                l1_lambda=params.pop("l1_lambda", 0.0),
+                l2_lambda=params.pop("l2_lambda", 0.0),
+                activation=activation_fn,
+                **params,
+            )
+        # -----------------------------------------------------------
+        elif model_name == ModelName.PROBABILISTIC_REGRESSION:
+            n_classes = params.pop("n_classes")
+            regression_strategy_enum = RegressionStrategy(params.pop("regression_strategy"))
+            uncertainty_method_enum = UncertaintyMethod(params.pop("uncertainty_method"))
+
+            # Reconstruct base_classifier_params
+            base_classifier_params_reconstructed = {k.replace("base_classifier_params__", ""): v for k, v in params.items() if k.startswith("base_classifier_params__")}
+            for k in list(params.keys()):  # Remove consumed params
+                if k.startswith("base_classifier_params__"):
+                    del params[k]
+            if "activation" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["activation"], str):
+                base_classifier_params_reconstructed["activation"] = nn.ReLU if base_classifier_params_reconstructed["activation"] == "ReLU" else nn.Tanh
+
+            # Reconstruct regression_head_params
+            regression_head_params_reconstructed = {k.replace("regression_head_params__", ""): v for k, v in params.items() if k.startswith("regression_head_params__")}
+            for k in list(params.keys()):  # Remove consumed params
+                if k.startswith("regression_head_params__"):
+                    del params[k]
+            if "activation" in regression_head_params_reconstructed and isinstance(regression_head_params_reconstructed["activation"], str):
+                regression_head_params_reconstructed["activation"] = nn.ReLU if regression_head_params_reconstructed["activation"] == "ReLU" else nn.Tanh
+
+            return self.models_registry[model_name](
+                input_size=input_features,
+                n_classes=n_classes,
+                base_classifier_params=base_classifier_params_reconstructed,
+                regression_head_params=regression_head_params_reconstructed,
+                regression_strategy=regression_strategy_enum,
+                learning_rate=params.pop("learning_rate"),
+                n_epochs=params.pop("n_epochs"),
+                batch_size=params.pop("batch_size"),
+                uncertainty_method=uncertainty_method_enum,
+                n_mc_dropout_samples=params.pop("n_mc_dropout_samples", 100),
+                dropout_rate=params.pop("dropout_rate", 0.1),
+                **params,
+            )
+        elif model_name == ModelName.JAX_PROBABILISTIC_REGRESSION:
+            n_classes = params.pop("n_classes")
+            regression_strategy_enum = RegressionStrategy(params.pop("regression_strategy"))
+            uncertainty_method_enum = UncertaintyMethod(params.pop("uncertainty_method"))
+
+            # Reconstruct base_classifier_params
+            # Reconstruct base_classifier_params
+            final_base_classifier_params = {k.replace("base_classifier_params__", ""): v for k, v in params.items() if k.startswith("base_classifier_params__")}
+            for k in list(params.keys()):
+                if k.startswith("base_classifier_params__"):
+                    del params[k]
+            # No direct activation=fn needed here as JAX MLP uses nn.relu
+            # However, if you had different activation choices for JAX, you'd store the string:
+            # if 'activation' in best_hyperparameters and isinstance(best_hyperparameters['activation'], str):
+            #     final_base_classifier_params['activation_str'] = best_hyperparameters['activation'] # Store as string
+
+            # Reconstruct regression_head_params
+            final_regression_head_params = {k.replace("regression_head_params__", ""): v for k, v in params.items() if k.startswith("regression_head_params__")}
+            for k in list(params.keys()):
+                if k.startswith("regression_head_params__"):
+                    del params[k]
+            # No direct activation=fn needed here either for JAX regression head
+
+            return self.models_registry[model_name](
+                input_size=input_features,
+                n_classes=n_classes,
+                base_classifier_params=final_base_classifier_params,
+                regression_head_params=final_regression_head_params,
+                regression_strategy=regression_strategy_enum,
+                learning_rate=params.pop("learning_rate"),
+                n_epochs=params.pop("n_epochs"),
+                batch_size=params.pop("batch_size"),
+                random_seed=params.pop("random_seed", 0),
+                uncertainty_method=uncertainty_method_enum,
+                n_mc_dropout_samples=params.pop("n_mc_dropout_samples", 100),
+                dropout_rate=params.pop("dropout_rate", 0.1),
+                **params,
+            )
+        elif model_name == ModelName.XGBOOST:
+            if self.task_type == TaskType.CLASSIFICATION:
+                objective = "binary:logistic" if num_classes == 2 else "multi:softmax"
+                eval_metric = "logloss" if num_classes == 2 else "multi:mlogloss"
+                return self.models_registry[model_name](objective=objective, eval_metric=eval_metric, **params)
+            return self.models_registry[model_name](objective="reg:squarederror", eval_metric="rmse", **params)
+        elif model_name == ModelName.LIGHTGBM:
+            if self.task_type == TaskType.CLASSIFICATION:
+                objective = "binary" if num_classes == 2 else "multiclass"
+                metric = "binary_logloss" if num_classes == 2 else "multi_logloss"
+                return self.models_registry[model_name](objective=objective, metric=metric, **params)
+            return self.models_registry[model_name](objective="regression", metric="rmse", **params)
+        elif model_name == ModelName.CATBOOST:
+            return self.models_registry[model_name](task_type=self.task_type, **params)
+        elif model_name == ModelName.SKLEARN_LOGISTIC_REGRESSION:
+            if params.get("penalty") == "elasticnet" and "l1_ratio" in params:  # Ensure l1_ratio only if elasticnet
+                return self.models_registry[model_name](**params)
+            else:
+                params_copy = params.copy()
+                if "l1_ratio" in params_copy:
+                    del params_copy["l1_ratio"]
+                return self.models_registry[model_name](**params_copy)
+        elif model_name == ModelName.JAX_LINEAR_REGRESSION:
+            return self.models_registry[model_name](**params)
+        else:
+            raise ValueError(f"Unknown model name: {model_name}")
+
+    def _sample_params_for_trial(self, trial: optuna.Trial, model_name: ModelName) -> Tuple[Dict[str, Any], Union[str, None]]:
+        """Samples hyperparameters for a given model from its search space."""
+        model_class = self.models_registry[model_name]
+        params = {}
+        base_classifier_name_str = None
+
+        if model_name == ModelName.CLASSIFIER_REGRESSION:
+            params["n_classes"] = trial.suggest_int("n_classes", 2, 5)  # For ClassifierRegression's discretization
+
+            base_classifier_choices_str = [
+                ModelName.PYTORCH_NEURAL_NETWORK.value,
+                ModelName.XGBOOST.value,
+                ModelName.LIGHTGBM.value,
+                ModelName.SKLEARN_LOGISTIC_REGRESSION.value,
+                ModelName.CATBOOST.value,
+            ]
+            base_classifier_name_str = trial.suggest_categorical("base_classifier_name", base_classifier_choices_str)
+            base_classifier_class = self.models_registry[ModelName(base_classifier_name_str)]
+            param_key_prefix = "base__"  # This prefix is specific to base classifier params
+
+            # Get search space for the chosen base classifier
+            # Get search space for the chosen base classifier
+            temp_model_instance = None
+            if ModelName(base_classifier_name_str) == ModelName.PYTORCH_NEURAL_NETWORK:
+                # For temporary instantiation, a generic output_size (e.g., 1 for binary) is sufficient.
+                # The actual output_size will be correctly set during the _instantiate_model call.
+                temp_model_instance = base_classifier_class(task_type=TaskType.CLASSIFICATION, input_size=10, output_size=1)
+            elif ModelName(base_classifier_name_str) == ModelName.FLEXIBLE_NEURAL_NETWORK:
+                # Same logic for FlexibleNeuralNetwork
+                temp_model_instance = base_classifier_class(task_type=TaskType.CLASSIFICATION, input_size=10, output_size=1)
+            elif ModelName(base_classifier_name_str) == ModelName.CATBOOST:
+                temp_model_instance = base_classifier_class(task_type=TaskType.CLASSIFICATION)
+            elif ModelName(base_classifier_name_str) in [ModelName.XGBOOST, ModelName.LIGHTGBM, ModelName.SKLEARN_LOGISTIC_REGRESSION]:
+                temp_model_instance = base_classifier_class(is_classification=True)
+            else:
+                temp_model_instance = base_classifier_class()  # Fallback for other models
+
+            base_search_space = temp_model_instance.get_hyperparameter_search_space()
+
+            for param_name, config in base_search_space.items():
+                param_key = f"base__{param_name}"
+                # Conditional sampling for PyTorchNN uncertainty methods within base classifier params
+                if param_name == "uncertainty_method" and ModelName(base_classifier_name_str) in [ModelName.PYTORCH_NEURAL_NETWORK, ModelName.FLEXIBLE_NEURAL_NETWORK]:
+                    sampled_uncertainty_method_val = trial.suggest_categorical(param_key, [e.value for e in UncertaintyMethod])
+                    params[param_key] = sampled_uncertainty_method_val
+                    if sampled_uncertainty_method_val == UncertaintyMethod.MC_DROPOUT.value:
+                        params[f"{param_key}_n_mc_dropout_samples"] = trial.suggest_int(f"{param_key}_n_mc_dropout_samples", 50, 200, step=50)
+                        params[f"{param_key}_dropout_rate"] = trial.suggest_float(f"{param_key}_dropout_rate", 0.1, 0.5, step=0.1)
+                    continue
+                # Handle l1_ratio for SKLearnLogisticRegression
+                if param_name == "l1_ratio" and ModelName(base_classifier_name_str) == ModelName.SKLEARN_LOGISTIC_REGRESSION:
+                    if params.get(f"{param_key_prefix}penalty") == "elasticnet":  # Check if penalty is elasticnet (should be sampled already)
+                        params[param_key] = trial.suggest_float(param_key, config["low"], config["high"], step=config["step"])
+                    continue
+                # Handle dropout_rate for JAX models, which might be top-level or nested
+                if param_name == "dropout_rate" and ModelName(base_classifier_name_str) == ModelName.JAX_PROBABILISTIC_REGRESSION:
+                    # This will be handled if base_classifier is JAX Probabilistic, which is not possible for ClassifierRegression.
+                    continue
+
+                if config["type"] == "int":
+                    params[param_key] = trial.suggest_int(param_key, config["low"], config["high"], step=config.get("step", 1))
+                elif config["type"] == "float":
+                    params[param_key] = trial.suggest_float(param_key, config["low"], config["high"], log=config.get("log", False))
+                elif config["type"] == "categorical":
+                    params[param_key] = trial.suggest_categorical(param_key, config["choices"])
+
+            # Parameters for the probability mapper
+            mapper_type_val = trial.suggest_categorical("mapper_type", [e.value for e in MapperType])
+            params["mapper_type"] = mapper_type_val
+
+            # Conditional mapper params
+            if MapperType(mapper_type_val) in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
+                params["n_partitions_min_lookup"] = trial.suggest_int("n_partitions_min_lookup", 5, 10)
+                params["n_partitions_max_lookup"] = trial.suggest_int("n_partitions_max_lookup", 10, 50)
+            elif MapperType(mapper_type_val) == MapperType.SPLINE:
+                params["spline_k"] = trial.suggest_int("spline_k", 1, 3)
+                params["spline_s"] = trial.suggest_float("spline_s", 0.01, 10.0, log=True)
+
+            return params, base_classifier_name_str
+
+        elif model_name in [ModelName.PROBABILISTIC_REGRESSION, ModelName.JAX_PROBABILISTIC_REGRESSION]:
+            # Sample common parameters for ProbabilisticRegressionModel
+            params["n_classes"] = trial.suggest_int("n_classes", 2, 5)
+            params["learning_rate"] = trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True)
+            params["n_epochs"] = trial.suggest_int("n_epochs", 10, 50, step=10)
+            params["batch_size"] = trial.suggest_categorical("batch_size", [16, 32, 64])
+            params["regression_strategy"] = trial.suggest_categorical("regression_strategy", [e.value for e in RegressionStrategy])
+            params["uncertainty_method"] = trial.suggest_categorical("uncertainty_method", [e.value for e in UncertaintyMethod])
+
+            # Conditional top-level dropout params for MC_DROPOUT
+            if params["uncertainty_method"] == UncertaintyMethod.MC_DROPOUT.value:
+                params["n_mc_dropout_samples"] = trial.suggest_int("n_mc_dropout_samples", 50, 200, step=50)
+                params["dropout_rate"] = trial.suggest_float("dropout_rate", 0.1, 0.5, step=0.1)
+            else:  # Set dropout to 0 if not MC_DROPOUT
+                params["dropout_rate"] = 0.0  # This is the top-level dropout rate
+
+            if model_name == ModelName.JAX_PROBABILISTIC_REGRESSION:
+                params["random_seed"] = trial.suggest_int("random_seed", 0, 100)
+                # JAX MLP has its own dropout_rate for base classifier and regression head params
+                # These are nested and will be sampled under their own keys
+                params["base_classifier_params__dropout_rate"] = trial.suggest_float("base_classifier_params__dropout_rate", 0.0, 0.5, step=0.1)  # Allows 0 for non-MC-Dropout
+                params["regression_head_params__dropout_rate"] = trial.suggest_float("regression_head_params__dropout_rate", 0.0, 0.5, step=0.1)  # Allows 0 for non-MC-Dropout
+
+            # Nested params for base classifier (internal PyTorchNN/JAX MLP)
+            params["base_classifier_params__hidden_layers"] = trial.suggest_int("base_classifier_params__hidden_layers", 1, 2)
+            params["base_classifier_params__hidden_size"] = trial.suggest_int("base_classifier_params__hidden_size", 32, 64, step=32)
+            params["base_classifier_params__use_batch_norm"] = trial.suggest_categorical("base_classifier_params__use_batch_norm", [True, False])
+
+            # Nested params for regression heads (internal PyTorchNN/JAX MLP)
+            params["regression_head_params__hidden_layers"] = trial.suggest_int("regression_head_params__hidden_layers", 0, 1)
+            params["regression_head_params__hidden_size"] = trial.suggest_int("regression_head_params__hidden_size", 16, 32, step=16)
+            params["regression_head_params__use_batch_norm"] = trial.suggest_categorical("regression_head_params__use_batch_norm", [True, False])
+
+            return params, None
+
+        else:  # For other standard models including PyTorchNeuralNetwork, FlexibleNeuralNetwork, XGBoost, LightGBM, CatBoost, SKLearnLogisticRegression, JAXLinearRegression
+            search_space = model_class().get_hyperparameter_search_space()
+            for param_name, config in search_space.items():
+                # Conditional sampling for uncertainty method related parameters in PyTorchNNs
+                if param_name == "n_mc_dropout_samples" or param_name == "dropout_rate":
+                    # Only suggest these if 'uncertainty_method' is MC_DROPOUT
+                    if params.get("uncertainty_method") == UncertaintyMethod.MC_DROPOUT.value:
+                        if config["type"] == "int":
+                            params[param_name] = trial.suggest_int(param_name, config["low"], config["high"], step=config["step"])
+                        elif config["type"] == "float":
+                            params[param_name] = trial.suggest_float(param_name, config["low"], config["high"], step=config["step"])
+                    elif param_name == "dropout_rate":  # If not MC_DROPOUT, set dropout rate to 0.0
+                        params[param_name] = 0.0
+                    continue  # Skip to next param after handling
+
+                # Handle l1_ratio for SKLearnLogisticRegression's elasticnet
+                if param_name == "l1_ratio" and model_name == ModelName.SKLEARN_LOGISTIC_REGRESSION:
+                    if params.get("penalty") == "elasticnet":
+                        params[param_name] = trial.suggest_float(param_name, config["low"], config["high"], step=config["step"])
+                    continue  # Skip to next param
+
+                if config["type"] == "int":
+                    params[param_name] = trial.suggest_int(param_name, config["low"], config["high"], step=config.get("step", 1))
+                elif config["type"] == "float":
+                    params[param_name] = trial.suggest_float(param_name, config["low"], config["high"], log=config.get("log", False))
+                elif config["type"] == "categorical":
+                    params[param_name] = trial.suggest_categorical(param_name, config["choices"])
+
+            return params, None
 
     def train(self, X: np.ndarray, y: np.ndarray, models_to_consider: List[ModelName] = None):  # Use enum
         """
@@ -122,521 +526,304 @@ class AutoML:
             X (np.ndarray): Feature matrix.
             y (np.ndarray): Target vector.
             models_to_consider (List[ModelName], optional): List of model names (enums) to train.
-                                                      If None, all registered models are considered.
+                                                            If None, all registered models are considered.
         """
-        # Store X_train for later use by SHAP explainers
-        self.X_train_for_shap = X
+        logger.info(f"Starting AutoML training for {self.task_type.value} task with metric '{self.metric}'.")
+        logger.info(
+            f"Feature scaling: {'Enabled' if self.feature_scaler else 'Disabled'}, Target scaling (regression): {'Enabled' if self.target_scaler and self.task_type == TaskType.REGRESSION else 'Disabled'}"
+        )
 
+        # --- Feature Scaling ---
+        if self.feature_scaler:
+            X_scaled = self.feature_scaler.fit_transform(X)
+            self._fitted_feature_scaler = self.feature_scaler
+            logger.info("Features scaled using provided scaler.")
+        else:
+            X_scaled = X
+            logger.info("No feature scaler provided. Features will not be scaled.")
+
+        # Store a subset of X_scaled for SHAP background data
+        sample_indices = np.random.choice(X.shape[0], min(200, X.shape[0]), replace=False)
+        self.X_train_for_shap = X_scaled[sample_indices]
+
+        # --- Target Scaling (for Regression only) ---
+        y_for_training = y
+        if self.task_type == TaskType.REGRESSION and self.target_scaler:
+            y_reshaped = y.reshape(-1, 1) if y.ndim == 1 else y
+            y_scaled = self.target_scaler.fit_transform(y_reshaped).flatten()  # Flatten back to 1D after scaling
+            self._fitted_target_scaler = self.target_scaler
+            y_for_training = y_scaled
+            logger.info("Target variable scaled for regression.")
+        elif self.task_type == TaskType.REGRESSION and not self.target_scaler:
+            logger.info("No target scaler provided for regression. Target will not be scaled.")
+
+        # Determine num_classes for classification tasks (needed for model instantiation)
+        num_classes_for_instantiation = None
+        if self.task_type == TaskType.CLASSIFICATION:
+            # np.unique(y) returns sorted unique elements. Its shape gives the count.
+            num_classes_for_instantiation = np.unique(y).shape[0]
+            if num_classes_for_instantiation < 2:
+                raise ValueError("Classification task requires at least 2 unique classes in y.")
+
+        # Use only specified models or all registered models
         if models_to_consider is None:
             models_to_consider = list(self.models_registry.keys())
 
         kf = KFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state)
+
+        self.leaderboard = []  # Reset leaderboard for new training run
 
         for model_name in models_to_consider:  # model_name is now an Enum
             if model_name not in self.models_registry:
                 logger.warning(f"Model '{model_name.value}' not found in registry. Skipping.")
                 continue
 
-            # Skip regression-only models if task type is classification
+            # Skip regression-only models if task type is classification (already filtered in __init__ but good to double check)
             if self.task_type == TaskType.CLASSIFICATION and model_name in [
-                ModelName.CLASSIFIER_REGRESSION,
+                ModelName.JAX_LINEAR_REGRESSION,
                 ModelName.PROBABILISTIC_REGRESSION,
                 ModelName.JAX_PROBABILISTIC_REGRESSION,
+                ModelName.CLASSIFIER_REGRESSION,
             ]:
-                logger.info(f"Skipping {model_name.value} as it is only for regression tasks.")
+                logger.info(f"Skipping {model_name.value} as it is designed for regression tasks for {self.task_type.value} task.")
                 continue
 
             logger.info(f"\n--- Optimizing {model_name.value} ---")
             model_class = self.models_registry[model_name]
 
             # Define the objective function for Optuna
-            # This objective function dynamically samples hyperparameters based on the model_name
             def objective(trial: optuna.Trial) -> float:
-                current_model_params = {}
-                base_classifier_params = {}
-                regression_head_params = {}
-                base_classifier_name_str = None  # Store as string for Optuna suggestions
-                base_classifier_class = None
-
-                # --- Dynamic Hyperparameter Sampling based on model_name ---
-                if model_name == ModelName.CLASSIFIER_REGRESSION:
-                    # Parameters specific to ClassifierRegressionModel
-                    n_classes = trial.suggest_int("n_classes", 2, 5)
-
-                    # Decide which base classifier to use (Optuna samples strings)
-                    base_classifier_choices_str = [
-                        ModelName.PYTORCH_NEURAL_NETWORK.value,
-                        ModelName.XGBOOST.value,
-                        # ModelName.LIGHTGBM.value,
-                        ModelName.SKLEARN_LOGISTIC_REGRESSION.value,
-                        ModelName.CATBOOST.value,
-                    ]
-                    base_classifier_name_str = trial.suggest_categorical("base_classifier_name", base_classifier_choices_str)
-                    base_classifier_class = self.models_registry[ModelName(base_classifier_name_str)]  # Convert back to Enum for class lookup
-
-                    # Dynamically sample hyperparameters for the chosen base classifier
-                    model_instance_for_space = (
-                        base_classifier_class(task_type=TaskType.CLASSIFICATION)
-                        if ModelName(base_classifier_name_str) in [ModelName.CATBOOST, ModelName.PYTORCH_NEURAL_NETWORK]
-                        else base_classifier_class()
-                    )
-                    base_search_space = model_instance_for_space.get_hyperparameter_search_space()
-                    for param_name, config in base_search_space.items():
-                        param_key = f"base__{param_name}"
-                        param_type = config["type"]
-                        if param_type == "int":
-                            if "step" in config:
-                                base_classifier_params[param_name] = trial.suggest_int(param_key, config["low"], config["high"], step=config["step"])
-                            else:
-                                base_classifier_params[param_name] = trial.suggest_int(param_key, config["low"], config["high"])
-                        elif param_type == "float":
-                            if "log" in config and config["log"]:
-                                base_classifier_params[param_name] = trial.suggest_float(param_key, config["low"], config["high"], log=True)
-                            else:
-                                base_classifier_params[param_name] = trial.suggest_float(param_key, config["low"], config["high"])
-                        elif param_type == "categorical":
-                            # For categorical parameters, ensure we get the actual enum member if applicable
-                            if param_name == "uncertainty_method" and ModelName(base_classifier_name_str) == ModelName.PYTORCH_NEURAL_NETWORK:
-                                base_classifier_params[param_name] = UncertaintyMethod(trial.suggest_categorical(param_key, [e.value for e in UncertaintyMethod]))
-                            else:
-                                base_classifier_params[param_name] = trial.suggest_categorical(param_key, config["choices"])
-
-                        # Handle conditional params for PyTorchNeuralNetwork's uncertainty method
-                        if ModelName(base_classifier_name_str) == ModelName.PYTORCH_NEURAL_NETWORK and param_name == "uncertainty_method":
-                            if base_classifier_params[param_name] == UncertaintyMethod.MC_DROPOUT:
-                                base_classifier_params["n_mc_dropout_samples"] = trial.suggest_int(f"{param_key}_n_mc_dropout_samples", 50, 200, step=50)
-                                base_classifier_params["dropout_rate"] = trial.suggest_float(f"{param_key}_dropout_rate", 0.1, 0.5, step=0.1)
-
-                    # Parameters for the probability mapper
-                    mapper_type_val = trial.suggest_categorical("mapper_type", [e.value for e in MapperType])
-                    mapper_type = MapperType(mapper_type_val)  # Convert back to enum
-                    mapper_params = {}
-                    if mapper_type in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
-                        mapper_params["n_partitions_min"] = trial.suggest_int("n_partitions_min_lookup", 5, 10)
-                        mapper_params["n_partitions_max"] = trial.suggest_int("n_partitions_max_lookup", 10, 50)
-                    elif mapper_type == MapperType.SPLINE:
-                        mapper_params["spline_k"] = trial.suggest_int("spline_k", 1, 3)
-                        mapper_params["spline_s"] = trial.suggest_float("spline_s", 0.01, 10.0, log=True)
-
-                    current_model_params = {
-                        "n_classes": n_classes,
-                        "base_classifier_class": base_classifier_class,
-                        "base_classifier_params": base_classifier_params,
-                        "mapper_type": mapper_type,
-                        "mapper_params": mapper_params,
-                    }
-                elif model_name in [ModelName.PROBABILISTIC_REGRESSION, ModelName.JAX_PROBABILISTIC_REGRESSION]:
-                    n_classes = trial.suggest_int("n_classes", 2, 5)
-                    learning_rate = trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True)
-                    n_epochs = trial.suggest_int("n_epochs", 10, 50, step=10)
-                    batch_size = trial.suggest_categorical("batch_size", [16, 32, 64])
-
-                    regression_strategy_val = trial.suggest_categorical("regression_strategy", [e.value for e in RegressionStrategy])
-                    regression_strategy = RegressionStrategy(regression_strategy_val)
-
-                    # Base classifier params (for internal PyTorch/JAX NN)
-                    base_classifier_params = {
-                        "hidden_layers": trial.suggest_int("base_classifier_params__hidden_layers", 1, 2),
-                        "hidden_size": trial.suggest_int("base_classifier_params__hidden_size", 32, 64, step=32),
-                        "use_batch_norm": trial.suggest_categorical("base_classifier_params__use_batch_norm", [True, False]),
-                    }
-                    # Regression head params (for internal PyTorch/JAX NN heads)
-                    regression_head_params = {
-                        "hidden_layers": trial.suggest_int("regression_head_params__hidden_layers", 0, 1),
-                        "hidden_size": trial.suggest_int("regression_head_params__hidden_size", 16, 32, step=16),
-                        "use_batch_norm": trial.suggest_categorical("regression_head_params__use_batch_norm", [True, False]),
-                    }
-
-                    uncertainty_method_val = trial.suggest_categorical("uncertainty_method", [e.value for e in UncertaintyMethod])
-                    uncertainty_method = UncertaintyMethod(uncertainty_method_val)
-
-                    n_mc_dropout_samples = None
-                    dropout_rate = None
-                    if uncertainty_method == UncertaintyMethod.MC_DROPOUT:
-                        n_mc_dropout_samples = trial.suggest_int("n_mc_dropout_samples", 50, 200, step=50)
-                        dropout_rate = trial.suggest_float("dropout_rate", 0.1, 0.5, step=0.1)
-
-                    current_model_params = {
-                        "n_classes": n_classes,
-                        "base_classifier_class": PyTorchNeuralNetwork,  # PyTorch is fixed for ProbabilisticRegression
-                        "base_classifier_params": base_classifier_params,
-                        "regression_head_params": regression_head_params,
-                        "regression_strategy": regression_strategy,
-                        "learning_rate": learning_rate,
-                        "n_epochs": n_epochs,
-                        "batch_size": batch_size,
-                        "uncertainty_method": uncertainty_method,
-                        "n_mc_dropout_samples": n_mc_dropout_samples,
-                        "dropout_rate": dropout_rate,
-                    }
-                    if model_name == ModelName.JAX_PROBABILISTIC_REGRESSION:
-                        current_model_params["random_seed"] = trial.suggest_int("random_seed", 0, 100)
-                        # JAX MLP also has dropout_rate for base classifier and regression head params.
-                        # This needs to be sampled if MC_DROPOUT is chosen for the JAX model.
-                        if uncertainty_method == UncertaintyMethod.MC_DROPOUT:
-                            base_classifier_params["dropout_rate"] = trial.suggest_float("base_classifier_params__dropout_rate", 0.1, 0.5, step=0.1)
-                            regression_head_params["dropout_rate"] = trial.suggest_float("regression_head_params__dropout_rate", 0.1, 0.5, step=0.1)
-                        else:  # Set dropout to 0 if not MC_DROPOUT
-                            base_classifier_params["dropout_rate"] = 0.0
-                            regression_head_params["dropout_rate"] = 0.0
-
-                else:
-                    # For other standard models
-                    model_instance_for_space = None
-                    if model_name in [ModelName.CATBOOST, ModelName.PYTORCH_NEURAL_NETWORK]:
-                        model_instance_for_space = model_class(task_type=self.task_type)
-                    else:
-                        model_instance_for_space = model_class()
-
-                    search_space = model_instance_for_space.get_hyperparameter_search_space()
-
-                    if model_name == ModelName.PYTORCH_NEURAL_NETWORK:  # Direct PyTorchNN model
-                        uncertainty_method_val = trial.suggest_categorical("uncertainty_method", [e.value for e in UncertaintyMethod])
-                        current_model_params["uncertainty_method"] = UncertaintyMethod(uncertainty_method_val)
-                        if current_model_params["uncertainty_method"] == UncertaintyMethod.MC_DROPOUT:
-                            current_model_params["n_mc_dropout_samples"] = trial.suggest_int("n_mc_dropout_samples", 50, 200, step=50)
-                            current_model_params["dropout_rate"] = trial.suggest_float("dropout_rate", 0.1, 0.5, step=0.1)
-                        # Add general params sampled from its search_space
-                        for param_name, config in search_space.items():
-                            if param_name not in ["uncertainty_method", "n_mc_dropout_samples", "dropout_rate"]:
-                                param_type = config["type"]
-                                if param_type == "int":
-                                    if "step" in config:
-                                        current_model_params[param_name] = trial.suggest_int(param_name, config["low"], config["high"], step=config["step"])
-                                    else:
-                                        current_model_params[param_name] = trial.suggest_int(param_name, config["low"], config["high"])
-                                elif param_type == "float":
-                                    if "log" in config and config["log"]:
-                                        current_model_params[param_name] = trial.suggest_float(param_name, config["low"], config["high"], log=True)
-                                    else:
-                                        current_model_params[param_name] = trial.suggest_float(param_name, config["low"], config["high"])
-                                elif param_type == "categorical":
-                                    current_model_params[param_name] = trial.suggest_categorical(param_name, config["choices"])
-                    else:  # For other models that don't have this complex uncertainty sampling logic
-                        for param_name, config in search_space.items():
-                            param_type = config["type"]
-                            if param_type == "int":
-                                if "step" in config:
-                                    current_model_params[param_name] = trial.suggest_int(param_name, config["low"], config["high"], step=config["step"])
-                                else:
-                                    current_model_params[param_name] = trial.suggest_int(param_name, config["low"], config["high"])
-                            elif param_type == "float":
-                                if "log" in config and config["log"]:
-                                    current_model_params[param_name] = trial.suggest_float(param_name, config["low"], config["high"], log=True)
-                                else:
-                                    current_model_params[param_name] = trial.suggest_float(param_name, config["low"], config["high"])
-                            elif param_type == "categorical":
-                                current_model_params[param_name] = trial.suggest_categorical(param_name, config["choices"])
-                # --- End of Dynamic Hyperparameter Sampling ---
+                current_model_params, base_classifier_name_str = self._sample_params_for_trial(trial, model_name)
 
                 fold_metrics = []
-                for fold, (train_idx, val_idx) in enumerate(kf.split(X, y)):
-                    X_train, X_val = X[train_idx], X[val_idx]
-                    y_train, y_val = y[train_idx], y[val_idx]
+                for fold, (train_idx, val_idx) in enumerate(kf.split(X_scaled, y_for_training)):  # Use scaled X and y_for_training
+                    X_train, X_val = X_scaled[train_idx], X_scaled[val_idx]
+                    y_train, y_val = y_for_training[train_idx], y_for_training[val_idx]
 
-                    model_instance = None
                     try:
-                        # Instantiate models using enum values where appropriate
-                        if model_name == ModelName.PYTORCH_NEURAL_NETWORK:
-                            model_instance = model_class(input_size=X_train.shape[1], task_type=self.task_type, **current_model_params)
-                        elif model_name == ModelName.XGBOOST and self.task_type == TaskType.CLASSIFICATION:
-                            model_instance = model_class(
-                                objective="binary:logistic" if y.ndim == 1 and np.unique(y).shape[0] == 2 else "multi:softmax", eval_metric="logloss", **current_model_params
-                            )
-                        # elif model_name == ModelName.LIGHTGBM and self.task_type == TaskType.CLASSIFICATION:
-                        #     model_instance = model_class(
-                        #         objective="binary" if y.ndim == 1 and np.unique(y).shape[0] == 2 else "multiclass",
-                        #         metric="binary_logloss" if y.ndim == 1 and np.unique(y).shape[0] == 2 else "multi_logloss",
-                        #         **current_model_params,
-                        #     )
-                        elif model_name == ModelName.CATBOOST:
-                            model_instance = model_class(task_type=self.task_type, **current_model_params)
-                        elif model_name == ModelName.CLASSIFIER_REGRESSION:
-                            model_instance = model_class(
-                                n_classes=current_model_params["n_classes"],
-                                base_classifier_class=current_model_params["base_classifier_class"],
-                                base_classifier_params=current_model_params["base_classifier_params"],
-                                mapper_type=current_model_params["mapper_type"],
-                                mapper_params=current_model_params["mapper_params"],
-                            )
-                        elif model_name == ModelName.PROBABILISTIC_REGRESSION:
-                            model_instance = model_class(
-                                input_size=X_train.shape[1],
-                                n_classes=current_model_params["n_classes"],
-                                base_classifier_class=current_model_params["base_classifier_class"],
-                                base_classifier_params=current_model_params["base_classifier_params"],
-                                regression_head_params=current_model_params["regression_head_params"],
-                                regression_strategy=current_model_params["regression_strategy"],
-                                learning_rate=current_model_params["learning_rate"],
-                                n_epochs=current_model_params["n_epochs"],
-                                batch_size=current_model_params["batch_size"],
-                                uncertainty_method=current_model_params["uncertainty_method"],
-                                n_mc_dropout_samples=current_model_params["n_mc_dropout_samples"],
-                                dropout_rate=current_model_params["dropout_rate"],
-                            )
-                        elif model_name == ModelName.JAX_PROBABILISTIC_REGRESSION:
-                            model_instance = model_class(
-                                input_size=X_train.shape[1],
-                                n_classes=current_model_params["n_classes"],
-                                base_classifier_params=current_model_params["base_classifier_params"],
-                                regression_head_params=current_model_params["regression_head_params"],
-                                regression_strategy=current_model_params["regression_strategy"],
-                                learning_rate=current_model_params["learning_rate"],
-                                n_epochs=current_model_params["n_epochs"],
-                                batch_size=current_model_params["batch_size"],
-                                random_seed=current_model_params["random_seed"],
-                                uncertainty_method=current_model_params["uncertainty_method"],
-                                n_mc_dropout_samples=current_model_params["n_mc_dropout_samples"],
-                                dropout_rate=current_model_params["dropout_rate"],
-                            )
-                        else:  # JAXLinearRegression, SKLearnLogisticRegression
-                            model_instance = model_class(**current_model_params)
+                        # Instantiate the model with sampled parameters
+                        model_instance = self._instantiate_model(model_name, current_model_params.copy(), X_train.shape[1], num_classes=num_classes_for_instantiation)
 
-                        model_instance.fit(X_train, y_train)
-                        y_pred = model_instance.predict(X_val)
+                        model_instance.fit(X_train, y_train)  # Fit on scaled/transformed data
+                        predictions_scaled = model_instance.predict(X_val)
+
+                        # --- Denormalize predictions for metric evaluation (only for regression) ---
+                        if self.task_type == TaskType.REGRESSION and self.target_scaler:
+                            predictions_original_scale = self.target_scaler.inverse_transform(predictions_scaled.reshape(-1, 1)).flatten()
+                            y_val_original_scale = y[val_idx]  # Compare against original unscaled y
+                        else:
+                            predictions_original_scale = predictions_scaled
+                            y_val_original_scale = y_val  # For classification, y_val is already unscaled or discrete
+
                         y_proba = None
-
                         if self.task_type == TaskType.CLASSIFICATION and self.metric == "log_loss":
                             if hasattr(model_instance, "predict_proba"):
                                 y_proba = model_instance.predict_proba(X_val)
+                                # If predict_proba returns (N, 2) for binary, take the positive class ([:,1]) or handle correctly
+                                if y_proba.ndim == 2 and y_proba.shape[1] == 2:
+                                    y_proba = y_proba[:, 1]
                             else:
-                                logger.warning(f"Model {model_name.value} does not support predict_proba for 'log_loss'. Returning a bad score.")
-                                return float("inf")
+                                logger.warning(f"Model {model_name.value} does not support predict_proba for 'log_loss'. Returning a bad score for trial.")
+                                return float("nan")  # Signal failure to Optuna
 
-                        metric_value = self._evaluate_metric(y_val, y_pred, y_proba)
-                        fold_metrics.append(metric_value)
+                        metric_value = self._evaluate_metric(y_val_original_scale, predictions_original_scale, y_proba)
+
+                        if np.isfinite(metric_value):
+                            fold_metrics.append(metric_value)
+                        else:
+                            logger.warning(f"  Trial {trial.number}, Fold {fold}: Metric value is not finite ({metric_value}). Skipping fold.")
+                            return float("nan")  # Signal failure to Optuna
+
                     except Exception as e:
-                        logger.error(f"Error during {model_name.value} training/prediction in fold {fold}: {e}")
-                        return float("inf") if self._is_minimize_metric() else -float("inf")
+                        logger.error(f"  Trial {trial.number}, Fold {fold}: Error training model {model_name.value} with params {current_model_params}: {e}")
+                        return float("nan")  # Return NaN to indicate a failed trial
 
                 if not fold_metrics:
-                    return float("inf") if self._is_minimize_metric() else -float("inf")
+                    logger.warning(f"  Trial {trial.number}: No finite metrics recorded for {model_name.value}. Returning NaN.")
+                    return float("nan")
+
                 return np.mean(fold_metrics)
 
-            optimizer_direction = "minimize" if self._is_minimize_metric() else "maximize"
-            optuna_optimizer = OptunaOptimizer(direction=optimizer_direction, n_trials=self.n_trials, seed=self.random_state)
+            # Run Optuna optimization for the current model
+            study_start_time = datetime.now()
+            study = self.optuna_optimizer.optimize(objective_fn=objective)
+            study_end_time = datetime.now()
+            train_duration_sec = (study_end_time - study_start_time).total_seconds()
 
-            study = optuna_optimizer.optimize(objective_fn=objective)
+            logger.info(f"Finished optimization for {model_name.value}.")
+            logger.info(f"  Best trial: {study.best_trial.value:.4f} with params: {study.best_params}")
 
-            best_params = study.best_params
-            best_metric_for_model = study.best_value
+            # --- Train the final model with best hyperparameters on the full (scaled) dataset ---
+            logger.info(f"Training final {model_name.value} model on full dataset with best params.")
 
-            logger.info(f"Best parameters for {model_name.value}: {best_params}")
-            logger.info(f"Best {self.metric} for {model_name.value}: {best_metric_for_model:.4f}")
+            # Reconstruct params for final instantiation (study.best_params is immutable)
+            final_params = study.best_params.copy()
+            final_model_instance = self._instantiate_model(model_name, final_params, X_scaled.shape[1], num_classes=num_classes_for_instantiation)
 
-            # --- Train the final model with best hyperparameters on the full dataset ---
-            # Instantiate the final model with the best hyperparameters
-            final_model_instance = None
-            if model_name == ModelName.CLASSIFIER_REGRESSION:
-                final_n_classes = best_params["n_classes"]
-                final_base_classifier_name = best_params["base_classifier_name"]
-                final_base_classifier_class = self.models_registry[ModelName(final_base_classifier_name)]
-                final_mapper_type = MapperType(best_params["mapper_type"])
+            final_model_instance.fit(X_scaled, y_for_training)  # Fit on scaled/transformed data
 
-                final_base_classifier_params = {k.replace("base__", ""): v for k, v in best_params.items() if k.startswith("base__")}
-                if "uncertainty_method" in final_base_classifier_params and isinstance(final_base_classifier_params["uncertainty_method"], str):
-                    final_base_classifier_params["uncertainty_method"] = UncertaintyMethod(final_base_classifier_params["uncertainty_method"])
+            # Evaluate final model on the full (scaled) training data for leaderboard entry
+            y_pred_final_train_scaled = final_model_instance.predict(X_scaled)
 
-                final_mapper_params = {}
-                if final_mapper_type in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
-                    final_mapper_params["n_partitions_min"] = best_params.get("n_partitions_min_lookup")
-                    final_mapper_params["n_partitions_max"] = best_params.get("n_partitions_max_lookup")
-                elif final_mapper_type == MapperType.SPLINE:
-                    final_mapper_params["spline_k"] = best_params.get("spline_k")
-                    final_mapper_params["spline_s"] = best_params.get("spline_s")
+            # Denormalize predictions for metric calculation
+            if self.task_type == TaskType.REGRESSION and self.target_scaler:
+                y_pred_final_train = self.target_scaler.inverse_transform(y_pred_final_train_scaled.reshape(-1, 1)).flatten()
+                y_train_original = y  # Compare against original y
+            else:
+                y_pred_final_train = y_pred_final_train_scaled
+                y_train_original = y_for_training  # For classification, y_for_training is the original scale
 
-                if final_base_classifier_name == ModelName.PYTORCH_NEURAL_NETWORK.value:
-                    final_base_classifier_params["input_size"] = X.shape[1]
-                    final_base_classifier_params["output_size"] = 1 if final_n_classes == 2 else final_n_classes
-                    final_base_classifier_params["task_type"] = TaskType.CLASSIFICATION
-                elif final_base_classifier_name == ModelName.XGBOOST.value:
-                    final_base_classifier_params["objective"] = "binary:logistic" if final_n_classes == 2 else "multi:softmax"
-                    final_base_classifier_params["eval_metric"] = "logloss"
-                # elif final_base_classifier_name == ModelName.LIGHTGBM.value:
-                #     final_base_classifier_params["objective"] = "binary" if final_n_classes == 2 else "multiclass"
-                #     final_base_classifier_params["metric"] = "binary_logloss" if final_n_classes == 2 else "multi_logloss"
-                elif final_base_classifier_name == ModelName.CATBOOST.value:
-                    final_base_classifier_params["task_type"] = TaskType.CLASSIFICATION
-                    if final_n_classes > 2:
-                        final_base_classifier_params.setdefault("loss_function", "MultiClass")
-                        final_base_classifier_params.setdefault("eval_metric", "MultiClass")
-                    else:
-                        final_base_classifier_params.setdefault("loss_function", "Logloss")
-                        final_base_classifier_params.setdefault("eval_metric", "Logloss")
+            y_proba_final_train = None
+            if self.task_type == TaskType.CLASSIFICATION and self.metric == "log_loss":
+                if hasattr(final_model_instance, "predict_proba"):
+                    y_proba_final_train = final_model_instance.predict_proba(X_scaled)
+                    if y_proba_final_train.ndim == 2 and y_proba_final_train.shape[1] == 2:
+                        y_proba_final_train = y_proba_final_train[:, 1]
 
-                final_model_instance = model_class(
-                    n_classes=final_n_classes,
-                    base_classifier_class=final_base_classifier_class,
-                    base_classifier_params=final_base_classifier_params,
-                    mapper_type=final_mapper_type,
-                    mapper_params=final_mapper_params,
-                )
-            elif model_name == ModelName.PROBABILISTIC_REGRESSION:
-                final_n_classes = best_params["n_classes"]
-                final_learning_rate = best_params["learning_rate"]
-                final_n_epochs = best_params["n_epochs"]
-                final_batch_size = best_params["batch_size"]
-                final_regression_strategy = RegressionStrategy(best_params["regression_strategy"])
+            train_metric_for_entry = self._evaluate_metric(y_train_original, y_pred_final_train, y_proba_final_train)
 
-                final_uncertainty_method = UncertaintyMethod(best_params.get("uncertainty_method", "constant"))
-                final_n_mc_dropout_samples = best_params.get("n_mc_dropout_samples", 100)
-                final_dropout_rate = best_params.get("dropout_rate", 0.1)
+            # Store the best trained model and its information
+            self.trained_models[model_name] = (final_model_instance, study.best_params, study.best_trial.value)
 
-                final_base_classifier_params = {
-                    "hidden_layers": best_params["base_classifier_params__hidden_layers"],
-                    "hidden_size": best_params["base_classifier_params__hidden_size"],
-                    "use_batch_norm": best_params["base_classifier_params__use_batch_norm"],
-                }
-                final_regression_head_params = {
-                    "hidden_layers": best_params["regression_head_params__hidden_layers"],
-                    "hidden_size": best_params["regression_head_params__hidden_size"],
-                    "use_batch_norm": best_params["regression_head_params__use_batch_norm"],
-                }
+            # Update overall best model
+            if (self._is_minimize_metric() and study.best_trial.value < self.best_overall_metric) or (
+                not self._is_minimize_metric() and study.best_trial.value > self.best_overall_metric
+            ):
+                self.best_overall_metric = study.best_trial.value
+                self.best_model_name = model_name
 
-                final_model_instance = model_class(
-                    input_size=X.shape[1],
-                    n_classes=final_n_classes,
-                    base_classifier_class=PyTorchNeuralNetwork,
-                    base_classifier_params=final_base_classifier_params,
-                    regression_head_params=final_regression_head_params,
-                    regression_strategy=final_regression_strategy,
-                    learning_rate=final_learning_rate,
-                    n_epochs=final_n_epochs,
-                    batch_size=final_batch_size,
-                    uncertainty_method=final_uncertainty_method,
-                    n_mc_dropout_samples=final_n_mc_dropout_samples,
-                    dropout_rate=final_dropout_rate,
-                )
-            elif model_name == ModelName.JAX_PROBABILISTIC_REGRESSION:
-                final_n_classes = best_params["n_classes"]
-                final_learning_rate = best_params["learning_rate"]
-                final_n_epochs = best_params["n_epochs"]
-                final_batch_size = best_params["batch_size"]
-                final_regression_strategy = RegressionStrategy(best_params["regression_strategy"])
-                final_random_seed = best_params["random_seed"]
-
-                final_uncertainty_method = UncertaintyMethod(best_params.get("uncertainty_method", "constant"))
-                final_n_mc_dropout_samples = best_params.get("n_mc_dropout_samples", 100)
-                final_dropout_rate = best_params.get("dropout_rate", 0.1)
-                if final_uncertainty_method == UncertaintyMethod.MC_DROPOUT:
-                    final_base_classifier_params = {
-                        "hidden_layers": best_params["base_classifier_params__hidden_layers"],
-                        "hidden_size": best_params["base_classifier_params__hidden_size"],
-                        "use_batch_norm": best_params["base_classifier_params__use_batch_norm"],
-                        "dropout_rate": best_params["base_classifier_params__dropout_rate"],
-                    }
-                    final_regression_head_params = {
-                        "hidden_layers": best_params["regression_head_params__hidden_layers"],
-                        "hidden_size": best_params["regression_head_params__hidden_size"],
-                        "use_batch_norm": best_params["regression_head_params__use_batch_norm"],
-                        "dropout_rate": best_params["regression_head_params__dropout_rate"],
-                    }
-                else:
-                    final_base_classifier_params = {
-                        "hidden_layers": best_params["base_classifier_params__hidden_layers"],
-                        "hidden_size": best_params["base_classifier_params__hidden_size"],
-                        "use_batch_norm": best_params["base_classifier_params__use_batch_norm"],
-                        "dropout_rate": 0.0,
-                    }
-                    final_regression_head_params = {
-                        "hidden_layers": best_params["regression_head_params__hidden_layers"],
-                        "hidden_size": best_params["regression_head_params__hidden_size"],
-                        "use_batch_norm": best_params["regression_head_params__use_batch_norm"],
-                        "dropout_rate": 0.0,
-                    }
-
-                final_model_instance = model_class(
-                    input_size=X.shape[1],
-                    n_classes=final_n_classes,
-                    base_classifier_params=final_base_classifier_params,
-                    regression_head_params=final_regression_head_params,
-                    regression_strategy=final_regression_strategy,
-                    learning_rate=final_learning_rate,
-                    n_epochs=final_n_epochs,
-                    batch_size=final_batch_size,
-                    random_seed=final_random_seed,
-                    uncertainty_method=final_uncertainty_method,
-                    n_mc_dropout_samples=final_n_mc_dropout_samples,
-                    dropout_rate=final_dropout_rate,
-                )
-            elif model_name == ModelName.PYTORCH_NEURAL_NETWORK:
-                best_params["uncertainty_method"] = UncertaintyMethod(best_params["uncertainty_method"])
-                final_model_instance = model_class(input_size=X.shape[1], task_type=self.task_type, **best_params)
-            elif model_name == ModelName.XGBOOST:
-                objective_str = "reg:squarederror"
-                eval_metric_str = "rmse"
-                if self.task_type == TaskType.CLASSIFICATION:
-                    objective_str = "binary:logistic" if y.ndim == 1 and np.unique(y).shape[0] == 2 else "multi:softmax"
-                    eval_metric_str = "logloss"
-                final_model_instance = model_class(objective=objective_str, eval_metric=eval_metric_str, **best_params)
-            # elif model_name == ModelName.LIGHTGBM:
-            #     objective_str = "regression"
-            #     metric_str = "rmse"
-            #     if self.task_type == TaskType.CLASSIFICATION:
-            #         objective_str = "binary" if y.ndim == 1 and np.unique(y).shape[0] == 2 else "multiclass"
-            #         metric_str = "binary_logloss" if y.ndim == 1 and np.unique(y).shape[0] == 2 else "multi_logloss"
-            #     final_model_instance = model_class(objective=objective_str, metric=metric_str, **best_params)
-            elif model_name == ModelName.CATBOOST:
-                final_model_instance = model_class(task_type=self.task_type, **best_params)
-            else:  # JAXLinearRegression, SKLearnLogisticRegression
-                final_model_instance = model_class(**best_params)
-
-            final_model_instance.fit(X, y)  # Train the final model on the full input data
-
-            # Get the train metric for the final model instance
-            y_pred_final_train = final_model_instance.predict(X)  # X is the full training data for this AutoML instance
-            train_metric_for_entry = self._evaluate_metric(y, y_pred_final_train)
-
-            # Add entry to leaderboard
+            # Add results to leaderboard
             self.leaderboard.append(
                 {
-                    "model_name": model_name,  # Store ModelName enum directly
-                    "hyperparameters": best_params,  # Store the best hyperparameters from Optuna
+                    "model_name": model_name.value,
+                    "hyperparameters": json.dumps(study.best_params),  # Store as JSON string
                     "train_metric": train_metric_for_entry,
-                    "validation_metric": best_metric_for_model,  # This is the cross-validation score from Optuna
-                    "timestamp": datetime.now().isoformat(),
+                    "validation_metric": study.best_trial.value,  # Validation score from Optuna CV
+                    "train_time_sec": train_duration_sec,
                 }
             )
 
-            self.trained_models[model_name] = (final_model_instance, best_params, best_metric_for_model)
-
-            if (self._is_minimize_metric() and best_metric_for_model < self.best_overall_metric) or (
-                not self._is_minimize_metric() and best_metric_for_model > self.best_overall_metric
-            ):
-                self.best_overall_metric = best_metric_for_model
-                self.best_model_name = model_name
-
-        logger.info(f"\n--- AutoML Training Complete ---")
+        # Sort leaderboard
+        self.leaderboard.sort(key=lambda x: x["validation_metric"], reverse=not self._is_minimize_metric())
+        logger.info("\n--- AutoML Training Complete ---")
         if self.best_model_name:
-            logger.info(f"Best overall model: {self.best_model_name.value} with {self.metric}: {self.best_overall_metric:.4f}")
+            logger.info(f"Overall Best Model: {self.best_model_name.value} with {self.metric}: {self.best_overall_metric:.4f}")
         else:
             logger.info("No models were successfully trained or considered.")
+        logger.info("\nLeaderboard:\n" + pd.DataFrame(self.leaderboard).to_string())
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """
+        Makes predictions using the overall best trained model.
+        Input X is expected in original scale, output predictions are in original scale.
+
+        Args:
+            X (np.ndarray): Feature matrix for prediction (original scale).
+
+        Returns:
+            np.ndarray: Predicted values (original scale).
+        """
+        if self.best_model_name is None:
+            raise RuntimeError("No model has been trained yet. Call .train() first.")
+
+        # Scale input features for prediction
+        if self._fitted_feature_scaler:
+            X_transformed = self._fitted_feature_scaler.transform(X)
+        else:
+            X_transformed = X
+
+        best_model_instance, _, _ = self.trained_models[self.best_model_name]
+
+        predictions_scaled = best_model_instance.predict(X_transformed)
+
+        # Denormalize predictions if regression task
+        if self.task_type == TaskType.REGRESSION and self._fitted_target_scaler:
+            predictions_reshaped = predictions_scaled.reshape(-1, 1) if predictions_scaled.ndim == 1 else predictions_scaled
+            predictions_original_scale = self._fitted_target_scaler.inverse_transform(predictions_reshaped).flatten()
+            return predictions_original_scale
+        else:
+            return predictions_scaled  # Return as is for classification or no target scaler
+
+    def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
+        """
+        Estimates uncertainty for predictions using the best trained regression model.
+        Input X is expected in original scale, output uncertainty is in original scale.
+
+        Args:
+            X (np.ndarray): Feature matrix for uncertainty estimation (original scale).
+
+        Returns:
+            np.ndarray: Uncertainty estimates (e.g., standard deviation) for each prediction (original scale).
+        """
+        if self.best_model_name is None:
+            raise RuntimeError("No model has been trained yet. Call .train() first.")
+
+        if self.task_type == TaskType.CLASSIFICATION:
+            raise ValueError("Uncertainty prediction is not supported for classification tasks directly by AutoML.")
+
+        best_model_instance, _, _ = self.trained_models[self.best_model_name]
+
+        # Ensure the model is a regression model and supports predict_uncertainty
+        if not hasattr(best_model_instance, "predict_uncertainty") or not best_model_instance._is_regression_model:
+            raise NotImplementedError(f"Uncertainty prediction not implemented or not a regression model for {type(best_model_instance).__name__}.")
+
+        # Scale input features
+        if self._fitted_feature_scaler:
+            X_transformed = self._fitted_feature_scaler.transform(X)
+        else:
+            X_transformed = X
+
+        # Get raw uncertainty from the model (in scaled target space)
+        uncertainty_scaled = best_model_instance.predict_uncertainty(X_transformed)
+
+        # Denormalize uncertainty if target scaler was used
+        if self._fitted_target_scaler:
+            # Uncertainty (std dev) is scaled by multiplying by the scale_ factor of the scaler
+            scale_factor = self._fitted_target_scaler.scale_[0] if self._fitted_target_scaler.scale_.ndim > 1 else self._fitted_target_scaler.scale_
+            uncertainty_original_scale = uncertainty_scaled * scale_factor
+            return uncertainty_original_scale
+        else:
+            return uncertainty_scaled  # Return as is if no target scaler
 
     def get_feature_importance(self, X_test: np.ndarray, feature_names: List[str] = None) -> Dict[str, float]:
         """
         Calculates feature importance using SHAP for the best trained model.
 
         Args:
-            X_test (np.ndarray): The dataset for which to compute feature importances.
+            X_test (np.ndarray): The dataset for which to compute feature importances (original scale).
+                                 Typically a validation or test set.
             feature_names (List[str], optional): Names of the features. If None, uses generic names.
 
         Returns:
             Dict[str, float]: A dictionary of feature names and their mean absolute SHAP values, sorted.
+                              Returns an error dictionary if SHAP calculation fails.
         """
         if self.best_model_name is None:
             raise RuntimeError("No model has been trained yet. Call .train() first.")
+        # Prepare background data for SHAP Explainer (use a subset of training data)
+        # It's important that X_train_for_shap is already scaled if _fitted_feature_scaler exists
         if self.X_train_for_shap is None:
             logger.warning("X_train was not stored. SHAP background data will be limited. Ensure X_train is passed to AutoML.train().")
-            X_background_subset = X_test[: min(100, len(X_test))]  # Fallback to using test data for background
+            # Fallback to using a subset of test data for background, but transform it if a scaler is present
+            X_background_subset_original_scale = X_test[: min(200, len(X_test))]
         else:
-            X_background_subset = self.X_train_for_shap[: min(100, len(self.X_train_for_shap))]
+            X_background_subset_original_scale = self.X_train_for_shap[: min(200, len(self.X_train_for_shap))]
+
+        # Scale X_background_subset and X_test_original for SHAP explanation
+        # The FeatureExplainer expects scaled data if a scaler was used during training.
+        if self._fitted_feature_scaler:
+            X_background_scaled = self._fitted_feature_scaler.transform(X_background_subset_original_scale)
+            X_test_scaled = self._fitted_feature_scaler.transform(X_test)
+        else:
+            X_background_scaled = X_background_subset_original_scale
+            X_test_scaled = X_test
 
         best_model_instance, _, _ = self.trained_models[self.best_model_name]
 
         try:
-            explainer = FeatureExplainer(model_instance=best_model_instance, X_background=X_background_subset, feature_names=feature_names)
+            explainer = FeatureExplainer(model_instance=best_model_instance, X_background=X_background_scaled, feature_names=feature_names)
 
-            shap_values = explainer.explain(X_test)
+            shap_values = explainer.explain(X_test_scaled)
             feature_importance_summary = explainer.get_feature_importance_summary(shap_values)
 
             logger.info(f"\nFeature Importances (SHAP) for {self.best_model_name.value}:")
@@ -654,10 +841,11 @@ class AutoML:
         Selects top features based on their cumulative normalized SHAP importance.
 
         Args:
-            X_test (np.ndarray): The test dataset (used for SHAP calculation).
+            X_test (np.ndarray): The test dataset (original scale, used for SHAP calculation).
             threshold (float): A float between 0 and 1. Features are selected until
                                their cumulative normalized importance is less than this threshold.
             feature_names (List[str], optional): Original names of the features.
+                                                If None, generic names 'Feature_X' will be assumed.
 
         Returns:
             List[str]: A list of selected feature names.
@@ -691,7 +879,6 @@ class AutoML:
 
         # 2. Normalize importances
         normalized_importances = {name: imp / total_importance for name, imp in raw_feature_importances.items()}
-
         # Re-sort after normalization to ensure order for cumulative sum
         sorted_normalized_importances = dict(sorted(normalized_importances.items(), key=lambda item: item[1], reverse=True))
 
@@ -700,12 +887,12 @@ class AutoML:
         cumulative_importance = 0.0
 
         for feature, norm_importance in sorted_normalized_importances.items():
-            # Only add if the current feature's importance, when added, does not exceed the threshold
+            # Add features as long as their addition does not exceed the threshold
             if cumulative_importance + norm_importance <= threshold:
                 selected_features.append(feature)
                 cumulative_importance += norm_importance
             else:
-                break
+                break  # Stop when adding next feature would exceed the threshold
 
         logger.info(f"Selected {len(selected_features)} features with cumulative importance {cumulative_importance:.4f}:")
         for f in selected_features:
@@ -721,15 +908,15 @@ class AutoML:
         selected by cumulative SHAP importance.
 
         Args:
-            X_full_train (np.ndarray): The complete training feature set.
-            y_full_train (np.ndarray): The complete training target set.
-            X_full_test (np.ndarray): The complete test feature set.
-            y_full_test (np.ndarray): The complete test target set.
+            X_full_train (np.ndarray): The complete training feature set (original scale).
+            y_full_train (np.ndarray): The complete training target set (original scale).
+            X_full_test (np.ndarray): The complete test feature set (original scale).
+            y_full_test (np.ndarray): The complete test target set (original scale).
             feature_names (List[str], optional): Original names of the features.
             shap_threshold (float): Cumulative SHAP importance threshold for feature selection.
 
         Returns:
-            dict: A dictionary containing the retrained model instance, filtered test data,
+            dict: A dictionary containing the retrained model instance, filtered and scaled test data,
                   new test metric, and names of selected features.
         """
         if self.best_model_name is None:
@@ -738,73 +925,207 @@ class AutoML:
 
         logger.info("\n--- Retraining Best Model with Selected Features ---")
 
-        # 1. Get selected feature names based on cumulative SHAP importance
         selected_feature_names = self.select_features_by_cumulative_importance(X_full_test, threshold=shap_threshold, feature_names=feature_names)
 
+        # Determine num_classes for classification tasks for instantiation during retraining
+        num_classes_for_instantiation = None
+        if self.task_type == TaskType.CLASSIFICATION:
+            num_classes_for_instantiation = np.unique(y_full_train).shape[0]
+            if num_classes_for_instantiation < 2:
+                raise ValueError("Classification task requires at least 2 unique classes in y_full_train.")
+
+        # Prepare filtered datasets based on selected features
         if not selected_feature_names:
             logger.warning("No features selected by cumulative importance. Retraining with all features.")
-            # If no features are selected, default to using all features
             selected_indices = list(range(X_full_train.shape[1]))
             filtered_feature_names = feature_names if feature_names else [f"Feature_{i}" for i in selected_indices]
-            X_train_filtered = X_full_train
-            X_test_filtered = X_full_test
+            X_train_filtered_original_scale = X_full_train
+            X_test_filtered_original_scale = X_full_test
         else:
-            # 2. Identify column indices of selected features
             if feature_names is None:
-                # If original feature names not provided, infer from test data shape
                 logger.warning("Feature names not provided for retraining. Assuming original column order for selection. It is highly recommended to provide feature_names.")
                 original_feature_map = {f"Feature_{i}": i for i in range(X_full_train.shape[1])}
             else:
                 original_feature_map = {name: i for i, name in enumerate(feature_names)}
 
+            # Get indices corresponding to selected feature names
             selected_indices = [original_feature_map[name] for name in selected_feature_names]
             filtered_feature_names = [feature_names[i] for i in selected_indices]
 
-            # 3. Filter datasets
-            X_train_filtered = X_full_train[:, selected_indices]
-            X_test_filtered = X_full_test[:, selected_indices]
+            X_train_filtered_original_scale = X_full_train[:, selected_indices]
+            X_test_filtered_original_scale = X_full_test[:, selected_indices]
 
-        logger.info(f"Retraining {self.best_model_name.value} with {len(selected_feature_names)} selected features: {filtered_feature_names}")
+        logger.info(f"Retraining {self.best_model_name.value} with {len(filtered_feature_names)} selected features: {filtered_feature_names}")
 
-        # 4. Retrieve best model class and previously learned hyperparameters
+        # Apply feature scaling to the filtered datasets for model training
+        if self._fitted_feature_scaler:
+            # Use the *already fitted* scaler from the initial train() call
+            X_train_filtered = self._fitted_feature_scaler.transform(X_train_filtered_original_scale)
+            X_test_filtered = self._fitted_feature_scaler.transform(X_test_filtered_original_scale)
+        else:
+            X_train_filtered = X_train_filtered_original_scale
+            X_test_filtered = X_test_filtered_original_scale
+
+        # Apply target scaling for regression tasks
+        y_full_train_scaled = y_full_train
+        if self.task_type == TaskType.REGRESSION and self._fitted_target_scaler:
+            y_full_train_scaled = self._fitted_target_scaler.transform(y_full_train.reshape(-1, 1)).flatten()
+
+        # Retrieve best model class and previously learned hyperparameters
         best_model_class_type = self.models_registry[self.best_model_name]
         best_hyperparameters = self.trained_models[self.best_model_name][1].copy()  # Get a copy to modify
 
-        # 5. Adjust input_size in hyperparameters for neural network based models
+        # Adjust input_size in hyperparameters for neural network based models
         # This is crucial as the number of features changes after selection
-        if self.best_model_name in [ModelName.PYTORCH_NEURAL_NETWORK, ModelName.PROBABILISTIC_REGRESSION, ModelName.JAX_PROBABILISTIC_REGRESSION]:
+        if self.best_model_name in [
+            ModelName.PYTORCH_NEURAL_NETWORK,
+            ModelName.FLEXIBLE_NEURAL_NETWORK,
+            ModelName.PROBABILISTIC_REGRESSION,
+            ModelName.JAX_PROBABILISTIC_REGRESSION,
+        ]:
             best_hyperparameters["input_size"] = X_train_filtered.shape[1]
-
-            # For ProbabilisticRegression and JAXProbabilisticRegression, also update internal classifier's input_size
+            # For nested models, also update their internal input_size if applicable
             if "base_classifier_params" in best_hyperparameters:
                 best_hyperparameters["base_classifier_params"]["input_size"] = X_train_filtered.shape[1]
 
-        # 6. Create a new model instance with adjusted parameters
         final_model_instance = None
-        if self.best_model_name == ModelName.CATBOOST:
-            final_model_instance = best_model_class_type(task_type=self.task_type, **best_hyperparameters)
+        # Instantiate the final model with best hyperparameters and adjusted input features
+        # This part requires careful reconstruction of parameters for composite models
+        if self.best_model_name == ModelName.CLASSIFIER_REGRESSION:
+            final_n_classes = best_hyperparameters["n_classes"]
+            final_base_classifier_name = best_hyperparameters["base_classifier_name"]
+            final_base_classifier_class = self.models_registry[ModelName(final_base_classifier_name)]
+            final_mapper_type = MapperType(best_hyperparameters["mapper_type"])
+
+            # Reconstruct base_classifier_params by filtering from best_hyperparameters
+            final_base_classifier_params = {k.replace("base__", ""): v for k, v in best_hyperparameters.items() if k.startswith("base__")}
+            # Convert enum strings back to Enum values
+            if "uncertainty_method" in final_base_classifier_params and isinstance(final_base_classifier_params["uncertainty_method"], str):
+                final_base_classifier_params["uncertainty_method"] = UncertaintyMethod(final_base_classifier_params["uncertainty_method"])
+
+            # Reconstruct mapper_params
+            final_mapper_params = {}
+            if final_mapper_type in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
+                final_mapper_params["n_partitions_min"] = best_hyperparameters.get("n_partitions_min_lookup")
+                final_mapper_params["n_partitions_max"] = best_hyperparameters.get("n_partitions_max_lookup")
+            elif final_mapper_type == MapperType.SPLINE:
+                final_mapper_params["spline_k"] = best_hyperparameters.get("spline_k")
+                final_mapper_params["spline_s"] = best_hyperparameters.get("spline_s")
+
+            # Adjust parameters for internal classifier if it's PyTorchNN
+            if ModelName(final_base_classifier_name) == ModelName.PYTORCH_NEURAL_NETWORK:
+                final_base_classifier_params["input_size"] = X_train_filtered.shape[1]  # Crucial adjustment
+                final_base_classifier_params["output_size"] = 1 if final_n_classes == 2 else final_n_classes
+                final_base_classifier_params["task_type"] = TaskType.CLASSIFICATION
+                if "activation" in final_base_classifier_params and isinstance(final_base_classifier_params["activation"], str):
+                    final_base_classifier_params["activation"] = nn.ReLU if final_base_classifier_params["activation"] == "ReLU" else nn.Tanh
+
+            # Adjust parameters for internal boosting classifiers if it's the base
+            elif ModelName(final_base_classifier_name) == ModelName.XGBOOST:
+                final_base_classifier_params["objective"] = "binary:logistic" if final_n_classes == 2 else "multi:softmax"
+                final_base_classifier_params["eval_metric"] = "logloss"
+            elif ModelName(final_base_classifier_name) == ModelName.LIGHTGBM:
+                final_base_classifier_params["objective"] = "binary" if final_n_classes == 2 else "multiclass"
+                final_base_classifier_params["metric"] = "binary_logloss"
+            elif ModelName(final_base_classifier_name) == ModelName.CATBOOST:
+                final_base_classifier_params["task_type"] = TaskType.CLASSIFICATION
+                final_base_classifier_params["loss_function"] = "Logloss" if final_n_classes == 2 else "MultiClass"
+
+            final_model_instance = best_model_class_type(
+                n_classes=final_n_classes,
+                base_classifier_class=final_base_classifier_class,
+                base_classifier_params=final_base_classifier_params,
+                mapper_type=final_mapper_type,
+                mapper_params=final_mapper_params,
+            )
+        elif self.best_model_name in [ModelName.PROBABILISTIC_REGRESSION, ModelName.JAX_PROBABILISTIC_REGRESSION]:
+            # Extract and reconstruct parameters for these composite models
+            final_n_classes = best_hyperparameters["n_classes"]
+            final_regression_strategy = RegressionStrategy(best_hyperparameters["regression_strategy"])
+            final_uncertainty_method = UncertaintyMethod(best_hyperparameters["uncertainty_method"])
+
+            # Reconstruct nested base_classifier_params
+            final_base_classifier_params = {k.replace("base_classifier_params__", ""): v for k, v in best_hyperparameters.items() if k.startswith("base_classifier_params__")}
+            if "activation" in final_base_classifier_params and isinstance(final_base_classifier_params["activation"], str):
+                final_base_classifier_params["activation"] = nn.ReLU if final_base_classifier_params["activation"] == "ReLU" else nn.Tanh
+
+            # Reconstruct nested regression_head_params
+            final_regression_head_params = {k.replace("regression_head_params__", ""): v for k, v in best_hyperparameters.items() if k.startswith("regression_head_params__")}
+            if "activation" in final_regression_head_params and isinstance(final_regression_head_params["activation"], str):
+                final_regression_head_params["activation"] = nn.ReLU if final_regression_head_params["activation"] == "ReLU" else nn.Tanh
+
+            final_model_instance = best_model_class_type(
+                input_size=X_train_filtered.shape[1],  # Adjust input_size
+                n_classes=final_n_classes,
+                base_classifier_params=final_base_classifier_params,
+                regression_head_params=final_regression_head_params,
+                regression_strategy=final_regression_strategy,
+                learning_rate=best_hyperparameters["learning_rate"],
+                n_epochs=best_hyperparameters["n_epochs"],
+                batch_size=best_hyperparameters["batch_size"],
+                uncertainty_method=final_uncertainty_method,
+                n_mc_dropout_samples=best_hyperparameters.get("n_mc_dropout_samples", 100),
+                dropout_rate=best_hyperparameters.get("dropout_rate", 0.0),
+                random_seed=best_hyperparameters.get("random_seed", 0),  # For JAX
+            )
+        elif self.best_model_name == ModelName.PYTORCH_NEURAL_NETWORK:
+            # Reconstruct activation and uncertainty enum values from strings
+            best_hyperparameters["activation"] = nn.ReLU if best_hyperparameters["activation"] == "ReLU" else nn.Tanh
+            best_hyperparameters["uncertainty_method"] = UncertaintyMethod(best_hyperparameters["uncertainty_method"])
+            final_model_instance = best_model_class_type(
+                input_size=X_train_filtered.shape[1], task_type=self.task_type, num_classes=num_classes_for_instantiation, **best_hyperparameters
+            )
+        elif self.best_model_name == ModelName.FLEXIBLE_NEURAL_NETWORK:
+            best_hyperparameters["activation"] = nn.ReLU if best_hyperparameters["activation"] == "ReLU" else nn.Tanh
+            best_hyperparameters["uncertainty_method"] = UncertaintyMethod(best_hyperparameters["uncertainty_method"])
+            final_model_instance = best_model_class_type(
+                input_size=X_train_filtered.shape[1], task_type=self.task_type, num_classes=num_classes_for_instantiation, **best_hyperparameters
+            )
         elif self.best_model_name == ModelName.XGBOOST:
             objective_str = "reg:squarederror"
             eval_metric_str = "rmse"
             if self.task_type == TaskType.CLASSIFICATION:
                 objective_str = "binary:logistic" if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2 else "multi:softmax"
                 eval_metric_str = "logloss"
-            final_model_instance = best_model_class_type(objective=objective_str, eval_metric=eval_metric_str, **best_hyperparameters)
-        # elif self.best_model_name == ModelName.LIGHTGBM:
-        #     objective_str = "regression"
-        #     metric_str = "rmse"
-        #     if self.task_type == TaskType.CLASSIFICATION:
-        #         objective_str = "binary" if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2 else "multiclass"
-        #         metric_str = "binary_logloss" if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2 else "multi_logloss"
-        #     final_model_instance = best_model_class_type(objective=objective_str, metric=metric_str, **best_hyperparameters)
-        else:  # Generic instantiation for PyTorchNN, JAXNN, ClassifierRegression, JAXLinearRegression, SKLearnLogisticRegression
-            final_model_instance = best_model_class_type(**best_hyperparameters)
+            final_model_instance = best_model_class_type(objective=objective_str, eval_metric=eval_metric_str, num_classes=num_classes_for_instantiation, **best_hyperparameters)
+        elif self.best_model_name == ModelName.LIGHTGBM:
+            objective_str = "regression"
+            eval_metric_str = "rmse"
+            if self.task_type == TaskType.CLASSIFICATION:
+                objective_str = "binary" if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2 else "multiclass"
+                eval_metric_str = "binary_logloss" if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2 else "multi_logloss"
+            final_model_instance = best_model_class_type(objective=objective_str, eval_metric=eval_metric_str, num_classes=num_classes_for_instantiation, **best_hyperparameters)
+        elif self.best_model_name == ModelName.CATBOOST:
+            final_model_instance = best_model_class_type(task_type=self.task_type, num_classes=num_classes_for_instantiation, **best_hyperparameters)
+        elif self.best_model_name == ModelName.SKLEARN_LOGISTIC_REGRESSION:
+            if best_hyperparameters.get("penalty") == "elasticnet" and "l1_ratio" in best_hyperparameters:
+                final_model_instance = best_model_class_type(num_classes=num_classes_for_instantiation, **best_hyperparameters)
+            else:  # Remove l1_ratio if not elasticnet to avoid warnings
+                params_copy = best_hyperparameters.copy()
+                if "l1_ratio" in params_copy:
+                    del params_copy["l1_ratio"]
+                final_model_instance = best_model_class_type(num_classes=num_classes_for_instantiation, **params_copy)
+        elif self.best_model_name == ModelName.JAX_LINEAR_REGRESSION:
+            final_model_instance = best_model_class_type(
+                num_classes=num_classes_for_instantiation, **best_hyperparameters
+            )  # Added num_classes, though not used by JAXLinearRegression directly
+        else:
+            raise ValueError(f"Unsupported model for retraining: {self.best_model_name.value}")
 
-        # 7. Retrain the model on the filtered training data
-        final_model_instance.fit(X_train_filtered, y_full_train)
+        # 8. Retrain the model on the filtered and scaled training data
+        final_model_instance.fit(X_train_filtered, y_full_train_scaled)
 
-        # 8. Evaluate performance on filtered test set
-        y_pred_retrained = final_model_instance.predict(X_test_filtered)
+        # 9. Evaluate performance on filtered and scaled test set
+        y_pred_retrained_scaled = final_model_instance.predict(X_test_filtered)
+
+        # Denormalize predictions for metric evaluation
+        if self.task_type == TaskType.REGRESSION and self._fitted_target_scaler:
+            y_pred_retrained_reshaped = y_pred_retrained_scaled.reshape(-1, 1) if y_pred_retrained_scaled.ndim == 1 else y_pred_retrained_scaled
+            y_pred_retrained = self._fitted_target_scaler.inverse_transform(y_pred_retrained_reshaped).flatten()
+        else:
+            y_pred_retrained = y_pred_retrained_scaled
+
+        # Re-evaluate metric using original scale test targets and denormalized predictions
         retrained_metric_value = self._evaluate_metric(y_full_test, y_pred_retrained)
 
         logger.info(f"Retraining complete for {self.best_model_name.value} with selected features.")
@@ -812,47 +1133,11 @@ class AutoML:
 
         return {
             "retrained_model_instance": final_model_instance,
-            "X_test_filtered": X_test_filtered,
-            "y_pred_retrained": y_pred_retrained,
+            "X_test_filtered": X_test_filtered,  # This is the SCALED X_test_filtered (for direct use with retrained_model_instance)
+            "y_pred_retrained": y_pred_retrained,  # This is the DENORMALIZED prediction
             "retrained_metric_value": retrained_metric_value,
             "selected_feature_names": filtered_feature_names,
         }
-
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        """
-        Makes predictions using the best trained model.
-
-        Args:
-            X (np.ndarray): Feature matrix for prediction.
-
-        Returns:
-            np.ndarray: Predicted values from the best model.
-        """
-        if self.best_model_name is None:
-            raise RuntimeError("No model has been trained yet. Call .train() first.")
-
-        best_model_instance, _, _ = self.trained_models[self.best_model_name]
-        return best_model_instance.predict(X)
-
-    def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
-        """
-        Estimates uncertainty for predictions using the best trained regression model.
-
-        Args:
-            X (np.ndarray): Feature matrix for uncertainty estimation.
-
-        Returns:
-            np.ndarray: Uncertainty estimates (e.g., standard deviation) for each prediction.
-        """
-        if self.best_model_name is None:
-            raise RuntimeError("No model has been trained yet. Call .train() first.")
-
-        best_model_instance, _, _ = self.trained_models[self.best_model_name]
-
-        if not hasattr(best_model_instance, "_is_regression_model") or not best_model_instance._is_regression_model:
-            raise ValueError(f"Model '{self.best_model_name.value}' is not a regression model or does not support uncertainty estimates.")
-
-        return best_model_instance.predict_uncertainty(X)
 
     def get_best_model_info(self) -> Dict[str, Any]:
         """
@@ -924,6 +1209,11 @@ class AutoML:
         """
         logger.info(f"\n--- Exporting model to {file_path} ---")
         try:
+            # When exporting the AutoML object itself, its scalers are implicitly handled.
+            # If exporting a sub-model (like PyTorchNeuralNetwork, etc.)
+            # it might not carry the scalers with it.
+            # For this context, model_instance will be the retrained BaseModel subclass.
+            # We assume it has the necessary internal state.
             joblib.dump(model_instance, file_path)
             logger.info(f"Model '{model_instance.name}' successfully exported.")
         except Exception as e:

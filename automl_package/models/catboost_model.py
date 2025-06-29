@@ -87,7 +87,7 @@ class CatBoostModel(BaseModel):
             "iterations": {"type": "int", "low": 50, "high": 200, "step": 50},
             "learning_rate": {"type": "float", "low": 0.01, "high": 0.3, "log": True},
             "depth": {"type": "int", "low": 3, "high": 8},
-            "l2_leaf_reg": {"type": "float", "low": 1e-2, "high": 10.0, "log": True},
+            "l2_leaf_reg": {"type": "float", "low": 1e-2, "high": 10.0, "log": True},  # L2 regularization
             "border_count": {"type": "int", "low": 32, "high": 255},  # For numerical features
         }
 

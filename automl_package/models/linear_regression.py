@@ -11,12 +11,15 @@ class JAXLinearRegression(BaseModel):
     """
     Linear Regression model implemented using JAX.
     Supports basic linear regression with gradient descent and residual-based uncertainty.
+    Includes L1 and L2 regularization.
     """
 
-    def __init__(self, learning_rate: float = 0.01, n_iterations: int = 1000, **kwargs):
+    def __init__(self, learning_rate: float = 0.01, n_iterations: int = 1000, l1_lambda: float = 0.0, l2_lambda: float = 0.0, **kwargs):
         super().__init__(**kwargs)
         self.learning_rate = learning_rate
         self.n_iterations = n_iterations
+        self.l1_lambda = l1_lambda
+        self.l2_lambda = l2_lambda
         self.weights = None
         self.bias = None
         self.key = PRNGKeyArray(jax.random.PRNGKey(0).key)
@@ -28,9 +31,14 @@ class JAXLinearRegression(BaseModel):
         return "JAXLinearRegression"
 
     def _loss_fn(self, weights: jnp.ndarray, bias: jnp.ndarray, X: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
-        """Mean Squared Error loss function."""
+        """Mean Squared Error loss function with L1 and L2 regularization."""
         predictions = jnp.dot(X, weights) + bias
-        return jnp.mean((predictions - y) ** 2)
+        mse_loss = jnp.mean((predictions - y) ** 2)
+
+        l1_penalty = self.l1_lambda * jnp.sum(jnp.abs(weights))
+        l2_penalty = self.l2_lambda * jnp.sum(weights**2)
+
+        return mse_loss + l1_penalty + l2_penalty
 
     def fit(self, X: np.ndarray, y: np.ndarray):
         X_jax = jnp.array(X, dtype=jnp.float32)
@@ -74,4 +82,6 @@ class JAXLinearRegression(BaseModel):
         return {
             "learning_rate": {"type": "float", "low": 1e-4, "high": 1e-1, "log": True},
             "n_iterations": {"type": "int", "low": 100, "high": 2000, "step": 100},
+            "l1_lambda": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L1 regularization
+            "l2_lambda": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L2 regularization
         }
