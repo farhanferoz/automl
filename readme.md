@@ -113,8 +113,8 @@ This section details the Neural Network models available in the package, designe
                         ┌──────────────────┐
     Input Features X ───┤ 1. N-Predictor   ├─────┐
                         └──────────────────┘     │
-                            Predicted 'n'        │
-                             (e.g., n=3)         │
+                            Predicted 'n'
+                             (e.g., n=3)
                                │                 │
     +----------------------------------------------------------------+
     |                                                                |
@@ -210,7 +210,7 @@ These models are designed for regression tasks where quantifying the uncertainty
          | Single Regression Head          |
          | (Directly outputs final Y_pred) |
          +---------------------------------+
-                           │
+                           |
                            v
                  Final Prediction (Y_pred)
         ```
@@ -220,9 +220,9 @@ These models are designed for regression tasks where quantifying the uncertainty
   * **Diagram (Probabilistic Regression Model Flow - Consolidated)**:
     ```
                        ┌─────────────────────────┐
-                       │      Input Features X   │
+                       │      Input Features X   |
                        └───────────┬─────────────┘
-                                   │
+                                   |
                                    v
                    ┌─────────────────────────┐
                    │   Classifier Branch     |
@@ -246,7 +246,7 @@ These models are designed for regression tasks where quantifying the uncertainty
                               |
                               v
                    ┌───────────────────────────────────┐
-                   │ Final Predicted Mean µ(X)         |
+                   │ Final Predicted Mean μ(X)         |
                    | Final Predicted LogVar log(σ²(X)) |
                    └───────────────────────────────────┘
     ```
@@ -313,7 +313,7 @@ For regression models, the package supports quantifying prediction uncertainty u
 
 * **UncertaintyMethod.CONSTANT**: The simplest method. It calculates the standard deviation of residuals from the training data, applying this constant uncertainty to all new predictions.
   * **Supported by:** JAXLinearRegression, XGBoostModel, LightGBMModel, CatBoostModel, SKLearnLogisticRegression (can be configured to use this for general confidence for classification if treated as regression context), PyTorchNeuralNetwork, FlexibleNeuralNetwork.
-* **UncertaintyMethod.PROBABILISTIC**: The model is designed to directly learn both the mean (μ(x)) and the variance (σ2(x)) of the target variable's distribution. This captures **aleatoric uncertainty** (inherent noise in the data). The model is trained with a Negative Log-Likelihood (NLL) loss.
+* **UncertaintyMethod.PROBABILISTIC**: The model is designed to directly learn both the mean (μ(x)) and the variance (σ²(x)) of the target variable's distribution. This captures **aleatoric uncertainty** (inherent noise in the data). The model is trained with a Negative Log-Likelihood (NLL) loss.
   * **Supported by:** PyTorchNeuralNetwork, FlexibleNeuralNetwork, ProbabilisticRegressionModel, JAXProbabilisticRegressionModel.
 * **UncertaintyMethod.MC_DROPOUT**: This technique approximates **epistemic uncertainty** (model's uncertainty due to limited data/knowledge). For models with dropout layers, multiple predictions are made for the same input while dropout is active (model in train() mode). The standard deviation of these multiple predictions estimates the uncertainty.
   * **Supported by:** PyTorchNeuralNetwork, FlexibleNeuralNetwork, ProbabilisticRegressionModel, JAXProbabilisticRegressionModel.
@@ -321,12 +321,18 @@ For regression models, the package supports quantifying prediction uncertainty u
   * **Description**: For ClassifierRegressionModel, uncertainty is estimated by considering the variance of the original target values within each probability bin, as learned by the ClassProbabilityMapper. This model treats the regression problem as a series of classification probabilities, and the uncertainty arises from the spread of true values within the ranges associated with those probabilities.
   * **Mechanism**: For a new prediction, the model aggregates the variance contributions from each class's mapper, weighted by the square of their predicted probabilities. This approach effectively translates the uncertainty in classifying into a bin, and the inherent variability within each bin, into a total prediction uncertainty. The predict_uncertainty method returns the standard deviation derived from this aggregated variance.
   * **Mathematical Formula**:
-    The total variance for a given input X is calculated as the sum of squared probabilities multiplied by the variance contribution from each class mapper:TotalVariance(X)=c=0∑n_classes−1​Pc​(X)2⋅VarianceContributionc​(Pc​(X))
+    The total variance for a given input X is calculated as the sum of squared probabilities multiplied by the variance contribution from each class mapper:
+    $$
+    \text{TotalVariance}(X) = \sum_{c=0}^{n-1} P_c(X)^2 \cdot \text{VarianceContribution}_c(P_c(X))
+    $$
     Where:
-    * Pc​(X) is the probability of input X belonging to class c, predicted by the base classifier.
-    * VarianceContributionc​(Pc​(X)) is the variance predicted by the ClassProbabilityMapper for class c, given its probability Pc​(X). This variance represents the inherent spread of original y values that mapped to that probability range for class c.
+    * $P_c(X)$ is the probability of input X belonging to class c, predicted by the base classifier.
+    * $\text{VarianceContribution}_c(P_c(X))$ is the variance predicted by the ClassProbabilityMapper for class c, given its probability $P_c(X)$. This variance represents the inherent spread of original y values that mapped to that probability range for class c.
 
-  The final uncertainty (standard deviation) is the square root of this total variance:Uncertainty(X)=TotalVariance(X)​
+  The final uncertainty (standard deviation) is the square root of this total variance:
+    $$
+    \text{Uncertainty}(X) = \sqrt{\text{TotalVariance}(X)}
+    $$
 
   * **Diagram (Classifier Regression Model Flow - Consolidated with Uncertainty)**:
     ```
@@ -350,7 +356,7 @@ For regression models, the package supports quantifying prediction uncertainty u
                    ┌───────────────────────────────────────────────┐
                    │ 2. Class Probability                          |
                    |    Mapper (for each P_i)                      |
-                   |    (Maps P_i to Y_i_expected)               |
+                   |    (Maps P_i to Y_i_expected)                 |
                    |    (and maps P_i to VarianceContribution_i)  |
                    └───────────┬───────────────────────────────────┘
                                |
@@ -726,3 +732,32 @@ if loaded_automl_clf:
     # logger.info(f"Predictions from loaded classification model (first 5): {loaded_predictions_clf.flatten().round(2)}")
 
 logger.info("\n===== AutoML Package Demonstration Complete =====")
+
+## **9. Project Structure**
+The project is organized as follows:
+
+-   `run_automl.py`: The main script to run the AutoML pipeline for both regression and classification tasks. It demonstrates the key functionalities of the package.
+-   `automl_package/`: The core package containing the AutoML framework.
+    -   `automl.py`: Contains the main `AutoML` class that orchestrates the model selection, training, and evaluation pipeline.
+    -   `enums.py`: Defines enumerations used throughout the package, such as `TaskType`, `ModelName`, `UncertaintyMethod`, etc., for clear and robust type-setting.
+    -   `logger.py`: Configures a centralized logger for the package.
+    -   `models/`: Directory for all the machine learning model implementations.
+        -   `base.py`: Defines the abstract `BaseModel` class, which all models inherit from, ensuring a consistent interface.
+        -   `linear_regression.py`: Implements `JAXLinearRegression`, a linear regression model using JAX.
+        -   `neural_network.py`: Contains `PyTorchNeuralNetwork` and the novel `FlexibleNeuralNetwork`.
+        -   `probabilistic_regression.py`: Implements `ProbabilisticRegressionModel`, a PyTorch-based model for regression with uncertainty.
+        -   `jax_probabilistic_regression.py`: Implements `JAXProbabilisticRegressionModel`, a JAX/Flax version of the probabilistic regression model.
+        -   `classifier_regression.py`: Implements `ClassifierRegressionModel`, a meta-model that uses a classifier for regression tasks.
+        -   `xgboost_lgbm.py`: Wrappers for `XGBoost` and `LightGBM` models.
+        -   `sklearn_logistic_regression.py`: Wrapper for scikit-learn's `LogisticRegression`.
+        -   `catboost_model.py`: Wrapper for the `CatBoost` model.
+    -   `optimizers/`: Directory for hyperparameter optimization logic.
+        -   `optuna_optimizer.py`: Contains the `OptunaOptimizer` class, which uses Optuna for hyperparameter tuning.
+    -   `explainers/`: Directory for model explainability features.
+        -   `feature_explainer.py`: Implements the `FeatureExplainer` class, which uses SHAP to explain model predictions.
+    -   `utils/`: Directory for utility functions.
+        -   `probability_mapper.py`: Contains the `ClassProbabilityMapper`, used by the `ClassifierRegressionModel`.
+
+## **10. Contributing**
+
+## **11. License**
