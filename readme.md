@@ -322,17 +322,13 @@ For regression models, the package supports quantifying prediction uncertainty u
   * **Mechanism**: For a new prediction, the model aggregates the variance contributions from each class's mapper, weighted by the square of their predicted probabilities. This approach effectively translates the uncertainty in classifying into a bin, and the inherent variability within each bin, into a total prediction uncertainty. The predict_uncertainty method returns the standard deviation derived from this aggregated variance.
   * **Mathematical Formula**:
     The total variance for a given input X is calculated as the sum of squared probabilities multiplied by the variance contribution from each class mapper:
-    $$
-    \text{TotalVariance}(X) = \sum_{c=0}^{n-1} P_c(X)^2 \cdot \text{VarianceContribution}_c(P_c(X))
-    $$
+    <img src="https://latex.codecogs.com/svg.latex?%5Ctext%7BTotalVariance%7D(X)%20%3D%20%5Csum_%7Bc%3D0%7D%5E%7Bn-1%7D%20P_c(X)%5E2%20%5Ccdot%20%5Ctext%7BVarianceContribution%7D_c(P_c(X))" alt="TotalVariance(X) = \sum_{c=0}^{n-1} P_c(X)^2 \cdot \text{VarianceContribution}_c(P_c(X))"/>
     Where:
     * $P_c(X)$ is the probability of input X belonging to class c, predicted by the base classifier.
     * $\text{VarianceContribution}_c(P_c(X))$ is the variance predicted by the ClassProbabilityMapper for class c, given its probability $P_c(X)$. This variance represents the inherent spread of original y values that mapped to that probability range for class c.
 
   The final uncertainty (standard deviation) is the square root of this total variance:
-    $$
-    \text{Uncertainty}(X) = \sqrt{\text{TotalVariance}(X)}
-    $$
+    <img src="https://latex.codecogs.com/svg.latex?%5Ctext%7BUncertainty%7D(X)%20%3D%20%5Csqrt%7B%5Ctext%7BTotalVariance%7D(X)%7D" alt="Uncertainty(X) = \sqrt{\text{TotalVariance}(X)}"/>
 
   * **Diagram (Classifier Regression Model Flow - Consolidated with Uncertainty)**:
     ```
@@ -732,7 +728,6 @@ if loaded_automl_clf:
     # logger.info(f"Predictions from loaded classification model (first 5): {loaded_predictions_clf.flatten().round(2)}")
 
 logger.info("\n===== AutoML Package Demonstration Complete =====")
-   ```
 
 ## **9. Project Structure**
 The project is organized as follows:
