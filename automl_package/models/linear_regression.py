@@ -1,7 +1,6 @@
 import jax
 import jax.numpy as jnp
-from jax import grad, jit, vmap
-from jax._src.prng import PRNGKeyArray
+from jax import grad, jit
 import numpy as np
 from .base import BaseModel
 from typing import Dict, Any
@@ -22,7 +21,7 @@ class JAXLinearRegression(BaseModel):
         self.l2_lambda = l2_lambda
         self.weights = None
         self.bias = None
-        self.key = PRNGKeyArray(jax.random.PRNGKey(0).key)
+        self.key = jax.random.PRNGKey(0)
         self._is_regression_model = True  # Set regression flag
         self._train_residual_std = 0.0  # Stores standard deviation of residuals on training data
 
@@ -78,6 +77,9 @@ class JAXLinearRegression(BaseModel):
         # For simplicity, return a constant uncertainty based on training residuals
         return np.full(X.shape[0], self._train_residual_std)
 
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        raise NotImplementedError("JAXLinearRegression is a regression model and does not support predict_proba.")
+
     def get_hyperparameter_search_space(self) -> Dict[str, Any]:
         return {
             "learning_rate": {"type": "float", "low": 1e-4, "high": 1e-1, "log": True},
@@ -85,3 +87,6 @@ class JAXLinearRegression(BaseModel):
             "l1_lambda": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L1 regularization
             "l2_lambda": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L2 regularization
         }
+
+    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+        raise NotImplementedError("JAXLinearRegression is not a composite model and does not have an internal classifier for separate prediction.")

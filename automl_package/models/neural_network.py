@@ -74,7 +74,7 @@ class PyTorchNeuralNetwork(BaseModel):
     def name(self) -> str:
         return "PyTorchNeuralNetwork"
 
-    def _build_model(self):
+    def build_model(self):
         """Dynamically builds the neural network architecture."""
         layers = []
         current_output_size = self.output_size
@@ -138,7 +138,7 @@ class PyTorchNeuralNetwork(BaseModel):
         if self.input_size is None:
             self.input_size = X.shape[1]
 
-        self._build_model()  # Build model with correct output size and dropout if needed
+        self.build_model()  # Build model with correct output size and dropout if needed
 
         X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
         y_tensor = torch.tensor(y, dtype=torch.float32).to(self.device)
@@ -300,6 +300,9 @@ class PyTorchNeuralNetwork(BaseModel):
         Returns the raw underlying PyTorch model (nn.Sequential).
         """
         return self.model
+
+    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+        raise NotImplementedError("PyTorchNeuralNetwork is not a composite model and does not have an internal classifier for separate prediction.")
 
 
 # --- NEW MODEL: FlexibleHiddenLayersNN ---
@@ -660,3 +663,6 @@ class FlexibleHiddenLayersNN(BaseModel):
         Returns the raw underlying PyTorch model (nn.Module).
         """
         return self.model
+
+    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+        raise NotImplementedError("FlexibleHiddenLayersNN is not a composite model and does not have an internal classifier for separate prediction.")

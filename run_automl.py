@@ -17,7 +17,6 @@ if __name__ == "__main__":
     # Ensure you have the required libraries installed:
     # pip install numpy scikit-learn jax jaxlib optuna torch xgboost lightgbm catboost flax optax scipy shap
 
-    # --- Regression Example with JAXProbabilisticRegressionModel and Uncertainty ---
     logger.info("--- Running Regression Example with Uncertainty ---")
 
     X_reg, y_reg = make_regression(n_samples=500, n_features=10, noise=10.0, random_state=42)
@@ -49,7 +48,6 @@ if __name__ == "__main__":
         ModelName.CATBOOST,
         ModelName.CLASSIFIER_REGRESSION,  # Only for regression where classification informs regression
         ModelName.PROBABILISTIC_REGRESSION,
-        ModelName.JAX_PROBABILISTIC_REGRESSION,
     ]
 
     automl_reg.train(X_train_initial, y_train_initial, models_to_consider=models_for_reg)

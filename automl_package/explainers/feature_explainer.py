@@ -1,14 +1,12 @@
 from typing import Dict, List, Union
-import jax.numpy as jnp
 import numpy as np
 import shap
 import torch
 from sklearn.pipeline import Pipeline  # Import Pipeline for type hinting
 
-from ..enums import ModelName, TaskType, UncertaintyMethod  # Import enums
+from ..enums import ModelName, TaskType
 from ..logger import logger
 from ..models.base import BaseModel
-from ..models.jax_probabilistic_regression import JAXProbabilisticRegressionModel  # Specific import for JAX DeepExplainer setup
 from ..models.neural_network import PyTorchNeuralNetwork  # Specific import for PyTorchNN DeepExplainer setup
 from ..models.probabilistic_regression import ProbabilisticRegressionModel  # Specific import for its internal model
 
@@ -20,7 +18,9 @@ class FeatureExplainer:
     and handles scikit-learn pipelines with an assumed 'scaler' and 'model' step.
     """
 
-    def __init__(self, model_instance: Union[BaseModel, Pipeline], X_background: np.ndarray, feature_names: List[str] = None):
+    def __init__(
+        self, model_instance: Union[BaseModel, Pipeline], X_background: np.ndarray, feature_names: List[str] = None, device: torch.device = None, max_data_points: int = 50000
+    ):
         """
         Initializes the SHAP explainer based on the model type.
 
@@ -39,6 +39,8 @@ class FeatureExplainer:
         self.scaler = None  # To store the StandardScaler if present within a pipeline
         self.model_to_explain_directly = None  # The actual BaseModel or raw model extracted from pipeline
 
+        self.device = device
+        self.max_data_points = max_data_points
         self._initialize_explainer()
 
     def _initialize_explainer(self):
@@ -46,8 +48,6 @@ class FeatureExplainer:
         Initializes the appropriate SHAP explainer based on the model type.
         Handles extraction of model and scaler from scikit-learn Pipelines.
         """
-        model_name_str = None
-
         # Check if the model_instance is a scikit-learn Pipeline
         if isinstance(self.original_model, Pipeline):
             logger.info("Pipeline detected for SHAP explanation. Extracting model and scaler steps.")
@@ -84,73 +84,16 @@ class FeatureExplainer:
         elif model_name_str in [ModelName.PYTORCH_NEURAL_NETWORK.value, ModelName.FLEXIBLE_NEURAL_NETWORK.value]:
             logger.info(f"Using shap.DeepExplainer for {model_name_str} model.")
             # For DeepExplainer, we need the raw PyTorch nn.Module and a background dataset
-            background_tensor = torch.tensor(self.X_background, dtype=torch.float32).to(self.model_to_explain_directly.device)
-
-            # Define a wrapper prediction function for the PyTorch model
-            # This handles regression output (mean only for probabilistic) and classification logits.
-            def pytorch_predict_wrapper(x):
-                x_tensor = torch.tensor(x, dtype=torch.float32).to(self.model_to_explain_directly.device)
-                self.model_to_explain_directly.get_internal_model().eval()  # Ensure model is in eval mode
-                with torch.no_grad():
-                    outputs = self.model_to_explain_directly.get_internal_model()(x_tensor)
-
-                    if self.model_to_explain_directly._is_regression_model and self.model_to_explain_directly.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
-                        return outputs[:, 0]  # Explain only the mean for probabilistic regression
-                    elif self.model_to_explain_directly.task_type == TaskType.CLASSIFICATION:
-                        return outputs  # For classification, DeepExplainer expects raw logits for most cases
-                    else:  # Standard regression
-                        return outputs.squeeze(-1)  # Ensure 1D output
+            background_tensor = torch.tensor(self.X_background, dtype=torch.float32).to(self.device)
 
             self.explainer = shap.DeepExplainer(self.model_to_explain_directly.get_internal_model(), background_tensor)
 
         elif model_name_str == ModelName.PROBABILISTIC_REGRESSION.value:
             logger.info(f"Using shap.DeepExplainer for ProbabilisticRegression model.")
             # ProbabilisticRegressionModel exposes its combined_model (which is an nn.Module) as the internal model
-            background_tensor = torch.tensor(self.X_background, dtype=torch.float32).to(self.model_to_explain_directly.device)
-
-            # Wrapper function for the combined probabilistic model
-            def pytorch_combined_predict_wrapper(x):
-                x_tensor = torch.tensor(x, dtype=torch.float32).to(self.model_to_explain_directly.device)
-                self.model_to_explain_directly.get_internal_model().eval()
-                with torch.no_grad():
-                    outputs = self.model_to_explain_directly.get_internal_model()(x_tensor)
-                    # The outputs from ProbabilisticRegressionModel.forward are already (mean, log_var) or mean.
-                    # DeepExplainer usually works with the raw output that feeds into the final loss.
-                    if self.model_to_explain_directly.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
-                        return outputs[:, 0]  # Only explain the mean, not the log_var
-                    return outputs  # Return raw output (mean)
+            background_tensor = torch.tensor(self.X_background, dtype=torch.float32).to(self.device)
 
             self.explainer = shap.DeepExplainer(self.model_to_explain_directly.get_internal_model(), background_tensor)
-
-        elif model_name_str == ModelName.JAX_PROBABILISTIC_REGRESSION.value:
-            logger.info(f"Using shap.DeepExplainer for JAXProbabilisticRegression model.")
-            # For JAX/Flax, need the model definition, params, and a predict function.
-            jax_model_info = self.model_to_explain_directly.get_internal_model()
-            model_def = jax_model_info["model_def"]
-            params = jax_model_info["params"]
-            batch_stats = jax_model_info["batch_stats"]
-
-            background_jax = jnp.array(self.X_background, dtype=jnp.float32)
-
-            # Define a JAX-compatible prediction function for DeepExplainer
-            def jax_predict_wrapper(x):
-                x_jax = jnp.array(x, dtype=jnp.float32)
-                # Apply the Flax model with current params and batch_stats, in evaluation mode
-                variables = model_def.apply({"params": params, "batch_stats": batch_stats}, x_jax, train=False)
-                predictions_output = variables["output"]
-
-                # If the model outputs (mean, log_var), explain only the mean
-                if self.model_to_explain_directly.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
-                    return predictions_output[:, 0]
-                return predictions_output.squeeze(-1)  # Ensure 1D output for standard regression
-
-            # DeepExplainer with Flax models requires a slightly different setup
-            # It needs the apply_fn and parameters/batch_stats as a single object.
-            self.explainer = shap.DeepExplainer(
-                (lambda x, params_and_state: model_def.apply({"params": params_and_state["params"], "batch_stats": params_and_state["batch_stats"]}, x, train=False)["output"]),
-                {"params": params, "batch_stats": batch_stats},
-                data=background_jax,  # Pass background data separately
-            )
 
         elif model_name_str == ModelName.SKLEARN_LOGISTIC_REGRESSION.value:
             logger.info(f"Using shap.LinearExplainer for SKLearnLogisticRegression model.")
@@ -186,12 +129,17 @@ class FeatureExplainer:
         if self.explainer is None:
             raise RuntimeError("SHAP explainer not initialized.")
 
+        # If the number of data points exceeds max_data_points, randomly sample
+        if X_to_explain.shape[0] > self.max_data_points:
+            logger.info(f"Sampling {self.max_data_points} data points for SHAP explanation from {X_to_explain.shape[0]} available.")
+            np.random.seed(42)  # for reproducibility
+            sample_indices = np.random.choice(X_to_explain.shape[0], self.max_data_points, replace=False)
+            X_to_explain = X_to_explain[sample_indices]
+
         # Ensure data is in the correct format for the explainer (e.g., PyTorch tensor for DeepExplainer)
         data_for_shap = X_to_explain
         if isinstance(self.model_to_explain_directly, (PyTorchNeuralNetwork, ProbabilisticRegressionModel)):
             data_for_shap = torch.tensor(X_to_explain, dtype=torch.float32).to(self.model_to_explain_directly.device)
-        elif isinstance(self.model_to_explain_directly, JAXProbabilisticRegressionModel):
-            data_for_shap = jnp.array(X_to_explain, dtype=jnp.float32)
 
         shap_values_obj = self.explainer.shap_values(data_for_shap)
 

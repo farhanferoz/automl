@@ -3,12 +3,14 @@ import numpy as np
 import pandas as pd  # Import pandas for feature names in SHAP output
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error, accuracy_score, log_loss
-from typing import Dict, Any, Type, Union, List, Tuple
+from typing import Dict, Any, Type, Union, List, Tuple, Optional
 import optuna  # Import optuna for type hinting in objective function
 import json  # New import
 from datetime import datetime  # New import
 import joblib  # New import for model export/import
 import torch.nn as nn  # Import for activation functions
+import matplotlib.pyplot as plt  # New import for plotting
+import seaborn as sns  # New import for plotting
 
 from .models.base import BaseModel
 from .models.linear_regression import JAXLinearRegression
@@ -17,11 +19,11 @@ from .models.xgboost_lgbm import XGBoostModel, LightGBMModel
 from .models.sklearn_logistic_regression import SKLearnLogisticRegression
 from .models.catboost_model import CatBoostModel
 from .models.probabilistic_regression import ProbabilisticRegressionModel
-from .models.jax_probabilistic_regression import JAXProbabilisticRegressionModel
 from .models.classifier_regression import ClassifierRegressionModel
 from .optimizers.optuna_optimizer import OptunaOptimizer
 from .enums import UncertaintyMethod, RegressionStrategy, MapperType, TaskType, ModelName
 from .logger import logger
+from .utils.metrics import Metrics
 from .explainers.feature_explainer import FeatureExplainer
 
 
@@ -84,16 +86,15 @@ class AutoML:
             ModelName.CATBOOST: CatBoostModel,
             ModelName.CLASSIFIER_REGRESSION: ClassifierRegressionModel,
             ModelName.PROBABILISTIC_REGRESSION: ProbabilisticRegressionModel,
-            ModelName.JAX_PROBABILISTIC_REGRESSION: JAXProbabilisticRegressionModel,
         }
         # Use ModelName enum for best_model_name storage
         self.trained_models: Dict[ModelName, Tuple[BaseModel, Dict[str, Any], float]] = {}  # Stores best_model_instance, best_params, best_score
-        self.best_model_name: ModelName = None
+        self.best_model_name: Optional[ModelName] = None
         self.best_overall_metric: float = float("inf") if self._is_minimize_metric() else -float("inf")
 
         self.optuna_optimizer = OptunaOptimizer(direction="minimize" if self._is_minimize_metric() else "maximize", n_trials=n_trials, seed=random_state)
 
-        self.X_train_for_shap: np.ndarray = None  # For SHAP background data
+        self.X_train_for_shap: Optional[np.ndarray] = None  # For SHAP background data
         self.leaderboard: List[Dict[str, Any]] = []  # New: Initialize leaderboard
 
         # Ensure regression-only models are only used for regression tasks
@@ -106,7 +107,6 @@ class AutoML:
                 not in [
                     ModelName.CLASSIFIER_REGRESSION,  # ClassifierRegression output is continuous, for regression tasks
                     ModelName.PROBABILISTIC_REGRESSION,
-                    ModelName.JAX_PROBABILISTIC_REGRESSION,
                     ModelName.JAX_LINEAR_REGRESSION,
                 ]
             }
@@ -308,44 +308,6 @@ class AutoML:
                 dropout_rate=params.pop("dropout_rate", 0.1),
                 **params,
             )
-        elif model_name == ModelName.JAX_PROBABILISTIC_REGRESSION:
-            n_classes = params.pop("n_classes")
-            regression_strategy_enum = RegressionStrategy(params.pop("regression_strategy"))
-            uncertainty_method_enum = UncertaintyMethod(params.pop("uncertainty_method"))
-
-            # Reconstruct base_classifier_params
-            # Reconstruct base_classifier_params
-            final_base_classifier_params = {k.replace("base_classifier_params__", ""): v for k, v in params.items() if k.startswith("base_classifier_params__")}
-            for k in list(params.keys()):
-                if k.startswith("base_classifier_params__"):
-                    del params[k]
-            # No direct activation=fn needed here as JAX MLP uses nn.relu
-            # However, if you had different activation choices for JAX, you'd store the string:
-            # if 'activation' in best_hyperparameters and isinstance(best_hyperparameters['activation'], str):
-            #     final_base_classifier_params['activation_str'] = best_hyperparameters['activation'] # Store as string
-
-            # Reconstruct regression_head_params
-            final_regression_head_params = {k.replace("regression_head_params__", ""): v for k, v in params.items() if k.startswith("regression_head_params__")}
-            for k in list(params.keys()):
-                if k.startswith("regression_head_params__"):
-                    del params[k]
-            # No direct activation=fn needed here either for JAX regression head
-
-            return self.models_registry[model_name](
-                input_size=input_features,
-                n_classes=n_classes,
-                base_classifier_params=final_base_classifier_params,
-                regression_head_params=final_regression_head_params,
-                regression_strategy=regression_strategy_enum,
-                learning_rate=params.pop("learning_rate"),
-                n_epochs=params.pop("n_epochs"),
-                batch_size=params.pop("batch_size"),
-                random_seed=params.pop("random_seed", 0),
-                uncertainty_method=uncertainty_method_enum,
-                n_mc_dropout_samples=params.pop("n_mc_dropout_samples", 100),
-                dropout_rate=params.pop("dropout_rate", 0.1),
-                **params,
-            )
         elif model_name == ModelName.XGBOOST:
             if self.task_type == TaskType.CLASSIFICATION:
                 objective = "binary:logistic" if num_classes == 2 else "multi:softmax"
@@ -377,8 +339,6 @@ class AutoML:
         """Samples hyperparameters for a given model from its search space."""
         model_class = self.models_registry[model_name]
         params = {}
-        base_classifier_name_str = None
-
         if model_name == ModelName.CLASSIFIER_REGRESSION:
             params["n_classes"] = trial.suggest_int("n_classes", 2, 5)  # For ClassifierRegression's discretization
 
@@ -395,7 +355,6 @@ class AutoML:
 
             # Get search space for the chosen base classifier
             # Get search space for the chosen base classifier
-            temp_model_instance = None
             if ModelName(base_classifier_name_str) == ModelName.PYTORCH_NEURAL_NETWORK:
                 # For temporary instantiation, a generic output_size (e.g., 1 for binary) is sufficient.
                 # The actual output_size will be correctly set during the _instantiate_model call.
@@ -427,10 +386,6 @@ class AutoML:
                     if params.get(f"{param_key_prefix}penalty") == "elasticnet":  # Check if penalty is elasticnet (should be sampled already)
                         params[param_key] = trial.suggest_float(param_key, config["low"], config["high"], step=config["step"])
                     continue
-                # Handle dropout_rate for JAX models, which might be top-level or nested
-                if param_name == "dropout_rate" and ModelName(base_classifier_name_str) == ModelName.JAX_PROBABILISTIC_REGRESSION:
-                    # This will be handled if base_classifier is JAX Probabilistic, which is not possible for ClassifierRegression.
-                    continue
 
                 if config["type"] == "int":
                     params[param_key] = trial.suggest_int(param_key, config["low"], config["high"], step=config.get("step", 1))
@@ -453,7 +408,7 @@ class AutoML:
 
             return params, base_classifier_name_str
 
-        elif model_name in [ModelName.PROBABILISTIC_REGRESSION, ModelName.JAX_PROBABILISTIC_REGRESSION]:
+        elif model_name == ModelName.PROBABILISTIC_REGRESSION:
             # Sample common parameters for ProbabilisticRegressionModel
             params["n_classes"] = trial.suggest_int("n_classes", 2, 5)
             params["learning_rate"] = trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True)
@@ -468,14 +423,6 @@ class AutoML:
                 params["dropout_rate"] = trial.suggest_float("dropout_rate", 0.1, 0.5, step=0.1)
             else:  # Set dropout to 0 if not MC_DROPOUT
                 params["dropout_rate"] = 0.0  # This is the top-level dropout rate
-
-            if model_name == ModelName.JAX_PROBABILISTIC_REGRESSION:
-                params["random_seed"] = trial.suggest_int("random_seed", 0, 100)
-                # JAX MLP has its own dropout_rate for base classifier and regression head params
-                # These are nested and will be sampled under their own keys
-                params["base_classifier_params__dropout_rate"] = trial.suggest_float("base_classifier_params__dropout_rate", 0.0, 0.5, step=0.1)  # Allows 0 for non-MC-Dropout
-                params["regression_head_params__dropout_rate"] = trial.suggest_float("regression_head_params__dropout_rate", 0.0, 0.5, step=0.1)  # Allows 0 for non-MC-Dropout
-
             # Nested params for base classifier (internal PyTorchNN/JAX MLP)
             params["base_classifier_params__hidden_layers"] = trial.suggest_int("base_classifier_params__hidden_layers", 1, 2)
             params["base_classifier_params__hidden_size"] = trial.suggest_int("base_classifier_params__hidden_size", 32, 64, step=32)
@@ -518,7 +465,7 @@ class AutoML:
 
             return params, None
 
-    def train(self, X: np.ndarray, y: np.ndarray, models_to_consider: List[ModelName] = None):  # Use enum
+    def train(self, X: np.ndarray, y: np.ndarray, models_to_consider: List[ModelName] = None, save_metrics: bool = False):
         """
         Trains and optimizes selected models using cross-validation and Optuna.
 
@@ -527,6 +474,7 @@ class AutoML:
             y (np.ndarray): Target vector.
             models_to_consider (List[ModelName], optional): List of model names (enums) to train.
                                                             If None, all registered models are considered.
+            save_metrics (bool): If True, save numerical and visual metrics for the final model.
         """
         logger.info(f"Starting AutoML training for {self.task_type.value} task with metric '{self.metric}'.")
         logger.info(
@@ -582,14 +530,12 @@ class AutoML:
             if self.task_type == TaskType.CLASSIFICATION and model_name in [
                 ModelName.JAX_LINEAR_REGRESSION,
                 ModelName.PROBABILISTIC_REGRESSION,
-                ModelName.JAX_PROBABILISTIC_REGRESSION,
                 ModelName.CLASSIFIER_REGRESSION,
             ]:
                 logger.info(f"Skipping {model_name.value} as it is designed for regression tasks for {self.task_type.value} task.")
                 continue
 
             logger.info(f"\n--- Optimizing {model_name.value} ---")
-            model_class = self.models_registry[model_name]
 
             # Define the objective function for Optuna
             def objective(trial: optuna.Trial) -> float:
@@ -708,6 +654,8 @@ class AutoML:
         logger.info("\n--- AutoML Training Complete ---")
         if self.best_model_name:
             logger.info(f"Overall Best Model: {self.best_model_name.value} with {self.metric}: {self.best_overall_metric:.4f}")
+            if save_metrics:
+                self.evaluate(X, y, save_path=f"{self.best_model_name.value}_training_metrics")
         else:
             logger.info("No models were successfully trained or considered.")
         logger.info("\nLeaderboard:\n" + pd.DataFrame(self.leaderboard).to_string())
@@ -744,6 +692,53 @@ class AutoML:
         else:
             return predictions_scaled  # Return as is for classification or no target scaler
 
+    def evaluate(self, X: np.ndarray, y: np.ndarray, save_path: str = "metrics"):
+        """
+        Evaluates the best model on a given dataset and saves the metrics.
+
+        Args:
+            X (np.ndarray): Feature matrix for evaluation (original scale).
+            y (np.ndarray): True labels for evaluation (original scale).
+            save_path (str): Directory to save the metrics files.
+        """
+        y_pred = self.predict(X)
+        y_proba = None
+
+        # Check if the best model is a composite regression model with an internal classifier
+        best_model_instance, _, _ = self.trained_models[self.best_model_name]
+
+        if self.task_type == TaskType.CLASSIFICATION:
+            if hasattr(best_model_instance, "predict_proba"):
+                if self._fitted_feature_scaler:
+                    X_transformed = self._fitted_feature_scaler.transform(X)
+                else:
+                    X_transformed = X
+                y_proba = best_model_instance.predict_proba(X_transformed)
+
+            metrics_calculator = Metrics(self.task_type, self.best_model_name.value, y, y_pred, y_proba)
+            metrics_calculator.save_metrics(save_path)
+        elif self.task_type == TaskType.REGRESSION and hasattr(best_model_instance, "is_composite_regression_model") and best_model_instance.is_composite_regression_model:
+            # For composite regression models, also evaluate the internal classifier's performance
+            # Need to pass original X and y to get the internal classifier's view
+            y_pred_internal_clf, y_proba_internal_clf, y_true_discretized = best_model_instance.get_classifier_predictions(X, y)
+
+            logger.info(f"Evaluating internal classifier of {self.best_model_name.value} for classification metrics.")
+            internal_metrics_calculator = Metrics(
+                TaskType.CLASSIFICATION, f"{self.best_model_name.value}_InternalClassifier", y_true_discretized, y_pred_internal_clf, y_proba_internal_clf
+            )
+            internal_metrics_calculator.save_metrics(f"{save_path}_internal_classifier")
+
+            # Plot probability mappers if it's a ClassifierRegressionModel
+            if isinstance(best_model_instance, ClassifierRegressionModel):
+                best_model_instance.plot_probability_mappers(plot_path=f"{save_path}_probability_mappers.png")
+
+            # Also save the main regression metrics
+            metrics_calculator = Metrics(self.task_type, self.best_model_name.value, y, y_pred, y_proba)
+            metrics_calculator.save_metrics(save_path)
+        else:
+            metrics_calculator = Metrics(self.task_type, self.best_model_name.value, y, y_pred, y_proba)
+            metrics_calculator.save_metrics(save_path)
+
     def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
         """
         Estimates uncertainty for predictions using the best trained regression model.
@@ -764,7 +759,7 @@ class AutoML:
         best_model_instance, _, _ = self.trained_models[self.best_model_name]
 
         # Ensure the model is a regression model and supports predict_uncertainty
-        if not hasattr(best_model_instance, "predict_uncertainty") or not best_model_instance._is_regression_model:
+        if not hasattr(best_model_instance, "predict_uncertainty") or not best_model_instance.is_regression_model:
             raise NotImplementedError(f"Uncertainty prediction not implemented or not a regression model for {type(best_model_instance).__name__}.")
 
         # Scale input features
@@ -785,7 +780,7 @@ class AutoML:
         else:
             return uncertainty_scaled  # Return as is if no target scaler
 
-    def get_feature_importance(self, X_test: np.ndarray, feature_names: List[str] = None) -> Dict[str, float]:
+    def get_feature_importance(self, X_test: np.ndarray, feature_names: List[str] = None) -> Union[Dict[str, float], Dict[str, str]]:
         """
         Calculates feature importance using SHAP for the best trained model.
 
@@ -821,20 +816,75 @@ class AutoML:
         best_model_instance, _, _ = self.trained_models[self.best_model_name]
 
         try:
-            explainer = FeatureExplainer(model_instance=best_model_instance, X_background=X_background_scaled, feature_names=feature_names)
+            # Pass the device to FeatureExplainer if the model has one (e.g., PyTorch models)
+            explainer_device = getattr(best_model_instance, "device", None)
+            explainer = FeatureExplainer(model_instance=best_model_instance, X_background=X_background_scaled, feature_names=feature_names, device=explainer_device)
 
-            shap_values = explainer.explain(X_test_scaled)
+            shap_values = explainer.explain(X_test_scaled).values
             feature_importance_summary = explainer.get_feature_importance_summary(shap_values)
 
-            logger.info(f"\nFeature Importances (SHAP) for {self.best_model_name.value}:")
-            for feature, importance in feature_importance_summary.items():
+            # Normalize importances
+            total_importance = sum(feature_importance_summary.values())
+            if total_importance == 0:
+                logger.warning("Total feature importance is zero. Cannot normalize.")
+                normalized_importance = feature_importance_summary
+            else:
+                normalized_importance = {k: v / total_importance for k, v in feature_importance_summary.items()}
+
+            # Sort in decreasing order
+            sorted_normalized_importance = dict(sorted(normalized_importance.items(), key=lambda item: item[1], reverse=True))
+
+            logger.info(f"\nFeature Importances (SHAP) for {self.best_model_name.value} (Normalized and Sorted):")
+            for feature, importance in sorted_normalized_importance.items():
                 logger.info(f"  {feature}: {importance:.4f}")
 
-            return feature_importance_summary
+            return sorted_normalized_importance
 
         except Exception as e:
             logger.error(f"Error calculating SHAP feature importance for {self.best_model_name.value}: {e}")
             return {"error": f"Failed to calculate SHAP: {e}"}
+
+    def save_feature_importance_to_csv(self, feature_importances: Dict[str, float], file_path: str = "feature_importance.csv"):
+        """
+        Saves the normalized and sorted feature importances to a CSV file.
+
+        Args:
+            feature_importances (Dict[str, float]): A dictionary of feature names and their
+                                                    normalized importance scores.
+            file_path (str): The path to the CSV file where the importances will be saved.
+        """
+        logger.info(f"\n--- Saving Feature Importances to {file_path} ---")
+        try:
+            df_importance = pd.DataFrame(list(feature_importances.items()), columns=["Feature", "Importance"])
+            df_importance.to_csv(file_path, index=False)
+            logger.info("Feature importances saved successfully to CSV.")
+        except Exception as e:
+            logger.error(f"Failed to save feature importances to CSV: {e}")
+
+    def plot_feature_importance(self, feature_importances: Dict[str, float], plot_path: str = "feature_importance.png"):
+        """
+        Generates and saves a horizontal bar plot of the normalized and sorted feature importances.
+
+        Args:
+            feature_importances (Dict[str, float]): A dictionary of feature names and their
+                                                    normalized importance scores.
+            plot_path (str): The path to the file where the plot will be saved (e.g., 'feature_importance.png').
+        """
+        logger.info(f"\n--- Plotting Feature Importances to {plot_path} ---")
+        try:
+            df_importance = pd.DataFrame(list(feature_importances.items()), columns=["Feature", "Importance"])
+
+            plt.figure(figsize=(10, max(6, len(df_importance) * 0.4)))  # Adjust figure size dynamically
+            sns.barplot(x="Importance", y="Feature", data=df_importance, palette="viridis")
+            plt.title(f"Feature Importance for {self.best_model_name.value} (Normalized SHAP Values)")
+            plt.xlabel("Normalized Importance (Sum to 1)")
+            plt.ylabel("Feature")
+            plt.tight_layout()
+            plt.savefig(plot_path)
+            plt.close()
+            logger.info("Feature importance plot saved successfully.")
+        except Exception as e:
+            logger.error(f"Failed to plot feature importances: {e}")
 
     def select_features_by_cumulative_importance(self, X_test: np.ndarray, threshold: float = 0.9, feature_names: List[str] = None) -> List[str]:
         """
@@ -855,38 +905,22 @@ class AutoML:
 
         logger.info(f"\n--- Performing Feature Selection by Cumulative SHAP Importance (Threshold: {threshold:.2f}) ---")
 
-        # 1. Get sorted feature importances (mean absolute SHAP values)
-        raw_feature_importances = self.get_feature_importance(X_test, feature_names)
+        # 1. Get normalized and sorted feature importances
+        normalized_importances = self.get_feature_importance(X_test, feature_names)
 
-        if "error" in raw_feature_importances:
-            logger.error(f"Could not perform feature selection due to SHAP calculation error: {raw_feature_importances['error']}")
+        if "error" in normalized_importances:
+            logger.error(f"Could not perform feature selection due to SHAP calculation error: {normalized_importances['error']}")
             return []
 
-        if not raw_feature_importances:
+        if not normalized_importances:
             logger.warning("No feature importances found to perform selection.")
             return []
 
-        # Convert to a list of (feature_name, importance_value) tuples
-        sorted_features_and_importances = list(raw_feature_importances.items())
-
-        # Extract just the importance values and sum them
-        importance_values = np.array([imp for _, imp in sorted_features_and_importances])
-        total_importance = np.sum(importance_values)
-
-        if total_importance == 0:
-            logger.warning("Total feature importance is zero. Cannot normalize or select features.")
-            return []
-
-        # 2. Normalize importances
-        normalized_importances = {name: imp / total_importance for name, imp in raw_feature_importances.items()}
-        # Re-sort after normalization to ensure order for cumulative sum
-        sorted_normalized_importances = dict(sorted(normalized_importances.items(), key=lambda item: item[1], reverse=True))
-
-        # 3. Select features based on cumulative importance
+        # 2. Select features based on cumulative importance
         selected_features = []
         cumulative_importance = 0.0
 
-        for feature, norm_importance in sorted_normalized_importances.items():
+        for feature, norm_importance in normalized_importances.items():
             # Add features as long as their addition does not exceed the threshold
             if cumulative_importance + norm_importance <= threshold:
                 selected_features.append(feature)
@@ -901,7 +935,14 @@ class AutoML:
         return selected_features
 
     def retrain_with_selected_features(
-        self, X_full_train: np.ndarray, y_full_train: np.ndarray, X_full_test: np.ndarray, y_full_test: np.ndarray, feature_names: List[str] = None, shap_threshold: float = 0.95
+        self,
+        X_full_train: np.ndarray,
+        y_full_train: np.ndarray,
+        X_full_test: np.ndarray,
+        y_full_test: np.ndarray,
+        feature_names: List[str] = None,
+        shap_threshold: float = 0.95,
+        save_feature_importance_metrics: bool = False,
     ):
         """
         Retrains the best model found by AutoML.train() using a subset of features
@@ -914,6 +955,7 @@ class AutoML:
             y_full_test (np.ndarray): The complete test target set (original scale).
             feature_names (List[str], optional): Original names of the features.
             shap_threshold (float): Cumulative SHAP importance threshold for feature selection.
+            save_feature_importance_metrics (bool): Whther to save the feature importance metrics
 
         Returns:
             dict: A dictionary containing the retrained model instance, filtered and scaled test data,
@@ -981,14 +1023,12 @@ class AutoML:
             ModelName.PYTORCH_NEURAL_NETWORK,
             ModelName.FLEXIBLE_NEURAL_NETWORK,
             ModelName.PROBABILISTIC_REGRESSION,
-            ModelName.JAX_PROBABILISTIC_REGRESSION,
         ]:
             best_hyperparameters["input_size"] = X_train_filtered.shape[1]
             # For nested models, also update their internal input_size if applicable
             if "base_classifier_params" in best_hyperparameters:
                 best_hyperparameters["base_classifier_params"]["input_size"] = X_train_filtered.shape[1]
 
-        final_model_instance = None
         # Instantiate the final model with best hyperparameters and adjusted input features
         # This part requires careful reconstruction of parameters for composite models
         if self.best_model_name == ModelName.CLASSIFIER_REGRESSION:
@@ -1038,7 +1078,7 @@ class AutoML:
                 mapper_type=final_mapper_type,
                 mapper_params=final_mapper_params,
             )
-        elif self.best_model_name in [ModelName.PROBABILISTIC_REGRESSION, ModelName.JAX_PROBABILISTIC_REGRESSION]:
+        elif self.best_model_name == ModelName.PROBABILISTIC_REGRESSION:
             # Extract and reconstruct parameters for these composite models
             final_n_classes = best_hyperparameters["n_classes"]
             final_regression_strategy = RegressionStrategy(best_hyperparameters["regression_strategy"])
@@ -1130,6 +1170,16 @@ class AutoML:
 
         logger.info(f"Retraining complete for {self.best_model_name.value} with selected features.")
         logger.info(f"New test {self.metric}: {retrained_metric_value:.4f}")
+
+        if save_feature_importance_metrics:
+            logger.info("Saving and plotting feature importances for the retrained model.")
+            # Recalculate feature importance for the retrained model
+            retrained_feature_importances = self.get_feature_importance(X_full_test[:, selected_indices], feature_names=filtered_feature_names)
+            if "error" not in retrained_feature_importances:
+                self.save_feature_importance_to_csv(retrained_feature_importances, file_path=f"{self.best_model_name.value}_retrained_feature_importance.csv")
+                self.plot_feature_importance(retrained_feature_importances, plot_path=f"{self.best_model_name.value}_retrained_feature_importance.png")
+            else:
+                logger.error(f"Could not save/plot feature importances for retrained model due to: {retrained_feature_importances['error']}")
 
         return {
             "retrained_model_instance": final_model_instance,

@@ -1,12 +1,16 @@
 import xgboost as xgb
 import lightgbm as lgb
 import numpy as np
-from .base import BaseModel
 from typing import Dict, Any
+
+from .base import BaseModel
 
 
 class XGBoostModel(BaseModel):
-    """XGBoost model wrapper."""
+    """XGBoost model wrapper."
+    Note: Methods in this class are intentionally named identically to those in BaseModel
+    as they implement the BaseModel interface. This is not a redeclaration error.
+    """
 
     def __init__(self, objective: str = "reg:squarederror", eval_metric: str = "rmse", **kwargs):
         super().__init__(**kwargs)
@@ -85,9 +89,12 @@ class XGBoostModel(BaseModel):
 
     def get_internal_model(self):
         """
-        Returns the raw underlying LightGBM model.
+        Returns the raw underlying XGBoost model.
         """
         return self.model
+
+    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+        raise NotImplementedError("XGBoostModel is not a composite model and does not have an internal classifier for separate prediction.")
 
 
 class LightGBMModel(BaseModel):
@@ -166,3 +173,6 @@ class LightGBMModel(BaseModel):
         Returns the raw underlying LightGBM model.
         """
         return self.model
+
+    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+        raise NotImplementedError("LightGBMModel is not a composite model and does not have an internal classifier for separate prediction.")

@@ -84,3 +84,6 @@ class SKLearnLogisticRegression(BaseModel):
         Returns the raw underlying scikit-learn model.
         """
         return self.model
+
+    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+        raise NotImplementedError("SKLearnLogisticRegression is not a composite model and does not have an internal classifier for separate prediction.")

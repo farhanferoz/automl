@@ -1,8 +1,10 @@
-from typing import Dict, Any, Type, List
+from typing import Dict, Any, Type, List, Tuple, Optional
 import numpy as np
+import matplotlib.pyplot as plt # New import
+from torch.nn import ReLU, Tanh # Explicitly import ReLU and Tanh
 
 from .base import BaseModel  # Import BaseModel
-from ..enums import MapperType, TaskType  # Import enums
+from ..enums import MapperType, TaskType, ModelName, UncertaintyMethod  # Import enums
 from ..logger import logger  # Import logger
 from ..utils.probability_mapper import ClassProbabilityMapper
 
@@ -33,10 +35,11 @@ class ClassifierRegressionModel(BaseModel):
         self.mapper_type = mapper_type
         self.mapper_params = mapper_params if mapper_params is not None else {}
 
-        self.base_classifier: BaseModel = None  # The instantiated base classifier model
-        self.class_boundaries: np.ndarray = None  # Stores percentile values for discretization
-        self.class_mappers: List[ClassProbabilityMapper] = []  # Stores a ClassProbabilityMapper for each class
+        self.base_classifier: Optional[BaseModel] = None  # The instantiated base classifier model
+        self.class_boundaries: Optional[np.ndarray] = None  # Stores percentile values for discretization
+        self.class_mappers: List[Optional[ClassProbabilityMapper]] = []  # Stores a ClassProbabilityMapper for each class
         self._is_regression_model = True  # This composite model is for regression
+        self.is_composite_regression_model = True # Flag for AutoML to identify composite models
 
         if self.n_classes < 2:
             raise ValueError("n_classes must be at least 2 for classification-regression strategy.")
@@ -45,7 +48,6 @@ class ClassifierRegressionModel(BaseModel):
     def name(self) -> str:
         # Include base model name and mapper type for unique identification
         # Dynamically get the name of the base classifier
-        base_name = "Unknown"
         try:
             # Instantiate a dummy base_classifier_class to get its name property
             # Pass a default is_classification=True for models that require it in init
@@ -100,9 +102,9 @@ class ClassifierRegressionModel(BaseModel):
         if self.base_classifier_class.__name__ == "PyTorchNeuralNetwork":
             base_classifier_init_params["input_size"] = X.shape[1]
             base_classifier_init_params["output_size"] = classifier_output_size
-            # Convert string activation to Type[nn.Module]
+            # Convert string activation to Type[torch.nn.Module]
             if "activation" in base_classifier_init_params and isinstance(base_classifier_init_params["activation"], str):
-                base_classifier_init_params["activation"] = nn.ReLU if base_classifier_init_params["activation"] == "ReLU" else nn.Tanh  # Assuming ReLU/Tanh
+                base_classifier_init_params["activation"] = ReLU if base_classifier_init_params["activation"] == "ReLU" else Tanh  # Assuming ReLU/Tanh
             # Ensure dropout_rate and n_mc_dropout_samples are set if uncertainty_method is MC_DROPOUT
             if base_classifier_init_params.get("uncertainty_method") == UncertaintyMethod.MC_DROPOUT.value:
                 base_classifier_init_params.setdefault("dropout_rate", 0.1)
@@ -228,6 +230,20 @@ class ClassifierRegressionModel(BaseModel):
         uncertainty_estimates = np.sqrt(total_variance)  # Standard deviation is sqrt of total variance
         return uncertainty_estimates
 
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """
+        Returns the predicted probabilities from the internal base classifier.
+
+        Args:
+            X (np.ndarray): Feature matrix.
+
+        Returns:
+            np.ndarray: Predicted probabilities from the internal classifier.
+        """
+        if self.base_classifier is None:
+            raise RuntimeError("Base classifier has not been fitted yet.")
+        return self.base_classifier.predict_proba(X)
+
     def get_hyperparameter_search_space(self) -> Dict[str, Any]:
         # This model's search space defines its own parameters and the choice of base classifier.
         # The base_classifier_params themselves will be dynamically sampled within AutoML._sample_params_for_trial
@@ -252,6 +268,83 @@ class ClassifierRegressionModel(BaseModel):
             "spline_k": {"type": "int", "low": 1, "high": 3},  # Spline degree
             "spline_s": {"type": "float", "low": 0.01, "high": 10.0, "log": True},  # Spline smoothing factor
         }
+
+    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Returns the internal classifier's predicted classes, probabilities, and
+        the corresponding (discretized) true labels for this composite model.
+
+        Args:
+            X (np.ndarray): Feature matrix.
+            y_true_original (np.ndarray): Original true labels (will be discretized internally).
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                - Predicted classes from the internal classifier.
+                - Predicted probabilities from the internal classifier.
+                - Discretized true labels corresponding to the internal classifier's task.
+        """
+        if self.base_classifier is None:
+            raise RuntimeError("Base classifier has not been fitted yet.")
+
+        # 1. Discretize the original true labels using the same boundaries as during training
+        y_flat = y_true_original.flatten() if y_true_original.ndim > 1 else y_true_original
+        y_true_discretized = np.zeros_like(y_flat, dtype=int)
+        for i, boundary in enumerate(self.class_boundaries):
+            y_true_discretized[y_flat > boundary] = i + 1
+
+        # 2. Get predictions and probabilities from the internal classifier
+        y_pred_internal = self.base_classifier.predict(X)
+        y_proba_internal = self.base_classifier.predict_proba(X)
+
+        return y_pred_internal, y_proba_internal, y_true_discretized
+
+    def plot_probability_mappers(self, plot_path: str = "probability_mappers.png"):
+        """
+        Plots the n functions (one for each class) calculated in the probability mapper.
+        Each plot shows the mapping from class probability to the original regression value.
+
+        Args:
+            plot_path (str): The path to the file where the plot will be saved.
+        """
+        if not self.class_mappers:
+            logger.warning("No class mappers found. Please fit the model first.")
+            return
+
+        logger.info(f"\n--- Plotting Probability Mappers to {plot_path} ---")
+
+        plt.figure(figsize=(12, 8))
+        probas_range = np.linspace(0, 1, 100).reshape(-1, 1) # Probabilities from 0 to 1
+
+        for i, mapper in enumerate(self.class_mappers):
+            if mapper is None:
+                logger.warning(f"Mapper for class {i} is None. Skipping plot for this class.")
+                continue
+            
+            # Get mapped values
+            mapped_values = mapper.predict(probas_range)
+            if i == 0:
+                lower_bound_str = "-inf"
+                upper_bound_str = f"{self.class_boundaries[0]:.2f}"
+            elif i == self.n_classes - 1:
+                lower_bound_str = f"{self.class_boundaries[self.n_classes - 2]:.2f}"
+                upper_bound_str = "inf"
+            else:
+                lower_bound_str = f"{self.class_boundaries[i-1]:.2f}"
+                upper_bound_str = f"{self.class_boundaries[i]:.2f}"
+
+            label_text = f'Class {i} (Range: {lower_bound_str}-{upper_bound_str})'
+            plt.plot(probas_range, mapped_values, label=label_text)
+
+        plt.title(f'Probability Mappers for {self.name}')
+        plt.xlabel('Class Probability')
+        plt.ylabel('Mapped Original Regression Value')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(plot_path)
+        plt.close()
+        logger.info("Probability mappers plot saved successfully.")
 
     def get_internal_model(self):
         """

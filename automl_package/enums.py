@@ -45,4 +45,3 @@ class ModelName(Enum):
     CATBOOST = "CatBoost"
     CLASSIFIER_REGRESSION = "ClassifierRegression"
     PROBABILISTIC_REGRESSION = "ProbabilisticRegression"
-    JAX_PROBABILISTIC_REGRESSION = "JAXProbabilisticRegression"

@@ -1,5 +1,5 @@
 import abc
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 import numpy as np
 
 
@@ -17,7 +17,8 @@ class BaseModel(abc.ABC):
         """
         self.model = None
         self.params = kwargs
-        self._is_regression_model = False  # Flag to indicate if model is for regression
+        self.is_regression_model = False  # Flag to indicate if model is for regression
+        self.is_composite_regression_model = False  # New flag to identify composite models that have an internal classifier
 
     @abc.abstractmethod
     def fit(self, X: np.ndarray, y: np.ndarray):
@@ -77,6 +78,38 @@ class BaseModel(abc.ABC):
     def name(self) -> str:
         """
         Returns the name of the model.
+        """
+        pass
+
+    @abc.abstractmethod
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """
+        Makes probability predictions on new data. Applicable for classification models.
+
+        Args:
+            X (np.ndarray): Feature matrix for prediction.
+
+        Returns:
+            np.ndarray: Predicted probabilities.
+        """
+        pass
+
+    @abc.abstractmethod
+    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Returns the internal classifier's predicted classes, probabilities, and
+        the corresponding (discretized) true labels for composite models.
+        For non-composite models, this method should raise NotImplementedError.
+
+        Args:
+            X (np.ndarray): Feature matrix.
+            y_true_original (np.ndarray): Original true labels (will be discretized internally).
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                - Predicted classes from the internal classifier.
+                - Predicted probabilities from the internal classifier.
+                - Discretized true labels corresponding to the internal classifier's task.
         """
         pass
 

@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Tuple, Optional
 import numpy as np
 import torch
 import torch.nn as nn
@@ -49,12 +49,13 @@ class ProbabilisticRegressionModel(BaseModel):
         if self.uncertainty_method not in [UncertaintyMethod.CONSTANT, UncertaintyMethod.MC_DROPOUT, UncertaintyMethod.PROBABILISTIC]:
             raise ValueError(f"Unsupported uncertainty_method: {self.uncertainty_method.value}. Choose from enum values.")
 
-        self.classifier_model: PyTorchNeuralNetwork = None
-        self.regression_heads: nn.ModuleList = None  # List of PyTorch regression heads (for separate_heads)
-        self.regression_head: nn.Module = None  # Single PyTorch regression head (for single_head_n_outputs, single_head_final_output)
-        self.combined_model: nn.Module = None  # The main PyTorch nn.Module that combines everything
+        self.classifier_model: Optional[PyTorchNeuralNetwork] = None
+        self.regression_heads: Optional[nn.ModuleList] = None  # List of PyTorch regression heads (for separate_heads)
+        self.regression_head: Optional[nn.Module] = None  # Single PyTorch regression head (for single_head_n_outputs, single_head_final_output)
+        self.combined_model: Optional[nn.Module] = None  # The main PyTorch nn.Module that combines everything
 
         self._is_regression_model = True  # This model is always regression
+        self.is_composite_regression_model = True # Flag for AutoML to identify composite models
         self._train_residual_std = 0.0  # For 'constant' uncertainty method
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -91,7 +92,7 @@ class ProbabilisticRegressionModel(BaseModel):
                 input_size=input_size, output_size=classifier_output_size, task_type=TaskType.CLASSIFICATION, **base_classifier_params  # Always classification internally
             )
             # Call _build_model to initialize its internal sequential model
-            temp_classifier_instance._build_model()
+            temp_classifier_instance.build_model()
             self.classifier_layers = temp_classifier_instance.model
 
             # Common regression head parameters
@@ -101,9 +102,9 @@ class ProbabilisticRegressionModel(BaseModel):
             head_dropout_rate = regression_head_params.get("dropout_rate", 0.0)
 
             # Determine regression head output size (1 for mean, 2 for mean+log_var)
-            regression_output_size = 1
+            self.regression_output_size = 1
             if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
-                regression_output_size = 2
+                self.regression_output_size = 2
 
             if self.regression_strategy == RegressionStrategy.SEPARATE_HEADS:
                 self.regression_heads = nn.ModuleList()
@@ -125,7 +126,7 @@ class ProbabilisticRegressionModel(BaseModel):
                         if head_dropout_rate > 0 and self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
                             head_layers.append(nn.Dropout(head_dropout_rate))  # Dropout for MC Dropout heads
 
-                    head_layers.append(nn.Linear(head_hidden_size, regression_output_size))  # Output mean or mean+log_var
+                    head_layers.append(nn.Linear(head_hidden_size, self.regression_output_size))  # Output mean or mean+log_var
                     self.regression_heads.append(nn.Sequential(*head_layers))
 
             elif self.regression_strategy == RegressionStrategy.SINGLE_HEAD_N_OUTPUTS:
@@ -133,7 +134,7 @@ class ProbabilisticRegressionModel(BaseModel):
                 # Input to this head is all but the last probability (if n_classes > 1)
                 head_input_size = n_classes if n_classes == 1 else n_classes - 1
                 # Output N*outputs (e.g., N*1 for mean only, N*2 for mean+log_var)
-                head_output_neurons = n_classes * regression_output_size
+                head_output_neurons = n_classes * self.regression_output_size
 
                 head_layers.append(nn.Linear(head_input_size, head_hidden_size))
                 if use_batch_norm_heads:
@@ -155,7 +156,7 @@ class ProbabilisticRegressionModel(BaseModel):
                 head_layers = []
                 # Input is all but the last probability (if n_classes > 1)
                 head_input_size = n_classes if n_classes == 1 else n_classes - 1
-                head_output_neurons = regression_output_size  # Just 1 or 2 outputs
+                head_output_neurons = self.regression_output_size  # Just 1 or 2 outputs
 
                 head_layers.append(nn.Linear(head_input_size, head_hidden_size))
                 if use_batch_norm_heads:
@@ -188,7 +189,7 @@ class ProbabilisticRegressionModel(BaseModel):
             # 2. Pass probabilities through regression heads based on strategy
             if self.regression_strategy == RegressionStrategy.SEPARATE_HEADS:
                 # Sum (P_i * Y_i_expected) across all classes
-                final_predictions = torch.zeros(x_input.size(0), regression_output_size).to(x_input.device)
+                final_predictions = torch.zeros(x_input.size(0), self.regression_output_size).to(x_input.device)
                 for i in range(self.n_classes):
                     p_i = probabilities[:, i].unsqueeze(1)  # Probability for class i, shape (batch_size, 1)
                     y_i_expected_or_dist_params = self.regression_heads[i](p_i)
@@ -202,7 +203,7 @@ class ProbabilisticRegressionModel(BaseModel):
 
                 y_expected_all_classes = self.regression_head(head_input_probas)
                 # Reshape to (batch_size, n_classes, regression_output_size)
-                y_expected_all_classes = y_expected_all_classes.reshape(x_input.shape[0], self.n_classes, regression_output_size)
+                y_expected_all_classes = y_expected_all_classes.reshape(x_input.shape[0], self.n_classes, self.regression_output_size)
 
                 # Expand probabilities for broadcasting: (batch_size, n_classes, 1)
                 probabilities_expanded = probabilities.unsqueeze(-1)
@@ -245,12 +246,12 @@ class ProbabilisticRegressionModel(BaseModel):
         # Define criterion (MSE for mean, NLL for mean+log_var)
         if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
 
-            def nll_loss(outputs, targets):
+            def nll_loss(nll_outputs, targets):
                 # outputs from forward will be (mean, log_var)
-                mean = outputs[:, 0]
-                log_var = outputs[:, 1]
-                loss = 0.5 * torch.mean(torch.exp(-log_var) * (targets - mean) ** 2 + log_var)
-                return loss
+                mean = nll_outputs[:, 0]
+                log_var = nll_outputs[:, 1]
+                loss_value = 0.5 * torch.mean(torch.exp(-log_var) * (targets - mean) ** 2 + log_var)
+                return loss_value
 
             criterion = nll_loss
         else:
@@ -373,8 +374,56 @@ class ProbabilisticRegressionModel(BaseModel):
 
         return space
 
+    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Returns the internal classifier's predicted classes, probabilities, and
+        the corresponding (discretized) true labels for this composite model.
+
+        Args:
+            X (np.ndarray): Feature matrix.
+            y_true_original (np.ndarray): Original true labels (will be discretized internally).
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                - Predicted classes from the internal classifier.
+                - Predicted probabilities from the internal classifier.
+                - Discretized true labels corresponding to the internal classifier's task.
+        """
+        if self.combined_model is None:
+            raise RuntimeError("Model has not been fitted yet.")
+
+        # 1. Discretize the original true labels using the same boundaries as during training
+        y_flat = y_true_original.flatten() if y_true_original.ndim > 1 else y_true_original
+        y_true_discretized = np.zeros_like(y_flat, dtype=int)
+        # Reconstruct class boundaries based on percentiles of the original target
+        # This is crucial to ensure consistency with how y_clf was created during training
+        percentiles = np.linspace(0, 100, self.n_classes + 1)[1:-1]
+        class_boundaries = np.percentile(y_flat, percentiles)
+
+        for i, boundary in enumerate(class_boundaries):
+            y_true_discretized[y_flat > boundary] = i + 1
+
+        # 2. Get predictions and probabilities from the internal classifier
+        # Need to ensure the internal classifier part is in eval mode
+        self.combined_model.eval()
+        X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
+        with torch.no_grad():
+            classifier_logits = self.combined_model.classifier_layers(X_tensor)
+            if self.n_classes == 2:
+                proba_positive = torch.sigmoid(classifier_logits)
+                y_proba_internal = torch.cat((1 - proba_positive, proba_positive), dim=1).cpu().numpy()
+            else:
+                y_proba_internal = torch.softmax(classifier_logits, dim=1).cpu().numpy()
+
+            y_pred_internal = np.argmax(y_proba_internal, axis=1)
+
+        return y_pred_internal, y_proba_internal, y_true_discretized
+
     def get_internal_model(self):
         """
         Returns the raw underlying PyTorch combined model (nn.Module).
         """
         return self.combined_model
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        raise NotImplementedError("ProbabilisticRegressionModel is a regression model and does not support predict_proba.")

@@ -96,3 +96,6 @@ class CatBoostModel(BaseModel):
         Returns the raw underlying CatBoost model.
         """
         return self.model
+
+    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+        raise NotImplementedError("CatBoostModel is not a composite model and does not have an internal classifier for separate prediction.")

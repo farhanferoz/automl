@@ -251,10 +251,6 @@ These models are designed for regression tasks where quantifying the uncertainty
                    └───────────────────────────────────┘
     ```
 
-* **JAXProbabilisticRegressionModel**:
-  * **Description**: This model mirrors the functionality of ProbabilisticRegressionModel but is built entirely using JAX and Flax. It offers similar capabilities in internal classification and probabilistic regression heads, benefiting from JAX's high-performance numerical computation and automatic differentiation.
-  * **Core Idea**: Same as ProbabilisticRegressionModel but leveraging the JAX ecosystem for potentially faster training and inference on accelerators.
-
 ### **Composite Models**
 
 This section covers a meta-model that combines different modeling paradigms to solve complex problems.
@@ -314,9 +310,9 @@ For regression models, the package supports quantifying prediction uncertainty u
 * **UncertaintyMethod.CONSTANT**: The simplest method. It calculates the standard deviation of residuals from the training data, applying this constant uncertainty to all new predictions.
   * **Supported by:** JAXLinearRegression, XGBoostModel, LightGBMModel, CatBoostModel, SKLearnLogisticRegression (can be configured to use this for general confidence for classification if treated as regression context), PyTorchNeuralNetwork, FlexibleNeuralNetwork.
 * **UncertaintyMethod.PROBABILISTIC**: The model is designed to directly learn both the mean (μ(x)) and the variance (σ²(x)) of the target variable's distribution. This captures **aleatoric uncertainty** (inherent noise in the data). The model is trained with a Negative Log-Likelihood (NLL) loss.
-  * **Supported by:** PyTorchNeuralNetwork, FlexibleNeuralNetwork, ProbabilisticRegressionModel, JAXProbabilisticRegressionModel.
+  * **Supported by:** PyTorchNeuralNetwork, FlexibleNeuralNetwork, ProbabilisticRegressionModel.
 * **UncertaintyMethod.MC_DROPOUT**: This technique approximates **epistemic uncertainty** (model's uncertainty due to limited data/knowledge). For models with dropout layers, multiple predictions are made for the same input while dropout is active (model in train() mode). The standard deviation of these multiple predictions estimates the uncertainty.
-  * **Supported by:** PyTorchNeuralNetwork, FlexibleNeuralNetwork, ProbabilisticRegressionModel, JAXProbabilisticRegressionModel.
+  * **Supported by:** PyTorchNeuralNetwork, FlexibleNeuralNetwork, ProbabilisticRegressionModel.
 * **ClassifierRegressionModel Uncertainty Quantification**:
   * **Description**: For ClassifierRegressionModel, uncertainty is estimated by considering the variance of the original target values within each probability bin, as learned by the ClassProbabilityMapper. This model treats the regression problem as a series of classification probabilities, and the uncertainty arises from the spread of true values within the ranges associated with those probabilities.
   * **Mechanism**: For a new prediction, the model aggregates the variance contributions from each class's mapper, weighted by the square of their predicted probabilities. This approach effectively translates the uncertainty in classifying into a bin, and the inherent variability within each bin, into a total prediction uncertainty. The predict_uncertainty method returns the standard deviation derived from this aggregated variance.
@@ -580,8 +576,7 @@ models_for_reg = [
     ModelName.LIGHTGBM,
     ModelName.CATBOOST,
     ModelName.CLASSIFIER_REGRESSION, # Only for regression where classification informs regression
-    ModelName.PROBABILISTIC_REGRESSION,
-    ModelName.JAX_PROBABILISTIC_REGRESSION
+    ModelName.PROBABILISTIC_REGRESSION
 ]
 # Filter out models if their dependencies are not installed
 try:
@@ -743,7 +738,6 @@ The project is organized as follows:
         -   `linear_regression.py`: Implements `JAXLinearRegression`, a linear regression model using JAX.
         -   `neural_network.py`: Contains `PyTorchNeuralNetwork` and the novel `FlexibleNeuralNetwork`.
         -   `probabilistic_regression.py`: Implements `ProbabilisticRegressionModel`, a PyTorch-based model for regression with uncertainty.
-        -   `jax_probabilistic_regression.py`: Implements `JAXProbabilisticRegressionModel`, a JAX/Flax version of the probabilistic regression model.
         -   `classifier_regression.py`: Implements `ClassifierRegressionModel`, a meta-model that uses a classifier for regression tasks.
         -   `xgboost_lgbm.py`: Wrappers for `XGBoost` and `LightGBM` models.
         -   `sklearn_logistic_regression.py`: Wrapper for scikit-learn's `LogisticRegression`.
