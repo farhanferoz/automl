@@ -728,6 +728,7 @@ if loaded_automl_clf:
     # logger.info(f"Predictions from loaded classification model (first 5): {loaded_predictions_clf.flatten().round(2)}")
 
 logger.info("\n===== AutoML Package Demonstration Complete =====")
+   ```
 
 ## **9. Project Structure**
 The project is organized as follows:
@@ -757,3 +758,5 @@ The project is organized as follows:
 ## **10. Contributing**
 
 ## **11. License**
+
+This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
