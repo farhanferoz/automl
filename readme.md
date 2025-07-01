@@ -732,6 +732,7 @@ if loaded_automl_clf:
     # logger.info(f"Predictions from loaded classification model (first 5): {loaded_predictions_clf.flatten().round(2)}")
 
 logger.info("\n===== AutoML Package Demonstration Complete =====")
+   ```
 
 ## **9. Project Structure**
 The project is organized as follows:
