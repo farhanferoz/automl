@@ -1,0 +1,17 @@
+numpy
+pandas
+scikit-learn
+optuna
+joblib
+torch
+matplotlib
+seaborn
+jax
+jaxlib
+catboost
+xgboost
+lightgbm
+scipy
+shap
+bokeh
+wandb

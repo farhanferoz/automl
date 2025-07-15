@@ -1,0 +1,146 @@
+from sklearn.linear_model import LogisticRegression
+import numpy as np
+from .base import BaseModel
+from typing import Dict, Any
+from ..utils.metrics import Metrics
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import log_loss
+
+
+class SKLearnLogisticRegression(BaseModel):
+    """
+    Logistic Regression model using scikit-learn.
+    Primarily for classification, but used internally by ClassifierRegression.
+    Supports L1, L2, and ElasticNet regularization.
+    """
+
+    def __init__(self, penalty: str = "l2", C: float = 1.0, l1_ratio: float = None, **kwargs):
+        super().__init__(**kwargs)
+        self.penalty = penalty
+        self.C = C  # Inverse of regularization strength
+        self.l1_ratio = l1_ratio  # For elasticnet
+        self.model = None
+        self.is_regression_model = False  # Not a regression model
+
+    @property
+    def name(self) -> str:
+        return "SKLearnLogisticRegression"
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> int:
+        if self.penalty == "elasticnet" and self.l1_ratio is None:
+            raise ValueError("l1_ratio must be specified when penalty is 'elasticnet'.")
+
+        solver = "lbfgs"  # Default solver, supports L2
+        if self.penalty == "l1":
+            solver = "liblinear"
+        elif self.penalty == "elasticnet":
+            solver = "saga"  # Supports ElasticNet
+
+        # Initialize the model with warm_start for iterative fitting
+        if self.penalty == "elasticnet":
+            base_model = LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, l1_ratio=self.l1_ratio, warm_start=True, max_iter=1, **self.params)
+        else:
+            base_model = LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, warm_start=True, max_iter=1, **self.params)
+
+        if self.early_stopping_rounds is not None and self.validation_fraction > 0:
+            X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=self.validation_fraction, random_state=42, stratify=y)
+        else:
+            X_train, y_train = X, y
+            X_val, y_val = None, None
+
+        best_val_loss = float('inf')
+        patience_counter = 0
+        best_model_state = None
+        best_i = 0
+
+        # Determine the number of iterations. Use a large number if early stopping is enabled,
+        # otherwise use the model's default max_iter or a specified one.
+        n_iterations = self.params.get("max_iter", 1000) if self.early_stopping_rounds is not None else self.params.get("max_iter", 1000)
+
+        for i in range(n_iterations):
+            base_model.fit(X_train, y_train)
+
+            if self.early_stopping_rounds is not None and X_val is not None:
+                y_pred_proba_val = base_model.predict_proba(X_val)
+                val_loss = log_loss(y_val, y_pred_proba_val)
+
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    patience_counter = 0
+                    # Store a deep copy of the model's state
+                    best_model_state = {'coef_': base_model.coef_.copy(), 'intercept_': base_model.intercept_.copy()}
+                    best_i = i
+                else:
+                    patience_counter += 1
+
+                if patience_counter >= self.early_stopping_rounds:
+                    # print(f"Early stopping at iteration {best_i+1}") # For debugging
+                    break
+            else:
+                best_i = i
+        
+        # Set the model to the best state found during early stopping
+        if best_model_state:
+            base_model.coef_ = best_model_state['coef_']
+            base_model.intercept_ = best_model_state['intercept_']
+
+        self.model = base_model
+        return best_i + 1 # Return the number of iterations actually used
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        if self.model is None:
+            raise RuntimeError("Model has not been fitted yet.")
+        return self.model.predict(X)
+
+    def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
+        if not self.is_regression_model:  # This condition is always True for this class
+            # For classification, uncertainty is typically 1 - confidence (max probability)
+            if self.model is None:
+                raise RuntimeError("Model has not been fitted yet.")
+            probabilities = self.predict_proba(X)
+            # Find the max probability for each sample (confidence)
+            max_probs = np.max(probabilities, axis=1)
+            # Uncertainty is higher when confidence is lower (closer to 0.5 for binary)
+            # Normalize to be between 0 and 1, where 1 is max uncertainty (prob=0.5)
+            # 1 - 2 * abs(prob - 0.5) if proba is single value for positive class
+            # Or simpler: 1 - max_prob for general classification
+            return 1.0 - max_probs
+        # This part of the code would technically not be reached given is_regression_model = False
+        # but it's good practice to ensure all abstract methods are fully implemented conceptually.
+        return np.array([])
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        if self.model is None:
+            raise RuntimeError("Model has not been fitted yet.")
+        return self.model.predict_proba(X)
+
+    def get_hyperparameter_search_space(self) -> Dict[str, Any]:
+        space = {
+            "penalty": {"type": "categorical", "choices": ["l1", "l2", "elasticnet"]},
+            "C": {"type": "float", "low": 1e-4, "high": 10.0, "log": True},  # Inverse of regularization strength
+            "max_iter": {"type": "int", "low": 100, "high": 1000, "step": 100},
+        }
+        # l1_ratio is only relevant for 'elasticnet' penalty
+        space["l1_ratio"] = {"type": "float", "low": 0.0, "high": 1.0, "step": 0.1}  # Conditional parameter
+        return space
+
+    def get_internal_model(self):
+        """
+        Returns the raw underlying scikit-learn model.
+        """
+        return self.model
+
+    def get_num_parameters(self) -> int:
+        if self.model is None:
+            return 0 # Or raise an error if model not fitted
+        return self.model.coef_.size + self.model.intercept_.size
+
+    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+        raise NotImplementedError("SKLearnLogisticRegression is not a composite model and does not have an internal classifier for separate prediction.")
+
+    def evaluate(self, X: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
+        y_pred = self.predict(X)
+        y_proba = self.predict_proba(X)
+        metrics_calculator = Metrics("classification", self.name, y, y_pred, y_proba)
+        metrics_calculator.save_metrics(save_path)
+        return y_pred
