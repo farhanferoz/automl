@@ -75,7 +75,9 @@ The package includes wrappers for various popular machine learning models, all c
 *   **JAXLinearRegression**: A custom Linear Regression implementation using JAX for gradient-based optimization, including L1/L2 regularization.
     *   **Mathematical Formulation (Loss Function)**:
         The objective function minimized during training is the Mean Squared Error (MSE) augmented with L1 and L2 regularization terms:
-        $$ L(w, b) = \frac{1}{N} \sum_{i=1}^{N} (y_i - (\mathbf{x}_i^T w + b))^2 + \lambda_1 \sum_{j=1}^{D} |w_j| + \lambda_2 \sum_{j=1}^{D} w_j^2 $$
+        $$
+L(w, b) = \frac{1}{N} \sum_{i=1}^{N} (y_i - (\mathbf{x}_i^T w + b))^2 + \lambda_1 \sum_{j=1}^{D} |w_j| + \lambda_2 \sum_{j=1}^{D} w_j^2
+$$
         Where:
         *   $N$ is the number of samples.
         *   $D$ is the number of features.
@@ -89,7 +91,8 @@ The package includes wrappers for various popular machine learning models, all c
 *   **NormalEquationLinearRegression**: A direct implementation of Linear Regression using the normal equation, suitable for smaller datasets. This model inherently includes L2 regularization (Ridge Regression).
     *   **Mathematical Formulation (Normal Equation with Ridge)**:
         The weights $\hat{\beta}$ (including the bias term) are found by solving the following equation:
-        $$\hat{\beta} = (X^T X + \lambda I)^{-1} X^T y$$
+        $$\hat{\beta} = (X^T X + \lambda I)^{-1} X^T y
+$$
         Where:
         *   $X$ is the design matrix (features augmented with a column of ones for the bias).
         *   $y$ is the target vector.
@@ -234,9 +237,11 @@ Neural networks, including `PyTorchNeuralNetwork` and `FlexibleNeuralNetwork`, o
         *   **Regularization**: Adds a slight regularization effect, sometimes reducing the need for dropout.
         *   **Improved Gradient Flow**: Prevents vanishing or exploding gradients.
     *   **Mathematical Formulation**: For an input $x$ to a layer, Batch Normalization transforms it to $\hat{x}$ as follows:
-        $$ \hat{x} = \frac{x - \mu_B}{\sqrt{\sigma_B^2 + \epsilon}} $$
+        $$\hat{x} = \frac{x - \mu_B}{\sqrt{\sigma_B^2 + \epsilon}}
+$$
         Then, it scales and shifts the normalized value:
-        $$ y = \gamma \hat{x} + \beta $$
+        $$y = \gamma \hat{x} + \beta
+$$
         Where $\mu_B$ and $\sigma_B^2$ are the mean and variance of the mini-batch, $\epsilon$ is a small constant for numerical stability, and $\gamma$ and $\beta$ are learnable scale and shift parameters.
 
 *   **Dropout**:
@@ -253,9 +258,11 @@ Neural networks, including `PyTorchNeuralNetwork` and `FlexibleNeuralNetwork`, o
         *   **Improves Generalization**: Helps the model perform better on unseen data.
     *   **Types**:
         *   **L1 Regularization (Lasso)**: Adds a penalty proportional to the absolute value of the weights. It can lead to sparse models where some weights become exactly zero, effectively performing feature selection.
-            $$ L_{L1} = \lambda_1 \sum_{i} |w_i| $$
+            $$L_{L1} = \lambda_1 \sum_{i} |w_i|
+$$
         *   **L2 Regularization (Ridge or Weight Decay)**: Adds a penalty proportional to the square of the weights. It encourages smaller weights but does not force them to zero.
-            $$ L_{L2} = \lambda_2 \sum_{i} w_i^2 $$
+            $$L_{L2} = \lambda_2 \sum_{i} w_i^2
+$$
         *   **Elastic Net Regularization**: A combination of L1 and L2 regularization.
     *   **Implementation in this package**: For PyTorch-based models, regularization can be applied with fixed lambdas or learned automatically (see [Lambda Estimation](#5-lambda-estimation-automatic-regularization-learning)).
 
@@ -273,9 +280,13 @@ The `FlexibleNeuralNetwork`'s ability to dynamically select its architecture is 
     *   **Use Case:** When a smooth, differentiable, and continuous combination of different network depths is desired. It allows the model to softly blend architectures, which can be beneficial for creating a stable and well-behaved loss landscape during training, especially when the optimal depth is not clear-cut.
     *   **Constraint:** Requires `n_predictor_layers > 0` as it relies on the `n_predictor` to generate probabilities.
     *   **Core Idea:** Creates a smooth, fully differentiable landscape, allowing the model to learn to favor certain depths by assigning them higher probabilities.    
-    *   **Mathematical Formulation:** Given logits $z$ from the `n_predictor` for $K$ possible depths, the probability $p_i$ for depth $i$ is:        $$ p_i = \text{softmax}\left(z_i\right) = \frac{e^{z_i}}{\sum_{j=1}^{K} e^{z_j}} $$        The final output is a weighted sum: $Y_{\text{pred}} = \sum_{i=1}^{K} p_i \cdot Y_i$, where $Y_i$ is the output of the network with depth $i$.
+    *   **Mathematical Formulation:** Given logits $z$ from the `n_predictor` for $K$ possible depths, the probability $p_i$ for depth $i$ is:        $$
+p_i = \text{softmax}\left(z_i\right) = \frac{e^{z_i}}{\sum_{j=1}^{K} e^{z_j}}
+$$        The final output is a weighted sum: $Y_{\text{pred}} = \sum_{i=1}^{K} p_i \cdot Y_i$, where $Y_i$ is the output of the network with depth $i$.
 
-*   **`LayerSelectionMethod.GUMBEL_SOFTMAX`**    *   **Description:** An advanced version of `SOFT_GATING` that uses the Gumbel-Softmax trick. It introduces stochasticity during training to explore different architectures more effectively. Like `SOFT_GATING`, it produces a weighted average of all architecture outputs, meaning all layers contribute to the final prediction, but their influence is weighted by the Gumbel-Softmax probabilities.    *   **Use Case:** Ideal for scenarios where the model needs to explore a wider range of architectural configurations during training to find the most suitable depth. It's particularly useful when the optimal architecture is unknown or when dealing with complex datasets where a fixed architecture might limit performance.    *   **Constraint:** Requires `n_predictor_layers > 0` as it relies on the `n_predictor` to generate probabilities.    *   **Core Idea:** Improves exploration in the architecture search space by adding noise in a structured, differentiable way.    *   **Mathematical Formulation:** Given logits $z$ and Gumbel noise $g \sim \text{Gumbel}(0, 1)$:        $$ p_i = \text{softmax}\left(\frac{z_i + g_i}{\tau}\right) $$        Here, $\tau$ is a temperature parameter that is annealed (gradually lowered) during training. A high $\tau$ encourages exploration (probabilities are more uniform), while a low $\tau$ encourages exploitation (probabilities become closer to a one-hot selection).
+*   **`LayerSelectionMethod.GUMBEL_SOFTMAX`**    *   **Description:** An advanced version of `SOFT_GATING` that uses the Gumbel-Softmax trick. It introduces stochasticity during training to explore different architectures more effectively. Like `SOFT_GATING`, it produces a weighted average of all architecture outputs, meaning all layers contribute to the final prediction, but their influence is weighted by the Gumbel-Softmax probabilities.    *   **Use Case:** Ideal for scenarios where the model needs to explore a wider range of architectural configurations during training to find the most suitable depth. It's particularly useful when the optimal architecture is unknown or when dealing with complex datasets where a fixed architecture might limit performance.    *   **Constraint:** Requires `n_predictor_layers > 0` as it relies on the `n_predictor` to generate probabilities.    *   **Core Idea:** Improves exploration in the architecture search space by adding noise in a structured, differentiable way.    *   **Mathematical Formulation:** Given logits $z$ and Gumbel noise $g \sim \text{Gumbel}(0, 1)$:        $$
+p_i = \text{softmax}\left(\frac{z_i + g_i}{\tau}\right)
+$$        Here, $\tau$ is a temperature parameter that is annealed (gradually lowered) during training. A high $\tau$ encourages exploration (probabilities are more uniform), while a low $\tau$ encourages exploitation (probabilities become closer to a one-hot selection).
 
 *   **`LayerSelectionMethod.STE` (Straight-Through Estimator)**
     *   **Description:** This method makes a "hard" decision in the forward pass but uses a "soft" gradient in the backward pass. It uses the Gumbel-Softmax trick with `hard=True`, which outputs a one-hot vector (e.g., `[0, 1, 0]`). This vector selects a *single* architecture (a specific number of active layers) to be used for the forward pass for each input. Only the selected layers perform computation.
@@ -294,7 +305,8 @@ The `FlexibleNeuralNetwork`'s ability to dynamically select its architecture is 
         2.  **Action:** The policy network observes $X$ and *samples* an action (the number of layers to use) from the probability distribution it produces.
         3.  **Reward:** At the end of each training epoch, the model's performance is measured on a validation set. The reward $R$ is the negative validation loss ($R = -\text{validation loss}$). A lower loss means a higher reward.
         4.  **Policy Update:** The policy network is updated using the REINFORCE algorithm, which adjusts its weights to make actions that led to high rewards more likely in the future. The policy gradient is estimated as:
-            $$ \nabla_\theta J(\theta) \approx R \cdot \nabla_\theta \log \pi(a|s; \theta) $$
+            $$\nabla_\theta J(\theta) \approx R \cdot \nabla_\theta \log \pi(a|s; \theta)
+$$
             Where $J(\theta)$ is the policy objective, and $\pi(a|s; \theta)$ is the policy (the `n_predictor`).
 
 ### **Probabilistic Regression Models**
@@ -364,13 +376,16 @@ These models are designed for regression tasks where quantifying the uncertainty
                 When `UncertaintyMethod.PROBABILISTIC` is used with this strategy, the single regression head directly outputs both the predicted mean $\mu(X)$ and the predicted log-variance $\log(\sigma^2(X))$ for the final prediction. The classifier's probabilities serve as input features to this head, influencing its direct prediction of the mean and log-variance.
 
                 The uncertainty (standard deviation) is then simply the square root of the variance derived from this directly predicted log-variance:
-                $$ \text{Uncertainty}(X) = \sqrt{\exp(\log(\sigma^2(X)))} = \sigma(X) $$
+                $$\text{Uncertainty}(X) = \sqrt{\exp(\log(\sigma^2(X)))} = \sigma(X)
+$$
                 This means the single head is responsible for capturing the overall aleatoric uncertainty based on the input features and the classifier's probabilistic context.
         4.  **Prediction Aggregation**: The outputs of these regression heads are combined (often via a weighted sum using the class probabilities) to form the final continuous prediction.
         5.  **Uncertainty**: The model can learn both the mean $\mu(X)$ and the log-variance $\log(\sigma^2(X))$ of a Gaussian distribution for its final prediction, allowing for **probabilistic uncertainty**.
     *   **Mathematical Formulation (Negative Log-Likelihood Loss)**:
         When `UncertaintyMethod.PROBABILISTIC` is used, the model is trained to minimize the Negative Log-Likelihood (NLL) of a Gaussian distribution. For a given input $X$, the model predicts a mean $\mu(X)$ and a log-variance $\log(\sigma^2(X))$. The NLL loss is:
-        $$ L(\mu, \sigma^2) = \frac{1}{2} \log(2\pi) + \frac{1}{2} \log(\sigma^2(X)) + \frac{(y - \mu(X))^2}{2\sigma^2(X)} $$
+        $$
+L(\mu, \sigma^2) = \frac{1}{2} \log(2\pi) + \frac{1}{2} \log(\sigma^2(X)) + \frac{(y - \mu(X))^2}{2\sigma^2(X)}
+$$
         The model minimizes the average NLL over the training batch.
     *   **Diagram (Probabilistic Regression Model Flow - Consolidated)**:
         ```
@@ -415,15 +430,19 @@ These models are designed for regression tasks where quantifying the uncertainty
           3.  **Gumbel-Softmax with STE**: The Gumbel-Softmax trick with `hard=True` (Straight-Through Estimator - STE) is applied to the logits from the `n_classes_predictor`. This produces a one-hot vector, effectively selecting a discrete `k` (number of classes for the probabilistic path) or the 'direct regression' mode for each input sample.
               *   **Mathematical Formulation (Gumbel-Softmax with STE)**:
                   Given logits $z$ from the `n_classes_predictor` and Gumbel noise $g \sim \text{Gumbel}(0, 1)$, the one-hot selection $s$ is obtained as:
-                  $
+                  $$
 s = \text{one_hot}(\text{argmax}(\frac{z + g}{\tau}))
-$
+$$
                   During the backward pass, gradients are approximated as if the soft (non-hard) Gumbel-Softmax probabilities were used, allowing gradients to flow to the `n_classes_predictor`.
           4.  **Dynamic Logit Masking and Softmax**: The main classifier branch always outputs raw logits for `max_n_classes_for_probabilistic_path` classes. Based on the `k` selected by the `n_classes_predictor` (if the probabilistic path is chosen), logits for unselected classes are masked (set to $-\infty$) before applying softmax. This ensures that only the `k` selected probabilities are non-zero and sum to 1.
               *   **Mathematical Formulation (Masked Softmax)**:
                   Given raw classifier logits $L = [l_0, l_1, \dots, l_{\text{max N}-1}]$ and a selected number of classes $k$, the masked logits $L'$ are:
-                  $$ L'_i = \begin{cases} l_i & \text{if } i < k \\ -\infty & \text{if } i \ge k \end{cases} $$
-                  The probabilities are then calculated as: $$ P_i = \text{softmax}(L')_i = \frac{e^{L'_i}}{\sum_{j=0}^{\text{max_N}-1} e^{L'_j}} $$
+                  $$
+L'_i = \begin{cases} l_i & \text{if } i < k \\ -\infty & \text{if } i \ge k \end{cases}
+$$
+                  The probabilities are then calculated as: $$
+P_i = \text{softmax}(L')_i = \frac{e^{L'_i}}{\sum_{j=0}^{\text{max_N}-1} e^{L'_j}}
+$$
                   This ensures $\sum_{i=0}^{k-1} P_i = 1$ and $P_i = 0$ for $i \ge k$.
           5.  **Integrated Direct Regression Path**: If the `n_classes_predictor` selects the 'direct regression' mode, the input bypasses the classifier and class-specific regression heads, and is instead passed through a dedicated direct regression head. This ensures gradient flow to the `n_classes_predictor` even when it chooses a non-probabilistic path.
           6.  **Pre-calculated Class Boundaries**: To maintain efficiency, the class boundaries for target discretization are pre-calculated for all possible `k` values (from 2 to `max_n_classes_for_probabilistic_path`) using the entire training dataset. During training, the appropriate pre-calculated boundaries are selected based on the `k` determined by the `n_classes_predictor`.
@@ -493,7 +512,9 @@ This section covers a meta-model that combines different modeling paradigms to s
         2.  **Base Classifier Training**: A chosen `BaseModel` classifier (e.g., `XGBoostModel`, `PyTorchNeuralNetwork`) is trained to predict these discrete class labels from the input features ($X$).
         3.  **Class Probability Mapper**: For new predictions, the trained base classifier outputs probabilities for each class. The `ClassProbabilityMapper` then takes these probabilities for a specific class and maps them to an *expected original regression value* for that class. This mapping is learned during fitting, often through methods like:
             *   **`MapperType.LINEAR`**: A simple linear regression fit between the predicted probability for a class and the actual target values associated with that class in the training data.
-                $$ Y_{\text{exp},c} = m_c \cdot P_c + b_c $$
+                $$
+Y_{\text{exp},c} = m_c \cdot P_c + b_c
+$$
                 Where $P_c$ is the probability of class $c$, and $m_c, b_c$ are the learned slope and intercept for class $c$.
             *   **`MapperType.LOOKUP_MEAN / LOOKUP_MEDIAN`**: Divides the probability space into bins and calculates the mean (or median) of the original target values that fall into each bin. When a new probability comes, it looks up the corresponding mean/median.
                 ```
@@ -516,10 +537,14 @@ This section covers a meta-model that combines different modeling paradigms to s
                  +-------------------------+
                 ```
             *   **`MapperType.SPLINE`**: Fits a smooth spline interpolation function between the predicted probabilities and the actual target values for the class. This can capture non-linear relationships in the mapping more flexibly.
-                $$ Y_{\text{exp},c} = S_c(P_c) $$
+                $$
+Y_{\text{exp},c} = S_c(P_c)
+$$
                 Where $S_c$ is the fitted spline function for class $c$.
         4.  **Final Prediction**: The final regression prediction for an input is the expected value derived from the probabilities and the learned continuous mapping (e.g., a weighted sum of the expected values from each class, weighted by their probabilities):
-            $$ Y_{\text{pred}} = \sum_{c=0}^{N-1} P_c \cdot Y_{\text{exp},c}(P_c) $$
+            $$
+Y_{\text{pred}} = \sum_{c=0}^{N-1} P_c \cdot Y_{\text{exp},c}(P_c)
+$$
             Where $P_c$ is the probability of input $X$ belonging to class $c$, and $Y_{\text{exp},c}(P_c)$ is the expected regression value mapped from $P_c$ for class $c$.
 
 ## **4. Uncertainty Quantification**
@@ -527,14 +552,16 @@ This section covers a meta-model that combines different modeling paradigms to s
 For regression models, the package supports quantifying prediction uncertainty using various methods:
 
 *   **`UncertaintyMethod.CONSTANT`**: The simplest method. It calculates the standard deviation of residuals from the training data, applying this constant uncertainty to all new predictions.
-    $$ \sigma_{\text{constant}} = \sqrt{\frac{1}{N} \sum_{i=1}^{N} (y_i - \hat{y}_i)^2} $$
+    $$\sigma_{\text{constant}} = \sqrt{\frac{1}{N} \sum_{i=1}^{N} (y_i - \hat{y}_i)^2}
+$$
     Where $N$ is the number of training samples, $y_i$ are true training targets, and $\hat{y}_i$ are predictions on training data.
 
 *   **`UncertaintyMethod.PROBABILISTIC`**: The model is designed to directly learn both the mean ($\mu(X)$) and the variance ($\sigma^2(X)$) of the target variable's distribution. This captures **aleatoric uncertainty** (inherent noise in the data). The model is trained with a Negative Log-Likelihood (NLL) loss (see [Probabilistic Regression Models](#probabilistic-regression-models)). The uncertainty returned is the predicted standard deviation $\sigma(X)$.
 
 *   **`UncertaintyMethod.MC_DROPOUT`**: This technique approximates **epistemic uncertainty** (model's uncertainty due to limited data/knowledge). For models with dropout layers, multiple predictions are made for the same input while dropout is active (model in `train()` mode). The standard deviation of these multiple predictions estimates the uncertainty.
     Let $\hat{y}_t(X)$ be the prediction for input $X$ at MC dropout pass $t$, for $T$ passes.
-    $$ \text{Uncertainty}(X) = \sqrt{\frac{1}{T} \sum_{t=1}^{T} (\hat{y}_t(X) - \bar{y}(X))^2} $$
+    $$\text{Uncertainty}(X) = \sqrt{\frac{1}{T} \sum_{t=1}^{T} (\hat{y}_t(X) - \bar{y}(X))^2}
+$$
     Where $\bar{y}(X) = \frac{1}{T} \sum_{t=1}^{T} \hat{y}_t(X)$ is the mean prediction.
 
 *   **Probabilistic Regression Model Uncertainty**
@@ -547,13 +574,16 @@ For regression models, the package supports quantifying prediction uncertainty u
         For a given input $X$, let $P_c(X)$ be the probability of class $c$ from the classifier, and let $\mu_c(X)$ and $\sigma^2_c(X)$ be the mean and variance predicted by the regression head associated with class $c$.
 
         The final predicted mean $\mu(X)$ is:
-        $$ \mu(X) = \sum_{c=0}^{N-1} P_c(X) \cdot \mu_c(X) $$
+        $$\mu(X) = \sum_{c=0}^{N-1} P_c(X) \cdot \mu_c(X)
+$$
 
         The final predicted variance $\sigma^2(X)$ is derived from the log-variance outputs:
-        $$ \sigma^2(X) = \sum_{c=0}^{N-1} P_c(X) \cdot \exp(\log(\sigma^2_c(X))) $$
+        $$\sigma^2(X) = \sum_{c=0}^{N-1} P_c(X) \cdot \exp(\log(\sigma^2_c(X)))
+$$
 
         The uncertainty returned is the standard deviation:
-        $$ \text{Uncertainty}(X) = \sqrt{\sigma^2(X)} $$
+        $$\text{Uncertainty}(X) = \sqrt{\sigma^2(X)}
+$$
 
         This formulation ensures that the overall uncertainty reflects both the confidence of the classifier in assigning an input to a particular class and the inherent spread of values within that class as modeled by the regression heads.
 
@@ -562,13 +592,15 @@ For regression models, the package supports quantifying prediction uncertainty u
     *   **Mechanism**: For a new prediction, the model aggregates the variance contributions from each class's mapper, weighted by the square of their predicted probabilities. This approach effectively translates the uncertainty in classifying into a bin, and the inherent variability within each bin, into a total prediction uncertainty. The `predict_uncertainty` method returns the standard deviation derived from this aggregated variance.
     *   **Mathematical Formula**:
         The total variance for a given input $X$ is calculated as the sum of squared probabilities multiplied by the variance contribution from each class mapper:
-        $$ \text{TotalVariance}(X) = \sum_{c=0}^{N-1} P_c(X)^2 \cdot \text{VarianceContribution}_c(P_c(X)) $$
+        $$\text{TotalVariance}(X) = \sum_{c=0}^{N-1} P_c(X)^2 \cdot \text{VarianceContribution}_c(P_c(X))
+$$
         Where:
         *   $P_c(X)$ is the probability of input $X$ belonging to class $c$, predicted by the base classifier.
         *   $\text{VarianceContribution}_c(P_c(X))$ is the variance predicted by the `ClassProbabilityMapper` for class $c$, given its probability $P_c(X)$. This variance represents the inherent spread of original $y$ values that mapped to that probability range for class $c$.
 
         The final uncertainty (standard deviation) is the square root of this total variance:
-        $$ \text{Uncertainty}(X) = \sqrt{\text{TotalVariance}(X)} $$
+        $$\text{Uncertainty}(X) = \sqrt{\text{TotalVariance}(X)}
+$$
 
 ## **5. Lambda Estimation (Automatic Regularization Learning)**
 
@@ -583,13 +615,19 @@ Traditionally, regularization lambdas are fixed hyperparameters that need to be 
 3.  **Loss Integration**: The regularization terms (L1 and L2 penalties) are integrated directly into the model's loss function. The gradients of this combined loss are then used to update both the model weights and the lambda parameters. Let $L_0$ be the base loss (e.g., MSE or NLL), $D$ be the number of trainable parameters (excluding bias if specified), $\lambda_1$ and $\lambda_2$ be the learned L1 and L2 regularization strengths respectively, $\sum |w_i|$ be the sum of absolute values of weights, and $\sum w_i^2$ be the sum of squared weights.
 
     *   **L1 Regularization Only (`LearnedRegularizationType.L1_ONLY`)**:
-        $$ L = L_0 - D \log\left(\frac{\lambda_1}{2}\right) + \lambda_1 \sum_{i} |w_i| $$
+        $$
+L = L_0 - D \log\left(\frac{\lambda_1}{2}\right) + \lambda_1 \sum_{i} |w_i|
+$$
 
     *   **L2 Regularization Only (`LearnedRegularizationType.L2_ONLY`)**:
-        $$ L = L_0 - \frac{D}{2} \log\left(\frac{\lambda_2}{\pi}\right) + \lambda_2 \sum_{i} w_i^2 $$
+        $$
+L = L_0 - \frac{D}{2} \log\left(\frac{\lambda_2}{\pi}\right) + \lambda_2 \sum_{i} w_i^2
+$$
 
     *   **Elastic Net Regularization (`LearnedRegularizationType.L1_L2`)**:
-        $$ L = L_0 + D \left[ \frac{1}{2} \log\left(\frac{\pi}{\lambda_2}\right) + \frac{\lambda_1^2}{4\lambda_2} + \log\left(\text{erfc}\left(\frac{\lambda_1}{2\sqrt{\lambda_2}}\right)\right) \right] + \lambda_1 \sum_{i} |w_i| + \lambda_2 \sum_{i} w_i^2 $$
+        $$
+L = L_0 + D \left[ \frac{1}{2} \log\left(\frac{\pi}{\lambda_2}\right) + \frac{\lambda_1^2}{4\lambda_2} + \log\left(\text{erfc}\left(\frac{\lambda_1}{2\sqrt{\lambda_2}}\right)\right) \right] + \lambda_1 \sum_{i} |w_i| + \lambda_2 \sum_{i} w_i^2
+$$
         The $\log(\text{erfc}(x))$ term is implemented using `log_erfc` for numerical stability.
 
 4.  **Early Stopping Alignment**: The early stopping criterion is modified to consider the prediction loss on the validation set. By default, regularization loss is *not* included in this validation loss calculation for early stopping. It can be optionally included by setting `include_reg_loss_in_val_loss` to `True`. This ensures that the training stops when the model's generalization performance (on the validation set) is no longer improving, allowing the lambdas to converge to optimal values.
@@ -621,9 +659,8 @@ The package provides transformers for handling categorical features, which shoul
 *   **`OrderedTargetEncoder`**: A more advanced, leakage-free target encoder, particularly useful for high-cardinality categorical features. Instead of creating many new columns, it encodes each category based on its relationship with the target variable.
     *   **Core Idea**: It replaces each category with a smoothed version of the target variable's mean for that category. To prevent target leakage (where information from the target variable of a sample is used to encode a feature for that same sample), the calculation is performed on a randomly shuffled version of the data.
     *   **Mathematical Formulation**: For each row `i` in the shuffled training data, the encoded value for a specific category is calculated as:
-        $
-\text{EncodedValue}_i = \frac{\text{cumsum}_i + \mu_{\text{global}} \cdot s}{\text{cumcount}_i + s}
-$
+        $$\text{EncodedValue}_i = \frac{\text{cumsum}_i + \mu_{\text{global}} \cdot s}{\text{cumcount}_i + s}
+$$
         Where:
         *   $\text{cumsum}_i$: The cumulative sum of the target values for all *previous* rows belonging to the same category.
         *   $\text{cumcount}_i$: The cumulative count of *previous* rows belonging to the same category.
@@ -663,26 +700,34 @@ For regression tasks, the package focuses on metrics that quantify the differenc
 *   **Mean Absolute Error (MAE)**:
     *   **Description**: The average of the absolute differences between predictions and actual observations. It measures the average magnitude of the errors in a set of predictions, without considering their direction.
     *   **Formula**:
-        $$ MAE = \frac{1}{N} \sum_{i=1}^{N} |y_i - \hat{y}_i| $$
+        $$
+MAE = \frac{1}{N} \sum_{i=1}^{N} |y_i - \hat{y}_i|
+$$
         Where $N$ is the number of samples, $y_i$ is the actual value, and $\hat{y}_i$ is the predicted value.
     *   **Interpretation**: MAE is robust to outliers and is in the same unit as the target variable. A lower MAE indicates better model performance.
 
 *   **Mean Squared Error (MSE)**:
     *   **Description**: The average of the squared differences between predictions and actual observations. It penalizes larger errors more heavily than MAE due to the squaring.
     *   **Formula**:
-        $$ MSE = \frac{1}{N} \sum_{i=1}^{N} (y_i - \hat{y}_i)^2 $$
+        $$
+MSE = \frac{1}{N} \sum_{i=1}^{N} (y_i - \hat{y}_i)^2
+$$
     *   **Interpretation**: MSE is sensitive to outliers. A lower MSE indicates better model performance. Its square root, RMSE, is often preferred for interpretability as it's in the same units as the target.
 
 *   **Root Mean Squared Error (RMSE)**:
     *   **Description**: The square root of the Mean Squared Error. It represents the standard deviation of the residuals (prediction errors).
     *   **Formula**:
-        $$ RMSE = \sqrt{\frac{1}{N} \sum_{i=1}^{N} (y_i - \hat{y}_i)^2} $$
+        $$
+RMSE = \sqrt{\frac{1}{N} \sum_{i=1}^{N} (y_i - \hat{y}_i)^2}
+$$
     *   **Interpretation**: RMSE is widely used and is in the same units as the target variable, making it more interpretable than MSE. A lower RMSE indicates better model performance.
 
 *   **R-squared ($R^2$) Score**:
     *   **Description**: Represents the proportion of the variance in the dependent variable that is predictable from the independent variables. It indicates how well the model fits the observed data.
     *   **Formula**:
-        $$ R^2 = 1 - \frac{\sum_{i=1}^{N} (y_i - \hat{y}_i)^2}{\sum_{i=1}^{N} (y_i - \bar{y})^2} $$
+        $$
+R^2 = 1 - \frac{\sum_{i=1}^{N} (y_i - \hat{y}_i)^2}{\sum_{i=1}^{N} (y_i - \bar{y})^2}
+$$
         Where $\bar{y}$ is the mean of the actual values.
     *   **Interpretation**: $R^2$ ranges from 0 to 1 (or can be negative for very poor fits). A higher $R^2$ indicates a better fit.
 
@@ -693,27 +738,35 @@ For classification tasks, the package provides metrics to assess the model's abi
 *   **Accuracy**:
     *   **Description**: The proportion of correctly classified instances (both true positives and true negatives) out of the total number of instances.
     *   **Formula**:
-        $$ Accuracy = \frac{\text{Number of Correct Predictions}}{\text{Total Number of Predictions}} $$
+        $$
+Accuracy = \frac{\text{Number of Correct Predictions}}{\text{Total Number of Predictions}}
+$$
     *   **Interpretation**: Simple and intuitive, but can be misleading for imbalanced datasets.
 
 *   **Precision**:
     *   **Description**: The proportion of true positive predictions among all positive predictions. It answers: "Of all instances predicted as positive, how many were actually positive?"
     *   **Formula**:
-        $$ Precision = \frac{TP}{TP + FP} $$
+        $$
+Precision = \frac{TP}{TP + FP}
+$$
         Where TP is True Positives and FP is False Positives.
     *   **Interpretation**: High precision indicates a low false positive rate.
 
 *   **Recall (Sensitivity)**:
     *   **Description**: The proportion of true positive predictions among all actual positive instances. It answers: "Of all actual positive instances, how many were correctly identified?"
     *   **Formula**:
-        $$ Recall = \frac{TP}{TP + FN} $$
+        $$
+Recall = \frac{TP}{TP + FN}
+$$
         Where FN is False Negatives.
     *   **Interpretation**: High recall indicates a low false negative rate.
 
 *   **F1-Score**:
     *   **Description**: The harmonic mean of Precision and Recall. It provides a single score that balances both precision and recall, useful for imbalanced datasets.
     *   **Formula**:
-        $$ F1 = 2 \cdot \frac{Precision \cdot Recall}{Precision + Recall} $$
+        $$
+F1 = 2 \cdot \frac{Precision \cdot Recall}{Precision + Recall}
+$$
     *   **Interpretation**: A higher F1-score indicates better balance between precision and recall.
 
 *   **ROC AUC (Receiver Operating Characteristic - Area Under Curve)**:
@@ -723,7 +776,9 @@ For classification tasks, the package provides metrics to assess the model's abi
 *   **Log Loss (Cross-Entropy Loss)**:
     *   **Description**: Measures the performance of a classification model where the prediction input is a probability value between 0 and 1. Log loss increases as the predicted probability diverges from the actual label.
     *   **Formula (Binary Classification)**:
-        $$ L_{log} = - \frac{1}{N} \sum_{i=1}^{N} [y_i \log(p_i) + (1 - y_i) \log(1 - p_i)] $$
+        $$
+L_{log} = - \frac{1}{N} \sum_{i=1}^{N} [y_i \log(p_i) + (1 - y_i) \log(1 - p_i)]
+$$
         Where $y_i$ is the true label (0 or 1) and $p_i$ is the predicted probability for class 1.
     *   **Interpretation**: A lower log loss indicates better model performance. It heavily penalizes confident but incorrect predictions.
 
@@ -1084,7 +1139,7 @@ if loaded_automl_reg:
 
 save_path_clf_automl = "automl_clf_state.joblib"
 automl_clf.save_automl_state(save_path_clf_automl)
-loaded_automl_clf = AutoML.load_automl_state(save_path_clf_clf)
+loaded_automl_clf = AutoML.load_automl_state(save_path_clf_automl)
 
 if loaded_automl_clf:
     logger.info(f"Loaded AutoML best classification model: {loaded_automl_clf.get_best_model_info()['name']}")
