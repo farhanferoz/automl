@@ -183,7 +183,7 @@ This section details the Neural Network models available in the package, designe
     |   (or logits)           |
     +-------------------------+
     ```
-*   **Activation Functions**: Supports common activation functions like ReLU ($\text{ReLU}(x) = \max(0, x)$) and Tanh ($\text{Tanh}(x) = \frac{e^x - e^{-x}}{e^x + e^{-x}}$).
+*   **Activation Functions**: Supports common activation functions like ReLU, $\text{ReLU}(x) = \max(0, x)$, and Tanh, $\text{Tanh}(x) = \frac{e^x - e^{-x}}{e^x + e^{-x}}$.
 *   **Regularization**: When `learn_regularization_lambdas` is `False`, fixed L1 and L2 regularization are applied directly to the loss function. See [Lambda Estimation](#5-lambda-estimation-automatic-regularization-learning) for details on the loss formulation.
 
 #### **FlexibleNeuralNetwork**
