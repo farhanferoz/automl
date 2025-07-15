@@ -415,7 +415,9 @@ These models are designed for regression tasks where quantifying the uncertainty
           3.  **Gumbel-Softmax with STE**: The Gumbel-Softmax trick with `hard=True` (Straight-Through Estimator - STE) is applied to the logits from the `n_classes_predictor`. This produces a one-hot vector, effectively selecting a discrete `k` (number of classes for the probabilistic path) or the 'direct regression' mode for each input sample.
               *   **Mathematical Formulation (Gumbel-Softmax with STE)**:
                   Given logits $z$ from the `n_classes_predictor` and Gumbel noise $g \sim \text{Gumbel}(0, 1)$, the one-hot selection $s$ is obtained as:
-                  $$ s = \text{one_hot}(\text{argmax}(\frac{z + g}{\tau})) $$
+                  $
+s = \text{one_hot}(\text{argmax}(\frac{z + g}{\tau}))
+$
                   During the backward pass, gradients are approximated as if the soft (non-hard) Gumbel-Softmax probabilities were used, allowing gradients to flow to the `n_classes_predictor`.
           4.  **Dynamic Logit Masking and Softmax**: The main classifier branch always outputs raw logits for `max_n_classes_for_probabilistic_path` classes. Based on the `k` selected by the `n_classes_predictor` (if the probabilistic path is chosen), logits for unselected classes are masked (set to $-\infty$) before applying softmax. This ensures that only the `k` selected probabilities are non-zero and sum to 1.
               *   **Mathematical Formulation (Masked Softmax)**:
@@ -619,7 +621,9 @@ The package provides transformers for handling categorical features, which shoul
 *   **`OrderedTargetEncoder`**: A more advanced, leakage-free target encoder, particularly useful for high-cardinality categorical features. Instead of creating many new columns, it encodes each category based on its relationship with the target variable.
     *   **Core Idea**: It replaces each category with a smoothed version of the target variable's mean for that category. To prevent target leakage (where information from the target variable of a sample is used to encode a feature for that same sample), the calculation is performed on a randomly shuffled version of the data.
     *   **Mathematical Formulation**: For each row `i` in the shuffled training data, the encoded value for a specific category is calculated as:
-        $$ \text{EncodedValue}_i = \frac{\text{cumsum}_i + \mu_{\text{global}} \cdot s}{\text{cumcount}_i + s} $$
+        $
+\text{EncodedValue}_i = \frac{\text{cumsum}_i + \mu_{\text{global}} \cdot s}{\text{cumcount}_i + s}
+$
         Where:
         *   $\text{cumsum}_i$: The cumulative sum of the target values for all *previous* rows belonging to the same category.
         *   $\text{cumcount}_i$: The cumulative count of *previous* rows belonging to the same category.
