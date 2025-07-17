@@ -947,8 +947,8 @@ To use this package in your own projects, you can install it directly from the s
 First, clone this repository to your local machine:
 
 ```bash
-git clone https://github.com/your-username/automl-package.git
-cd automl-package
+git clone https://github.com/jordanelridge31/automl.git
+cd automl
 ```
 
 ### **2. Install the Package**
@@ -961,7 +961,7 @@ From the root directory of the project (where `setup.py` is located), run:
 pip install -e .
 ```
 
-This command will install the `automl_package` and all its dependencies listed in `setup.py`.
+This command will install the `` and all its dependencies listed in `setup.py`.
 
 ### **3. Verify the Installation**
 
