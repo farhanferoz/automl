@@ -940,13 +940,41 @@ This leaderboard functionality allows you to quickly identify the most promising
 
 ## **14. Installation**
 
-To use the AutoML package, you'll need Python 3.8+ and install the necessary dependencies:
+To use this package in your own projects, you can install it directly from the source code.
+
+### **1. Clone the Repository**
+
+First, clone this repository to your local machine:
 
 ```bash
-pip install numpy pandas scikit-learn optuna jax jaxlib[cuda] # or jaxlib for CPU only
-pip install torch torchvision torchaudio # Install PyTorch based on your CUDA version: https://pytorch.org/get-started/locally/
-pip install xgboost lightgbm catboost flax optax shap
+git clone https://github.com/your-username/automl-package.git
+cd automl-package
 ```
+
+### **2. Install the Package**
+
+It is recommended to install the package in an editable, or "developer," mode. This allows you to make changes to the source code and have them immediately reflected in your environment without needing to reinstall.
+
+From the root directory of the project (where `setup.py` is located), run:
+
+```bash
+pip install -e .
+```
+
+This command will install the `automl_package` and all its dependencies listed in `setup.py`.
+
+### **3. Verify the Installation**
+
+After installation, you should be able to import the `AutoML` class and other components from any Python script or notebook in your environment:
+
+```python
+from automl_package.automl import AutoML
+from automl_package.enums import TaskType
+
+# If this runs without an ImportError, the installation was successful.
+print("AutoML package imported successfully!")
+```
+
 
 ## **15. Usage**
 
