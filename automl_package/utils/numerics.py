@@ -1,10 +1,12 @@
+"""Numerical utility functions."""
+
 import re
-from typing import Tuple, Optional
+
 import torch
 import torch.nn as nn
 
 
-def aggregate_stats(model: nn.Sequential, include_bias: bool = True, exclude_names_pattern: Optional[str] = None) -> Tuple[int, float, float]:
+def aggregate_stats(model: nn.Sequential, include_bias: bool = True, exclude_names_pattern: str | None = None) -> tuple[int, float, float]:
     """Return (d, sum|w|, sum w²) across selected parameters."""
     d = 0  # total #elements
     l1_sum = 0.0
@@ -21,7 +23,7 @@ def aggregate_stats(model: nn.Sequential, include_bias: bool = True, exclude_nam
 
 
 def log_erfc(x: torch.Tensor) -> torch.Tensor:
-    """Numerically‑stable log(erfc(x))"""
+    """Numerically-stable log(erfc(x))."""
     x64 = x.to(dtype=torch.float64)
     mask = x64 > 5.0
     out = torch.empty_like(x64)

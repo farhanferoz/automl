@@ -1,22 +1,35 @@
+"""Linear Regression model implemented using JAX."""
+
+from typing import Any
+
 import jax
 import jax.numpy as jnp
-from jax import grad, jit
 import numpy as np
-from .base import BaseModel
-from typing import Dict, Any
-from ..utils.metrics import Metrics
-from sklearn.model_selection import train_test_split
+from jax import grad, jit
 from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
+
+from ..utils.metrics import Metrics
+from .base import BaseModel
 
 
 class JAXLinearRegression(BaseModel):
-    """
-    Linear Regression model implemented using JAX.
+    """Linear Regression model implemented using JAX.
+
     Supports basic linear regression with gradient descent and residual-based uncertainty.
     Includes L1 and L2 regularization.
     """
 
     def __init__(self, learning_rate: float = 0.01, n_iterations: int = 1000, l1_lambda: float = 0.0, l2_lambda: float = 0.0, **kwargs):
+        """Initializes the JAXLinearRegression model.
+
+        Args:
+            learning_rate (float): The learning rate for gradient descent.
+            n_iterations (int): The number of training iterations.
+            l1_lambda (float): L1 regularization strength.
+            l2_lambda (float): L2 regularization strength.
+            **kwargs: Additional keyword arguments for the BaseModel.
+        """
         super().__init__(**kwargs)
         self.learning_rate = learning_rate
         self.n_iterations = n_iterations
@@ -27,10 +40,11 @@ class JAXLinearRegression(BaseModel):
         self.key = jax.random.PRNGKey(0)
         self.is_regression_model = True  # Set regression flag
         self._train_residual_std = 0.0  # Stores standard deviation of residuals on training data
-        self.n_features = 0 # Initialize n_features
+        self.n_features = 0  # Initialize n_features
 
     @property
     def name(self) -> str:
+        """Returns the name of the model."""
         return "JAXLinearRegression"
 
     def _loss_fn(self, weights: jnp.ndarray, bias: jnp.ndarray, X: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
@@ -44,13 +58,22 @@ class JAXLinearRegression(BaseModel):
         return mse_loss + l1_penalty + l2_penalty
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> int:
+        """Fits the JAXLinearRegression model to the training data.
+
+        Args:
+            X (np.ndarray): Feature matrix.
+            y (np.ndarray): Target vector.
+
+        Returns:
+            int: Number of iterations used for training.
+        """
         if self.early_stopping_rounds is not None and self.validation_fraction > 0:
             X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=self.validation_fraction, random_state=42)
         else:
             X_train, y_train = X, y
             X_val, y_val = None, None
 
-        self.n_features = X_train.shape[1] # Store n_features
+        self.n_features = X_train.shape[1]  # Store n_features
 
         X_train_jax = jnp.array(X_train, dtype=jnp.float32)
         y_train_jax = jnp.array(y_train, dtype=jnp.float32)
@@ -61,7 +84,7 @@ class JAXLinearRegression(BaseModel):
 
         loss_grad = jit(grad(self._loss_fn, argnums=(0, 1)))
 
-        best_val_loss = float('inf')
+        best_val_loss = float("inf")
         patience_counter = 0
         best_weights = self.weights
         best_bias = self.bias
@@ -90,7 +113,7 @@ class JAXLinearRegression(BaseModel):
                     break
             else:
                 best_i = i
-        
+
         self.weights = best_weights
         self.bias = best_bias
 
@@ -99,10 +122,18 @@ class JAXLinearRegression(BaseModel):
         self._train_residual_std = np.std(y - y_pred_train)
         if np.isnan(self._train_residual_std):  # Handle cases of perfect fit or single point
             self._train_residual_std = 0.0
-        
-        return best_i + 1 # Return the number of iterations actually used
+
+        return best_i + 1  # Return the number of iterations actually used
 
     def predict(self, X: np.ndarray) -> np.ndarray:
+        """Makes predictions on new data.
+
+        Args:
+            X (np.ndarray): Feature matrix for prediction.
+
+        Returns:
+            np.ndarray: Predicted values.
+        """
         if self.weights is None or self.bias is None:
             raise RuntimeError("Model has not been fitted yet.")
         X_jax = jnp.array(X, dtype=jnp.float32)
@@ -110,11 +141,24 @@ class JAXLinearRegression(BaseModel):
         return np.array(predictions)
 
     def get_num_parameters(self) -> int:
+        """Returns the total number of trainable parameters in the model.
+
+        Returns:
+            int: The total number of parameters.
+        """
         if self.weights is None:
-            return 0 # Or raise an error if model not fitted
-        return self.weights.size + 1 # weights + bias
+            return 0  # Or raise an error if model not fitted
+        return self.weights.size + 1  # weights + bias
 
     def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
+        """Estimates uncertainty for predictions.
+
+        Args:
+            X (np.ndarray): Feature matrix for uncertainty estimation.
+
+        Returns:
+            np.ndarray: Uncertainty estimates (e.g., standard deviation).
+        """
         if not self.is_regression_model:
             raise ValueError("predict_uncertainty is only available for regression models.")
         if self.weights is None or self.bias is None:
@@ -123,9 +167,19 @@ class JAXLinearRegression(BaseModel):
         return np.full(X.shape[0], self._train_residual_std)
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Not implemented for JAXLinearRegression.
+
+        Raises:
+            NotImplementedError: JAXLinearRegression is a regression model.
+        """
         raise NotImplementedError("JAXLinearRegression is a regression model and does not support predict_proba.")
 
-    def get_hyperparameter_search_space(self) -> Dict[str, Any]:
+    def get_hyperparameter_search_space(self) -> dict[str, Any]:
+        """Defines the hyperparameter search space for JAXLinearRegression.
+
+        Returns:
+            Dict[str, Any]: A dictionary defining the hyperparameter search space.
+        """
         return {
             "learning_rate": {"type": "float", "low": 1e-4, "high": 1e-1, "log": True},
             "n_iterations": {"type": "int", "low": 100, "high": 2000, "step": 100},
@@ -134,9 +188,24 @@ class JAXLinearRegression(BaseModel):
         }
 
     def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+        """Not implemented for JAXLinearRegression.
+
+        Raises:
+            NotImplementedError: JAXLinearRegression is not a composite model.
+        """
         raise NotImplementedError("JAXLinearRegression is not a composite model and does not have an internal classifier for separate prediction.")
 
     def evaluate(self, X: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
+        """Evaluates the model on a given dataset and saves the metrics.
+
+        Args:
+            X (np.ndarray): Feature matrix for evaluation.
+            y (np.ndarray): True labels for evaluation.
+            save_path (str): Directory to save the metrics files.
+
+        Returns:
+            np.ndarray: The predictions made by the model.
+        """
         y_pred = self.predict(X)
         metrics_calculator = Metrics("regression", self.name, y, y_pred)
         metrics_calculator.save_metrics(save_path)

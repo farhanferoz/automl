@@ -1,4 +1,5 @@
-from typing import Dict, List, Union
+"""Module for explaining model predictions using SHAP."""
+
 import numpy as np
 import shap
 import torch
@@ -12,17 +13,14 @@ from ..models.probabilistic_regression import ProbabilisticRegressionModel  # Sp
 
 
 class FeatureExplainer:
-    """
-    A class to explain model predictions using SHAP (SHapley Additive exPlanations).
+    """A class to explain model predictions using SHAP (SHapley Additive exPlanations).
+
     It adapts to different model types (Tree-based, Neural Networks, other scikit-learn models)
     and handles scikit-learn pipelines with an assumed 'scaler' and 'model' step.
     """
 
-    def __init__(
-        self, model_instance: Union[BaseModel, Pipeline], X_background: np.ndarray, feature_names: List[str] = None, device: torch.device = None, max_data_points: int = 50000
-    ):
-        """
-        Initializes the SHAP explainer based on the model type.
+    def __init__(self, model_instance: BaseModel | Pipeline, X_background: np.ndarray, feature_names: list[str] = None, device: torch.device = None, max_data_points: int = 50000):
+        """Initializes the SHAP explainer based on the model type.
 
         Args:
             model_instance (Union[BaseModel, Pipeline]): The trained model instance from the AutoML pipeline.
@@ -30,6 +28,8 @@ class FeatureExplainer:
             X_background (np.ndarray): A background dataset (e.g., a subset of training data) for explainer initialization.
                                        This data should be in the *scaled* format if the model expects scaled input.
             feature_names (List[str], optional): Names of the features. If None, uses generic names.
+            device (torch.device, optional): The device (CPU or GPU) to use for PyTorch models.
+            max_data_points (int): Maximum number of data points to use for SHAP explanation.
         """
         self.original_model = model_instance  # Store the original object (can be pipeline)
         self.X_background = X_background
@@ -44,8 +44,8 @@ class FeatureExplainer:
         self._initialize_explainer()
 
     def _initialize_explainer(self):
-        """
-        Initializes the appropriate SHAP explainer based on the model type.
+        """Initializes the appropriate SHAP explainer based on the model type.
+
         Handles extraction of model and scaler from scikit-learn Pipelines.
         """
         # Check if the model_instance is a scikit-learn Pipeline
@@ -89,19 +89,19 @@ class FeatureExplainer:
             self.explainer = shap.DeepExplainer(self.model_to_explain_directly.get_internal_model(), background_tensor)
 
         elif model_name_str == ModelName.PROBABILISTIC_REGRESSION.value:
-            logger.info(f"Using shap.DeepExplainer for ProbabilisticRegression model.")
+            logger.info("Using shap.DeepExplainer for ProbabilisticRegression model.")
             # ProbabilisticRegressionModel exposes its combined_model (which is an nn.Module) as the internal model
             background_tensor = torch.tensor(self.X_background, dtype=torch.float32).to(self.device)
 
             self.explainer = shap.DeepExplainer(self.model_to_explain_directly.get_internal_model(), background_tensor)
 
         elif model_name_str == ModelName.SKLEARN_LOGISTIC_REGRESSION.value:
-            logger.info(f"Using shap.LinearExplainer for SKLearnLogisticRegression model.")
+            logger.info("Using shap.LinearExplainer for SKLearnLogisticRegression model.")
             # LinearExplainer is efficient for linear models
             self.explainer = shap.LinearExplainer(self.model_to_explain_directly.get_internal_model(), self.X_background)
 
         elif model_name_str == ModelName.JAX_LINEAR_REGRESSION.value:
-            logger.info(f"Using shap.KernelExplainer for JAXLinearRegression model (as it's custom JAX and not tree/deep).")
+            logger.info("Using shap.KernelExplainer for JAXLinearRegression model (as it's custom JAX and not tree/deep).")
 
             # For custom JAX models not suitable for DeepExplainer, KernelExplainer is a general fallback
             def jax_linear_predict_wrapper(x):
@@ -116,8 +116,7 @@ class FeatureExplainer:
             self.explainer = shap.KernelExplainer(self.model_to_explain_directly.predict, self.X_background)
 
     def explain(self, X_to_explain: np.ndarray):
-        """
-        Computes SHAP values for the given data.
+        """Computes SHAP values for the given data.
 
         Args:
             X_to_explain (np.ndarray): The dataset for which to compute SHAP values.
@@ -153,20 +152,19 @@ class FeatureExplainer:
             if hasattr(self.model_to_explain_directly, "task_type") and self.model_to_explain_directly.task_type == TaskType.CLASSIFICATION:
                 if len(shap_values_obj) == 2:  # Binary classification
                     return np.array(shap_values_obj[1])  # SHAP values for the positive class
-                else:  # Multi-class
-                    # For multi-class, often useful to get the SHAP values for the predicted class,
-                    # or average their absolute values. For a general summary, mean absolute over classes.
-                    logger.warning("Multi-class classification SHAP values: Returning mean of absolute SHAP values across classes for summary.")
-                    return np.mean(np.abs(np.array(shap_values_obj)), axis=0)
-            else:  # Multi-output regression (if any model has this and explainer supports)
-                # Average across outputs or handle specifically
-                logger.warning("Multi-output regression SHAP values: Returning mean of absolute SHAP values across outputs for summary.")
-                return np.mean(np.array(shap_values_obj), axis=0)
+                # Multi-class
+                # For multi-class, often useful to get the SHAP values for the predicted class,
+                # or average their absolute values. For a general summary, mean absolute over classes.
+                logger.warning("Multi-class classification SHAP values: Returning mean of absolute SHAP values across classes for summary.")
+                return np.mean(np.abs(np.array(shap_values_obj)), axis=0)
+            # Multi-output regression (if any model has this and explainer supports)
+            # Average across outputs or handle specifically
+            logger.warning("Multi-output regression SHAP values: Returning mean of absolute SHAP values across outputs for summary.")
+            return np.mean(np.array(shap_values_obj), axis=0)
         return np.array(shap_values_obj)
 
-    def get_feature_importance_summary(self, shap_values_object: Union[np.ndarray, List[np.ndarray]]) -> Dict[str, float]:
-        """
-        Calculates global feature importance based on mean absolute SHAP values.
+    def get_feature_importance_summary(self, shap_values_object: np.ndarray | list[np.ndarray]) -> dict[str, float]:
+        """Calculates global feature importance based on mean absolute SHAP values.
 
         Args:
             shap_values_object (Union[np.ndarray, List[np.ndarray]]): The SHAP values, which can be
@@ -192,7 +190,7 @@ class FeatureExplainer:
             # Adjust feature names if mismatch, to prevent errors
             self.feature_names = [f"Feature_{i}" for i in range(len(mean_abs_shap))]
 
-        feature_importance = dict(zip(self.feature_names, mean_abs_shap))
+        feature_importance = dict(zip(self.feature_names, mean_abs_shap, strict=False))
 
         # Sort in descending order of importance
         sorted_importance = dict(sorted(feature_importance.items(), key=lambda item: item[1], reverse=True))

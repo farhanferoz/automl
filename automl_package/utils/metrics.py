@@ -1,28 +1,43 @@
-import numpy as np
-from sklearn.metrics import (
-    mean_absolute_error,
-    mean_squared_error,
-    r2_score,
-    accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    roc_auc_score,
-    log_loss,
-    confusion_matrix,
-    roc_curve,
-    precision_recall_curve,
-)
-import matplotlib.pyplot as plt
+"""Metrics calculation and plotting utilities."""
+
 import json
 from pathlib import Path
-from typing import Any
+
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    log_loss,
+    mean_absolute_error,
+    mean_squared_error,
+    precision_recall_curve,
+    precision_score,
+    r2_score,
+    recall_score,
+    roc_auc_score,
+    roc_curve,
+)
+
+from ..enums import RegressionStrategy
 from ..logger import logger
-from ..enums import RegressionStrategy, UncertaintyMethod
 
 
 class Metrics:
+    """A class for calculating and plotting various machine learning metrics."""
+
     def __init__(self, task_type, model_name, y_true, y_pred, y_proba=None, **kwargs):
+        """Initializes the Metrics calculator.
+
+        Args:
+            task_type (str): Type of task ('regression' or 'classification').
+            model_name (str): Name of the model.
+            y_true (np.ndarray): True target values.
+            y_pred (np.ndarray): Predicted target values.
+            y_proba (np.ndarray, optional): Predicted probabilities for classification tasks.
+            **kwargs: Additional keyword arguments for specific plots (e.g., flexible_nn_n_actual).
+        """
         self.task_type = task_type
         self.model_name = model_name
         self.y_true = y_true
@@ -58,12 +73,21 @@ class Metrics:
         return unique_bin_edges, bin_midpoints, n_bins
 
     def calculate_all_metrics(self):
+        """Calculates all relevant metrics based on the task type.
+
+        Returns:
+            dict: A dictionary of calculated metrics.
+        """
         if self.task_type == "regression":
             return self.calculate_regression_metrics()
-        else:
-            return self.calculate_classification_metrics()
+        return self.calculate_classification_metrics()
 
     def calculate_regression_metrics(self):
+        """Calculates regression-specific metrics.
+
+        Returns:
+            dict: A dictionary of regression metrics.
+        """
         metrics = {
             "mae": mean_absolute_error(self.y_true, self.y_pred),
             "rmse": np.sqrt(mean_squared_error(self.y_true, self.y_pred)),
@@ -72,6 +96,11 @@ class Metrics:
         return metrics
 
     def calculate_classification_metrics(self):
+        """Calculates classification-specific metrics.
+
+        Returns:
+            dict: A dictionary of classification metrics.
+        """
         metrics = {
             "accuracy": accuracy_score(self.y_true, self.y_pred),
             "precision": precision_score(self.y_true, self.y_pred, average="weighted"),
@@ -97,6 +126,11 @@ class Metrics:
         return metrics
 
     def plot_regression_charts(self, save_path):
+        """Generates and saves regression-specific plots.
+
+        Args:
+            save_path (str): Directory to save the plots.
+        """
         Path(save_path).mkdir(parents=True, exist_ok=True)
 
         # Predicted vs. Actual Plot
@@ -121,6 +155,11 @@ class Metrics:
         plt.close()
 
     def plot_classification_charts(self, save_path):
+        """Generates and saves classification-specific plots.
+
+        Args:
+            save_path (str): Directory to save the plots.
+        """
         Path(save_path).mkdir(parents=True, exist_ok=True)
 
         # Confusion Matrix
@@ -200,6 +239,11 @@ class Metrics:
             self.plot_completeness_vs_purity(save_path)
 
     def plot_predicted_vs_true_classification_rate(self, save_path):
+        """Plots predicted vs. true classification rate.
+
+        Args:
+            save_path (str): Directory to save the plot.
+        """
         max_proba = np.max(self.y_proba, axis=1)
         predicted_classes = np.argmax(self.y_proba, axis=1)
         is_correct = predicted_classes == self.y_true
@@ -243,6 +287,11 @@ class Metrics:
         plt.close()
 
     def plot_completeness_vs_purity(self, save_path):
+        """Plots completeness vs. purity for classification.
+
+        Args:
+            save_path (str): Directory to save the plot.
+        """
         max_proba = np.max(self.y_proba, axis=1)
         predicted_classes = np.argmax(self.y_proba, axis=1)
         is_correct = predicted_classes == self.y_true
@@ -274,6 +323,11 @@ class Metrics:
         plt.close()
 
     def plot_flexible_nn_architecture(self, save_path: str):
+        """Plots the architecture decisions of a Flexible Neural Network.
+
+        Args:
+            save_path (str): Directory to save the plots.
+        """
         if self.flexible_nn_n_actual is None or self.flexible_nn_n_logits is None:
             return
 
@@ -285,7 +339,7 @@ class Metrics:
         feature_scaler = self.flexible_nn_feature_scaler
 
         # Inverse transform X_scaled to original scale for plotting
-        X_original = self.y_true # Assuming y_true has the same shape as X for plotting purposes
+        X_original = self.y_true  # Assuming y_true has the same shape as X for plotting purposes
         if feature_scaler:
             X_original = feature_scaler.inverse_transform(X_original.reshape(-1, 1)).flatten()
         else:
@@ -293,18 +347,18 @@ class Metrics:
 
         # Plot 1: Distribution of chosen active layers
         plt.figure(figsize=(8, 5))
-        hist, bins, _ = plt.hist(n_actual, bins=np.arange(1, max_hidden_layers + 2), align='left', rwidth=0.8, color='navy')
+        hist, bins, _ = plt.hist(n_actual, bins=np.arange(1, max_hidden_layers + 2), align="left", rwidth=0.8, color="navy")
         plt.xticks(np.arange(1, max_hidden_layers + 1))
         plt.xlabel("Number of Active Layers")
         plt.ylabel("Count")
         plt.title(f"Flexible NN ({self.model_name}) - Chosen Active Layers Distribution")
-        plt.grid(axis='y', alpha=0.75)
+        plt.grid(axis="y", alpha=0.75)
         plt.savefig(f"{save_path}/flexible_nn_active_layers_distribution.png")
         plt.close()
 
         # Plot 2: Logits for each layer vs. Input Feature
         plt.figure(figsize=(10, 6))
-        colors = plt.cm.get_cmap('viridis', max_hidden_layers)
+        colors = plt.cm.get_cmap("viridis", max_hidden_layers)
         for i in range(max_hidden_layers):
             plt.scatter(X_original, n_logits[:, i], label=f"Layer {i+1} Logit", alpha=0.6, color=colors(i))
         plt.xlabel("Input Feature")
@@ -318,6 +372,11 @@ class Metrics:
         logger.info("Flexible NN architecture plots saved successfully.")
 
     def plot_prob_reg_internal_plots(self, save_path: str):
+        """Plots internal aspects of the Probabilistic Regression model.
+
+        Args:
+            save_path (str): Directory to save the plots.
+        """
         if self.prob_reg_classifier_probabilities is None or self.prob_reg_regression_head_outputs is None:
             return
 
@@ -325,7 +384,7 @@ class Metrics:
 
         # Plot 1: Internal Classifier Probabilities
         plt.figure(figsize=(10, 6))
-        colors = plt.cm.get_cmap('viridis', self.prob_reg_n_classes)
+        colors = plt.cm.get_cmap("viridis", self.prob_reg_n_classes)
         X_original_plot = self.prob_reg_X_original.flatten() if self.prob_reg_X_original.ndim > 1 else self.prob_reg_X_original
 
         # Sort data by X_original_plot for cleaner lines
@@ -333,15 +392,15 @@ class Metrics:
         X_original_plot_sorted = X_original_plot[sort_indices]
         prob_reg_classifier_probabilities_sorted = self.prob_reg_classifier_probabilities[sort_indices]
 
-        if prob_reg_classifier_probabilities_sorted.shape[1] > 1: # Multi-class
+        if prob_reg_classifier_probabilities_sorted.shape[1] > 1:  # Multi-class
             for i in range(self.prob_reg_n_classes):
-                plt.plot(X_original_plot_sorted, prob_reg_classifier_probabilities_sorted[:, i], label=f'Class {i} Probability', color=colors(i))
-        else: # Binary
-            plt.plot(X_original_plot_sorted, prob_reg_classifier_probabilities_sorted[:, 1], label='Positive Class Probability', color=colors(0))
+                plt.plot(X_original_plot_sorted, prob_reg_classifier_probabilities_sorted[:, i], label=f"Class {i} Probability", color=colors(i))
+        else:  # Binary
+            plt.plot(X_original_plot_sorted, prob_reg_classifier_probabilities_sorted[:, 1], label="Positive Class Probability", color=colors(0))
 
-        plt.title('Internal Classifier Probabilities vs. Input Feature')
-        plt.xlabel('Input Feature Value')
-        plt.ylabel('Probability')
+        plt.title("Internal Classifier Probabilities vs. Input Feature")
+        plt.xlabel("Input Feature Value")
+        plt.ylabel("Probability")
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
@@ -350,7 +409,7 @@ class Metrics:
 
         # Plot 2: Regression Head Outputs
         plt.figure(figsize=(12, 8))
-        colors = plt.cm.get_cmap('plasma', self.prob_reg_n_classes)
+        colors = plt.cm.get_cmap("plasma", self.prob_reg_n_classes)
 
         # Use probas_for_plotting for the x-axis
         probas_range = self.prob_reg_probas_for_plotting[:, 0] if self.prob_reg_probas_for_plotting.ndim > 1 else self.prob_reg_probas_for_plotting
@@ -364,20 +423,20 @@ class Metrics:
             for i in range(self.prob_reg_n_classes):
                 # output is (N, output_size) for each head, so take the mean (index 0)
                 output_for_plot = sorted_regression_head_outputs[:, i, 0] if sorted_regression_head_outputs.ndim == 3 else sorted_regression_head_outputs[:, i]
-                plt.plot(probas_range_sorted, output_for_plot, label=f'Head {i} Output', color=colors(i))
+                plt.plot(probas_range_sorted, output_for_plot, label=f"Head {i} Output", color=colors(i))
         elif self.prob_reg_regression_strategy == RegressionStrategy.SINGLE_HEAD_N_OUTPUTS:
             # This strategy returns (N, n_classes, output_size)
             for i in range(self.prob_reg_n_classes):
                 output_for_plot = sorted_regression_head_outputs[:, i, 0] if sorted_regression_head_outputs.ndim == 3 else sorted_regression_head_outputs[:, i]
-                plt.plot(probas_range_sorted, output_for_plot, label=f'Class {i} Contribution', color=colors(i))
+                plt.plot(probas_range_sorted, output_for_plot, label=f"Class {i} Contribution", color=colors(i))
         elif self.prob_reg_regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
             # This strategy returns (N, output_size)
             output_for_plot = sorted_regression_head_outputs[:, 0] if sorted_regression_head_outputs.ndim == 2 else sorted_regression_head_outputs
-            plt.plot(probas_range_sorted, output_for_plot, label='Combined Output', color='red')
+            plt.plot(probas_range_sorted, output_for_plot, label="Combined Output", color="red")
 
-        plt.title(f'Regression Head Outputs for {self.model_name}')
-        plt.xlabel('Input Probability')
-        plt.ylabel('Regression Output (Mean)')
+        plt.title(f"Regression Head Outputs for {self.model_name}")
+        plt.xlabel("Input Probability")
+        plt.ylabel("Regression Output (Mean)")
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
@@ -387,6 +446,11 @@ class Metrics:
         logger.info("Probabilistic Regression internal plots saved successfully.")
 
     def save_metrics(self, save_path):
+        """Saves calculated metrics to a JSON file and generates plots.
+
+        Args:
+            save_path (str): Directory to save the metrics and plots.
+        """
         Path(save_path).mkdir(parents=True, exist_ok=True)
         metrics = self.calculate_all_metrics()
         with open(f"{save_path}/metrics.json", "w") as f:

@@ -1,15 +1,15 @@
-from typing import Callable
+"""Optuna optimizer for hyperparameter tuning."""
+
+from collections.abc import Callable
+
 import optuna
 
 
 class OptunaOptimizer:
-    """
-    Manages hyperparameter optimization using Optuna.
-    """
+    """Manages hyperparameter optimization using Optuna."""
 
     def __init__(self, direction: str = "minimize", n_trials: int = 50, seed: int = 42):
-        """
-        Initializes the Optuna optimizer.
+        """Initializes the Optuna optimizer.
 
         Args:
             direction (str): 'minimize' or 'maximize' the objective function.
@@ -22,8 +22,7 @@ class OptunaOptimizer:
         self.study = None
 
     def optimize(self, objective_fn: Callable[[optuna.Trial], float], **kwargs) -> optuna.study.Study:
-        """
-        Runs the Optuna optimization.
+        """Runs the Optuna optimization.
 
         Args:
             objective_fn (Callable[[optuna.Trial], float]): A function that takes an Optuna trial object

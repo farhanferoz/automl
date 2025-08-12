@@ -1,7 +1,10 @@
+"""Automated Machine Learning (AutoML) orchestrator and pipeline management."""
+
 import json
 from datetime import datetime
 from enum import Enum
-from typing import Dict, Any, Type, Union, List, Tuple, Optional, cast
+from typing import Any, cast
+
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,12 +13,11 @@ import pandas as pd  # Import pandas for feature names in SHAP output
 import seaborn as sns
 import torch.nn as nn
 import wandb
-from sklearn.metrics import mean_squared_error, accuracy_score, log_loss
-from sklearn.model_selection import KFold
 from sklearn.base import TransformerMixin
+from sklearn.metrics import accuracy_score, log_loss, mean_squared_error
+from sklearn.model_selection import KFold
 
-from .enums import UncertaintyMethod, RegressionStrategy, MapperType, TaskType, ModelName, CategoricalEncodingStrategy
-from .preprocessing import OrderedTargetEncoder, OneHotEncoder
+from .enums import CategoricalEncodingStrategy, MapperType, ModelName, RegressionStrategy, TaskType, UncertaintyMethod
 from .explainers.feature_explainer import FeatureExplainer
 from .logger import logger
 from .models.base import BaseModel
@@ -30,11 +32,12 @@ from .models.probabilistic_regression import ProbabilisticRegressionModel
 from .models.sklearn_logistic_regression import SKLearnLogisticRegression
 from .models.xgboost_model import XGBoostModel
 from .optimizers.optuna_optimizer import OptunaOptimizer
+from .preprocessing import OneHotEncoder, OrderedTargetEncoder
 
 
 class AutoML:
-    """
-    An Automated Machine Learning (AutoML) orchestrator.
+    """An Automated Machine Learning (AutoML) orchestrator.
+
     Manages model selection, hyperparameter optimization, and training.
     """
 
@@ -45,16 +48,15 @@ class AutoML:
         n_trials: int = 20,
         n_splits: int = 5,
         random_state: int = 42,
-        feature_scaler: Optional[TransformerMixin] = None,
-        target_scaler: Optional[TransformerMixin] = None,
+        feature_scaler: TransformerMixin | None = None,
+        target_scaler: TransformerMixin | None = None,
         use_wandb: bool = False,
-        categorical_features: Optional[Union[List[str], List[int]]] = None,
+        categorical_features: list[str] | list[int] | None = None,
         auto_detect_categorical: bool = False,
         auto_detect_categorical_threshold: float = 0.05,
         categorical_encoding_strategy: CategoricalEncodingStrategy = CategoricalEncodingStrategy.ORDERED_TARGET,
     ):
-        """
-        Initializes the AutoML pipeline.
+        """Initializes the AutoML pipeline.
 
         Args:
             task_type (TaskType): The type of machine learning task (TaskType.REGRESSION or TaskType.CLASSIFICATION).
@@ -68,6 +70,11 @@ class AutoML:
                                             If None, no feature scaling is applied by AutoML.
             target_scaler (Any, optional): An unfitted scikit-learn compatible scaler for targets (e.g., StandardScaler()).
                                             Only applicable for regression tasks. If None, no target scaling is applied.
+            use_wandb (bool): Whether to use Weights & Biases for logging.
+            categorical_features (list[str] | list[int] | None): List of categorical feature names or indices.
+            auto_detect_categorical (bool): Whether to automatically detect categorical features.
+            auto_detect_categorical_threshold (float): Threshold for automatic categorical feature detection.
+            categorical_encoding_strategy (CategoricalEncodingStrategy): Strategy for encoding categorical features.
         """
         self.task_type = task_type
         self.metric = metric
@@ -85,13 +92,13 @@ class AutoML:
         self.target_scaler = target_scaler if self.task_type == TaskType.REGRESSION else None
 
         # Internal storage for fitted scalers and encoders
-        self._fitted_feature_scaler: Optional[TransformerMixin] = None
-        self._fitted_target_scaler: Optional[TransformerMixin] = None
-        self._fitted_categorical_encoder: Optional[Union[OrderedTargetEncoder, OneHotEncoder]] = None
-        self._final_categorical_features: List[Union[str, int]] = []
+        self._fitted_feature_scaler: TransformerMixin | None = None
+        self._fitted_target_scaler: TransformerMixin | None = None
+        self._fitted_categorical_encoder: OrderedTargetEncoder | OneHotEncoder | None = None
+        self._final_categorical_features: list[str | int] = []
 
         # Use ModelName enum for registry keys
-        self.models_registry: Dict[ModelName, Type[BaseModel]] = {
+        self.models_registry: dict[ModelName, type[BaseModel]] = {
             ModelName.JAX_LINEAR_REGRESSION: JAXLinearRegression,
             ModelName.NORMAL_EQUATION_LINEAR_REGRESSION: NormalEquationLinearRegression,
             ModelName.PYTORCH_NEURAL_NETWORK: PyTorchNeuralNetwork,
@@ -106,8 +113,8 @@ class AutoML:
             ModelName.PROBABILISTIC_REGRESSION: ProbabilisticRegressionModel,
         }
         # Use ModelName enum for best_model_name storage
-        self.trained_models: Dict[ModelName, Tuple[BaseModel, Dict[str, Any], float]] = {}  # Stores best_model_instance, best_params, best_score
-        self.best_model_name: Optional[ModelName] = None
+        self.trained_models: dict[ModelName, tuple[BaseModel, dict[str, Any], float]] = {}  # Stores best_model_instance, best_params, best_score
+        self.best_model_name: ModelName | None = None
         self.best_overall_metric: float = float("inf") if self._is_minimize_metric() else -float("inf")
 
         self.optuna_optimizer = OptunaOptimizer(direction="minimize" if self._is_minimize_metric() else "maximize", n_trials=n_trials, seed=random_state)
@@ -127,13 +134,11 @@ class AutoML:
             }
             logger.info(f"Removed regression-only models from consideration for {self.task_type.value} task.")
 
-        self.X_train_for_shap: Optional[np.ndarray] = None  # For SHAP background data
-        self.leaderboard: List[Dict[str, Any]] = []  # New: Initialize leaderboard
+        self.X_train_for_shap: np.ndarray | None = None  # For SHAP background data
+        self.leaderboard: list[dict[str, Any]] = []  # New: Initialize leaderboard
 
-    def _identify_categorical_features(self, X: Union[pd.DataFrame, np.ndarray]) -> List[Union[str, int]]:
-        """
-        Identifies categorical features based on user input and/or automatic detection.
-        """
+    def _identify_categorical_features(self, x: pd.DataFrame | np.ndarray) -> list[str | int]:
+        """Identifies categorical features based on user input and/or automatic detection."""
         identified_features = set()
 
         # Add user-provided categorical features
@@ -159,9 +164,9 @@ class AutoML:
         if self.auto_detect_categorical:
             if isinstance(X, pd.DataFrame):
                 for col in X.columns:
-                    if col in identified_features: # Skip if already identified by user
+                    if col in identified_features:  # Skip if already identified by user
                         continue
-                    if X[col].dtype == 'object' or isinstance(X[col], pd.CategoricalDtype):
+                    if X[col].dtype == "object" or isinstance(X[col], pd.CategoricalDtype):
                         identified_features.add(col)
                     elif pd.api.types.is_numeric_dtype(X[col]):
                         unique_ratio = X[col].nunique() / len(X[col])
@@ -171,7 +176,7 @@ class AutoML:
                 # For numpy arrays, auto-detection is more challenging without column names/types.
                 # We'll assume numerical columns with low unique value ratio are categorical.
                 for i in range(X.shape[1]):
-                    if i in identified_features: # Skip if already identified by user
+                    if i in identified_features:  # Skip if already identified by user
                         continue
                     # Check if the column is numeric
                     if np.issubdtype(X[:, i].dtype, np.number):
@@ -181,12 +186,12 @@ class AutoML:
                             identified_features.add(i)
             else:
                 logger.warning("Unsupported input data type for automatic categorical feature detection. Skipping auto-detection.")
-        
+
         # Convert set to sorted list for consistent ordering
         if isinstance(X, pd.DataFrame):
             return sorted([col for col in identified_features if isinstance(col, str)])
-        else: # numpy array
-            return sorted([idx for idx in identified_features if isinstance(idx, int)])
+        # numpy array
+        return sorted([idx for idx in identified_features if isinstance(idx, int)])
 
     def _is_minimize_metric(self) -> bool:
         """Determines if the metric should be minimized."""
@@ -197,15 +202,14 @@ class AutoML:
         if self.task_type == TaskType.REGRESSION:
             if self.metric == "rmse":
                 return np.sqrt(mean_squared_error(y_true, y_pred))
-            elif self.metric == "mse":
+            if self.metric == "mse":
                 return mean_squared_error(y_true, y_pred)
-            else:
-                raise ValueError(f"Unsupported regression metric: {self.metric}")
-        elif self.task_type == TaskType.CLASSIFICATION:
+            raise ValueError(f"Unsupported regression metric: {self.metric}")
+        if self.task_type == TaskType.CLASSIFICATION:
             if self.metric == "accuracy":
                 # y_pred for accuracy should be class labels (0 or 1)
                 return accuracy_score(y_true, y_pred)
-            elif self.metric == "log_loss":
+            if self.metric == "log_loss":
                 # y_proba for log_loss should be probabilities for the positive class (binary) or (N, num_classes) for multi-class
                 if y_proba is None:
                     raise ValueError("y_proba is required for 'log_loss' metric.")
@@ -217,12 +221,10 @@ class AutoML:
                     y_proba_for_logloss = y_proba  # Already (N, num_classes)
 
                 return log_loss(y_true, y_proba_for_logloss)
-            else:
-                raise ValueError(f"Unsupported classification metric: {self.metric}")
-        else:
-            raise ValueError("Task type must be 'regression' or 'classification'.")
+            raise ValueError(f"Unsupported classification metric: {self.metric}")
+        raise ValueError("Task type must be 'regression' or 'classification'.")
 
-    def _instantiate_model(self, model_name: ModelName, params: Dict[str, Any], input_features: int, num_classes: int = None) -> BaseModel:
+    def _instantiate_model(self, model_name: ModelName, params: dict[str, Any], input_features: int, num_classes: int = None) -> BaseModel:
         """Instantiates a model from the registry with given parameters."""
         if model_name == ModelName.CLASSIFIER_REGRESSION:
             # ClassifierRegressionModel needs special handling for its nested parameters
@@ -301,7 +303,7 @@ class AutoML:
                 mapper_params=mapper_params_reconstructed,
                 **params,  # Pass any remaining top-level params for ClassifierRegressionModel
             )
-        elif model_name == ModelName.PYTORCH_NEURAL_NETWORK:
+        if model_name == ModelName.PYTORCH_NEURAL_NETWORK:
             # PyTorchNeuralNetwork parameters
             hidden_sizes_list = [params.pop("hidden_size")] * params.pop("hidden_layers")
             activation_str = params.pop("activation", "ReLU")
@@ -326,7 +328,7 @@ class AutoML:
                 **params,  # Pass any remaining
             )
         # --- INSTANTIATE THE NEW FLEXIBLE_NEURAL_NETWORK MODEL HERE ---
-        elif model_name == ModelName.FLEXIBLE_NEURAL_NETWORK:
+        if model_name == ModelName.FLEXIBLE_NEURAL_NETWORK:
             activation_str = params.pop("activation", "ReLU")
             activation_fn = nn.ReLU if activation_str == "ReLU" else nn.Tanh
             uncertainty_method_enum = UncertaintyMethod(params.pop("uncertainty_method"))
@@ -347,14 +349,14 @@ class AutoML:
                 l1_lambda=params.pop("l1_lambda", 0.0),
                 l2_lambda=params.pop("l2_lambda", 0.0),
                 activation=activation_fn,
-                feature_scaler=self.feature_scaler, # Pass the feature scaler
+                feature_scaler=self.feature_scaler,  # Pass the feature scaler
                 gumbel_tau=params.pop("gumbel_tau"),
                 gumbel_tau_anneal_rate=params.pop("gumbel_tau_anneal_rate"),
                 n_predictor_learning_rate=params.pop("n_predictor_learning_rate"),
                 **params,
             )
         # -----------------------------------------------------------
-        elif model_name == ModelName.PROBABILISTIC_REGRESSION:
+        if model_name == ModelName.PROBABILISTIC_REGRESSION:
             n_classes = params.pop("n_classes")
             regression_strategy_enum = RegressionStrategy(params.pop("regression_strategy"))
             uncertainty_method_enum = UncertaintyMethod(params.pop("uncertainty_method"))
@@ -389,34 +391,32 @@ class AutoML:
                 dropout_rate=params.pop("dropout_rate", 0.1),
                 **params,
             )
-        elif model_name == ModelName.XGBOOST:
+        if model_name == ModelName.XGBOOST:
             if self.task_type == TaskType.CLASSIFICATION:
                 objective = "binary:logistic" if num_classes == 2 else "multi:softmax"
                 eval_metric = "logloss" if num_classes == 2 else "multi:mlogloss"
                 return self.models_registry[model_name](objective=objective, eval_metric=eval_metric, **params)
             return self.models_registry[model_name](objective="reg:squarederror", eval_metric="rmse", **params)
-        elif model_name == ModelName.LIGHTGBM:
+        if model_name == ModelName.LIGHTGBM:
             if self.task_type == TaskType.CLASSIFICATION:
                 objective = "binary" if num_classes == 2 else "multiclass"
                 metric = "binary_logloss" if num_classes == 2 else "multi_logloss"
                 return self.models_registry[model_name](objective=objective, metric=metric, **params)
             return self.models_registry[model_name](objective="regression", metric="rmse", **params)
-        elif model_name == ModelName.CATBOOST:
+        if model_name == ModelName.CATBOOST:
             return self.models_registry[model_name](task_type=self.task_type, **params)
-        elif model_name == ModelName.SKLEARN_LOGISTIC_REGRESSION:
+        if model_name == ModelName.SKLEARN_LOGISTIC_REGRESSION:
             if params.get("penalty") == "elasticnet" and "l1_ratio" in params:  # Ensure l1_ratio only if elasticnet
                 return self.models_registry[model_name](**params)
-            else:
-                params_copy = params.copy()
-                if "l1_ratio" in params_copy:
-                    del params_copy["l1_ratio"]
-                return self.models_registry[model_name](**params_copy)
-        elif model_name == ModelName.JAX_LINEAR_REGRESSION:
+            params_copy = params.copy()
+            if "l1_ratio" in params_copy:
+                del params_copy["l1_ratio"]
+            return self.models_registry[model_name](**params_copy)
+        if model_name == ModelName.JAX_LINEAR_REGRESSION:
             return self.models_registry[model_name](**params)
-        else:
-            raise ValueError(f"Unknown model name: {model_name}")
+        raise ValueError(f"Unknown model name: {model_name}")
 
-    def _sample_params_for_trial(self, trial: optuna.Trial, model_name: ModelName) -> Tuple[Dict[str, Any], Union[str, None]]:
+    def _sample_params_for_trial(self, trial: optuna.Trial, model_name: ModelName) -> tuple[dict[str, Any], str | None]:
         """Samples hyperparameters for a given model from its search space."""
         model_class = self.models_registry[model_name]
         params = {}
@@ -430,7 +430,9 @@ class AutoML:
                 ModelName.SKLEARN_LOGISTIC_REGRESSION.value,
                 ModelName.CATBOOST.value,
             ]
-            base_classifier_name_str = params.pop("base_classifier_name") if "base_classifier_name" in params else trial.suggest_categorical("base_classifier_name", base_classifier_choices_str)
+            base_classifier_name_str = (
+                params.pop("base_classifier_name") if "base_classifier_name" in params else trial.suggest_categorical("base_classifier_name", base_classifier_choices_str)
+            )
             params["base_classifier_name"] = base_classifier_name_str
             base_classifier_class = self.models_registry[ModelName(base_classifier_name_str)]
             param_key_prefix = "base__"  # This prefix is specific to base classifier params
@@ -468,7 +470,7 @@ class AutoML:
                     if params.get(f"{param_key_prefix}penalty") == "elasticnet":  # Check if penalty is elasticnet (should be sampled already)
                         params[param_key] = trial.suggest_float(param_key, config["low"], config["high"], step=config["step"])
                     continue
-                
+
                 if config["type"] == "int":
                     params[param_key] = trial.suggest_int(param_key, config["low"], config["high"], step=config.get("step", 1))
                 elif config["type"] == "float":
@@ -490,7 +492,7 @@ class AutoML:
 
             return params, base_classifier_name_str
 
-        elif model_name == ModelName.PROBABILISTIC_REGRESSION:
+        if model_name == ModelName.PROBABILISTIC_REGRESSION:
             # Sample common parameters for ProbabilisticRegressionModel
             params["n_classes"] = trial.suggest_int("n_classes", 2, 5)
             params["learning_rate"] = trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True)
@@ -517,47 +519,45 @@ class AutoML:
 
             return params, None
 
-        else:  # For other standard models including PyTorchNeuralNetwork, FlexibleNeuralNetwork, XGBoost, LightGBM, CatBoost, SKLearnLogisticRegression, JAXLinearRegression
-            search_space = model_class().get_hyperparameter_search_space()
-            for param_name, config in search_space.items():
-                # Conditional sampling for uncertainty method related parameters in PyTorchNNs
-                if param_name == "n_mc_dropout_samples" or param_name == "dropout_rate":
-                    # Only suggest these if 'uncertainty_method' is MC_DROPOUT
-                    if params.get("uncertainty_method") == UncertaintyMethod.MC_DROPOUT.value:
-                        if config["type"] == "int":
-                            params[param_name] = trial.suggest_int(param_name, config["low"], config["high"], step=config["step"])
-                        elif config["type"] == "float":
-                            params[param_name] = trial.suggest_float(param_name, config["low"], config["high"], step=config["step"])
-                    elif param_name == "dropout_rate":  # If not MC_DROPOUT, set dropout rate to 0.0
-                        params[param_name] = 0.0
-                    continue  # Skip to next param after handling
-
-                # Handle l1_ratio for SKLearnLogisticRegression's elasticnet
-                if param_name == "l1_ratio" and model_name == ModelName.SKLEARN_LOGISTIC_REGRESSION:
-                    if params.get("penalty") == "elasticnet":
+        # For other standard models including PyTorchNeuralNetwork, FlexibleNeuralNetwork, XGBoost, LightGBM, CatBoost, SKLearnLogisticRegression, JAXLinearRegression
+        search_space = model_class().get_hyperparameter_search_space()
+        for param_name, config in search_space.items():
+            # Conditional sampling for uncertainty method related parameters in PyTorchNNs
+            if param_name == "n_mc_dropout_samples" or param_name == "dropout_rate":
+                # Only suggest these if 'uncertainty_method' is MC_DROPOUT
+                if params.get("uncertainty_method") == UncertaintyMethod.MC_DROPOUT.value:
+                    if config["type"] == "int":
+                        params[param_name] = trial.suggest_int(param_name, config["low"], config["high"], step=config["step"])
+                    elif config["type"] == "float":
                         params[param_name] = trial.suggest_float(param_name, config["low"], config["high"], step=config["step"])
-                    continue  # Skip to next param
+                elif param_name == "dropout_rate":  # If not MC_DROPOUT, set dropout rate to 0.0
+                    params[param_name] = 0.0
+                continue  # Skip to next param after handling
 
-                if config["type"] == "int":
-                    params[param_name] = trial.suggest_int(param_name, config["low"], config["high"], step=config.get("step", 1))
-                elif config["type"] == "float":
-                    params[param_name] = trial.suggest_float(param_name, config["low"], config["high"], log=config.get("log", False))
-                elif config["type"] == "categorical":
-                    params[param_name] = trial.suggest_categorical(param_name, config["choices"])
+            # Handle l1_ratio for SKLearnLogisticRegression's elasticnet
+            if param_name == "l1_ratio" and model_name == ModelName.SKLEARN_LOGISTIC_REGRESSION:
+                if params.get("penalty") == "elasticnet":
+                    params[param_name] = trial.suggest_float(param_name, config["low"], config["high"], step=config["step"])
+                continue  # Skip to next param
 
-            # Add FlexibleNeuralNetwork specific hyperparameters to the search space
-            if model_name == ModelName.FLEXIBLE_NEURAL_NETWORK:
-                params["gumbel_tau"] = trial.suggest_float("gumbel_tau", 0.01, 1.0, log=True)
-                params["gumbel_tau_anneal_rate"] = trial.suggest_float("gumbel_tau_anneal_rate", 0.995, 0.9999, log=True)
-                params["n_predictor_learning_rate"] = trial.suggest_float("n_predictor_learning_rate", 1e-3, 0.1, log=True)
-                params["n_predictor_layers"] = trial.suggest_int("n_predictor_layers", 1, 3)
-                
+            if config["type"] == "int":
+                params[param_name] = trial.suggest_int(param_name, config["low"], config["high"], step=config.get("step", 1))
+            elif config["type"] == "float":
+                params[param_name] = trial.suggest_float(param_name, config["low"], config["high"], log=config.get("log", False))
+            elif config["type"] == "categorical":
+                params[param_name] = trial.suggest_categorical(param_name, config["choices"])
 
-            return params, None
+        # Add FlexibleNeuralNetwork specific hyperparameters to the search space
+        if model_name == ModelName.FLEXIBLE_NEURAL_NETWORK:
+            params["gumbel_tau"] = trial.suggest_float("gumbel_tau", 0.01, 1.0, log=True)
+            params["gumbel_tau_anneal_rate"] = trial.suggest_float("gumbel_tau_anneal_rate", 0.995, 0.9999, log=True)
+            params["n_predictor_learning_rate"] = trial.suggest_float("n_predictor_learning_rate", 1e-3, 0.1, log=True)
+            params["n_predictor_layers"] = trial.suggest_int("n_predictor_layers", 1, 3)
 
-    def train(self, X: np.ndarray, y: np.ndarray, models_to_consider: List[ModelName] = None, save_metrics: bool = False):
-        """
-        Trains and optimizes selected models using cross-validation and Optuna.
+        return params, None
+
+    def train(self, x: np.ndarray, y: np.ndarray, models_to_consider: list[ModelName] = None, save_metrics: bool = False):
+        """Trains and optimizes selected models using cross-validation and Optuna.
 
         Args:
             X (np.ndarray): Feature matrix.
@@ -594,7 +594,7 @@ class AutoML:
             logger.info(f"Identified categorical features: {self._final_categorical_features}")
 
         # Categorical Feature Encoding
-        X_processed = X.copy()  # Work on a copy to avoid modifying original X
+        x_processed = X.copy()  # Work on a copy to avoid modifying original X
         if self._final_categorical_features:
             if self.categorical_encoding_strategy == CategoricalEncodingStrategy.ORDERED_TARGET:
                 self._fitted_categorical_encoder = OrderedTargetEncoder(cols=self._final_categorical_features)
@@ -666,10 +666,12 @@ class AutoML:
                 current_model_params, base_classifier_name_str = self._sample_params_for_trial(trial, model_name)
 
                 fold_metrics = []
-                fold_best_iterations = [] # To store best iteration for each fold
+                fold_best_iterations = []  # To store best iteration for each fold
 
                 for fold, (train_idx, val_idx) in enumerate(kf.split(X_processed, y_for_training)):
-                    X_train_fold, X_val_fold = X_processed.iloc[train_idx], X_processed.iloc[val_idx] if isinstance(X_processed, pd.DataFrame) else (X_processed[train_idx], X_processed[val_idx])
+                    X_train_fold, X_val_fold = X_processed.iloc[train_idx], (
+                        X_processed.iloc[val_idx] if isinstance(X_processed, pd.DataFrame) else (X_processed[train_idx], X_processed[val_idx])
+                    )
                     y_train_fold, y_val_fold = y_for_training[train_idx], y_for_training[val_idx]
 
                     # Apply categorical encoding within the fold
@@ -686,6 +688,7 @@ class AutoML:
                     # Apply feature scaling within the fold
                     if self.feature_scaler:
                         from sklearn.base import clone
+
                         fold_scaler = clone(self.feature_scaler)
                         X_train_fold = fold_scaler.fit_transform(X_train_fold)
                         X_val_fold = fold_scaler.transform(X_val_fold)
@@ -717,7 +720,11 @@ class AutoML:
                                 logger.warning(f"Model {model_name.value} does not support predict_proba. Cannot calculate log_loss.")
                                 # Fallback for log_loss if predict_proba is not available: use predicted classes as probabilities (0 or 1)
                                 # This is not ideal but prevents crash.
-                                y_proba = np.eye(num_classes_for_instantiation)[predictions_original_scale.astype(int)] if num_classes_for_instantiation > 2 else np.vstack((1 - predictions_original_scale, predictions_original_scale)).T
+                                y_proba = (
+                                    np.eye(num_classes_for_instantiation)[predictions_original_scale.astype(int)]
+                                    if num_classes_for_instantiation > 2
+                                    else np.vstack((1 - predictions_original_scale, predictions_original_scale)).T
+                                )
 
                         metric_value = self._evaluate_metric(y_val_original_scale, predictions_original_scale, y_proba)
                         fold_metrics.append(metric_value)
@@ -759,20 +766,15 @@ class AutoML:
             self.trained_models[model_name] = (final_model_instance, best_params, best_score)
 
             # Update overall best model
-            if (self._is_minimize_metric() and best_score < self.best_overall_metric) or \
-               (not self._is_minimize_metric() and best_score > self.best_overall_metric):
+            if (self._is_minimize_metric() and best_score < self.best_overall_metric) or (not self._is_minimize_metric() and best_score > self.best_overall_metric):
                 self.best_overall_metric = best_score
                 self.best_model_name = model_name
                 logger.info(f"New best overall model: {self.best_model_name.value} with {self.metric}: {self.best_overall_metric:.4f}")
 
             # Add to leaderboard
-            self.leaderboard.append({
-                "model_name": model_name,
-                "hyperparameters": best_params,
-                "metric_value": best_score,
-                "metric_name": self.metric,
-                "timestamp": datetime.now().isoformat()
-            })
+            self.leaderboard.append(
+                {"model_name": model_name, "hyperparameters": best_params, "metric_value": best_score, "metric_name": self.metric, "timestamp": datetime.now().isoformat()}
+            )
             if self.use_wandb:
                 self._log_model_artifact(final_model_instance, model_name.value, best_params)
 
@@ -786,8 +788,8 @@ class AutoML:
             wandb.finish()
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        """
-        Makes predictions using the overall best trained model.
+        """Makes predictions using the overall best trained model.
+
         Input X is expected in original scale, output predictions are in original scale.
 
         Args:
@@ -820,33 +822,25 @@ class AutoML:
             predictions_reshaped = predictions_scaled.reshape(-1, 1) if predictions_scaled.ndim == 1 else predictions_scaled
             predictions_original_scale = self._fitted_target_scaler.inverse_transform(predictions_reshaped).flatten()
             return predictions_original_scale
-        else:
-            return predictions_scaled  # Return as is for classification or no target scaler
+        return predictions_scaled  # Return as is for classification or no target scaler
 
-    def _log_model_artifact(self, model_instance: BaseModel, model_name: str, hyperparameters: Dict[str, Any]):
-        """
-        Logs the trained model as a W&B artifact.
+    def _log_model_artifact(self, model_instance: BaseModel, model_name: str, hyperparameters: dict[str, Any]):
+        """Logs the trained model as a W&B artifact.
 
         Args:
             model_instance (BaseModel): The trained model instance.
             model_name (str): The name of the model.
             hyperparameters (Dict[str, Any]): The hyperparameters of the model.
         """
-        model_artifact = wandb.Artifact(
-            name=f"{model_name}-model",
-            type="model",
-            metadata=hyperparameters
-        )
+        model_artifact = wandb.Artifact(name=f"{model_name}-model", type="model", metadata=hyperparameters)
         model_path = f"{model_name}_model.joblib"
         self.export_model(model_instance, model_path)
         model_artifact.add_file(model_path)
         wandb.log_artifact(model_artifact)
 
-    
-
     def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
-        """
-        Estimates uncertainty for predictions using the best trained regression model.
+        """Estimates uncertainty for predictions using the best trained regression model.
+
         Input X is expected in original scale, output uncertainty is in original scale.
 
         Args:
@@ -887,12 +881,10 @@ class AutoML:
             scale_factor = self._fitted_target_scaler.scale_[0] if self._fitted_target_scaler.scale_.ndim > 1 else self._fitted_target_scaler.scale_
             uncertainty_original_scale = uncertainty_scaled * scale_factor
             return uncertainty_original_scale
-        else:
-            return uncertainty_scaled  # Return as is if no target scaler
+        return uncertainty_scaled  # Return as is if no target scaler
 
-    def get_feature_importance(self, X_test: np.ndarray, feature_names: List[str] = None) -> Union[Dict[str, float], Dict[str, str]]:
-        """
-        Calculates feature importance using SHAP for the best trained model.
+    def get_feature_importance(self, X_test: np.ndarray, feature_names: list[str] = None) -> dict[str, float] | dict[str, str]:
+        """Calculates feature importance using SHAP for the best trained model.
 
         Args:
             X_test (np.ndarray): The dataset for which to compute feature importances (original scale).
@@ -954,9 +946,8 @@ class AutoML:
             logger.error(f"Error calculating SHAP feature importance for {self.best_model_name.value}: {e}")
             return {"error": f"Failed to calculate SHAP: {e}"}
 
-    def save_feature_importance_to_csv(self, feature_importances: Dict[str, float], file_path: str = "feature_importance.csv"):
-        """
-        Saves the normalized and sorted feature importances to a CSV file.
+    def save_feature_importance_to_csv(self, feature_importances: dict[str, float], file_path: str = "feature_importance.csv"):
+        """Saves the normalized and sorted feature importances to a CSV file.
 
         Args:
             feature_importances (Dict[str, float]): A dictionary of feature names and their
@@ -971,9 +962,8 @@ class AutoML:
         except Exception as e:
             logger.error(f"Failed to save feature importances to CSV: {e}")
 
-    def plot_feature_importance(self, feature_importances: Dict[str, float], plot_path: str = "feature_importance.png", wandb_log: bool = False):
-        """
-        Generates and saves a horizontal bar plot of the normalized and sorted feature importances.
+    def plot_feature_importance(self, feature_importances: dict[str, float], plot_path: str = "feature_importance.png", wandb_log: bool = False):
+        """Generates and saves a horizontal bar plot of the normalized and sorted feature importances.
 
         Args:
             feature_importances (Dict[str, float]): A dictionary of feature names and their
@@ -999,9 +989,8 @@ class AutoML:
         except Exception as e:
             logger.error(f"Failed to plot feature importances: {e}")
 
-    def select_features_by_cumulative_importance(self, X_test: np.ndarray, threshold: float = 0.9, feature_names: List[str] = None) -> List[str]:
-        """
-        Selects top features based on their cumulative normalized SHAP importance.
+    def select_features_by_cumulative_importance(self, X_test: np.ndarray, threshold: float = 0.9, feature_names: list[str] = None) -> list[str]:
+        """Selects top features based on their cumulative normalized SHAP importance.
 
         Args:
             X_test (np.ndarray): The test dataset (original scale, used for SHAP calculation).
@@ -1053,12 +1042,12 @@ class AutoML:
         y_full_train: np.ndarray,
         X_full_test: np.ndarray,
         y_full_test: np.ndarray,
-        feature_names: List[str] = None,
+        feature_names: list[str] = None,
         shap_threshold: float = 0.95,
         save_feature_importance_metrics: bool = False,
     ):
-        """
-        Retrains the best model found by AutoML.train() using a subset of features
+        """Retrains the best model found by AutoML.train() using a subset of features.
+
         selected by cumulative SHAP importance.
 
         Args:
@@ -1136,6 +1125,7 @@ class AutoML:
         # Apply feature scaling to the filtered and encoded datasets
         if self.feature_scaler:
             from sklearn.base import clone
+
             retrain_scaler = clone(self.feature_scaler)
             X_train_filtered = retrain_scaler.fit_transform(X_train_encoded)
             X_test_filtered = retrain_scaler.transform(X_test_encoded)
@@ -1159,7 +1149,7 @@ class AutoML:
             ModelName.FLEXIBLE_NEURAL_NETWORK,
             ModelName.PROBABILISTIC_REGRESSION,
         ]:
-            #best_hyperparameters["input_size"] = X_train_filtered.shape[1]
+            # best_hyperparameters["input_size"] = X_train_filtered.shape[1]
             # For nested models, also update their internal input_size if applicable
             if "base_classifier_params" in best_hyperparameters:
                 best_hyperparameters["base_classifier_params"]["input_size"] = X_train_filtered.shape[1]
@@ -1249,7 +1239,7 @@ class AutoML:
             if "activation" in best_hyperparameters:
                 best_hyperparameters["activation"] = nn.ReLU if best_hyperparameters["activation"] == "ReLU" else nn.Tanh
             else:
-                best_hyperparameters["activation"] = nn.ReLU # Default activation if not in hyperparameters
+                best_hyperparameters["activation"] = nn.ReLU  # Default activation if not in hyperparameters
             best_hyperparameters["uncertainty_method"] = UncertaintyMethod(best_hyperparameters["uncertainty_method"])
             final_model_instance = best_model_class_type(
                 input_size=X_train_filtered.shape[1], task_type=self.task_type, num_classes=num_classes_for_instantiation, **best_hyperparameters
@@ -1258,7 +1248,7 @@ class AutoML:
             if "activation" in best_hyperparameters:
                 best_hyperparameters["activation"] = nn.ReLU if best_hyperparameters["activation"] == "ReLU" else nn.Tanh
             else:
-                best_hyperparameters["activation"] = nn.ReLU # Default activation if not in hyperparameters
+                best_hyperparameters["activation"] = nn.ReLU  # Default activation if not in hyperparameters
             best_hyperparameters["uncertainty_method"] = UncertaintyMethod(best_hyperparameters["uncertainty_method"])
             final_model_instance = best_model_class_type(
                 input_size=X_train_filtered.shape[1], task_type=self.task_type, num_classes=num_classes_for_instantiation, **best_hyperparameters
@@ -1331,9 +1321,8 @@ class AutoML:
             "selected_feature_names": filtered_feature_names,
         }
 
-    def get_best_model_info(self) -> Dict[str, Any]:
-        """
-        Returns information about the best performing model.
+    def get_best_model_info(self) -> dict[str, Any]:
+        """Returns information about the best performing model.
 
         Returns:
             Dict[str, Any]: A dictionary containing the best model's name, instance,
@@ -1346,8 +1335,7 @@ class AutoML:
         return {"name": self.best_model_name.value, "instance": model_instance, "hyperparameters": params, "metric_score": metric, "metric_name": self.metric}
 
     def save_leaderboard(self, file_path: str = "automl_leaderboard.json"):
-        """
-        Saves the AutoML leaderboard to a JSON file.
+        """Saves the AutoML leaderboard to a JSON file.
 
         Args:
             file_path (str): The path to the JSON file where the leaderboard will be saved.
@@ -1392,8 +1380,7 @@ class AutoML:
             logger.error(f"Failed to save leaderboard: {e}")
 
     def export_model(self, model_instance: BaseModel, file_path: str):
-        """
-        Exports a trained model to a file using joblib.
+        """Exports a trained model to a file using joblib.
 
         Args:
             model_instance (BaseModel): The trained model instance to export.
@@ -1414,8 +1401,7 @@ class AutoML:
 
     @staticmethod
     def load_model(file_path: str) -> BaseModel:
-        """
-        Loads a trained model from a file.
+        """Loads a trained model from a file.
 
         Args:
             file_path (str): The path to the saved model file.

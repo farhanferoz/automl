@@ -439,22 +439,16 @@ $$
           **Mechanism**:
           1.  **`estimate_n_classes` Parameter**: A new boolean parameter `estimate_n_classes` in `ProbabilisticRegressionModel` controls this feature. If `True`, the model will dynamically determine `n_classes`; otherwise, it uses the `n_classes` provided by the user.
           2.  **`n_classes_predictor` Sub-network**: When `estimate_n_classes` is `True`, an internal `n_classes_predictor` (a small neural network) is introduced. This sub-network takes the input features and outputs logits for a predefined range of possible `n_classes` values (e.g., from 2 up to `max_n_classes_for_probabilistic_path`), plus an additional logit for a 'direct regression' mode.
-          3.  **Gumbel-Softmax with STE**: The Gumbel-Softmax trick with `hard=True` (Straight-Through Estimator - STE) is applied to the logits from the `n_classes_predictor`. This produces a one-hot vector, effectively selecting a discrete `k` (number of classes for the probabilistic path) or the 'direct regression' mode for each input sample.
-              *   **Mathematical Formulation (Gumbel-Softmax with STE)**:
-                  Given logits $z$ from the `n_classes_predictor` and Gumbel noise $g \sim \text{Gumbel}(0, 1)$, the one-hot selection $s$ is obtained as:
-                  $$
-s = \text{one_hot}(\text{argmax}(\frac{z + g}{\tau}))
-$$
-                  During the backward pass, gradients are approximated as if the soft (non-hard) Gumbel-Softmax probabilities were used, allowing gradients to flow to the `n_classes_predictor`.
+          3.  **`n_classes_selection_method`**: The `n_classes_selection_method` parameter governs how the `n_classes_predictor` chooses the number of classes or the direct regression path. The available methods are detailed in the following section.
           4.  **Dynamic Logit Masking and Softmax**: The main classifier branch always outputs raw logits for `max_n_classes_for_probabilistic_path` classes. Based on the `k` selected by the `n_classes_predictor` (if the probabilistic path is chosen), logits for unselected classes are masked (set to $-\infty$) before applying softmax. This ensures that only the `k` selected probabilities are non-zero and sum to 1.
               *   **Mathematical Formulation (Masked Softmax)**:
                   Given raw classifier logits $L = [l_0, l_1, \dots, l_{\text{max N}-1}]$ and a selected number of classes $k$, the masked logits $L'$ are:
-                  $$
-L'_i = \begin{cases} l_i & \text{if } i < k \\ -\infty & \text{if } i \ge k \end{cases}
-$$
-                  The probabilities are then calculated as: $$
-P_i = \text{softmax}(L')_i = \frac{e^{L'_i}}{\sum_{j=0}^{\text{max_N}-1} e^{L'_j}}
-$$
+                  $
+L'_i = \begin{cases} l_i & \text{if } i < k \ -
+\infty & \text{if } i \ge k \end{cases}$
+                  The probabilities are then calculated as: $
+ P_i = \text{softmax}(L')_i = \frac{e^{L'_i}}{\sum_{j=0}^{\text{max_N}-1} e^{L'_j}}$
+
                   This ensures $\sum_{i=0}^{k-1} P_i = 1$ and $P_i = 0$ for $i \ge k$.
           5.  **Integrated Direct Regression Path**: If the `n_classes_predictor` selects the 'direct regression' mode, the input bypasses the classifier and class-specific regression heads, and is instead passed through a dedicated direct regression head. This ensures gradient flow to the `n_classes_predictor` even when it chooses a non-probabilistic path.
           6.  **Pre-calculated Class Boundaries**: To maintain efficiency, the class boundaries for target discretization are pre-calculated for all possible `k` values (from 2 to `max_n_classes_for_probabilistic_path`) using the entire training dataset. During training, the appropriate pre-calculated boundaries are selected based on the `k` determined by the `n_classes_predictor`.
@@ -472,7 +466,7 @@ $$
                                          │   (Outputs Logits for   |
                                          │   k=2...max_k, Direct)  |
                                          └───────────┬─────────────┘
-                                                     | (Gumbel-Softmax STE)
+                                                     | (Selection Method)
                                                      v
                                          ┌─────────────────────────┐
                                          │   Selected Mode (k or   |
@@ -511,6 +505,55 @@ $$
             | Final Predicted LogVar log(σ²(X))|
             └────────────────────────────┘
         ```
+*   **Dynamic Granularity: The `NClassesSelectionMethod`**:
+    The `ProbabilisticRegressionModel`'s ability to dynamically select its internal granularity (number of classes) is governed by the `n_classes_selection_method` parameter. This parameter specifies the algorithm used by the internal `n_classes_predictor` network to choose the number of classes for the probabilistic path or to opt for a direct regression path.
+
+    *   **`NClassesSelectionMethod.NONE`**
+        *   **Description:** This method disables dynamic `n_classes` selection. The `n_classes_predictor` is not used, and the model relies on the fixed `n_classes` hyperparameter.
+        *   **Use Case:** When a fixed number of classes is desired or for baseline comparisons.
+        *   **Constraint:** Requires `n_classes_predictor_layers` to be set to `0`.
+
+    *   **`NClassesSelectionMethod.SOFT_GATING`**
+        *   **Description:** Uses a `softmax` function on the `n_classes_predictor`'s logits to produce a probability distribution over the possible number of classes and the direct regression path. The final output is a weighted average of the outputs from all possible configurations (different `n_classes` and direct regression), where weights are these probabilities.
+        *   **Use Case:** When a smooth, differentiable, and continuous combination of different model structures is desired.
+        *   **Constraint:** Requires `n_classes_predictor_layers > 0`.
+        *   **Mathematical Formulation:** Given logits $z$ from the `n_classes_predictor` for $K$ possible configurations, the probability $p_i$ for configuration $i$ is:
+            $
+ p_i = \text{softmax}\left(z_i\right) = \frac{e^{z_i}}{\sum_{j=1}^{K} e^{z_j}}$
+            The final output is a weighted sum: $Y_{\text{pred}} = \sum_{i=1}^{K} p_i \cdot Y_i$, where $Y_i$ is the output of the model with configuration $i$.
+
+    *   **`NClassesSelectionMethod.GUMBEL_SOFTMAX`**
+        *   **Description:** An advanced version of `SOFT_GATING` that uses the Gumbel-Softmax trick. It introduces stochasticity during training to explore different configurations more effectively. Like `SOFT_GATING`, it produces a weighted average of all outputs.
+        *   **Use Case:** Ideal for exploring a wider range of configurations during training to find the most suitable `n_classes` or to decide if direct regression is better.
+        *   **Constraint:** Requires `n_classes_predictor_layers > 0`.
+        *   **Mathematical Formulation**: Given logits $z$ and Gumbel noise $g \sim \text{Gumbel}(0, 1)$:
+            $
+ p_i = \text{softmax}\left(\frac{z_i + g_i}{\tau}\right)$
+            Here, $\tau$ is a temperature parameter that is annealed (gradually lowered) during training. A high $\tau$ encourages exploration (probabilities are more uniform), while a low $\tau$ encourages exploitation (probabilities become closer to a one-hot selection).
+
+    *   **`NClassesSelectionMethod.STE` (Straight-Through Estimator)**
+        *   **Description:** This method makes a "hard" decision in the forward pass but uses a "soft" gradient in the backward pass. It uses the Gumbel-Softmax trick with `hard=True`, which outputs a one-hot vector. This vector selects a *single* configuration (a specific `n_classes` or direct regression) to be used for the forward pass for each input.
+        *   **Use Case:** When computational efficiency is critical, as it allows for a single forward pass per input.
+        *   **Constraint:** Requires `n_classes_predictor_layers > 0`.
+        *   **Mechanism (The "Trick"):** In the backward pass, the gradient is calculated *as if* the soft, continuous Gumbel-Softmax probabilities had been used, effectively "going through" the non-differentiable `argmax` operation.
+        *   **Mathematical Formulation**: Given logits $z$ and Gumbel noise $g \sim \text{Gumbel}(0, 1)$, the one-hot selection $s$ is obtained as:
+            $
+ s = \text{one_hot}(\text{argmax}(\frac{z + g}{\tau}))$
+            During the backward pass, gradients are approximated as if the soft (non-hard) Gumbel-Softmax probabilities were used.
+
+    *   **`NClassesSelectionMethod.REINFORCE`**
+        *   **Description:** This method frames the selection as a reinforcement learning problem. The `n_classes_predictor` acts as a "policy network" that *samples* a discrete action (a specific `n_classes` or direct regression) for each input.
+        *   **Use Case:** When the goal is to directly optimize a discrete structural choice based on a specific performance metric (reward).
+        *   **Constraint:** Can be more sensitive to hyperparameter choices than gradient-based methods.
+        *   **Mechanism**:
+            1.  **State:** The input features $X$.
+            2.  **Action:** The policy network samples an action (the `n_classes` to use or direct regression).
+            3.  **Reward:** The reward $R$ is the negative validation loss ($R = -\text{validation loss}$). 
+            4.  **Policy Update:** The policy network is updated using the REINFORCE algorithm to make actions that led to high rewards more likely. The policy gradient is estimated as:
+                $
+\nabla_\theta J(\theta) \approx R \cdot \nabla_\theta \log \pi(a|s; \theta)$
+                Where $J(\theta)$ is the policy objective, and $\pi(a|s; \theta)$ is the policy (the `n_classes_predictor`).
+
 
 ### **Composite Models**
 

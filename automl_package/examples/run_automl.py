@@ -1,12 +1,15 @@
-import numpy as np
+"""Example script for running AutoML for regression and classification tasks."""
+
 import logging
-from sklearn.datasets import make_regression, make_classification
+
+import numpy as np
+from sklearn.datasets import make_classification, make_regression
+from sklearn.metrics import accuracy_score, mean_squared_error
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, accuracy_score
 from sklearn.preprocessing import StandardScaler
 
 from automl_package.automl import AutoML
-from automl_package.enums import TaskType, ModelName
+from automl_package.enums import ModelName, TaskType
 from automl_package.logger import logger
 
 if __name__ == "__main__":

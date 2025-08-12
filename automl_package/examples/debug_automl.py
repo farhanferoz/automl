@@ -1,14 +1,16 @@
-import numpy as np
-from sklearn.datasets import make_regression
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error
-from sklearn.preprocessing import StandardScaler
+"""Debugging script for AutoML package."""
+
 import json
 import logging
-import wandb
+
+import numpy as np
+from sklearn.datasets import make_regression
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 from automl_package.automl import AutoML
-from automl_package.enums import TaskType, ModelName
+from automl_package.enums import ModelName, TaskType
 
 logger = logging.getLogger("automl_package")
 logger.setLevel(logging.INFO)

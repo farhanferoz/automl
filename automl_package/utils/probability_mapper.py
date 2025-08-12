@@ -1,20 +1,22 @@
+"""Maps classification probabilities to regression values."""
+
 import numpy as np
-from sklearn.linear_model import LinearRegression
 from scipy.interpolate import UnivariateSpline
+from sklearn.linear_model import LinearRegression
+
 from ..enums import MapperType  # Import MapperType enum
 from ..logger import logger  # Import logger
 
 
 class ClassProbabilityMapper:
-    """
-    Maps classification probabilities for a single class back to original regression values.
+    """Maps classification probabilities for a single class back to original regression values.
+
     Supports linear regression and lookup table approaches (mean or median) with uncertainty.
     Now also supports spline interpolation.
     """
 
     def __init__(self, mapper_type: MapperType = MapperType.LINEAR, **kwargs):  # Use enum
-        """
-        Initializes the ClassProbabilityMapper.
+        """Initializes the ClassProbabilityMapper.
 
         Args:
             mapper_type (MapperType): The type of mapping strategy to use.
@@ -37,7 +39,7 @@ class ClassProbabilityMapper:
 
         # Parameters for spline mapper
         self.spline_k = kwargs.get("spline_k", 3)
-        self.spline_s = kwargs.get("spline_s", None)  # None for interpolation, can be float for smoothing
+        self.spline_s = kwargs.get("spline_s")  # None for interpolation, can be float for smoothing
         self._spline_residual_variance = 0.0  # For spline uncertainty
         self._linear_mapper_residual_variance = 0.0  # For linear mapper uncertainty
 
@@ -45,8 +47,7 @@ class ClassProbabilityMapper:
             raise ValueError(f"Unsupported mapper_type: {self.mapper_type.value}. Choose from 'linear', 'lookup_mean', 'lookup_median', 'spline'.")
 
     def fit(self, probas: np.ndarray, y_original: np.ndarray):
-        """
-        Fits the mapping from probabilities to corresponding original target values.
+        """Fits the mapping from probabilities to corresponding original target values.
 
         Args:
             probas (np.ndarray): 1D array of classification probabilities for a specific class.
@@ -134,8 +135,8 @@ class ClassProbabilityMapper:
 
             if len(temp_lookup_keys) > 0:
                 # Sort the collected keys, values, and variances by key
-                sorted_zipped_lists = sorted(zip(temp_lookup_keys, temp_lookup_values, temp_lookup_variances))
-                sorted_keys, sorted_values, sorted_variances = zip(*sorted_zipped_lists)
+                sorted_zipped_lists = sorted(zip(temp_lookup_keys, temp_lookup_values, temp_lookup_variances, strict=False))
+                sorted_keys, sorted_values, sorted_variances = zip(*sorted_zipped_lists, strict=False)
                 self.lookup_table = {"keys": np.array(sorted_keys), "values": np.array(sorted_values), "variances": np.array(sorted_variances)}
             else:
                 # Fallback if no valid partitions were formed (e.g., very few data points)
@@ -172,8 +173,7 @@ class ClassProbabilityMapper:
                 self._spline_residual_variance = _spline_residual_variance
 
     def predict(self, probas_new: np.ndarray) -> np.ndarray:
-        """
-        Predicts original regression values from new classification probabilities.
+        """Predicts original regression values from new classification probabilities.
 
         Args:
             probas_new (np.ndarray): 1D array of new classification probabilities for a specific class.
@@ -189,7 +189,7 @@ class ClassProbabilityMapper:
                 raise RuntimeError("Linear mapper has not been fitted yet.")
             return self.model.predict(probas_new.reshape(-1, 1))
 
-        elif self.mapper_type in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
+        if self.mapper_type in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
             if self.lookup_table is None:
                 raise RuntimeError("Lookup mapper has not been fitted yet.")
 
@@ -205,7 +205,7 @@ class ClassProbabilityMapper:
 
             return values[indices]
 
-        elif self.mapper_type == MapperType.SPLINE:
+        if self.mapper_type == MapperType.SPLINE:
             if self.model is None:
                 raise RuntimeError("Spline mapper has not been fitted yet.")
             # Ensure probabilities are within the range used for fitting the spline to prevent wild extrapolation
@@ -215,12 +215,10 @@ class ClassProbabilityMapper:
             else:  # Fallback for very few data points where spline might only have one knot
                 probas_new_clipped = probas_new  # No clipping possible, rely on spline's internal handling
             return self.model(probas_new_clipped)
-        else:
-            raise ValueError(f"Unsupported mapper_type: {self.mapper_type.value}")
+        raise ValueError(f"Unsupported mapper_type: {self.mapper_type.value}")
 
     def predict_variance_contribution(self, probas_new: np.ndarray) -> np.ndarray:
-        """
-        Predicts the variance contribution for a given probability for this specific class.
+        """Predicts the variance contribution for a given probability for this specific class.
 
         Args:
             probas_new (np.ndarray): 1D array of new classification probabilities for a specific class.
@@ -237,7 +235,7 @@ class ClassProbabilityMapper:
             # For linear, return constant residual variance for each input
             return np.full(probas_new.shape[0], self._linear_mapper_residual_variance)
 
-        elif self.mapper_type in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
+        if self.mapper_type in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
             if self.lookup_table is None:
                 raise RuntimeError("Lookup mapper has not been fitted yet.")
 
@@ -252,10 +250,9 @@ class ClassProbabilityMapper:
 
             return variances[indices]
 
-        elif self.mapper_type == MapperType.SPLINE:
+        if self.mapper_type == MapperType.SPLINE:
             if self.model is None:
                 raise RuntimeError("Spline mapper has not been fitted yet.")
             # For spline, return constant residual variance based on the fit
             return np.full(probas_new.shape[0], self._spline_residual_variance)
-        else:
-            raise ValueError(f"Unsupported mapper_type: {self.mapper_type.value}")
+        raise ValueError(f"Unsupported mapper_type: {self.mapper_type.value}")

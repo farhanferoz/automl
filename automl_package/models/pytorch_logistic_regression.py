@@ -1,34 +1,40 @@
+"""PyTorch Logistic Regression model."""
+
 import torch.nn as nn
 
-from .base_pytorch import PyTorchModelBase
 from ..enums import TaskType
+from .base_pytorch import PyTorchModelBase
 
 
 class PyTorchLogisticRegression(PyTorchModelBase):
-    """
-    A Logistic Regression model implemented in PyTorch.
+    """A Logistic Regression model implemented in PyTorch.
+
     This model supports both binary and multi-class classification and leverages
     the base class features like L1, L2, and learned regularization.
     """
 
     def __init__(self, **kwargs):
+        """Initializes the PyTorchLogisticRegression model.
+
+        Args:
+            **kwargs: Additional keyword arguments for PyTorchModelBase.
+        """
         # Ensure the task_type is always CLASSIFICATION for this model
         kwargs["task_type"] = TaskType.CLASSIFICATION
         super().__init__(**kwargs)
 
     @property
     def name(self) -> str:
+        """Returns the name of the model."""
         return "PyTorchLogisticRegression"
 
     def build_model(self):
-        """
-        Builds the model architecture.
+        """Builds the model architecture.
+
         For logistic regression, this is a single linear layer.
         The output activation (sigmoid or softmax) is handled by the loss function.
         """
-        self.model = nn.Sequential(
-            nn.Linear(self.input_size, self.output_size)
-        ).to(self.device)
+        self.model = nn.Sequential(nn.Linear(self.input_size, self.output_size)).to(self.device)
 
         # The criterion is set in the base class based on task_type and output_size
         if self.task_type == TaskType.CLASSIFICATION:

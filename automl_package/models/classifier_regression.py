@@ -1,18 +1,21 @@
-from typing import Dict, Any, Type, List, Tuple, Optional
-import numpy as np
-import matplotlib.pyplot as plt # New import
-from torch.nn import ReLU, Tanh # Explicitly import ReLU and Tanh
+"""Composite model for regression using classification and probability mapping."""
 
-from .base import BaseModel  # Import BaseModel
-from ..enums import MapperType, TaskType, ModelName, UncertaintyMethod  # Import enums
+from typing import Any
+
+import matplotlib.pyplot as plt  # New import
+import numpy as np
+from torch.nn import ReLU, Tanh  # Explicitly import ReLU and Tanh
+
+from ..enums import MapperType, ModelName, TaskType, UncertaintyMethod  # Import enums
 from ..logger import logger  # Import logger
-from ..utils.probability_mapper import ClassProbabilityMapper
 from ..utils.metrics import Metrics
+from ..utils.probability_mapper import ClassProbabilityMapper
+from .base import BaseModel  # Import BaseModel
 
 
 class ClassifierRegressionModel(BaseModel):
-    """
-    A composite model that combines a classification model with a probability mapper
+    """A composite model that combines a classification model with a probability mapper.
+
     to perform regression. It first discretizes the target into N classes,
     trains a classifier on these classes, and then converts classification probabilities
     back to continuous regression output using various mapping strategies.
@@ -21,12 +24,22 @@ class ClassifierRegressionModel(BaseModel):
     def __init__(
         self,
         n_classes: int = 3,
-        base_classifier_class: Type[BaseModel] = None,  # The class of the internal classifier (e.g., PyTorchNeuralNetwork, XGBoostModel)
-        base_classifier_params: Dict[str, Any] = None,  # Parameters for the base classifier
+        base_classifier_class: type[BaseModel] = None,  # The class of the internal classifier (e.g., PyTorchNeuralNetwork, XGBoostModel)
+        base_classifier_params: dict[str, Any] = None,  # Parameters for the base classifier
         mapper_type: MapperType = MapperType.LOOKUP_MEDIAN,  # Use enum for mapper type
-        mapper_params: Dict[str, Any] = None,  # Parameters for the ClassProbabilityMapper
+        mapper_params: dict[str, Any] = None,  # Parameters for the ClassProbabilityMapper
         **kwargs,
     ):
+        """Initializes the ClassifierRegressionModel.
+
+        Args:
+            n_classes (int): The number of classes to discretize the target into.
+            base_classifier_class (type[BaseModel]): The class of the internal classifier.
+            base_classifier_params (dict[str, Any]): Parameters for the base classifier.
+            mapper_type (MapperType): The type of probability mapping strategy.
+            mapper_params (dict[str, Any]): Parameters for the ClassProbabilityMapper.
+            **kwargs: Additional keyword arguments for the BaseModel.
+        """
         super().__init__(**kwargs)
         if base_classifier_class is None:
             raise ValueError("base_classifier_class must be provided.")
@@ -36,17 +49,18 @@ class ClassifierRegressionModel(BaseModel):
         self.mapper_type = mapper_type
         self.mapper_params = mapper_params if mapper_params is not None else {}
 
-        self.base_classifier: Optional[BaseModel] = None  # The instantiated base classifier model
-        self.class_boundaries: Optional[np.ndarray] = None  # Stores percentile values for discretization
-        self.class_mappers: List[Optional[ClassProbabilityMapper]] = []  # Stores a ClassProbabilityMapper for each class
+        self.base_classifier: BaseModel | None = None  # The instantiated base classifier model
+        self.class_boundaries: np.ndarray | None = None  # Stores percentile values for discretization
+        self.class_mappers: list[ClassProbabilityMapper | None] = []  # Stores a ClassProbabilityMapper for each class
         self.is_regression_model = True  # This composite model is for regression
-        self.is_composite_regression_model = True # Flag for AutoML to identify composite models
+        self.is_composite_regression_model = True  # Flag for AutoML to identify composite models
 
         if self.n_classes < 2:
             raise ValueError("n_classes must be at least 2 for classification-regression strategy.")
 
     @property
     def name(self) -> str:
+        """Returns the name of the model."""
         # Include base model name and mapper type for unique identification
         # Dynamically get the name of the base classifier
         try:
@@ -69,8 +83,8 @@ class ClassifierRegressionModel(BaseModel):
         return f"{base_name}_to_Reg_{self.mapper_type.value}"  # Dynamically append base name and mapper type
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> int:
-        """
-        Fits the underlying regression model and then trains the probability mapper.
+        """Fits the underlying regression model and then trains the probability mapper.
+
         Args:
             X (np.ndarray): Training features.
             y (np.ndarray): Original continuous target values.
@@ -156,10 +170,11 @@ class ClassifierRegressionModel(BaseModel):
         return num_iterations_used
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        """
-        Makes predictions (expected regression output) using the composite model.
+        """Makes predictions (expected regression output) using the composite model.
+
         Args:
             X (np.ndarray): Features for prediction.
+
         Returns:
             np.ndarray: Predicted regression values.
         """
@@ -190,12 +205,13 @@ class ClassifierRegressionModel(BaseModel):
         return final_predictions
 
     def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
-        """
-        Estimates uncertainty for regression predictions using this composite model.
+        """Estimates uncertainty for regression predictions using this composite model.
+
         It sums the variance contributions from each class's mapper, weighted by their probabilities.
 
         Args:
             X (np.ndarray): Features for uncertainty estimation.
+
         Returns:
             np.ndarray: Uncertainty estimates (standard deviation) for each prediction.
         """
@@ -226,8 +242,7 @@ class ClassifierRegressionModel(BaseModel):
         return uncertainty_estimates
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        """
-        Returns the predicted probabilities from the internal base classifier.
+        """Returns the predicted probabilities from the internal base classifier.
 
         Args:
             X (np.ndarray): Feature matrix.
@@ -239,7 +254,12 @@ class ClassifierRegressionModel(BaseModel):
             raise RuntimeError("Base classifier has not been fitted yet.")
         return self.base_classifier.predict_proba(X)
 
-    def get_hyperparameter_search_space(self) -> Dict[str, Any]:
+    def get_hyperparameter_search_space(self) -> dict[str, Any]:
+        """Defines the hyperparameter search space for the ClassifierRegressionModel.
+
+        Returns:
+            Dict[str, Any]: A dictionary defining the hyperparameter search space.
+        """
         # This model's search space defines its own parameters and the choice of base classifier.
         # The base_classifier_params themselves will be dynamically sampled within AutoML._sample_params_for_trial
         return {
@@ -264,9 +284,9 @@ class ClassifierRegressionModel(BaseModel):
             "spline_s": {"type": "float", "low": 0.01, "high": 10.0, "log": True},  # Spline smoothing factor
         }
 
-    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        Returns the internal classifier's predicted classes, probabilities, and
+    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Returns the internal classifier's predicted classes, probabilities, and.
+
         the corresponding (discretized) true labels for this composite model.
 
         Args:
@@ -295,8 +315,8 @@ class ClassifierRegressionModel(BaseModel):
         return y_pred_internal, y_proba_internal, y_true_discretized
 
     def plot_probability_mappers(self, plot_path: str = "probability_mappers.png"):
-        """
-        Plots the n functions (one for each class) calculated in the probability mapper.
+        """Plots the n functions (one for each class) calculated in the probability mapper.
+
         Each plot shows the mapping from class probability to the original regression value.
 
         Args:
@@ -309,13 +329,13 @@ class ClassifierRegressionModel(BaseModel):
         logger.info(f"\n--- Plotting Probability Mappers to {plot_path} ---")
 
         plt.figure(figsize=(12, 8))
-        probas_range = np.linspace(0, 1, 100).reshape(-1, 1) # Probabilities from 0 to 1
+        probas_range = np.linspace(0, 1, 100).reshape(-1, 1)  # Probabilities from 0 to 1
 
         for i, mapper in enumerate(self.class_mappers):
             if mapper is None:
                 logger.warning(f"Mapper for class {i} is None. Skipping plot for this class.")
                 continue
-            
+
             # Get mapped values
             mapped_values = mapper.predict(probas_range)
             if i == 0:
@@ -328,12 +348,12 @@ class ClassifierRegressionModel(BaseModel):
                 lower_bound_str = f"{self.class_boundaries[i-1]:.2f}"
                 upper_bound_str = f"{self.class_boundaries[i]:.2f}"
 
-            label_text = f'Class {i} (Range: {lower_bound_str}-{upper_bound_str})'
+            label_text = f"Class {i} (Range: {lower_bound_str}-{upper_bound_str})"
             plt.plot(probas_range, mapped_values, label=label_text)
 
-        plt.title(f'Probability Mappers for {self.name}')
-        plt.xlabel('Class Probability')
-        plt.ylabel('Mapped Original Regression Value')
+        plt.title(f"Probability Mappers for {self.name}")
+        plt.xlabel("Class Probability")
+        plt.ylabel("Mapped Original Regression Value")
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
@@ -342,14 +362,17 @@ class ClassifierRegressionModel(BaseModel):
         logger.info("Probability mappers plot saved successfully.")
 
     def get_internal_model(self):
-        """
-        Returns the raw underlying base classifier.
-        """
+        """Returns the raw underlying base classifier."""
         if self.base_classifier:
             return self.base_classifier.get_internal_model()
         return None
 
     def get_num_parameters(self) -> int:
+        """Returns the total number of trainable parameters in the model.
+
+        Returns:
+            int: The total number of parameters.
+        """
         total_params = 0
         if self.base_classifier:
             total_params += self.base_classifier.get_num_parameters()
@@ -358,11 +381,21 @@ class ClassifierRegressionModel(BaseModel):
         # For linear mapper, there are 2 parameters (slope and intercept) per mapper
         # For other mappers, they are typically non-parametric or their parameters are not counted in the same way
         if self.mapper_type == MapperType.LINEAR:
-            total_params += self.n_classes * 2 # n_classes * (slope + intercept)
+            total_params += self.n_classes * 2  # n_classes * (slope + intercept)
 
         return total_params
 
     def evaluate(self, X: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
+        """Evaluates the model on a given dataset and saves the metrics.
+
+        Args:
+            X (np.ndarray): Feature matrix for evaluation.
+            y (np.ndarray): True labels for evaluation.
+            save_path (str): Directory to save the metrics files.
+
+        Returns:
+            np.ndarray: The predictions made by the model.
+        """
         y_pred = self.predict(X)
         metrics_calculator = Metrics("regression", self.name, y, y_pred)
         metrics_calculator.save_metrics(save_path)
@@ -370,9 +403,7 @@ class ClassifierRegressionModel(BaseModel):
         y_pred_internal_clf, y_proba_internal_clf, y_true_discretized = self.get_classifier_predictions(X, y)
 
         logger.info(f"Evaluating internal classifier of {self.name} for classification metrics.")
-        internal_metrics_calculator = Metrics(
-            TaskType.CLASSIFICATION.value, f"{self.name}_InternalClassifier", y_true_discretized, y_pred_internal_clf, y_proba_internal_clf
-        )
+        internal_metrics_calculator = Metrics(TaskType.CLASSIFICATION.value, f"{self.name}_InternalClassifier", y_true_discretized, y_pred_internal_clf, y_proba_internal_clf)
         internal_metrics_calculator.save_metrics(f"{save_path}_internal_classifier")
 
         self.plot_probability_mappers(plot_path=f"{save_path}_probability_mappers.png")

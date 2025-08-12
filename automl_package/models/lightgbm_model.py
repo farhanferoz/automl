@@ -1,16 +1,26 @@
+"""LightGBM model wrapper for AutoML."""
+
+from typing import Any
+
 import lightgbm as lgb
 import numpy as np
-from typing import Dict, Any
 from sklearn.model_selection import train_test_split
 
-from .base import BaseModel
 from ..utils.metrics import Metrics
+from .base import BaseModel
 
 
 class LightGBMModel(BaseModel):
     """LightGBM model wrapper."""
 
     def __init__(self, objective: str = "regression", metric: str = "rmse", **kwargs):
+        """Initializes the LightGBMModel.
+
+        Args:
+            objective (str): The learning objective function.
+            metric (str): The evaluation metric.
+            **kwargs: Additional keyword arguments for the LightGBM model.
+        """
         super().__init__(**kwargs)
         self.objective = objective
         self.metric = metric
@@ -22,9 +32,19 @@ class LightGBMModel(BaseModel):
 
     @property
     def name(self) -> str:
+        """Returns the name of the model."""
         return "LightGBM"
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> int:
+        """Fits the LightGBM model to the training data.
+
+        Args:
+            X (np.ndarray): Feature matrix.
+            y (np.ndarray): Target vector.
+
+        Returns:
+            int: Number of iterations used for training.
+        """
         # Split data for early stopping if enabled
         eval_set = None
         if self.early_stopping_rounds is not None and self.validation_fraction > 0:
@@ -44,7 +64,7 @@ class LightGBMModel(BaseModel):
         fit_params = {}
         if eval_set is not None:
             fit_params["eval_set"] = eval_set
-            fit_params["callbacks"] = [lgb.early_stopping(self.early_stopping_rounds, verbose=False)] # Suppress verbose output
+            fit_params["callbacks"] = [lgb.early_stopping(self.early_stopping_rounds, verbose=False)]  # Suppress verbose output
 
         self.model.fit(X_train, y_train, **fit_params)
 
@@ -60,15 +80,30 @@ class LightGBMModel(BaseModel):
         return self.num_iterations_used
 
     def predict(self, X: np.ndarray) -> np.ndarray:
+        """Makes predictions on new data.
+
+        Args:
+            X (np.ndarray): Feature matrix for prediction.
+
+        Returns:
+            np.ndarray: Predicted values.
+        """
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if self.objective in ["binary", "multiclass", "multiclassova"]:
             # For binary classification, predict_proba returns probabilities of classes [:, 1] for positive class
             return self.model.predict_proba(X)[:, 1]
-        else:
-            return self.model.predict(X)
+        return self.model.predict(X)
 
     def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
+        """Estimates uncertainty for predictions.
+
+        Args:
+            X (np.ndarray): Feature matrix for uncertainty estimation.
+
+        Returns:
+            np.ndarray: Uncertainty estimates (e.g., standard deviation).
+        """
         if not self.is_regression_model:
             raise ValueError("predict_uncertainty is only available for regression models.")
         if self.model is None:
@@ -77,13 +112,26 @@ class LightGBMModel(BaseModel):
         return np.full(X.shape[0], self._train_residual_std)
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Predicts class probabilities for classification tasks.
+
+        Args:
+            X (np.ndarray): Features for probability prediction.
+
+        Returns:
+            np.ndarray: Predicted probabilities.
+        """
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if not hasattr(self.model, "predict_proba"):
             raise ValueError("predict_proba is not available for the current LightGBM configuration (likely regression).")
         return self.model.predict_proba(X)
 
-    def get_hyperparameter_search_space(self) -> Dict[str, Any]:
+    def get_hyperparameter_search_space(self) -> dict[str, Any]:
+        """Defines the hyperparameter search space for LightGBM.
+
+        Returns:
+            Dict[str, Any]: A dictionary defining the hyperparameter search space.
+        """
         return {
             "n_estimators": {"type": "int", "low": 50, "high": 200, "step": 50},
             "learning_rate": {"type": "float", "low": 0.01, "high": 0.3, "log": True},
@@ -97,20 +145,38 @@ class LightGBMModel(BaseModel):
         }
 
     def get_internal_model(self):
-        """
-        Returns the raw underlying LightGBM model.
-        """
+        """Returns the raw underlying LightGBM model."""
         return self.model
 
     def get_num_parameters(self) -> int:
+        """Returns the number of estimators in the LightGBM model.
+
+        Returns:
+            int: The number of estimators.
+        """
         if self.model is None:
             return 0
         return self.num_iterations_used + 1
 
     def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+        """Not implemented for LightGBMModel.
+
+        Raises:
+            NotImplementedError: LightGBMModel is not a composite model.
+        """
         raise NotImplementedError("LightGBMModel is not a composite model and does not have an internal classifier for separate prediction.")
 
     def evaluate(self, X: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
+        """Evaluates the model on a given dataset and saves the metrics.
+
+        Args:
+            X (np.ndarray): Feature matrix for evaluation.
+            y (np.ndarray): True labels for evaluation.
+            save_path (str): Directory to save the metrics files.
+
+        Returns:
+            np.ndarray: The predictions made by the model.
+        """
         y_pred = self.predict(X)
         y_proba = None
         task_type = "regression" if self.is_regression_model else "classification"

@@ -1,21 +1,24 @@
-from abc import abstractmethod, ABC
-from typing import Optional, Dict, Any, Tuple
+"""Base classes for PyTorch models."""
+
+from abc import ABC, abstractmethod
+from typing import Any
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from sklearn.model_selection import train_test_split
 
-from .base import BaseModel
-from ..enums import UncertaintyMethod, TaskType, LearnedRegularizationType, NClassesSelectionMethod
+from ..enums import LearnedRegularizationType, NClassesSelectionMethod, TaskType, UncertaintyMethod
 from ..logger import logger
 from ..utils.metrics import Metrics
 from ..utils.numerics import aggregate_stats, log_erfc
+from .base import BaseModel
 
 
 class PyTorchModelBase(BaseModel, ABC):
-    """
-    Base class for PyTorch-based neural network models.
+    """Base class for PyTorch-based neural network models.
+
     Handles common initialization, regularization, and training loop logic.
     """
 
@@ -36,9 +39,30 @@ class PyTorchModelBase(BaseModel, ABC):
         l1_lambda: float = 0.0,
         l2_lambda: float = 0.0,
         lambda_learning_rate: float = 1e-5,
-        random_seed: Optional[int] = None,
+        random_seed: int | None = None,
         **kwargs,
     ):
+        """Initializes the PyTorchModelBase.
+
+        Args:
+            input_size (int, optional): The number of input features.
+            output_size (int): The number of output features.
+            learning_rate (float): Learning rate for the optimizer.
+            n_epochs (int): Number of training epochs.
+            batch_size (int): Batch size for training.
+            task_type (TaskType): Type of task (regression or classification).
+            use_batch_norm (bool): Whether to use batch normalization.
+            uncertainty_method (UncertaintyMethod): Method for uncertainty estimation.
+            n_mc_dropout_samples (int): Number of MC dropout samples for uncertainty.
+            dropout_rate (float): Dropout rate for MC dropout.
+            learn_regularization_lambdas (bool): Whether to learn regularization lambdas.
+            learned_regularization_type (LearnedRegularizationType): Type of learned regularization.
+            l1_lambda (float): L1 regularization strength.
+            l2_lambda (float): L2 regularization strength.
+            lambda_learning_rate (float): Learning rate for lambda optimization.
+            random_seed (int, optional): Random seed for reproducibility.
+            **kwargs: Additional keyword arguments.
+        """
         super().__init__(**kwargs)
         self.input_size = input_size
         self.output_size = output_size
@@ -50,9 +74,9 @@ class PyTorchModelBase(BaseModel, ABC):
         self.uncertainty_method = uncertainty_method
         self.n_mc_dropout_samples = n_mc_dropout_samples
         self.dropout_rate = dropout_rate
-        self.gumbel_tau: Optional[float] = None
-        self.n_classes_selection_method: Optional[NClassesSelectionMethod] = None
-        self.n_classes_predictor_learning_rate: Optional[float] = None
+        self.gumbel_tau: float | None = None
+        self.n_classes_selection_method: NClassesSelectionMethod | None = None
+        self.n_classes_predictor_learning_rate: float | None = None
 
         self.learn_regularization_lambdas = learn_regularization_lambdas
         self.learned_regularization_type = learned_regularization_type
@@ -75,7 +99,7 @@ class PyTorchModelBase(BaseModel, ABC):
         self.criterion = None
         self.optimizer = None
         self.lambda_optimizer = None
-        self.device = None # Initialize to None
+        self.device = None  # Initialize to None
         self.is_regression_model = task_type == TaskType.REGRESSION
         self._train_residual_std = 0.0  # For 'constant' uncertainty method
 
@@ -96,9 +120,7 @@ class PyTorchModelBase(BaseModel, ABC):
         raise NotImplementedError
 
     def build_model(self):
-        """
-        Abstract method to be implemented by subclasses to define the network architecture.
-        """
+        """Abstract method to be implemented by subclasses to define the network architecture."""
         raise NotImplementedError("Subclasses must implement build_model()")
 
     def _setup_optimizers(self, model):
@@ -109,7 +131,7 @@ class PyTorchModelBase(BaseModel, ABC):
                 lambda_params.append(self.l1_log_lambda)
             if self.l2_log_lambda is not None:
                 lambda_params.append(self.l2_log_lambda)
-            if lambda_params: # Only create lambda_optimizer if there are lambdas to optimize
+            if lambda_params:  # Only create lambda_optimizer if there are lambdas to optimize
                 self.lambda_optimizer = optim.Adam(lambda_params, lr=self.lambda_learning_rate)
         else:
             # If not learning lambdas, apply fixed L2 regularization via weight_decay to the main optimizer
@@ -119,7 +141,7 @@ class PyTorchModelBase(BaseModel, ABC):
             # If n_predictor needs L2, it should be added to its param_group.
             if self.l2_lambda > 0:
                 for group in self.optimizer.param_groups:
-                    group['weight_decay'] = self.l2_lambda
+                    group["weight_decay"] = self.l2_lambda
 
     def _calculate_regularization_loss(self, base_loss: torch.Tensor, model) -> torch.Tensor:
         """Calculates and adds regularization loss to the base loss."""
@@ -133,23 +155,21 @@ class PyTorchModelBase(BaseModel, ABC):
                 loss = loss - d * torch.log(l1_lambda_val / 2.0) + l1_lambda_val * l1_sum
             elif self.learned_regularization_type == LearnedRegularizationType.L2_ONLY:
                 loss = loss - (d / 2.0) * torch.log(l2_lambda_val / torch.pi) + l2_lambda_val * l2_sum
-            else: # L1_L2
+            else:  # L1_L2
                 assert self.learned_regularization_type == LearnedRegularizationType.L1_L2
                 log_z = (
-                    torch.log(torch.pi / l2_lambda_val) / 2.0
-                    + torch.square(l1_lambda_val) / (4.0 * l2_lambda_val)
-                    + log_erfc(l1_lambda_val / (2.0 * torch.sqrt(l2_lambda_val)))
+                    torch.log(torch.pi / l2_lambda_val) / 2.0 + torch.square(l1_lambda_val) / (4.0 * l2_lambda_val) + log_erfc(l1_lambda_val / (2.0 * torch.sqrt(l2_lambda_val)))
                 )
                 loss = loss + d * log_z + l1_lambda_val * l1_sum + l2_lambda_val * l2_sum
-        elif self.l1_lambda > 0: # Fixed L1 regularization
+        elif self.l1_lambda > 0:  # Fixed L1 regularization
             _, l1_sum, _ = aggregate_stats(model=model, include_bias=False)
             loss = loss + self.l1_lambda * l1_sum
 
         return loss
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> int:
-        """
-        Trains the PyTorch Neural Network.
+        """Trains the PyTorch Neural Network.
+
         Args:
             X (np.ndarray): Training features.
             y (np.ndarray): Training targets.
@@ -173,7 +193,7 @@ class PyTorchModelBase(BaseModel, ABC):
                 torch.cuda.manual_seed_all(self.random_seed)
 
         self.build_model()  # Build model with correct output size and dropout if needed
-        self._setup_optimizers(self.model) # Setup optimizers after model is built
+        self._setup_optimizers(self.model)  # Setup optimizers after model is built
 
         # Split data for early stopping if enabled
         X_val, y_val = None, None
@@ -215,10 +235,10 @@ class PyTorchModelBase(BaseModel, ABC):
                 self.optimizer.zero_grad()
                 if self.lambda_optimizer:
                     self.lambda_optimizer.zero_grad()
-                
+
                 # outputs now returns (final_predictions, classifier_logits_out, selected_k_values, log_prob_for_reinforce)
                 final_predictions, _, _, log_prob_for_reinforce = self.model(batch_X)
-                
+
                 loss = self.criterion(final_predictions, batch_y)
 
                 loss = self._calculate_regularization_loss(loss, self.model)
@@ -227,7 +247,7 @@ class PyTorchModelBase(BaseModel, ABC):
                 self.optimizer.step()
                 if self.lambda_optimizer:
                     self.lambda_optimizer.step()
-                
+
                 if self.n_classes_selection_method == NClassesSelectionMethod.REINFORCE and log_prob_for_reinforce is not None:
                     epoch_log_probs.append(log_prob_for_reinforce)
 
@@ -241,7 +261,7 @@ class PyTorchModelBase(BaseModel, ABC):
                     if self.include_reg_loss_in_val_loss:
                         val_loss = self._calculate_regularization_loss(val_loss, self.model)
                     val_loss = val_loss.item()
-                
+
                 if self.n_classes_selection_method == NClassesSelectionMethod.REINFORCE:
                     self.model.n_classes_strategy.on_epoch_end(validation_loss=val_loss, epoch_log_probs=epoch_log_probs)
 
@@ -281,10 +301,11 @@ class PyTorchModelBase(BaseModel, ABC):
         return best_epoch + 1  # Return the number of epochs actually used
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        """
-        Makes predictions with the PyTorch Neural Network.
+        """Makes predictions with the PyTorch Neural Network.
+
         Args:
             X (np.ndarray): Features for prediction.
+
         Returns:
             np.ndarray: Predicted values. For classification, returns class labels.
         """
@@ -298,14 +319,14 @@ class PyTorchModelBase(BaseModel, ABC):
             mc_predictions = []
             with torch.no_grad():
                 for _ in range(self.n_mc_dropout_samples):
-                    outputs = self.model(X_tensor)
+                    outputs, _, _, _ = self.model(X_tensor)
                     mc_predictions.append(outputs.cpu().numpy().flatten())
             self.model.eval()  # Set back to eval mode
             return np.mean(mc_predictions, axis=0)  # Return mean of MC samples
 
         self.model.eval()  # Set model to evaluation mode for deterministic prediction
         with torch.no_grad():
-            outputs = self.model(X_tensor)
+            outputs, _, _, _ = self.model(X_tensor)
             if self.task_type == TaskType.CLASSIFICATION:
                 if self.output_size == 1:  # Binary classification
                     predictions = (torch.sigmoid(outputs) > 0.5).cpu().numpy().astype(int)
@@ -319,10 +340,11 @@ class PyTorchModelBase(BaseModel, ABC):
         return predictions.flatten()  # Ensure flat array output
 
     def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
-        """
-        Estimates uncertainty for regression using constant, MC Dropout, or probabilistic methods.
+        """Estimates uncertainty for regression using constant, MC Dropout, or probabilistic methods.
+
         Args:
             X (np.ndarray): Features for uncertainty estimation.
+
         Returns:
             np.ndarray: Array of uncertainty estimates (e.g., standard deviation).
         """
@@ -334,31 +356,31 @@ class PyTorchModelBase(BaseModel, ABC):
 
         if self.uncertainty_method == UncertaintyMethod.CONSTANT:
             return np.full(X.shape[0], self._train_residual_std)
-        elif self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
+        if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
             self.model.eval()  # Use eval mode for prediction
             with torch.no_grad():
-                outputs = self.model(X_tensor)
+                outputs, _, _, _ = self.model(X_tensor)
                 log_var = outputs[:, 1]
                 # Standard deviation is exp(0.5 * log_var)
                 uncertainty = torch.exp(0.5 * log_var).cpu().numpy()
             return uncertainty.flatten()
-        elif self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
+        if self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
             self.model.train()  # Enable dropout during inference for MC Dropout
             mc_predictions = []
             with torch.no_grad():
                 for _ in range(self.n_mc_dropout_samples):
-                    outputs = self.model(X_tensor)
+                    outputs, _, _, _ = self.model(X_tensor)
                     mc_predictions.append(outputs.cpu().numpy().flatten())
             self.model.eval()  # Set back to eval mode
             return np.std(mc_predictions, axis=0)  # Return std dev of MC samples
-        else:
-            raise ValueError(f"Unknown uncertainty_method: {self.uncertainty_method.value}")
+        raise ValueError(f"Unknown uncertainty_method: {self.uncertainty_method.value}")
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        """
-        Predicts class probabilities for classification tasks.
+        """Predicts class probabilities for classification tasks.
+
         Args:
             X (np.ndarray): Features for probability prediction.
+
         Returns:
             np.ndarray: Predicted probabilities (for binary: a 2D array [:, 0] neg, [:, 1] pos).
         """
@@ -370,20 +392,19 @@ class PyTorchModelBase(BaseModel, ABC):
         self.model.eval()
         X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
         with torch.no_grad():
-            outputs = self.model(X_tensor)
+            outputs, _, _, _ = self.model(X_tensor)
             if self.output_size == 1:  # Binary classification
                 proba = torch.sigmoid(outputs).cpu().numpy().flatten()
                 return np.vstack((1 - proba, proba)).T  # Return (N, 2) array
-            else:  # Multi-class classification
-                return torch.softmax(outputs, dim=1).cpu().numpy()  # Correctly returns (N, num_classes)
+            # Multi-class classification
+            return torch.softmax(outputs, dim=1).cpu().numpy()  # Correctly returns (N, num_classes)
 
     def get_internal_model(self):
-        """
-        Returns the raw underlying PyTorch model (nn.Sequential).
-        """
+        """Returns the raw underlying PyTorch model (nn.Sequential)."""
         return self.model
 
     def get_num_parameters(self) -> int:
+        """Returns the total number of trainable parameters in the model."""
         if self.model is None:
             return 0
         num_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
@@ -394,9 +415,9 @@ class PyTorchModelBase(BaseModel, ABC):
                 num_params += self.l2_log_lambda.numel()
         return num_params
 
-    def get_hyperparameter_search_space(self) -> Dict[str, Any]:
-        """
-        Returns the hyperparameter search space for the base PyTorch model.
+    def get_hyperparameter_search_space(self) -> dict[str, Any]:
+        """Returns the hyperparameter search space for the base PyTorch model.
+
         Subclasses should call this method and extend the returned dictionary.
         """
         space = {
@@ -417,6 +438,16 @@ class PyTorchModelBase(BaseModel, ABC):
         return space
 
     def evaluate(self, X: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
+        """Evaluates the model on a given dataset and saves the metrics.
+
+        Args:
+            X (np.ndarray): Feature matrix for evaluation.
+            y (np.ndarray): True labels for evaluation.
+            save_path (str): Directory to save the metrics files.
+
+        Returns:
+            np.ndarray: The predictions made by the model.
+        """
         y_pred = self.predict(X)
         y_proba = None
         if self.task_type == TaskType.CLASSIFICATION:
@@ -425,9 +456,9 @@ class PyTorchModelBase(BaseModel, ABC):
         metrics_calculator.save_metrics(save_path)
         return y_pred
 
-    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        This method is not applicable to general PyTorch models as they do not have
+    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """This method is not applicable to general PyTorch models as they do not have.
+
         an internal classifier for the purpose of discretizing regression targets.
         It is intended for composite models like ProbabilisticRegressionModel.
         """

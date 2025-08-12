@@ -1,17 +1,20 @@
+"""Base classes for machine learning models."""
+
 import abc
-from typing import Dict, Any, Tuple
+from typing import Any
+
 import numpy as np
 
 
 class BaseModel(abc.ABC):
-    """
-    Abstract base class for all machine learning models in the package.
+    """Abstract base class for all machine learning models in the package.
+
     Defines a common interface for fitting, predicting, and hyperparameter search.
     """
 
     def __init__(self, early_stopping_rounds: int = None, validation_fraction: float = 0.1, **kwargs):
-        """
-        Initializes the base model with given parameters.
+        """Initializes the base model with given parameters.
+
         Args:
             early_stopping_rounds (int, optional): Activates early stopping. Training will stop if validation
                                                    metric doesn't improve for this many consecutive rounds.
@@ -27,8 +30,7 @@ class BaseModel(abc.ABC):
 
     @abc.abstractmethod
     def fit(self, X: np.ndarray, y: np.ndarray) -> int:
-        """
-        Fits the model to the training data.
+        """Fits the model to the training data.
 
         Args:
             X (np.ndarray): Feature matrix.
@@ -37,12 +39,10 @@ class BaseModel(abc.ABC):
         Returns:
             int: Number of iterations/epochs/estimators.
         """
-        pass
 
     @abc.abstractmethod
     def predict(self, X: np.ndarray) -> np.ndarray:
-        """
-        Makes predictions on new data.
+        """Makes predictions on new data.
 
         Args:
             X (np.ndarray): Feature matrix for prediction.
@@ -50,13 +50,12 @@ class BaseModel(abc.ABC):
         Returns:
             np.ndarray: Predicted values.
         """
-        pass
 
     # New abstract method for uncertainty
     @abc.abstractmethod
     def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
-        """
-        Estimates the uncertainty of predictions for new data.
+        """Estimates the uncertainty of predictions for new data.
+
         This method is only applicable for regression models.
         For classification models, this method should raise an error or return None.
 
@@ -66,12 +65,10 @@ class BaseModel(abc.ABC):
         Returns:
             np.ndarray: Uncertainty estimates (e.g., standard deviation) for each prediction.
         """
-        pass
 
     @abc.abstractmethod
-    def get_hyperparameter_search_space(self) -> Dict[str, Any]:
-        """
-        Defines the hyperparameter search space for Optuna.
+    def get_hyperparameter_search_space(self) -> dict[str, Any]:
+        """Defines the hyperparameter search space for Optuna.
 
         Returns:
             Dict[str, Any]: A dictionary where keys are hyperparameter names
@@ -79,20 +76,15 @@ class BaseModel(abc.ABC):
                             and range for Optuna.
                             Example: {'param_name': {'type': 'int', 'low': 1, 'high': 10}}
         """
-        pass
 
     @property
     @abc.abstractmethod
     def name(self) -> str:
-        """
-        Returns the name of the model.
-        """
-        pass
+        """Returns the name of the model."""
 
     @abc.abstractmethod
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        """
-        Makes probability predictions on new data. Applicable for classification models.
+        """Makes probability predictions on new data. Applicable for classification models.
 
         Args:
             X (np.ndarray): Feature matrix for prediction.
@@ -100,12 +92,11 @@ class BaseModel(abc.ABC):
         Returns:
             np.ndarray: Predicted probabilities.
         """
-        pass
 
     @abc.abstractmethod
-    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        Returns the internal classifier's predicted classes, probabilities, and
+    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Returns the internal classifier's predicted classes, probabilities, and.
+
         the corresponding (discretized) true labels for composite models.
         For non-composite models, this method should raise NotImplementedError.
 
@@ -119,31 +110,27 @@ class BaseModel(abc.ABC):
                 - Predicted probabilities from the internal classifier.
                 - Discretized true labels corresponding to the internal classifier's task.
         """
-        pass
 
     @abc.abstractmethod
     def get_num_parameters(self) -> int:
-        """
-        Returns the total number of trainable parameters in the model.
-        """
-        pass
+        """Returns the total number of trainable parameters in the model."""
 
     @abc.abstractmethod
     def evaluate(self, X: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
-        """
-        Evaluates the model on a given dataset and saves the metrics.
+        """Evaluates the model on a given dataset and saves the metrics.
+
         Args:
             X (np.ndarray): Feature matrix for evaluation.
             y (np.ndarray): True labels for evaluation.
             save_path (str): Directory to save the metrics files.
+
         Returns:
             np.ndarray: The predictions made by the model.
         """
-        pass
 
     def get_internal_model(self):
-        """
-        Returns the raw underlying model object, if applicable.
+        """Returns the raw underlying model object, if applicable.
+
         Useful for explainability libraries like SHAP.
         """
         return self.model

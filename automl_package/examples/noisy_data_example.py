@@ -1,15 +1,17 @@
+"""Example script for demonstrating AutoML capabilities with noisy data."""
+
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error
-from sklearn.preprocessing import StandardScaler
-from bokeh.plotting import figure, show
 from bokeh.models import Legend, LegendItem
 from bokeh.palettes import Category10
+from bokeh.plotting import figure, show
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
-from automl_package.models.neural_network import PyTorchNeuralNetwork
+from automl_package.enums import LearnedRegularizationType, TaskType
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
+from automl_package.models.neural_network import PyTorchNeuralNetwork
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
-from automl_package.enums import TaskType, ModelName, LearnedRegularizationType
 
 
 def generate_noisy_data(n_samples=1000, noise_level=0.5):
@@ -57,6 +59,7 @@ def plot_results_bokeh(X_train, y_train, X_test, y_test, y_true_test, results):
     p.add_layout(legend)
 
     show(p)
+
 
 def run_experiment():
     """Runs the full experiment to compare model performances."""
@@ -109,19 +112,19 @@ def run_experiment():
     # Flexible Neural Network with learned lambdas
     flexible_nn_learned_lambdas = FlexibleHiddenLayersNN(
         input_size=X_train.shape[1],
-        max_hidden_layers=5, # Increased from 2
+        max_hidden_layers=5,  # Increased from 2
         hidden_size=64,
         task_type=TaskType.REGRESSION,
         n_epochs=200,
         learning_rate=0.01,
         early_stopping_rounds=20,
         validation_fraction=0.2,
-        gumbel_tau=0.1, # Initial higher value for annealing
-        n_predictor_layers=2, # Increased capacity
+        gumbel_tau=0.1,  # Initial higher value for annealing
+        n_predictor_layers=2,  # Increased capacity
         learn_regularization_lambdas=True,
         learned_regularization_type=LearnedRegularizationType.L1_L2,
         lambda_learning_rate=0.001,
-        gumbel_tau_anneal_rate=0.9, # More aggressive annealing
+        gumbel_tau_anneal_rate=0.9,  # More aggressive annealing
         n_predictor_learning_rate=0.01,
     )
 
@@ -135,12 +138,12 @@ def run_experiment():
         learning_rate=0.01,
         early_stopping_rounds=20,
         validation_fraction=0.2,
-        gumbel_tau=0.1, # Initial higher value for annealing
-        n_predictor_layers=2, # Increased capacity
+        gumbel_tau=0.1,  # Initial higher value for annealing
+        n_predictor_layers=2,  # Increased capacity
         learn_regularization_lambdas=True,
         learned_regularization_type=LearnedRegularizationType.L1_L2,
         lambda_learning_rate=0.001,
-        gumbel_tau_anneal_rate=0.9, # More aggressive annealing
+        gumbel_tau_anneal_rate=0.9,  # More aggressive annealing
         n_predictor_learning_rate=0.01,
     )
 
@@ -171,12 +174,12 @@ def run_experiment():
     )
 
     models = {
-        #"PyTorch NN (Learned Lambdas)": pytorch_nn_learned_lambdas,
-        #"PyTorch NN (Fixed Lambdas)": pytorch_nn_fixed_lambdas,
+        "PyTorch NN (Learned Lambdas)": pytorch_nn_learned_lambdas,
+        "PyTorch NN (Fixed Lambdas)": pytorch_nn_fixed_lambdas,
         "Flexible NN (Learned Lambdas)": flexible_nn_learned_lambdas,
-        #"Flexible NN (Fixed Lambdas)": flexible_nn_fixed_lambdas,
-        #"Probabilistic Reg (Learned Lambdas)": probabilistic_regression_learned_lambdas,
-        #"Probabilistic Reg (Fixed Lambdas)": probabilistic_regression_fixed_lambdas,
+        "Flexible NN (Fixed Lambdas)": flexible_nn_fixed_lambdas,
+        "Probabilistic Reg (Learned Lambdas)": probabilistic_regression_learned_lambdas,
+        "Probabilistic Reg (Fixed Lambdas)": probabilistic_regression_fixed_lambdas,
     }
 
     results = {}

@@ -1,20 +1,32 @@
-from sklearn.linear_model import LogisticRegression
+"""Scikit-learn Logistic Regression model wrapper."""
+
+from typing import Any
+
 import numpy as np
-from .base import BaseModel
-from typing import Dict, Any
-from ..utils.metrics import Metrics
-from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
+from sklearn.model_selection import train_test_split
+
+from ..utils.metrics import Metrics
+from .base import BaseModel
 
 
 class SKLearnLogisticRegression(BaseModel):
-    """
-    Logistic Regression model using scikit-learn.
+    """Logistic Regression model using scikit-learn.
+
     Primarily for classification, but used internally by ClassifierRegression.
     Supports L1, L2, and ElasticNet regularization.
     """
 
     def __init__(self, penalty: str = "l2", C: float = 1.0, l1_ratio: float = None, **kwargs):
+        """Initializes the SKLearnLogisticRegression model.
+
+        Args:
+            penalty (str): The type of regularization to use ('l1', 'l2', or 'elasticnet').
+            C (float): Inverse of regularization strength.
+            l1_ratio (float, optional): The ElasticNet mixing parameter, between 0 and 1.
+            **kwargs: Additional keyword arguments for the BaseModel.
+        """
         super().__init__(**kwargs)
         self.penalty = penalty
         self.C = C  # Inverse of regularization strength
@@ -24,9 +36,19 @@ class SKLearnLogisticRegression(BaseModel):
 
     @property
     def name(self) -> str:
+        """Returns the name of the model."""
         return "SKLearnLogisticRegression"
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> int:
+        """Fits the Logistic Regression model to the training data.
+
+        Args:
+            X (np.ndarray): Feature matrix.
+            y (np.ndarray): Target vector.
+
+        Returns:
+            int: Number of iterations used for training.
+        """
         if self.penalty == "elasticnet" and self.l1_ratio is None:
             raise ValueError("l1_ratio must be specified when penalty is 'elasticnet'.")
 
@@ -48,7 +70,7 @@ class SKLearnLogisticRegression(BaseModel):
             X_train, y_train = X, y
             X_val, y_val = None, None
 
-        best_val_loss = float('inf')
+        best_val_loss = float("inf")
         patience_counter = 0
         best_model_state = None
         best_i = 0
@@ -68,7 +90,7 @@ class SKLearnLogisticRegression(BaseModel):
                     best_val_loss = val_loss
                     patience_counter = 0
                     # Store a deep copy of the model's state
-                    best_model_state = {'coef_': base_model.coef_.copy(), 'intercept_': base_model.intercept_.copy()}
+                    best_model_state = {"coef_": base_model.coef_.copy(), "intercept_": base_model.intercept_.copy()}
                     best_i = i
                 else:
                     patience_counter += 1
@@ -78,21 +100,37 @@ class SKLearnLogisticRegression(BaseModel):
                     break
             else:
                 best_i = i
-        
+
         # Set the model to the best state found during early stopping
         if best_model_state:
-            base_model.coef_ = best_model_state['coef_']
-            base_model.intercept_ = best_model_state['intercept_']
+            base_model.coef_ = best_model_state["coef_"]
+            base_model.intercept_ = best_model_state["intercept_"]
 
         self.model = base_model
-        return best_i + 1 # Return the number of iterations actually used
+        return best_i + 1  # Return the number of iterations actually used
 
     def predict(self, X: np.ndarray) -> np.ndarray:
+        """Makes predictions on new data.
+
+        Args:
+            X (np.ndarray): Feature matrix for prediction.
+
+        Returns:
+            np.ndarray: Predicted class labels.
+        """
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         return self.model.predict(X)
 
     def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
+        """Estimates uncertainty for predictions.
+
+        Args:
+            X (np.ndarray): Feature matrix for uncertainty estimation.
+
+        Returns:
+            np.ndarray: Uncertainty estimates (e.g., 1 - confidence).
+        """
         if not self.is_regression_model:  # This condition is always True for this class
             # For classification, uncertainty is typically 1 - confidence (max probability)
             if self.model is None:
@@ -110,11 +148,24 @@ class SKLearnLogisticRegression(BaseModel):
         return np.array([])
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Predicts class probabilities for classification tasks.
+
+        Args:
+            X (np.ndarray): Features for probability prediction.
+
+        Returns:
+            np.ndarray: Predicted probabilities.
+        """
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         return self.model.predict_proba(X)
 
-    def get_hyperparameter_search_space(self) -> Dict[str, Any]:
+    def get_hyperparameter_search_space(self) -> dict[str, Any]:
+        """Defines the hyperparameter search space for SKLearnLogisticRegression.
+
+        Returns:
+            Dict[str, Any]: A dictionary defining the hyperparameter search space.
+        """
         space = {
             "penalty": {"type": "categorical", "choices": ["l1", "l2", "elasticnet"]},
             "C": {"type": "float", "low": 1e-4, "high": 10.0, "log": True},  # Inverse of regularization strength
@@ -125,20 +176,38 @@ class SKLearnLogisticRegression(BaseModel):
         return space
 
     def get_internal_model(self):
-        """
-        Returns the raw underlying scikit-learn model.
-        """
+        """Returns the raw underlying scikit-learn model."""
         return self.model
 
     def get_num_parameters(self) -> int:
+        """Returns the total number of trainable parameters in the model.
+
+        Returns:
+            int: The total number of parameters.
+        """
         if self.model is None:
-            return 0 # Or raise an error if model not fitted
+            return 0  # Or raise an error if model not fitted
         return self.model.coef_.size + self.model.intercept_.size
 
     def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+        """Not implemented for SKLearnLogisticRegression.
+
+        Raises:
+            NotImplementedError: SKLearnLogisticRegression is not a composite model.
+        """
         raise NotImplementedError("SKLearnLogisticRegression is not a composite model and does not have an internal classifier for separate prediction.")
 
     def evaluate(self, X: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
+        """Evaluates the model on a given dataset and saves the metrics.
+
+        Args:
+            X (np.ndarray): Feature matrix for evaluation.
+            y (np.ndarray): True labels for evaluation.
+            save_path (str): Directory to save the metrics files.
+
+        Returns:
+            np.ndarray: The predictions made by the model.
+        """
         y_pred = self.predict(X)
         y_proba = self.predict_proba(X)
         metrics_calculator = Metrics("classification", self.name, y, y_pred, y_proba)
