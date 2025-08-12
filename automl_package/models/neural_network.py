@@ -77,6 +77,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
             **kwargs: Additional keyword arguments for PyTorchModelBase.
         """
         super().__init__(**kwargs)
+        self._returns_multiple_outputs = True  # This model returns multiple outputs
         self.hidden_layers = hidden_layers
         self.hidden_size = hidden_size
         self.activation = activation

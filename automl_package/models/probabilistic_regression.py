@@ -82,6 +82,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
             dropout_rate=dropout_rate,
             **kwargs,
         )
+        self._returns_multiple_outputs = True  # This model returns multiple outputs
         self.n_classes = n_classes
         self.n_classes_inf = n_classes_inf
         self.max_n_classes_for_probabilistic_path = max_n_classes_for_probabilistic_path

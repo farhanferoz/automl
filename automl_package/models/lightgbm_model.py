@@ -1,45 +1,52 @@
 """LightGBM model wrapper for AutoML."""
 
-from typing import Any
+from typing import Any, NoReturn
 
 import lightgbm as lgb
 import numpy as np
 from sklearn.model_selection import train_test_split
 
-from ..utils.metrics import Metrics
-from .base import BaseModel
+from automl_package.enums import TaskType
+from automl_package.models.base import BaseModel
+from automl_package.utils.metrics import Metrics
 
 
 class LightGBMModel(BaseModel):
     """LightGBM model wrapper."""
 
-    def __init__(self, objective: str = "regression", metric: str = "rmse", **kwargs):
+    def __init__(self, task_type: TaskType = TaskType.REGRESSION, **kwargs: Any) -> None:
         """Initializes the LightGBMModel.
 
         Args:
-            objective (str): The learning objective function.
-            metric (str): The evaluation metric.
+            task_type (TaskType): The type of machine learning task (regression or classification).
             **kwargs: Additional keyword arguments for the LightGBM model.
         """
         super().__init__(**kwargs)
-        self.objective = objective
-        self.metric = metric
+        self.task_type = task_type
         self.model = None
-        # Determine if it's a regression model based on objective
-        self.is_regression_model = self.objective in ["regression", "regression_l1", "huber", "fair", "poisson", "quantile", "mape", "gamma", "tweedie"]
+        self.is_regression_model = task_type == TaskType.REGRESSION
         self._train_residual_std = 0.0  # For regression uncertainty
         self.num_iterations_used = 0
+
+        if self.task_type == TaskType.REGRESSION:
+            self.objective = "regression"
+            self.metric = "rmse"
+        elif self.task_type == TaskType.CLASSIFICATION:
+            self.objective = "binary"  # Default for binary classification
+            self.metric = "binary_logloss"
+        else:
+            raise ValueError(f"Unsupported task type: {task_type}")
 
     @property
     def name(self) -> str:
         """Returns the name of the model."""
         return "LightGBM"
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> int:
+    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
         """Fits the LightGBM model to the training data.
 
         Args:
-            X (np.ndarray): Feature matrix.
+            x (np.ndarray): Feature matrix.
             y (np.ndarray): Target vector.
 
         Returns:
@@ -48,14 +55,19 @@ class LightGBMModel(BaseModel):
         # Split data for early stopping if enabled
         eval_set = None
         if self.early_stopping_rounds is not None and self.validation_fraction > 0:
-            X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=self.validation_fraction, random_state=42)
-            eval_set = [(X_val, y_val)]
+            x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=self.validation_fraction, random_state=42)
+            eval_set = [(x_val, y_val)]
         else:
-            X_train, y_train = X, y
+            x_train, y_train = x, y
 
-        # Handle classification objectives for LightGBM based on objective string
-        if self.objective in ["binary", "multiclass", "multiclassova"]:
-            # For classification, use LGBMClassifier
+        if self.task_type == TaskType.CLASSIFICATION:
+            # For multi-class classification, adjust objective and metric
+            if np.unique(y_train).shape[0] > 2:
+                self.objective = "multiclass"
+                self.metric = "multi_logloss"
+            else:
+                self.objective = "binary"
+                self.metric = "binary_logloss"
             self.model = lgb.LGBMClassifier(objective=self.objective, metric=self.metric, **self.params)
         else:
             # For regression, use LGBMRegressor
@@ -66,10 +78,10 @@ class LightGBMModel(BaseModel):
             fit_params["eval_set"] = eval_set
             fit_params["callbacks"] = [lgb.early_stopping(self.early_stopping_rounds, verbose=False)]  # Suppress verbose output
 
-        self.model.fit(X_train, y_train, **fit_params)
+        self.model.fit(x_train, y_train, **fit_params)
 
         if self.is_regression_model:
-            y_pred_train = self.predict(X)
+            y_pred_train = self.predict(x)
             _train_residual_std = np.std(y - y_pred_train)
             if np.isnan(_train_residual_std):
                 self._train_residual_std = 0.0
@@ -79,27 +91,27 @@ class LightGBMModel(BaseModel):
         self.num_iterations_used = self.model._best_iteration if eval_set is not None and self.model._best_iteration is not None else self.model.n_estimators
         return self.num_iterations_used
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.
 
         Args:
-            X (np.ndarray): Feature matrix for prediction.
+            x (np.ndarray): Feature matrix for prediction.
 
         Returns:
             np.ndarray: Predicted values.
         """
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
-        if self.objective in ["binary", "multiclass", "multiclassova"]:
+        if self.task_type == TaskType.CLASSIFICATION:
             # For binary classification, predict_proba returns probabilities of classes [:, 1] for positive class
-            return self.model.predict_proba(X)[:, 1]
-        return self.model.predict(X)
+            return self.model.predict_proba(x)[:, 1]
+        return self.model.predict(x)
 
-    def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
-            X (np.ndarray): Feature matrix for uncertainty estimation.
+            x (np.ndarray): Feature matrix for uncertainty estimation.
 
         Returns:
             np.ndarray: Uncertainty estimates (e.g., standard deviation).
@@ -109,13 +121,13 @@ class LightGBMModel(BaseModel):
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         # For simplicity, return a constant uncertainty based on training residuals
-        return np.full(X.shape[0], self._train_residual_std)
+        return np.full(x.shape[0], self._train_residual_std)
 
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray) -> np.ndarray:
         """Predicts class probabilities for classification tasks.
 
         Args:
-            X (np.ndarray): Features for probability prediction.
+            x (np.ndarray): Features for probability prediction.
 
         Returns:
             np.ndarray: Predicted probabilities.
@@ -124,7 +136,7 @@ class LightGBMModel(BaseModel):
             raise RuntimeError("Model has not been fitted yet.")
         if not hasattr(self.model, "predict_proba"):
             raise ValueError("predict_proba is not available for the current LightGBM configuration (likely regression).")
-        return self.model.predict_proba(X)
+        return self.model.predict_proba(x)
 
     def get_hyperparameter_search_space(self) -> dict[str, Any]:
         """Defines the hyperparameter search space for LightGBM.
@@ -144,7 +156,7 @@ class LightGBMModel(BaseModel):
             "reg_lambda": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L2 regularization
         }
 
-    def get_internal_model(self):
+    def get_internal_model(self) -> Any:
         """Returns the raw underlying LightGBM model."""
         return self.model
 
@@ -158,7 +170,7 @@ class LightGBMModel(BaseModel):
             return 0
         return self.num_iterations_used + 1
 
-    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> NoReturn:
         """Not implemented for LightGBMModel.
 
         Raises:
@@ -166,22 +178,22 @@ class LightGBMModel(BaseModel):
         """
         raise NotImplementedError("LightGBMModel is not a composite model and does not have an internal classifier for separate prediction.")
 
-    def evaluate(self, X: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
+    def evaluate(self, x: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
         """Evaluates the model on a given dataset and saves the metrics.
 
         Args:
-            X (np.ndarray): Feature matrix for evaluation.
+            x (np.ndarray): Feature matrix for evaluation.
             y (np.ndarray): True labels for evaluation.
             save_path (str): Directory to save the metrics files.
 
         Returns:
             np.ndarray: The predictions made by the model.
         """
-        y_pred = self.predict(X)
+        y_pred = self.predict(x)
         y_proba = None
         task_type = "regression" if self.is_regression_model else "classification"
         if task_type == "classification":
-            y_proba = self.predict_proba(X)
+            y_proba = self.predict_proba(x)
         metrics_calculator = Metrics(task_type, self.name, y, y_pred, y_proba)
         metrics_calculator.save_metrics(save_path)
         return y_pred
