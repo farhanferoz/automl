@@ -3,13 +3,11 @@ from typing import Dict, Any, Tuple, Optional
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from .base_pytorch import PyTorchModelBase
 from .neural_network import PyTorchNeuralNetwork
 from ..enums import UncertaintyMethod, RegressionStrategy, TaskType, NClassesSelectionMethod
 from ..logger import logger
-from ..utils.metrics import Metrics
 from .selection_strategies.n_classes_strategies import (
     NoneStrategy,
     GumbelSoftmaxStrategy,

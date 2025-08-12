@@ -88,6 +88,7 @@ $$
         *   $\lambda_1$ is the L1 regularization strength.
         *   $\lambda_2$ is the L2 regularization strength.
 
+
 *   **NormalEquationLinearRegression**: A direct implementation of Linear Regression using the normal equation, suitable for smaller datasets. This model inherently includes L2 regularization (Ridge Regression).
     *   **Mathematical Formulation (Normal Equation with Ridge)**:
         The weights $\hat{\beta}$ (including the bias term) are found by solving the following equation:
@@ -132,17 +133,22 @@ $$
             *   You need an **exact, analytical solution** and don't want to tune iterative optimization parameters.
             *   Computational resources (especially memory) are not a bottleneck for matrix operations.
 
+
 *   **PyTorchLinearRegression**: A linear regression model implemented using PyTorch, allowing for GPU acceleration and integration with PyTorch's ecosystem.
 
+
 *   **PyTorchLogisticRegression**: A logistic regression model implemented using PyTorch, suitable for binary classification.
+
 
 *   **SKLearnLogisticRegression**: Scikit-learn's Logistic Regression for classification, supporting various penalties.
 
 ### **Tree-Based Models**
 
-*   **XGBoostModel**: Wrapper for XGBoost (Extreme Gradient Boosting), configurable for regression and classification.
-*   **LightGBMModel**: Wrapper for LightGBM (Light Gradient Boosting Machine), highly efficient for large datasets.
-*   **CatBoostModel**: Wrapper for CatBoost, known for its robust handling of categorical features.
+*   **XGBoostModel**: Wrapper for XGBoost (Extreme Gradient Boosting), configurable for regression and classification. 
+
+* **LightGBMModel**: Wrapper for LightGBM (Light Gradient Boosting Machine), highly efficient for large datasets.
+  
+* **CatBoostModel**: Wrapper for CatBoost, known for its robust handling of categorical features.
 
 ### **Neural Networks**
 
@@ -275,6 +281,7 @@ The `FlexibleNeuralNetwork`'s ability to dynamically select its architecture is 
     *   **Use Case:** Baseline comparison or when a fixed architecture is desired.
     *   **Constraint:** Requires `n_predictor_layers` to be set to `0`.
 
+
 *   **`LayerSelectionMethod.SOFT_GATING`**
     *   **Description:** Uses a `softmax` function on the `n_predictor`'s logits to produce a probability distribution over the number of active layers. The final output is a weighted average of the outputs from all possible network depths, where weights are these probabilities. All layers contribute to the final prediction, but their contributions are scaled by the predicted probabilities.    
     *   **Use Case:** When a smooth, differentiable, and continuous combination of different network depths is desired. It allows the model to softly blend architectures, which can be beneficial for creating a stable and well-behaved loss landscape during training, especially when the optimal depth is not clear-cut.
@@ -284,9 +291,14 @@ The `FlexibleNeuralNetwork`'s ability to dynamically select its architecture is 
 p_i = \text{softmax}\left(z_i\right) = \frac{e^{z_i}}{\sum_{j=1}^{K} e^{z_j}}
 $$        The final output is a weighted sum: $Y_{\text{pred}} = \sum_{i=1}^{K} p_i \cdot Y_i$, where $Y_i$ is the output of the network with depth $i$.
 
-*   **`LayerSelectionMethod.GUMBEL_SOFTMAX`**    *   **Description:** An advanced version of `SOFT_GATING` that uses the Gumbel-Softmax trick. It introduces stochasticity during training to explore different architectures more effectively. Like `SOFT_GATING`, it produces a weighted average of all architecture outputs, meaning all layers contribute to the final prediction, but their influence is weighted by the Gumbel-Softmax probabilities.    *   **Use Case:** Ideal for scenarios where the model needs to explore a wider range of architectural configurations during training to find the most suitable depth. It's particularly useful when the optimal architecture is unknown or when dealing with complex datasets where a fixed architecture might limit performance.    *   **Constraint:** Requires `n_predictor_layers > 0` as it relies on the `n_predictor` to generate probabilities.    *   **Core Idea:** Improves exploration in the architecture search space by adding noise in a structured, differentiable way.    *   **Mathematical Formulation:** Given logits $z$ and Gumbel noise $g \sim \text{Gumbel}(0, 1)$:        $$
-p_i = \text{softmax}\left(\frac{z_i + g_i}{\tau}\right)
-$$        Here, $\tau$ is a temperature parameter that is annealed (gradually lowered) during training. A high $\tau$ encourages exploration (probabilities are more uniform), while a low $\tau$ encourages exploitation (probabilities become closer to a one-hot selection).
+
+*   **`LayerSelectionMethod.GUMBEL_SOFTMAX`**    
+    *   **Description:** An advanced version of `SOFT_GATING` that uses the Gumbel-Softmax trick. It introduces stochasticity during training to explore different architectures more effectively. Like `SOFT_GATING`, it produces a weighted average of all architecture outputs, meaning all layers contribute to the final prediction, but their influence is weighted by the Gumbel-Softmax probabilities.    
+    *   **Use Case:** Ideal for scenarios where the model needs to explore a wider range of architectural configurations during training to find the most suitable depth. It's particularly useful when the optimal architecture is unknown or when dealing with complex datasets where a fixed architecture might limit performance.    
+    *   **Constraint:** Requires `n_predictor_layers > 0` as it relies on the `n_predictor` to generate probabilities.
+    *   **Core Idea:** Improves exploration in the architecture search space by adding noise in a structured, differentiable way.    
+    *   **Mathematical Formulation:** Given logits $z$ and Gumbel noise $g \sim \text{Gumbel}(0, 1)$: $$p_i = \text{softmax}\left(\frac{z_i + g_i}{\tau}\right)$$        Here, $\tau$ is a temperature parameter that is annealed (gradually lowered) during training. A high $\tau$ encourages exploration (probabilities are more uniform), while a low $\tau$ encourages exploitation (probabilities become closer to a one-hot selection).
+
 
 *   **`LayerSelectionMethod.STE` (Straight-Through Estimator)**
     *   **Description:** This method makes a "hard" decision in the forward pass but uses a "soft" gradient in the backward pass. It uses the Gumbel-Softmax trick with `hard=True`, which outputs a one-hot vector (e.g., `[0, 1, 0]`). This vector selects a *single* architecture (a specific number of active layers) to be used for the forward pass for each input. Only the selected layers perform computation.
@@ -294,6 +306,7 @@ $$        Here, $\tau$ is a temperature parameter that is annealed (gradually lo
     *   **Constraint:** Requires `n_predictor_layers > 0` and the `n_predictor` to be trained to output a one-hot vector for hard selection.
     *   **Core Idea:** To get the efficiency of using a single architecture per input while still allowing the `n_predictor` to learn via a differentiable gradient.
     *   **Mechanism (The "Trick"):** In the backward pass, the gradient is calculated *as if* the soft, continuous Gumbel-Softmax probabilities had been used, effectively "going through" the non-differentiable `argmax` operation.
+
 
 *   **`LayerSelectionMethod.REINFORCE`**
     *   **Description:** This method frames architecture selection as a reinforcement learning problem. The `n_predictor` acts as a "policy network" or "agent" that *samples* a discrete number of layers to use for each input. Only the sampled layers are active.
@@ -305,8 +318,7 @@ $$        Here, $\tau$ is a temperature parameter that is annealed (gradually lo
         2.  **Action:** The policy network observes $X$ and *samples* an action (the number of layers to use) from the probability distribution it produces.
         3.  **Reward:** At the end of each training epoch, the model's performance is measured on a validation set. The reward $R$ is the negative validation loss ($R = -\text{validation loss}$). A lower loss means a higher reward.
         4.  **Policy Update:** The policy network is updated using the REINFORCE algorithm, which adjusts its weights to make actions that led to high rewards more likely in the future. The policy gradient is estimated as:
-            $$\nabla_\theta J(\theta) \approx R \cdot \nabla_\theta \log \pi(a|s; \theta)
-$$
+            $$\nabla_\theta J(\theta) \approx R \cdot \nabla_\theta \log \pi(a|s; \theta)$$
             Where $J(\theta)$ is the policy objective, and $\pi(a|s; \theta)$ is the policy (the `n_predictor`).
 
 ### **Probabilistic Regression Models**
@@ -422,7 +434,7 @@ $$
         ```
 
       *   **Dynamic `n_classes` Estimation**:
-          The `ProbabilisticRegressionModel` can now dynamically estimate the optimal number of classes (`n_classes`) for discretizing the target variable, rather than requiring it to be a fixed hyperparameter. This allows the model to adapt its internal classification granularity to the complexity of the regression task and the data itself. It also seamlessly integrates a direct regression path, allowing the model to choose between a probabilistic, class-based approach and a simpler direct regression, based on the input.
+          The `ProbabilisticRegressionModel` can dynamically estimate the optimal number of classes (`n_classes`) for discretizing the target variable, rather than requiring it to be a fixed hyperparameter. This allows the model to adapt its internal classification granularity to the complexity of the regression task and the data itself. It also seamlessly integrates a direct regression path, allowing the model to choose between a probabilistic, class-based approach and a simpler direct regression, based on the input.
 
           **Mechanism**:
           1.  **`estimate_n_classes` Parameter**: A new boolean parameter `estimate_n_classes` in `ProbabilisticRegressionModel` controls this feature. If `True`, the model will dynamically determine `n_classes`; otherwise, it uses the `n_classes` provided by the user.
@@ -1161,7 +1173,7 @@ loaded_automl_reg = AutoML.load_automl_state(save_path_reg_automl)
 
 if loaded_automl_reg:
     logger.info(f"Loaded AutoML best regression model: {loaded_automl_reg.get_best_model_info()['name']}")
-    # You can now use loaded_automl_reg to predict on new data.
+    # You can use loaded_automl_reg to predict on new data.
     # loaded_predictions_reg = loaded_automl_reg.predict(X_test_full_reg[:5])
     # logger.info(f"Predictions from loaded regression model (first 5): {loaded_predictions_reg.flatten().round(2)}")
 
@@ -1171,7 +1183,7 @@ loaded_automl_clf = AutoML.load_automl_state(save_path_clf_automl)
 
 if loaded_automl_clf:
     logger.info(f"Loaded AutoML best classification model: {loaded_automl_clf.get_best_model_info()['name']}")
-    # You can now use loaded_automl_clf to predict on new data.
+    # You can use loaded_automl_clf to predict on new data.
     # loaded_predictions_clf = loaded_automl_clf.predict(X_test_full_clf[:5])
     # logger.info(f"Predictions from loaded classification model (first 5): {loaded_predictions_clf.flatten().round(2)}")
 
