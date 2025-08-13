@@ -1,11 +1,13 @@
 """Maps classification probabilities to regression values."""
 
+from typing import Any
+
 import numpy as np
 from scipy.interpolate import UnivariateSpline
 from sklearn.linear_model import LinearRegression
 
-from ..enums import MapperType  # Import MapperType enum
-from ..logger import logger  # Import logger
+from automl_package.enums import MapperType  # Import MapperType enum
+from automl_package.logger import logger  # Import logger
 
 
 class ClassProbabilityMapper:
@@ -15,7 +17,7 @@ class ClassProbabilityMapper:
     Now also supports spline interpolation.
     """
 
-    def __init__(self, mapper_type: MapperType = MapperType.LINEAR, **kwargs):  # Use enum
+    def __init__(self, mapper_type: MapperType = MapperType.LINEAR, **kwargs: Any) -> None:
         """Initializes the ClassProbabilityMapper.
 
         Args:
@@ -30,8 +32,8 @@ class ClassProbabilityMapper:
                           - spline_s (float): Positive smoothing factor (default: None, for interpolation).
         """
         self.mapper_type = mapper_type
-        self.model = None  # For linear regression or spline
-        self.lookup_table = None  # For lookup tables {proba_key: (expected_y, variance)}
+        self.model: LinearRegression | UnivariateSpline | None = None  # For linear regression or spline
+        self.lookup_table: dict[str, np.ndarray] | None = None  # For lookup tables {proba_key: (expected_y, variance)}
 
         # Parameters for lookup table mappers
         self.n_partitions_min = kwargs.get("n_partitions_min", 5)
@@ -46,7 +48,7 @@ class ClassProbabilityMapper:
         if self.mapper_type not in [MapperType.LINEAR, MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN, MapperType.SPLINE]:
             raise ValueError(f"Unsupported mapper_type: {self.mapper_type.value}. Choose from 'linear', 'lookup_mean', 'lookup_median', 'spline'.")
 
-    def fit(self, probas: np.ndarray, y_original: np.ndarray):
+    def fit(self, probas: np.ndarray, y_original: np.ndarray) -> None:
         """Fits the mapping from probabilities to corresponding original target values.
 
         Args:
@@ -95,9 +97,9 @@ class ClassProbabilityMapper:
             if num_partitions == 0:  # Handle edge case for very small datasets
                 num_partitions = 1
 
-            temp_lookup_keys = []
-            temp_lookup_values = []
-            temp_lookup_variances = []
+            temp_lookup_keys: list[float] = []
+            temp_lookup_values: list[float] = []
+            temp_lookup_variances: list[float] = []
 
             # Distribute points into partitions as evenly as possible
             partition_size_base = len(probas) // num_partitions
@@ -118,13 +120,10 @@ class ClassProbabilityMapper:
                 if len(partition_y) == 0:  # Should not happen if start_idx < end_idx, but defensive check
                     continue
 
-                if self.mapper_type == MapperType.LOOKUP_MEAN:
-                    expected_y = np.mean(partition_y)
-                else:  # LOOKUP_MEDIAN
-                    expected_y = np.median(partition_y)
+                expected_y = np.mean(partition_y) if self.mapper_type == MapperType.LOOKUP_MEAN else np.median(partition_y)
 
                 partition_variance = np.var(partition_y)
-                if np.isnan(partition_variance):  # Handle cases of single point or no variance
+                if np.isnan(partition_variance):
                     partition_variance = 0.0
 
                 temp_lookup_keys.append(1 if i == num_partitions - 1 else partition_probas[-1])
@@ -208,12 +207,7 @@ class ClassProbabilityMapper:
         if self.mapper_type == MapperType.SPLINE:
             if self.model is None:
                 raise RuntimeError("Spline mapper has not been fitted yet.")
-            # Ensure probabilities are within the range used for fitting the spline to prevent wild extrapolation
-            if len(self.model.get_knots()) > 1:
-                # Clip to the range of the knots to prevent extreme extrapolations
-                probas_new_clipped = np.clip(probas_new, self.model.get_knots()[0], self.model.get_knots()[-1])
-            else:  # Fallback for very few data points where spline might only have one knot
-                probas_new_clipped = probas_new  # No clipping possible, rely on spline's internal handling
+            probas_new_clipped = np.clip(probas_new, self.model.get_knots()[0], self.model.get_knots()[-1]) if len(self.model.get_knots()) > 1 else probas_new
             return self.model(probas_new_clipped)
         raise ValueError(f"Unsupported mapper_type: {self.mapper_type.value}")
 

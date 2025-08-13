@@ -3,7 +3,7 @@
 from typing import Any
 
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as f
 
 from .base_selection_strategy import BaseSelectionStrategy
 
@@ -11,12 +11,12 @@ from .base_selection_strategy import BaseSelectionStrategy
 class NoneStrategy(BaseSelectionStrategy):
     """Uses a fixed n_classes, bypassing the n_classes_predictor."""
 
-    def forward(self, x_input: torch.Tensor, logits: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+    def forward(self, x_input: torch.Tensor, _logits: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
         """Performs forward pass without n_classes selection.
 
         Args:
             x_input (torch.Tensor): Input tensor.
-            logits (torch.Tensor | None): Logits from the n_classes_predictor (ignored in this strategy).
+            _logits (torch.Tensor | None): Logits from the n_classes_predictor (ignored in this strategy).
 
         Returns:
             tuple: A tuple containing final predictions, selected k values, and log_prob_for_reinforce.
@@ -49,7 +49,7 @@ class GumbelSoftmaxStrategy(BaseSelectionStrategy):
         Returns:
             tuple: A tuple containing final predictions, selected k values, and log_prob_for_reinforce.
         """
-        mode_selection_probs = F.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=False, dim=-1)
+        mode_selection_probs = f.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=False, dim=-1)
         self.mode_selection_probs = mode_selection_probs  # Store for classifier_logits_out in _CombinedProbabilisticModel
         final_predictions_contribution, selected_k_values_for_logging = self._weighted_average_logic(x_input, mode_selection_probs)
         return final_predictions_contribution, selected_k_values_for_logging, None
@@ -68,7 +68,7 @@ class SoftGatingStrategy(BaseSelectionStrategy):
         Returns:
             tuple: A tuple containing final predictions, selected k values, and log_prob_for_reinforce.
         """
-        mode_selection_probs = F.softmax(logits, dim=-1)
+        mode_selection_probs = f.softmax(logits, dim=-1)
         self.mode_selection_probs = mode_selection_probs  # Store for classifier_logits_out in _CombinedProbabilisticModel
         final_predictions_contribution, selected_k_values_for_logging = self._weighted_average_logic(x_input, mode_selection_probs)
         return final_predictions_contribution, selected_k_values_for_logging, None
@@ -87,7 +87,7 @@ class SteStrategy(BaseSelectionStrategy):
         Returns:
             tuple: A tuple containing final predictions, selected k values, and log_prob_for_reinforce.
         """
-        mode_selection_one_hot = F.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=True, dim=-1)
+        mode_selection_one_hot = f.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=True, dim=-1)
         self.mode_selection_probs = mode_selection_one_hot  # Store for classifier_logits_out in _CombinedProbabilisticModel
         final_predictions_contribution, selected_k_values_for_logging = self._hard_selection_logic(x_input, mode_selection_one_hot)
         return final_predictions_contribution, selected_k_values_for_logging, None
@@ -96,7 +96,7 @@ class SteStrategy(BaseSelectionStrategy):
 class ReinforceStrategy(BaseSelectionStrategy):
     """Uses REINFORCE algorithm to select an architecture."""
 
-    def setup_optimizers(self, policy_params: Any):
+    def setup_optimizers(self, policy_params: Any) -> None:
         """Sets up optimizers for the REINFORCE policy.
 
         Args:
@@ -114,17 +114,17 @@ class ReinforceStrategy(BaseSelectionStrategy):
         Returns:
             tuple: A tuple containing final predictions, selected k values, and log_prob_for_reinforce.
         """
-        probs = F.softmax(logits, dim=-1)
+        probs = f.softmax(logits, dim=-1)
         dist = torch.distributions.Categorical(probs)
         action = dist.sample()
         log_prob = dist.log_prob(action)
 
-        mode_selection_one_hot = F.one_hot(action, num_classes=logits.size(-1)).float()
+        mode_selection_one_hot = f.one_hot(action, num_classes=logits.size(-1)).float()
         self.mode_selection_probs = mode_selection_one_hot  # Store for classifier_logits_out in _CombinedProbabilisticModel
         final_predictions_contribution, selected_k_values_for_logging = self._hard_selection_logic(x_input, mode_selection_one_hot)
         return final_predictions_contribution, selected_k_values_for_logging, log_prob
 
-    def on_epoch_end(self, **kwargs):
+    def on_epoch_end(self, **kwargs: Any) -> None:
         """Performs operations at the end of each training epoch.
 
         Args:

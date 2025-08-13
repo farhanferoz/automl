@@ -1,7 +1,8 @@
 """Automated Machine Learning (AutoML) orchestrator and pipeline management."""
 
 import json
-from datetime import datetime
+from collections.abc import Callable
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, cast
 
@@ -13,7 +14,7 @@ import pandas as pd  # Import pandas for feature names in SHAP output
 import seaborn as sns
 import torch.nn as nn
 import wandb
-from sklearn.base import TransformerMixin
+from sklearn.base import TransformerMixin, clone
 from sklearn.metrics import accuracy_score, log_loss, mean_squared_error
 from sklearn.model_selection import KFold
 
@@ -55,7 +56,7 @@ class AutoML:
         auto_detect_categorical: bool = False,
         auto_detect_categorical_threshold: float = 0.05,
         categorical_encoding_strategy: CategoricalEncodingStrategy = CategoricalEncodingStrategy.ORDERED_TARGET,
-    ):
+    ) -> None:
         """Initializes the AutoML pipeline.
 
         Args:
@@ -143,17 +144,17 @@ class AutoML:
 
         # Add user-provided categorical features
         if self.categorical_features:
-            if isinstance(X, pd.DataFrame):
+            if isinstance(x, pd.DataFrame):
                 # Ensure provided feature names exist in DataFrame
                 for col in self.categorical_features:
-                    if col not in X.columns:
+                    if col not in x.columns:
                         logger.warning(f"User-provided categorical feature '{col}' not found in input data. Ignoring.")
                     else:
                         identified_features.add(col)
-            elif isinstance(X, np.ndarray):
+            elif isinstance(x, np.ndarray):
                 # For numpy arrays, assume indices are provided
                 for idx in self.categorical_features:
-                    if not isinstance(idx, int) or idx < 0 or idx >= X.shape[1]:
+                    if not isinstance(idx, int) or idx < 0 or idx >= x.shape[1]:
                         logger.warning(f"User-provided categorical feature index '{idx}' is invalid. Ignoring.")
                     else:
                         identified_features.add(idx)
@@ -162,33 +163,33 @@ class AutoML:
 
         # Auto-detect additional categorical features
         if self.auto_detect_categorical:
-            if isinstance(X, pd.DataFrame):
-                for col in X.columns:
+            if isinstance(x, pd.DataFrame):
+                for col in x.columns:
                     if col in identified_features:  # Skip if already identified by user
                         continue
-                    if X[col].dtype == "object" or isinstance(X[col], pd.CategoricalDtype):
+                    if x[col].dtype == "object" or isinstance(x[col].dtype, pd.CategoricalDtype):
                         identified_features.add(col)
-                    elif pd.api.types.is_numeric_dtype(X[col]):
-                        unique_ratio = X[col].nunique() / len(X[col])
+                    elif pd.api.types.is_numeric_dtype(x[col]):
+                        unique_ratio = x[col].nunique() / len(x[col])
                         if unique_ratio < self.auto_detect_categorical_threshold:
                             identified_features.add(col)
-            elif isinstance(X, np.ndarray):
+            elif isinstance(x, np.ndarray):
                 # For numpy arrays, auto-detection is more challenging without column names/types.
                 # We'll assume numerical columns with low unique value ratio are categorical.
-                for i in range(X.shape[1]):
+                for i in range(x.shape[1]):
                     if i in identified_features:  # Skip if already identified by user
                         continue
                     # Check if the column is numeric
-                    if np.issubdtype(X[:, i].dtype, np.number):
-                        unique_values = np.unique(X[:, i])
-                        unique_ratio = len(unique_values) / len(X[:, i])
+                    if np.issubdtype(x[:, i].dtype, np.number):
+                        unique_values = np.unique(x[:, i])
+                        unique_ratio = len(unique_values) / len(x[:, i])
                         if unique_ratio < self.auto_detect_categorical_threshold:
                             identified_features.add(i)
             else:
                 logger.warning("Unsupported input data type for automatic categorical feature detection. Skipping auto-detection.")
 
         # Convert set to sorted list for consistent ordering
-        if isinstance(X, pd.DataFrame):
+        if isinstance(x, pd.DataFrame):
             return sorted([col for col in identified_features if isinstance(col, str)])
         # numpy array
         return sorted([idx for idx in identified_features if isinstance(idx, int)])
@@ -197,7 +198,7 @@ class AutoML:
         """Determines if the metric should be minimized."""
         return self.metric in ["rmse", "mse", "log_loss"]
 
-    def _evaluate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray = None) -> float:
+    def _evaluate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray | None = None) -> float:
         """Evaluates the chosen metric."""
         if self.task_type == TaskType.REGRESSION:
             if self.metric == "rmse":
@@ -214,17 +215,13 @@ class AutoML:
                 if y_proba is None:
                     raise ValueError("y_proba is required for 'log_loss' metric.")
 
-                # If y_proba is 1D (binary probabilities), reshape to (N, 2) for log_loss
-                if y_proba.ndim == 1:
-                    y_proba_for_logloss = np.vstack((1 - y_proba, y_proba)).T
-                else:
-                    y_proba_for_logloss = y_proba  # Already (N, num_classes)
+                y_proba_for_logloss = np.vstack((1 - y_proba, y_proba)).T if y_proba.ndim == 1 else y_proba
 
                 return log_loss(y_true, y_proba_for_logloss)
             raise ValueError(f"Unsupported classification metric: {self.metric}")
         raise ValueError("Task type must be 'regression' or 'classification'.")
 
-    def _instantiate_model(self, model_name: ModelName, params: dict[str, Any], input_features: int, num_classes: int = None) -> BaseModel:
+    def _instantiate_model(self, model_name: ModelName, params: dict[str, Any], input_features: int, num_classes: int | None = None) -> BaseModel:
         """Instantiates a model from the registry with given parameters."""
         if model_name == ModelName.CLASSIFIER_REGRESSION:
             # ClassifierRegressionModel needs special handling for its nested parameters
@@ -556,15 +553,108 @@ class AutoML:
 
         return params, None
 
-    def train(self, x: np.ndarray, y: np.ndarray, models_to_consider: list[ModelName] = None, save_metrics: bool = False):
+    def _create_objective(
+        self,
+        model_name: ModelName,
+        x_processed: pd.DataFrame | np.ndarray,
+        y: np.ndarray,
+        y_for_training: np.ndarray,
+        num_classes_for_instantiation: int | None,
+        kf: KFold,
+    ) -> Callable[[optuna.Trial], float]:
+        def objective(trial: optuna.Trial) -> float:
+            current_model_params, _ = self._sample_params_for_trial(trial, model_name)
+
+            fold_metrics = []
+            fold_best_iterations = []  # To store best iteration for each fold
+
+            for fold, (train_idx, val_idx) in enumerate(kf.split(x_processed, y_for_training)):
+                x_train_fold, x_val_fold = (
+                    (x_processed.iloc[train_idx], x_processed.iloc[val_idx]) if isinstance(x_processed, pd.DataFrame) else (x_processed[train_idx], x_processed[val_idx])
+                )
+                y_train_fold, y_val_fold = y_for_training[train_idx], y_for_training[val_idx]
+
+                # Apply categorical encoding within the fold
+                if self._final_categorical_features:
+                    if self.categorical_encoding_strategy == CategoricalEncodingStrategy.ORDERED_TARGET:
+                        fold_encoder = OrderedTargetEncoder(cols=self._final_categorical_features)
+                        x_train_fold = fold_encoder.fit_transform(x_train_fold, y_train_fold)
+                        x_val_fold = fold_encoder.transform(x_val_fold)
+                    elif self.categorical_encoding_strategy == CategoricalEncodingStrategy.ONE_HOT:
+                        fold_encoder = OneHotEncoder(cols=self._final_categorical_features)
+                        x_train_fold = fold_encoder.fit_transform(x_train_fold)
+                        x_val_fold = fold_encoder.transform(x_val_fold)
+
+                # Apply feature scaling within the fold
+                if self.feature_scaler:
+                    fold_scaler = clone(self.feature_scaler)
+                    x_train_fold = fold_scaler.fit_transform(x_train_fold)
+                    x_val_fold = fold_scaler.transform(x_val_fold)
+
+                try:
+                    # Instantiate the model with sampled parameters
+                    model_instance = self._instantiate_model(model_name, current_model_params.copy(), x_train_fold.shape[1], num_classes=num_classes_for_instantiation)
+
+                    # Fit the model and capture the number of iterations/epochs used
+                    num_iterations_used = model_instance.fit(x_train_fold, y_train_fold)  # Fit on scaled/transformed data
+                    fold_best_iterations.append(num_iterations_used)
+
+                    predictions_scaled = model_instance.predict(x_val_fold)
+
+                    # --- Denormalize predictions for metric evaluation (only for regression) ---
+                    if self.task_type == TaskType.REGRESSION and self.target_scaler:
+                        predictions_original_scale = self.target_scaler.inverse_transform(predictions_scaled.reshape(-1, 1)).flatten()
+                        y_val_original_scale = y[val_idx]  # Compare against original unscaled y
+                    else:
+                        predictions_original_scale = predictions_scaled
+                        y_val_original_scale = y_val_fold  # For classification, y_val is already unscaled or discrete
+
+                    y_proba = None
+                    if self.task_type == TaskType.CLASSIFICATION and self.metric == "log_loss":
+                        # For classification, get probabilities if the model supports it
+                        if hasattr(model_instance, "predict_proba") and model_instance.predict_proba is not None:
+                            y_proba = model_instance.predict_proba(x_val_fold)
+                        else:
+                            logger.warning(f"Model {model_name.value} does not support predict_proba. Cannot calculate log_loss.")
+                            # Fallback for log_loss if predict_proba is not available: use predicted classes as probabilities (0 or 1)
+                            # This is not ideal but prevents crash.
+                            y_proba = (
+                                np.eye(num_classes_for_instantiation)[predictions_original_scale.astype(int)]
+                                if num_classes_for_instantiation > 2
+                                else np.vstack((1 - predictions_original_scale, predictions_original_scale)).T
+                            )
+
+                    metric_value = self._evaluate_metric(y_val_original_scale, predictions_original_scale, y_proba)
+                    fold_metrics.append(metric_value)
+
+                except Exception as e:
+                    logger.error(f"Error during cross-validation for {model_name.value} (Fold {fold + 1}): {e}")
+                    # If an error occurs, return a very large number for minimization or very small for maximization
+                    # to penalize this set of hyperparameters.
+                    return float("inf") if self._is_minimize_metric() else -float("inf")
+
+            avg_metric = np.mean(fold_metrics)
+            logger.info(f"  Average {self.metric} for {model_name.value}: {avg_metric:.4f}")
+
+            # Report intermediate objective value to Optuna
+            trial.report(avg_metric, step=trial.number)
+
+            # Handle pruning based on the metric
+            if trial.should_prune():
+                raise optuna.exceptions.TrialPruned
+
+            return avg_metric
+
+        return objective
+
+    def train(self, x: np.ndarray, y: np.ndarray, models_to_consider: list[ModelName] | None = None) -> None:
         """Trains and optimizes selected models using cross-validation and Optuna.
 
         Args:
-            X (np.ndarray): Feature matrix.
+            x (np.ndarray): Feature matrix.
             y (np.ndarray): Target vector.
             models_to_consider (List[ModelName], optional): List of model names (enums) to train.
                                                             If None, all registered models are considered.
-            save_metrics (bool): If True, save numerical and visual metrics for the final model.
         """
         if self.use_wandb:
             wandb.init(
@@ -584,40 +674,41 @@ class AutoML:
 
         logger.info(f"Starting AutoML training for {self.task_type.value} task with metric '{self.metric}'.")
         logger.info(
-            f"Feature scaling: {'Enabled' if self.feature_scaler else 'Disabled'}, Target scaling (regression): {'Enabled' if self.target_scaler and self.task_type == TaskType.REGRESSION else 'Disabled'}"
+            f"Feature scaling: {'Enabled' if self.feature_scaler else 'Disabled'}, "
+            f"Target scaling (regression): {'Enabled' if self.target_scaler and self.task_type == TaskType.REGRESSION else 'Disabled'}"
         )
 
         # --- Initial Data Preprocessing (before cross-validation) ---
         # Categorical Feature Identification
-        self._final_categorical_features = self._identify_categorical_features(X)
+        self._final_categorical_features = self._identify_categorical_features(x)
         if self._final_categorical_features:
             logger.info(f"Identified categorical features: {self._final_categorical_features}")
 
         # Categorical Feature Encoding
-        x_processed = X.copy()  # Work on a copy to avoid modifying original X
+        x_processed = x.copy()  # Work on a copy to avoid modifying original X
         if self._final_categorical_features:
             if self.categorical_encoding_strategy == CategoricalEncodingStrategy.ORDERED_TARGET:
                 self._fitted_categorical_encoder = OrderedTargetEncoder(cols=self._final_categorical_features)
-                X_processed = self._fitted_categorical_encoder.fit_transform(X_processed, y)
+                x_processed = self._fitted_categorical_encoder.fit_transform(x_processed, y)
                 logger.info("Categorical features encoded using Ordered Target Encoding.")
             elif self.categorical_encoding_strategy == CategoricalEncodingStrategy.ONE_HOT:
                 self._fitted_categorical_encoder = OneHotEncoder(cols=self._final_categorical_features)
-                X_processed = self._fitted_categorical_encoder.fit_transform(X_processed)
+                x_processed = self._fitted_categorical_encoder.fit_transform(x_processed)
                 logger.info("Categorical features encoded using One-Hot Encoding.")
 
         # Apply feature scaling to the entire dataset before cross-validation splits
         # This fitted scaler will be used for SHAP background data and final predictions
         if self.feature_scaler:
-            X_scaled = self.feature_scaler.fit_transform(X_processed)
+            x_scaled = self.feature_scaler.fit_transform(x_processed)
             self._fitted_feature_scaler = self.feature_scaler
             logger.info("Features scaled using provided scaler.")
         else:
-            X_scaled = X_processed
+            x_scaled = x_processed
             logger.info("No feature scaler provided. Features will not be scaled.")
 
         # Store a subset of X_scaled for SHAP background data
-        sample_indices = np.random.choice(X_scaled.shape[0], min(200, X_scaled.shape[0]), replace=False)
-        self.X_train_for_shap = X_scaled[sample_indices]
+        sample_indices = np.random.choice(x_scaled.shape[0], min(200, x_scaled.shape[0]), replace=False)
+        self.X_train_for_shap = x_scaled[sample_indices]
 
         # Target Scaling (for Regression only)
         y_for_training = y
@@ -661,91 +752,7 @@ class AutoML:
 
             logger.info(f"\n--- Optimizing {model_name.value} ---")
 
-            # Define the objective function for Optuna
-            def objective(trial: optuna.Trial) -> float:
-                current_model_params, base_classifier_name_str = self._sample_params_for_trial(trial, model_name)
-
-                fold_metrics = []
-                fold_best_iterations = []  # To store best iteration for each fold
-
-                for fold, (train_idx, val_idx) in enumerate(kf.split(X_processed, y_for_training)):
-                    X_train_fold, X_val_fold = X_processed.iloc[train_idx], (
-                        X_processed.iloc[val_idx] if isinstance(X_processed, pd.DataFrame) else (X_processed[train_idx], X_processed[val_idx])
-                    )
-                    y_train_fold, y_val_fold = y_for_training[train_idx], y_for_training[val_idx]
-
-                    # Apply categorical encoding within the fold
-                    if self._final_categorical_features:
-                        if self.categorical_encoding_strategy == CategoricalEncodingStrategy.ORDERED_TARGET:
-                            fold_encoder = OrderedTargetEncoder(cols=self._final_categorical_features)
-                            X_train_fold = fold_encoder.fit_transform(X_train_fold, y_train_fold)
-                            X_val_fold = fold_encoder.transform(X_val_fold)
-                        elif self.categorical_encoding_strategy == CategoricalEncodingStrategy.ONE_HOT:
-                            fold_encoder = OneHotEncoder(cols=self._final_categorical_features)
-                            X_train_fold = fold_encoder.fit_transform(X_train_fold)
-                            X_val_fold = fold_encoder.transform(X_val_fold)
-
-                    # Apply feature scaling within the fold
-                    if self.feature_scaler:
-                        from sklearn.base import clone
-
-                        fold_scaler = clone(self.feature_scaler)
-                        X_train_fold = fold_scaler.fit_transform(X_train_fold)
-                        X_val_fold = fold_scaler.transform(X_val_fold)
-
-                    try:
-                        # Instantiate the model with sampled parameters
-                        model_instance = self._instantiate_model(model_name, current_model_params.copy(), X_train_fold.shape[1], num_classes=num_classes_for_instantiation)
-
-                        # Fit the model and capture the number of iterations/epochs used
-                        num_iterations_used = model_instance.fit(X_train_fold, y_train_fold)  # Fit on scaled/transformed data
-                        fold_best_iterations.append(num_iterations_used)
-
-                        predictions_scaled = model_instance.predict(X_val_fold)
-
-                        # --- Denormalize predictions for metric evaluation (only for regression) ---
-                        if self.task_type == TaskType.REGRESSION and self.target_scaler:
-                            predictions_original_scale = self.target_scaler.inverse_transform(predictions_scaled.reshape(-1, 1)).flatten()
-                            y_val_original_scale = y[val_idx]  # Compare against original unscaled y
-                        else:
-                            predictions_original_scale = predictions_scaled
-                            y_val_original_scale = y_val_fold  # For classification, y_val is already unscaled or discrete
-
-                        y_proba = None
-                        if self.task_type == TaskType.CLASSIFICATION and self.metric == "log_loss":
-                            # For classification, get probabilities if the model supports it
-                            if hasattr(model_instance, "predict_proba") and model_instance.predict_proba is not None:
-                                y_proba = model_instance.predict_proba(X_val_fold)
-                            else:
-                                logger.warning(f"Model {model_name.value} does not support predict_proba. Cannot calculate log_loss.")
-                                # Fallback for log_loss if predict_proba is not available: use predicted classes as probabilities (0 or 1)
-                                # This is not ideal but prevents crash.
-                                y_proba = (
-                                    np.eye(num_classes_for_instantiation)[predictions_original_scale.astype(int)]
-                                    if num_classes_for_instantiation > 2
-                                    else np.vstack((1 - predictions_original_scale, predictions_original_scale)).T
-                                )
-
-                        metric_value = self._evaluate_metric(y_val_original_scale, predictions_original_scale, y_proba)
-                        fold_metrics.append(metric_value)
-
-                    except Exception as e:
-                        logger.error(f"Error during cross-validation for {model_name.value} (Fold {fold + 1}): {e}")
-                        # If an error occurs, return a very large number for minimization or very small for maximization
-                        # to penalize this set of hyperparameters.
-                        return float("inf") if self._is_minimize_metric() else -float("inf")
-
-                avg_metric = np.mean(fold_metrics)
-                logger.info(f"  Average {self.metric} for {model_name.value}: {avg_metric:.4f}")
-
-                # Report intermediate objective value to Optuna
-                trial.report(avg_metric, step=trial.number)
-
-                # Handle pruning based on the metric
-                if trial.should_prune():
-                    raise optuna.exceptions.TrialPruned()
-
-                return avg_metric
+            objective = self._create_objective(model_name, x_processed, y, y_for_training, num_classes_for_instantiation, kf)
 
             # Run optimization for the current model
             study = self.optuna_optimizer.optimize(objective, callbacks=None)
@@ -760,8 +767,8 @@ class AutoML:
 
             # Instantiate and train the best model on the full dataset
             logger.info(f"Training final {model_name.value} model with best parameters on full dataset...")
-            final_model_instance = self._instantiate_model(model_name, best_params.copy(), X_scaled.shape[1], num_classes=num_classes_for_instantiation)
-            final_model_instance.fit(X_scaled, y_for_training)
+            final_model_instance = self._instantiate_model(model_name, best_params.copy(), x_scaled.shape[1], num_classes=num_classes_for_instantiation)
+            final_model_instance.fit(x_scaled, y_for_training)
 
             self.trained_models[model_name] = (final_model_instance, best_params, best_score)
 
@@ -773,7 +780,7 @@ class AutoML:
 
             # Add to leaderboard
             self.leaderboard.append(
-                {"model_name": model_name, "hyperparameters": best_params, "metric_value": best_score, "metric_name": self.metric, "timestamp": datetime.now().isoformat()}
+                {"model_name": model_name, "hyperparameters": best_params, "metric_value": best_score, "metric_name": self.metric, "timestamp": datetime.now(UTC).isoformat()}
             )
             if self.use_wandb:
                 self._log_model_artifact(final_model_instance, model_name.value, best_params)
@@ -787,13 +794,13 @@ class AutoML:
         if self.use_wandb:
             wandb.finish()
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions using the overall best trained model.
 
         Input X is expected in original scale, output predictions are in original scale.
 
         Args:
-            X (np.ndarray): Feature matrix for prediction (original scale).
+            x (np.ndarray): Feature matrix for prediction (original scale).
 
         Returns:
             np.ndarray: Predicted values (original scale).
@@ -802,29 +809,22 @@ class AutoML:
             raise RuntimeError("No model has been trained yet. Call .train() first.")
 
         # Apply categorical encoding to input features for prediction
-        if self._fitted_categorical_encoder:
-            X_encoded = self._fitted_categorical_encoder.transform(X)
-        else:
-            X_encoded = X
+        x_encoded = self._fitted_categorical_encoder.transform(x) if self._fitted_categorical_encoder else x
 
         # Scale input features for prediction
-        if self._fitted_feature_scaler:
-            X_transformed = self._fitted_feature_scaler.transform(X_encoded)
-        else:
-            X_transformed = X_encoded
+        x_transformed = self._fitted_feature_scaler.transform(x_encoded) if self._fitted_feature_scaler else x_encoded
 
         best_model_instance, _, _ = self.trained_models[self.best_model_name]
 
-        predictions_scaled = best_model_instance.predict(X_transformed)
+        predictions_scaled = best_model_instance.predict(x_transformed)
 
         # Denormalize predictions if regression task
         if self.task_type == TaskType.REGRESSION and self._fitted_target_scaler:
             predictions_reshaped = predictions_scaled.reshape(-1, 1) if predictions_scaled.ndim == 1 else predictions_scaled
-            predictions_original_scale = self._fitted_target_scaler.inverse_transform(predictions_reshaped).flatten()
-            return predictions_original_scale
+            return self._fitted_target_scaler.inverse_transform(predictions_reshaped).flatten()
         return predictions_scaled  # Return as is for classification or no target scaler
 
-    def _log_model_artifact(self, model_instance: BaseModel, model_name: str, hyperparameters: dict[str, Any]):
+    def _log_model_artifact(self, model_instance: BaseModel, model_name: str, hyperparameters: dict[str, Any]) -> None:
         """Logs the trained model as a W&B artifact.
 
         Args:
@@ -838,13 +838,13 @@ class AutoML:
         model_artifact.add_file(model_path)
         wandb.log_artifact(model_artifact)
 
-    def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
         """Estimates uncertainty for predictions using the best trained regression model.
 
         Input X is expected in original scale, output uncertainty is in original scale.
 
         Args:
-            X (np.ndarray): Feature matrix for uncertainty estimation (original scale).
+            x (np.ndarray): Feature matrix for uncertainty estimation (original scale).
 
         Returns:
             np.ndarray: Uncertainty estimates (e.g., standard deviation) for each prediction (original scale).
@@ -862,32 +862,25 @@ class AutoML:
             raise NotImplementedError(f"Uncertainty prediction not implemented or not a regression model for {type(best_model_instance).__name__}.")
 
         # Scale input features
-        if self._fitted_categorical_encoder:
-            X_encoded = self._fitted_categorical_encoder.transform(X)
-        else:
-            X_encoded = X
+        x_encoded = self._fitted_categorical_encoder.transform(x) if self._fitted_categorical_encoder else x
 
-        if self._fitted_feature_scaler:
-            X_transformed = self._fitted_feature_scaler.transform(X_encoded)
-        else:
-            X_transformed = X_encoded
+        x_transformed = self._fitted_feature_scaler.transform(x_encoded) if self._fitted_feature_scaler else x_encoded
 
         # Get raw uncertainty from the model (in scaled target space)
-        uncertainty_scaled = best_model_instance.predict_uncertainty(X_transformed)
+        uncertainty_scaled = best_model_instance.predict_uncertainty(x_transformed)
 
         # Denormalize uncertainty if target scaler was used
         if self._fitted_target_scaler:
             # Uncertainty (std dev) is scaled by multiplying by the scale_ factor of the scaler
             scale_factor = self._fitted_target_scaler.scale_[0] if self._fitted_target_scaler.scale_.ndim > 1 else self._fitted_target_scaler.scale_
-            uncertainty_original_scale = uncertainty_scaled * scale_factor
-            return uncertainty_original_scale
+            return uncertainty_scaled * scale_factor
         return uncertainty_scaled  # Return as is if no target scaler
 
-    def get_feature_importance(self, X_test: np.ndarray, feature_names: list[str] = None) -> dict[str, float] | dict[str, str]:
+    def get_feature_importance(self, x_test: np.ndarray, feature_names: list[str] | None = None) -> dict[str, float] | dict[str, str]:
         """Calculates feature importance using SHAP for the best trained model.
 
         Args:
-            X_test (np.ndarray): The dataset for which to compute feature importances (original scale).
+            x_test (np.ndarray): The dataset for which to compute feature importances (original scale).
                                  Typically a validation or test set.
             feature_names (List[str], optional): Names of the features. If None, uses generic names.
 
@@ -902,27 +895,27 @@ class AutoML:
         if self.X_train_for_shap is None:
             logger.warning("X_train was not stored. SHAP background data will be limited. Ensure X_train is passed to AutoML.train().")
             # Fallback to using a subset of test data for background, but transform it if a scaler is present
-            X_background_subset_original_scale = X_test[: min(200, len(X_test))]
+            x_background_subset_original_scale = x_test[: min(200, len(x_test))]
         else:
-            X_background_subset_original_scale = self.X_train_for_shap[: min(200, len(self.X_train_for_shap))]
+            x_background_subset_original_scale = self.X_train_for_shap[: min(200, len(self.X_train_for_shap))]
 
         # Scale X_background_subset and X_test_original for SHAP explanation
         # The FeatureExplainer expects scaled data if a scaler was used during training.
         if self._fitted_feature_scaler:
-            X_background_scaled = self._fitted_feature_scaler.transform(X_background_subset_original_scale)
-            X_test_scaled = self._fitted_feature_scaler.transform(X_test)
+            x_background_scaled = self._fitted_feature_scaler.transform(x_background_subset_original_scale)
+            x_test_scaled = self._fitted_feature_scaler.transform(x_test)
         else:
-            X_background_scaled = X_background_subset_original_scale
-            X_test_scaled = X_test
+            x_background_scaled = x_background_subset_original_scale
+            x_test_scaled = x_test
 
         best_model_instance, _, _ = self.trained_models[self.best_model_name]
 
         try:
             # Pass the device to FeatureExplainer if the model has one (e.g., PyTorch models)
             explainer_device = getattr(best_model_instance, "device", None)
-            explainer = FeatureExplainer(model_instance=best_model_instance, X_background=X_background_scaled, feature_names=feature_names, device=explainer_device)
+            explainer = FeatureExplainer(model_instance=best_model_instance, X_background=x_background_scaled, feature_names=feature_names, device=explainer_device)
 
-            shap_values = explainer.explain(X_test_scaled)
+            shap_values = explainer.explain(x_test_scaled)
             feature_importance_summary = explainer.get_feature_importance_summary(shap_values)
 
             # Normalize importances
@@ -946,7 +939,7 @@ class AutoML:
             logger.error(f"Error calculating SHAP feature importance for {self.best_model_name.value}: {e}")
             return {"error": f"Failed to calculate SHAP: {e}"}
 
-    def save_feature_importance_to_csv(self, feature_importances: dict[str, float], file_path: str = "feature_importance.csv"):
+    def save_feature_importance_to_csv(self, feature_importances: dict[str, float], file_path: str = "feature_importance.csv") -> None:
         """Saves the normalized and sorted feature importances to a CSV file.
 
         Args:
@@ -962,7 +955,7 @@ class AutoML:
         except Exception as e:
             logger.error(f"Failed to save feature importances to CSV: {e}")
 
-    def plot_feature_importance(self, feature_importances: dict[str, float], plot_path: str = "feature_importance.png", wandb_log: bool = False):
+    def plot_feature_importance(self, feature_importances: dict[str, float], plot_path: str = "feature_importance.png", wandb_log: bool = False) -> None:
         """Generates and saves a horizontal bar plot of the normalized and sorted feature importances.
 
         Args:
@@ -989,11 +982,11 @@ class AutoML:
         except Exception as e:
             logger.error(f"Failed to plot feature importances: {e}")
 
-    def select_features_by_cumulative_importance(self, X_test: np.ndarray, threshold: float = 0.9, feature_names: list[str] = None) -> list[str]:
+    def select_features_by_cumulative_importance(self, x_test: np.ndarray, threshold: float = 0.9, feature_names: list[str] | None = None) -> list[str]:
         """Selects top features based on their cumulative normalized SHAP importance.
 
         Args:
-            X_test (np.ndarray): The test dataset (original scale, used for SHAP calculation).
+            x_test (np.ndarray): The test dataset (original scale, used for SHAP calculation).
             threshold (float): A float between 0 and 1. Features are selected until
                                their cumulative normalized importance is less than this threshold.
             feature_names (List[str], optional): Original names of the features.
@@ -1008,7 +1001,7 @@ class AutoML:
         logger.info(f"\n--- Performing Feature Selection by Cumulative SHAP Importance (Threshold: {threshold:.2f}) ---")
 
         # 1. Get normalized and sorted feature importances
-        normalized_importances = self.get_feature_importance(X_test, feature_names)
+        normalized_importances = self.get_feature_importance(x_test, feature_names)
 
         if "error" in normalized_importances:
             logger.error(f"Could not perform feature selection due to SHAP calculation error: {normalized_importances['error']}")
@@ -1038,22 +1031,22 @@ class AutoML:
 
     def retrain_with_selected_features(
         self,
-        X_full_train: np.ndarray,
+        x_full_train: np.ndarray,
         y_full_train: np.ndarray,
-        X_full_test: np.ndarray,
+        x_full_test: np.ndarray,
         y_full_test: np.ndarray,
-        feature_names: list[str] = None,
+        feature_names: list[str] | None = None,
         shap_threshold: float = 0.95,
         save_feature_importance_metrics: bool = False,
-    ):
+    ) -> dict[str, Any]:
         """Retrains the best model found by AutoML.train() using a subset of features.
 
         selected by cumulative SHAP importance.
 
         Args:
-            X_full_train (np.ndarray): The complete training feature set (original scale).
+            x_full_train (np.ndarray): The complete training feature set (original scale).
             y_full_train (np.ndarray): The complete training target set (original scale).
-            X_full_test (np.ndarray): The complete test feature set (original scale).
+            x_full_test (np.ndarray): The complete test feature set (original scale).
             y_full_test (np.ndarray): The complete test target set (original scale).
             feature_names (List[str], optional): Original names of the features.
             shap_threshold (float): Cumulative SHAP importance threshold for feature selection.
@@ -1069,7 +1062,7 @@ class AutoML:
 
         logger.info("\n--- Retraining Best Model with Selected Features ---")
 
-        selected_feature_names = self.select_features_by_cumulative_importance(X_full_test, threshold=shap_threshold, feature_names=feature_names)
+        selected_feature_names = self.select_features_by_cumulative_importance(x_full_test, threshold=shap_threshold, feature_names=feature_names)
 
         # Determine num_classes for classification tasks for instantiation during retraining
         num_classes_for_instantiation = None
@@ -1081,14 +1074,14 @@ class AutoML:
         # Prepare filtered datasets based on selected features
         if not selected_feature_names:
             logger.warning("No features selected by cumulative importance. Retraining with all features.")
-            selected_indices = list(range(X_full_train.shape[1]))
+            selected_indices = list(range(x_full_train.shape[1]))
             filtered_feature_names = feature_names if feature_names else [f"Feature_{i}" for i in selected_indices]
-            X_train_filtered_original_scale = X_full_train
-            X_test_filtered_original_scale = X_full_test
+            x_train_filtered_original_scale = x_full_train
+            x_test_filtered_original_scale = x_full_test
         else:
             if feature_names is None:
                 logger.warning("Feature names not provided for retraining. Assuming original column order for selection. It is highly recommended to provide feature_names.")
-                original_feature_map = {f"Feature_{i}": i for i in range(X_full_train.shape[1])}
+                original_feature_map = {f"Feature_{i}": i for i in range(x_full_train.shape[1])}
             else:
                 original_feature_map = {name: i for i, name in enumerate(feature_names)}
 
@@ -1097,41 +1090,39 @@ class AutoML:
             filtered_feature_names = [feature_names[i] for i in selected_indices]
 
             # Filter X_full_train and X_full_test based on selected_indices
-            if isinstance(X_full_train, pd.DataFrame):
-                X_train_filtered_original_scale = X_full_train[filtered_feature_names]
-                X_test_filtered_original_scale = X_full_test[filtered_feature_names]
+            if isinstance(x_full_train, pd.DataFrame):
+                x_train_filtered_original_scale = x_full_train[filtered_feature_names]
+                x_test_filtered_original_scale = x_full_test[filtered_feature_names]
             else:
-                X_train_filtered_original_scale = X_full_train[:, selected_indices]
-                X_test_filtered_original_scale = X_full_test[:, selected_indices]
+                x_train_filtered_original_scale = x_full_train[:, selected_indices]
+                x_test_filtered_original_scale = x_full_test[:, selected_indices]
 
         logger.info(f"Retraining {self.best_model_name.value} with {len(filtered_feature_names)} selected features: {filtered_feature_names}")
 
         # Apply categorical encoding to the filtered datasets
-        X_train_encoded = X_train_filtered_original_scale
-        X_test_encoded = X_test_filtered_original_scale
+        x_train_encoded = x_train_filtered_original_scale
+        x_test_encoded = x_test_filtered_original_scale
         if self._final_categorical_features:
             # Filter categorical features to only include those that are also selected
             selected_categorical_features = [f for f in self._final_categorical_features if f in filtered_feature_names]
             if selected_categorical_features:
                 if self.categorical_encoding_strategy == CategoricalEncodingStrategy.ORDERED_TARGET:
                     retrain_encoder = OrderedTargetEncoder(cols=selected_categorical_features)
-                    X_train_encoded = retrain_encoder.fit_transform(X_train_filtered_original_scale, y_full_train)
-                    X_test_encoded = retrain_encoder.transform(X_test_filtered_original_scale)
+                    x_train_encoded = retrain_encoder.fit_transform(x_train_filtered_original_scale, y_full_train)
+                    x_test_encoded = retrain_encoder.transform(x_test_filtered_original_scale)
                 elif self.categorical_encoding_strategy == CategoricalEncodingStrategy.ONE_HOT:
                     retrain_encoder = OneHotEncoder(cols=selected_categorical_features)
-                    X_train_encoded = retrain_encoder.fit_transform(X_train_filtered_original_scale)
-                    X_test_encoded = retrain_encoder.transform(X_test_filtered_original_scale)
+                    x_train_encoded = retrain_encoder.fit_transform(x_train_filtered_original_scale)
+                    x_test_encoded = retrain_encoder.transform(x_test_filtered_original_scale)
 
         # Apply feature scaling to the filtered and encoded datasets
         if self.feature_scaler:
-            from sklearn.base import clone
-
             retrain_scaler = clone(self.feature_scaler)
-            X_train_filtered = retrain_scaler.fit_transform(X_train_encoded)
-            X_test_filtered = retrain_scaler.transform(X_test_encoded)
+            x_train_filtered = retrain_scaler.fit_transform(x_train_encoded)
+            x_test_filtered = retrain_scaler.transform(x_test_encoded)
         else:
-            X_train_filtered = X_train_encoded
-            X_test_filtered = X_test_encoded
+            x_train_filtered = x_train_encoded
+            x_test_filtered = x_test_encoded
 
         # Apply target scaling for regression tasks
         y_full_train_scaled = y_full_train
@@ -1144,15 +1135,16 @@ class AutoML:
 
         # Adjust input_size in hyperparameters for neural network based models
         # This is crucial as the number of features changes after selection
-        if self.best_model_name in [
-            ModelName.PYTORCH_NEURAL_NETWORK,
-            ModelName.FLEXIBLE_NEURAL_NETWORK,
-            ModelName.PROBABILISTIC_REGRESSION,
-        ]:
-            # best_hyperparameters["input_size"] = X_train_filtered.shape[1]
-            # For nested models, also update their internal input_size if applicable
-            if "base_classifier_params" in best_hyperparameters:
-                best_hyperparameters["base_classifier_params"]["input_size"] = X_train_filtered.shape[1]
+        if (
+            self.best_model_name
+            in [
+                ModelName.PYTORCH_NEURAL_NETWORK,
+                ModelName.FLEXIBLE_NEURAL_NETWORK,
+                ModelName.PROBABILISTIC_REGRESSION,
+            ]
+            and "base_classifier_params" in best_hyperparameters
+        ):
+            best_hyperparameters["base_classifier_params"]["input_size"] = x_train_filtered.shape[1]
 
         # Instantiate the final model with best hyperparameters and adjusted input features
         # This part requires careful reconstruction of parameters for composite models
@@ -1179,7 +1171,7 @@ class AutoML:
 
             # Adjust parameters for internal classifier if it's PyTorchNN
             if ModelName(final_base_classifier_name) == ModelName.PYTORCH_NEURAL_NETWORK:
-                final_base_classifier_params["input_size"] = X_train_filtered.shape[1]  # Crucial adjustment
+                final_base_classifier_params["input_size"] = x_train_filtered.shape[1]  # Crucial adjustment
                 final_base_classifier_params["output_size"] = 1 if final_n_classes == 2 else final_n_classes
                 final_base_classifier_params["task_type"] = TaskType.CLASSIFICATION
                 if "activation" in final_base_classifier_params and isinstance(final_base_classifier_params["activation"], str):
@@ -1221,7 +1213,7 @@ class AutoML:
                 final_regression_head_params["activation"] = nn.ReLU if final_regression_head_params["activation"] == "ReLU" else nn.Tanh
 
             final_model_instance = best_model_class_type(
-                input_size=X_train_filtered.shape[1],  # Adjust input_size
+                input_size=x_train_filtered.shape[1],  # Adjust input_size
                 n_classes=final_n_classes,
                 base_classifier_params=final_base_classifier_params,
                 regression_head_params=final_regression_head_params,
@@ -1242,7 +1234,7 @@ class AutoML:
                 best_hyperparameters["activation"] = nn.ReLU  # Default activation if not in hyperparameters
             best_hyperparameters["uncertainty_method"] = UncertaintyMethod(best_hyperparameters["uncertainty_method"])
             final_model_instance = best_model_class_type(
-                input_size=X_train_filtered.shape[1], task_type=self.task_type, num_classes=num_classes_for_instantiation, **best_hyperparameters
+                input_size=x_train_filtered.shape[1], task_type=self.task_type, num_classes=num_classes_for_instantiation, **best_hyperparameters
             )
         elif self.best_model_name == ModelName.FLEXIBLE_NEURAL_NETWORK:
             if "activation" in best_hyperparameters:
@@ -1251,7 +1243,7 @@ class AutoML:
                 best_hyperparameters["activation"] = nn.ReLU  # Default activation if not in hyperparameters
             best_hyperparameters["uncertainty_method"] = UncertaintyMethod(best_hyperparameters["uncertainty_method"])
             final_model_instance = best_model_class_type(
-                input_size=X_train_filtered.shape[1], task_type=self.task_type, num_classes=num_classes_for_instantiation, **best_hyperparameters
+                input_size=x_train_filtered.shape[1], task_type=self.task_type, num_classes=num_classes_for_instantiation, **best_hyperparameters
             )
         elif self.best_model_name == ModelName.XGBOOST:
             objective_str = "reg:squarederror"
@@ -1285,10 +1277,10 @@ class AutoML:
             raise ValueError(f"Unsupported model for retraining: {self.best_model_name.value}")
 
         # 8. Retrain the model on the filtered and scaled training data
-        final_model_instance.fit(X_train_filtered, y_full_train_scaled)
+        final_model_instance.fit(x_train_filtered, y_full_train_scaled)
 
         # 9. Evaluate performance on filtered and scaled test set
-        y_pred_retrained_scaled = final_model_instance.predict(X_test_filtered)
+        y_pred_retrained_scaled = final_model_instance.predict(x_test_filtered)
 
         # Denormalize predictions for metric evaluation
         if self.task_type == TaskType.REGRESSION and self._fitted_target_scaler:
@@ -1306,7 +1298,7 @@ class AutoML:
         if save_feature_importance_metrics:
             logger.info("Saving and plotting feature importances for the retrained model.")
             # Recalculate feature importance for the retrained model
-            retrained_feature_importances = self.get_feature_importance(X_full_test[:, selected_indices], feature_names=filtered_feature_names)
+            retrained_feature_importances = self.get_feature_importance(x_full_test[:, selected_indices], feature_names=filtered_feature_names)
             if "error" not in retrained_feature_importances:
                 self.save_feature_importance_to_csv(retrained_feature_importances, file_path=f"{self.best_model_name.value}_retrained_feature_importance.csv")
                 self.plot_feature_importance(retrained_feature_importances, plot_path=f"{self.best_model_name.value}_retrained_feature_importance.png", wandb_log=True)
@@ -1315,7 +1307,7 @@ class AutoML:
 
         return {
             "retrained_model_instance": final_model_instance,
-            "X_test_filtered": X_test_filtered,  # This is the SCALED X_test_filtered (for direct use with retrained_model_instance)
+            "X_test_filtered": x_test_filtered,  # This is the SCALED X_test_filtered (for direct use with retrained_model_instance)
             "y_pred_retrained": y_pred_retrained,  # This is the DENORMALIZED prediction
             "retrained_metric_value": retrained_metric_value,
             "selected_feature_names": filtered_feature_names,
@@ -1334,7 +1326,7 @@ class AutoML:
         model_instance, params, metric = self.trained_models[self.best_model_name]
         return {"name": self.best_model_name.value, "instance": model_instance, "hyperparameters": params, "metric_score": metric, "metric_name": self.metric}
 
-    def save_leaderboard(self, file_path: str = "automl_leaderboard.json"):
+    def save_leaderboard(self, file_path: str = "automl_leaderboard.json") -> None:
         """Saves the AutoML leaderboard to a JSON file.
 
         Args:
@@ -1379,7 +1371,7 @@ class AutoML:
         except Exception as e:
             logger.error(f"Failed to save leaderboard: {e}")
 
-    def export_model(self, model_instance: BaseModel, file_path: str):
+    def export_model(self, model_instance: BaseModel, file_path: str) -> None:
         """Exports a trained model to a file using joblib.
 
         Args:

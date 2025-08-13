@@ -3,7 +3,7 @@
 from typing import Any
 
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as f
 
 from .base_selection_strategy import BaseSelectionStrategy
 
@@ -11,12 +11,12 @@ from .base_selection_strategy import BaseSelectionStrategy
 class NoneStrategy(BaseSelectionStrategy):
     """A strategy that does not perform any layer selection, using all layers."""
 
-    def forward(self, x_input: torch.Tensor, logits: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
+    def forward(self, x_input: torch.Tensor, _logits: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
         """Performs forward pass without layer selection.
 
         Args:
             x_input (torch.Tensor): Input tensor.
-            logits (torch.Tensor | None): Logits from the n_predictor (ignored in this strategy).
+            _logits (torch.Tensor | None): Logits from the n_predictor (ignored in this strategy).
 
         Returns:
             tuple: A tuple containing final predictions, actual n, None, n_probs, and log_prob_for_reinforce.
@@ -38,6 +38,14 @@ class NoneStrategy(BaseSelectionStrategy):
 class GumbelSoftmaxStrategy(BaseSelectionStrategy):
     """A strategy that uses Gumbel-Softmax for differentiable layer selection."""
 
+    def setup_optimizers(self, policy_params: Any) -> None:
+        """Sets up optimizers for the Gumbel-Softmax policy."""
+        pass
+
+    def on_epoch_end(self, **kwargs: Any) -> None:
+        """Performs operations at the end of each training epoch."""
+        pass
+
     def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
         """Performs forward pass using Gumbel-Softmax for layer selection.
 
@@ -48,7 +56,7 @@ class GumbelSoftmaxStrategy(BaseSelectionStrategy):
         Returns:
             tuple: A tuple containing final predictions, actual n, None, n_probs, and log_prob_for_reinforce.
         """
-        n_probs = F.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=False, dim=1)
+        n_probs = f.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=False, dim=1)
         self.mode_selection_probs = n_probs  # Store for external use
 
         # Specific weighted average logic for layers
@@ -78,6 +86,14 @@ class GumbelSoftmaxStrategy(BaseSelectionStrategy):
 class SoftGatingStrategy(BaseSelectionStrategy):
     """A strategy that uses Softmax for differentiable layer selection."""
 
+    def setup_optimizers(self, policy_params: Any) -> None:
+        """Sets up optimizers for the SoftGating policy."""
+        pass
+
+    def on_epoch_end(self, **kwargs: Any) -> None:
+        """Performs operations at the end of each training epoch."""
+        pass
+
     def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
         """Performs forward pass using Softmax for layer selection.
 
@@ -88,7 +104,7 @@ class SoftGatingStrategy(BaseSelectionStrategy):
         Returns:
             tuple: A tuple containing final predictions, actual n, None, n_probs, and log_prob_for_reinforce.
         """
-        n_probs = F.softmax(logits, dim=1)
+        n_probs = f.softmax(logits, dim=1)
         self.mode_selection_probs = n_probs  # Store for external use
 
         # Specific weighted average logic for layers (same as GumbelSoftmaxStrategy for layers)
@@ -118,6 +134,14 @@ class SoftGatingStrategy(BaseSelectionStrategy):
 class SteStrategy(BaseSelectionStrategy):
     """A strategy that uses Straight-Through Estimator (STE) for hard layer selection."""
 
+    def setup_optimizers(self, policy_params: Any) -> None:
+        """Sets up optimizers for the STE policy."""
+        pass
+
+    def on_epoch_end(self, **kwargs: Any) -> None:
+        """Performs operations at the end of each training epoch."""
+        pass
+
     def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
         """Performs forward pass using STE for layer selection.
 
@@ -128,7 +152,7 @@ class SteStrategy(BaseSelectionStrategy):
         Returns:
             tuple: A tuple containing final predictions, actual n, None, n_probs, and log_prob_for_reinforce.
         """
-        n_probs = F.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=True, dim=1)
+        n_probs = f.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=True, dim=1)
         self.mode_selection_probs = n_probs  # Store for external use
 
         chosen_indices = torch.argmax(n_probs, dim=1)
@@ -148,7 +172,7 @@ class SteStrategy(BaseSelectionStrategy):
 class ReinforceStrategy(BaseSelectionStrategy):
     """A strategy that uses REINFORCE for layer selection."""
 
-    def setup_optimizers(self, policy_params: Any):
+    def setup_optimizers(self, policy_params: Any) -> None:
         """Sets up optimizers for the REINFORCE policy.
 
         Args:
@@ -156,7 +180,7 @@ class ReinforceStrategy(BaseSelectionStrategy):
         """
         self.policy_optimizer = torch.optim.Adam(policy_params, lr=self.model.n_predictor_learning_rate)
 
-    def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
+    def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Performs forward pass using REINFORCE for layer selection.
 
         Args:
@@ -166,12 +190,12 @@ class ReinforceStrategy(BaseSelectionStrategy):
         Returns:
             tuple: A tuple containing final predictions, actual n, log_prob, n_probs, and log_prob_for_reinforce.
         """
-        probs = F.softmax(logits, dim=1)
+        probs = f.softmax(logits, dim=1)
         dist = torch.distributions.Categorical(probs)
         action = dist.sample()
         log_prob = dist.log_prob(action)
         n_actual = action + 1
-        self.mode_selection_probs = F.one_hot(action, num_classes=logits.size(-1)).float()  # Store for external use
+        self.mode_selection_probs = f.one_hot(action, num_classes=logits.size(-1)).float()  # Store for external use
 
         current_output = x_input
         for i in range(self.model.max_hidden_layers):
@@ -183,7 +207,7 @@ class ReinforceStrategy(BaseSelectionStrategy):
         final_output = self.model.model.output_layer(current_output)
         return final_output, n_actual, log_prob, self.mode_selection_probs, torch.tensor(0.0)
 
-    def on_epoch_end(self, **kwargs):
+    def on_epoch_end(self, **kwargs: Any) -> None:
         """Performs operations at the end of each training epoch.
 
         Args:

@@ -7,11 +7,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from ..enums import NClassesSelectionMethod, RegressionStrategy, TaskType, UncertaintyMethod
-from ..logger import logger
-from .base_pytorch import PyTorchModelBase
-from .neural_network import PyTorchNeuralNetwork
-from .selection_strategies.n_classes_strategies import (
+from automl_package.enums import NClassesSelectionMethod, RegressionStrategy, TaskType, UncertaintyMethod
+from automl_package.logger import logger
+from automl_package.models.base_pytorch import PyTorchModelBase
+from automl_package.models.neural_network import PyTorchNeuralNetwork
+from automl_package.models.selection_strategies.n_classes_strategies import (
     GumbelSoftmaxStrategy,
     NoneStrategy,
     ReinforceStrategy,
@@ -28,13 +28,13 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
 
     def __init__(
         self,
-        input_size: int = None,
+        input_size: int | None = None,
         n_classes: int = 3,  # Number of classes for the internal classifier (used if n_classes_selection_method is NONE)
         n_classes_inf: float = float("inf"),  # Threshold for direct regression
         max_n_classes_for_probabilistic_path: int = 10,  # Max n_classes if n_classes_selection_method is not NONE
-        base_classifier_params: dict[str, Any] = None,  # Params for the internal PyTorch NN classifier
-        regression_head_params: dict[str, Any] = None,  # Params for each internal PyTorch NN regression head
-        direct_regression_head_params: dict[str, Any] = None,  # Params for the direct regression head if n_classes_selection_method is not NONE
+        base_classifier_params: dict[str, Any] | None = None,  # Params for the internal PyTorch NN classifier
+        regression_head_params: dict[str, Any] | None = None,  # Params for each internal PyTorch NN regression head
+        direct_regression_head_params: dict[str, Any] | None = None,  # Params for the direct regression head if n_classes_selection_method is not NONE
         regression_strategy: RegressionStrategy = RegressionStrategy.SEPARATE_HEADS,  # Use enum
         n_classes_selection_method: NClassesSelectionMethod = NClassesSelectionMethod.NONE,
         gumbel_tau: float = 0.5,
@@ -45,8 +45,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
         uncertainty_method: UncertaintyMethod = UncertaintyMethod.CONSTANT,  # Use enum
         n_mc_dropout_samples: int = 100,
         dropout_rate: float = 0.1,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         """Initializes the ProbabilisticRegressionModel.
 
         Args:
@@ -54,9 +54,9 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
             n_classes (int): Number of classes for the internal classifier.
             n_classes_inf (float): Threshold for direct regression.
             max_n_classes_for_probabilistic_path (int): Max n_classes if n_classes_selection_method is not NONE.
-            base_classifier_params (dict[str, Any]): Parameters for the internal PyTorch NN classifier.
-            regression_head_params (dict[str, Any]): Parameters for each internal PyTorch NN regression head.
-            direct_regression_head_params (dict[str, Any]): Parameters for the direct regression head.
+            base_classifier_params (Dict[str, Any]): Parameters for the internal PyTorch NN classifier.
+            regression_head_params (Dict[str, Any]): Parameters for each internal PyTorch NN regression head.
+            direct_regression_head_params (Dict[str, Any]): Parameters for the direct regression head.
             regression_strategy (RegressionStrategy): Strategy for regression.
             n_classes_selection_method (NClassesSelectionMethod): Method for selecting n_classes.
             gumbel_tau (float): Gumbel-Softmax temperature.
@@ -113,7 +113,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
         """Returns the name of the model."""
         return "ProbabilisticRegression"
 
-    def build_model(self):
+    def build_model(self) -> None:
         """Builds the internal PyTorch nn.Module for the ProbabilisticRegressionModel."""
         if self.n_classes_selection_method == NClassesSelectionMethod.NONE:
             regression_output_size = 2 if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else 1
@@ -142,7 +142,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
         # Set up criterion based on task type and uncertainty method
         if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
             # Custom Negative Log-Likelihood Loss for Gaussian output
-            def nll_loss(outputs, targets):
+            def nll_loss(outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
                 mean = outputs[:, 0]
                 variance = outputs[:, 1]
                 # Ensure targets has the same shape as mean for element-wise operations
@@ -152,8 +152,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
                 # Calculate per-sample NLL
                 per_sample_nll = 0.5 * (torch.log(2 * math.pi * variance) + (targets - mean) ** 2 / variance)
                 # Average over the batch
-                loss = torch.mean(per_sample_nll)
-                return loss
+                return torch.mean(per_sample_nll)
 
             self.criterion = nll_loss
         else:
@@ -194,20 +193,19 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
 
         return space
 
-    def _setup_optimizers(self, model):
+    def _setup_optimizers(self, model: nn.Module) -> None:
         super()._setup_optimizers(model)
-        if self.n_classes_selection_method != NClassesSelectionMethod.NONE:
-            if hasattr(self.model, "n_classes_predictor") and self.model.n_classes_predictor is not None:
-                n_classes_predictor_params = self.model.n_classes_predictor.parameters()
-                self.model.n_classes_strategy.setup_optimizers(n_classes_predictor_params)
+        if self.n_classes_selection_method != NClassesSelectionMethod.NONE and hasattr(self.model, "n_classes_predictor") and self.model.n_classes_predictor is not None:
+            n_classes_predictor_params = self.model.n_classes_predictor.parameters()
+            self.model.n_classes_strategy.setup_optimizers(n_classes_predictor_params)
 
-    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Returns the internal classifier's predicted classes, probabilities, and.
 
         the corresponding (discretized) true labels for this composite model.
 
         Args:
-            X (np.ndarray): Feature matrix.
+            x (np.ndarray): Feature matrix.
             y_true_original (np.ndarray): Original true labels (will be discretized internally).
 
         Returns:
@@ -222,10 +220,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
             raise RuntimeError("Model has not been fitted yet.")
 
         self.model.eval()
-        X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
+        x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
         with torch.no_grad():
             # The model's forward pass now returns predictions, classifier_logits_out, and selected_k_values
-            _, returned_classifier_logits, selected_k_values_tensor, _ = self.model(X_tensor)
+            _, returned_classifier_logits, selected_k_values_tensor, _ = self.model(x_tensor)
 
             # Initialize selected_k_values and n_classes_for_classifier_output
             selected_k_values = selected_k_values_tensor.cpu().numpy()
@@ -282,7 +280,7 @@ class _BaseRegressionHead(nn.Module):
     Handles its own layers and probabilistic output processing.
     """
 
-    def __init__(self, input_size: int, output_size: int, hidden_layers: int, hidden_size: int, use_batch_norm: bool, dropout_rate: float, uncertainty_method: UncertaintyMethod):
+    def __init__(self, input_size: int, output_size: int, hidden_layers: int, hidden_size: int, use_batch_norm: bool, dropout_rate: float, uncertainty_method: UncertaintyMethod) -> None:
         super().__init__()
         self.uncertainty_method = uncertainty_method
         self.output_size = output_size
@@ -322,7 +320,7 @@ class _BaseRegressionHead(nn.Module):
 class _SeparateHeadsRegressionModule(nn.Module):
     """Manages multiple _BaseRegressionHead instances for the SEPARATE_HEADS strategy."""
 
-    def __init__(self, n_classes: int, regression_head_params: dict[str, Any], uncertainty_method: UncertaintyMethod, regression_output_size: int):
+    def __init__(self, n_classes: int, regression_head_params: dict[str, Any], uncertainty_method: UncertaintyMethod, regression_output_size: int) -> None:
         super().__init__()
         self.heads = nn.ModuleList()
         for _ in range(n_classes):
@@ -344,7 +342,7 @@ class _SeparateHeadsRegressionModule(nn.Module):
 class _SingleHeadNOutputsRegressionModule(nn.Module):
     """Manages a single _BaseRegressionHead instance for the SINGLE_HEAD_N_OUTPUTS strategy."""
 
-    def __init__(self, input_size: int, n_classes: int, regression_head_params: dict[str, Any], uncertainty_method: UncertaintyMethod, regression_output_size: int):
+    def __init__(self, input_size: int, n_classes: int, regression_head_params: dict[str, Any], uncertainty_method: UncertaintyMethod, regression_output_size: int) -> None:
         super().__init__()
         self.n_classes = n_classes
         self.regression_output_size = regression_output_size
@@ -352,14 +350,13 @@ class _SingleHeadNOutputsRegressionModule(nn.Module):
 
     def forward(self, head_input_probas: torch.Tensor) -> torch.Tensor:
         y_output_all_classes = self.head(head_input_probas)
-        y_output_all_classes = y_output_all_classes.reshape(head_input_probas.shape[0], self.n_classes, self.regression_output_size)
-        return y_output_all_classes
+        return y_output_all_classes.reshape(head_input_probas.shape[0], self.n_classes, self.regression_output_size)
 
 
 class _SingleHeadFinalOutputRegressionModule(nn.Module):
     """Manages a single _BaseRegressionHead instance for the SINGLE_HEAD_FINAL_OUTPUT strategy."""
 
-    def __init__(self, input_size: int, regression_head_params: dict[str, Any], uncertainty_method: UncertaintyMethod, regression_output_size: int):
+    def __init__(self, input_size: int, regression_head_params: dict[str, Any], uncertainty_method: UncertaintyMethod, regression_output_size: int) -> None:
         super().__init__()
         self.head = _BaseRegressionHead(input_size=input_size, output_size=regression_output_size, uncertainty_method=uncertainty_method, **regression_head_params)
 
@@ -387,7 +384,7 @@ class _CombinedProbabilisticModel(nn.Module):
         n_classes_selection_method: NClassesSelectionMethod,
         gumbel_tau: float,
         n_classes_predictor_learning_rate: float,
-    ):
+    ) -> None:
         super().__init__()
         self.n_classes_inf = n_classes_inf
         self.max_n_classes_for_probabilistic_path = max_n_classes_for_probabilistic_path
@@ -463,14 +460,10 @@ class _CombinedProbabilisticModel(nn.Module):
         masked_classifier_logits[:, :k_val] = classifier_raw_logits[:, :k_val]
 
         probabilities = torch.softmax(masked_classifier_logits, dim=1)
-        predictions = self.regression_module(probabilities)
-        return predictions
+        return self.regression_module(probabilities)
 
     def forward(self, x_input: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]:
-        if self.n_classes_selection_method != NClassesSelectionMethod.NONE:
-            n_classes_predictor_logits = self.n_classes_predictor(x_input)
-        else:
-            n_classes_predictor_logits = None  # Not used for NONE strategy
+        n_classes_predictor_logits = self.n_classes_predictor(x_input) if self.n_classes_selection_method != NClassesSelectionMethod.NONE else None
 
         final_predictions, selected_k_values, log_prob_for_reinforce = self.n_classes_strategy.forward(x_input, n_classes_predictor_logits)
 

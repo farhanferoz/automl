@@ -1,5 +1,7 @@
 """Preprocessing utilities for AutoML."""
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -13,7 +15,7 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
     to prevent target leakage during training.
     """
 
-    def __init__(self, cols: list[str | int] | None = None, smoothing: float = 1.0, min_samples_leaf: int = 1):
+    def __init__(self, cols: list[str | int] | None = None, smoothing: float = 1.0, min_samples_leaf: int = 1) -> None:
         """Initializes the OrderedTargetEncoder.
 
         Args:
@@ -28,11 +30,11 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
         self.mapping = {}
         self.global_mean = None
 
-    def fit(self, X: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None):
+    def fit(self, x: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None) -> "OrderedTargetEncoder":
         """Fits the encoder to the training data.
 
         Args:
-            X (pd.DataFrame | np.ndarray): Training features.
+            x (pd.DataFrame | np.ndarray): Training features.
             y (pd.Series | np.ndarray): Training target.
 
         Returns:
@@ -41,19 +43,19 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
         if y is None:
             raise TypeError("fit() missing 1 required positional argument: 'y'")
 
-        if isinstance(X, np.ndarray):
-            X = pd.DataFrame(X, columns=pd.Index([f"col_{i}" for i in range(X.shape[1])], dtype=object))
+        if isinstance(x, np.ndarray):
+            x = pd.DataFrame(x, columns=pd.Index([f"col_{i}" for i in range(x.shape[1])], dtype=object))
             if self.cols is not None:
                 self.cols = [f"col_{i}" for i in self.cols]  # Adjust column names if indices were given
 
         self.global_mean = y.mean()
 
         for col in self.cols:
-            if col not in X.columns:
+            if col not in x.columns:
                 raise ValueError(f"Column {col} not found in X.")
 
             # Create a temporary DataFrame for the current column and target
-            temp_df = pd.DataFrame({"col": X[col], "target": y})
+            temp_df = pd.DataFrame({"col": x[col], "target": y})
 
             # Shuffle the data to create a random permutation for leakage-free calculation
             temp_df = temp_df.sample(frac=1, random_state=42).reset_index(drop=True)
@@ -64,7 +66,7 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
 
             # Calculate leakage-free mean
             # Add smoothing to prevent division by zero and handle rare categories
-            encoded_col = (cumsum + self.global_mean * self.smoothing) / (cumcount + self.smoothing)
+            _ = (cumsum + self.global_mean * self.smoothing) / (cumcount + self.smoothing)
 
             # Store the mapping for each category
             self.mapping[col] = temp_df.groupby("col")["target"].mean().to_dict()
@@ -75,64 +77,60 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
 
         return self
 
-    def transform(self, X: pd.DataFrame | np.ndarray) -> pd.DataFrame | np.ndarray:
+    def transform(self, x: pd.DataFrame | np.ndarray) -> pd.DataFrame | np.ndarray:
         """Transforms the input data using the fitted encoder.
 
         Args:
-            X (pd.DataFrame | np.ndarray): Data to transform.
+            x (pd.DataFrame | np.ndarray): Data to transform.
 
         Returns:
             pd.DataFrame | np.ndarray: Transformed data.
         """
-        if isinstance(X, np.ndarray):
-            X_transformed = pd.DataFrame(X, columns=pd.Index([f"col_{i}" for i in range(X.shape[1])], dtype=object))
+        if isinstance(x, np.ndarray):
+            x_transformed = pd.DataFrame(x, columns=pd.Index([f"col_{i}" for i in range(x.shape[1])], dtype=object))
             if self.cols is not None:
-                # Ensure cols are adjusted if they were indices during fit
-                current_cols = [f"col_{i}" for i in range(X.shape[1])]
-                original_cols_map = {f"col_{idx}": self.cols[i] for i, idx in enumerate(self.cols)}
-
                 # Create a list of column names that are actually categorical features
                 categorical_col_names = [col for col in self.cols if col in self.mapping]
 
                 for col in categorical_col_names:
                     # Use the stored mapping for transformation
-                    X_transformed[col] = X_transformed[col].map(self.mapping[col]).fillna(self.global_mean)
+                    x_transformed[col] = x_transformed[col].map(self.mapping[col]).fillna(self.global_mean)
             else:  # If cols was None during fit, assume all object/category columns were encoded
-                for col in self.mapping.keys():  # Iterate through learned mappings
-                    X_transformed[col] = X_transformed[col].map(self.mapping[col]).fillna(self.global_mean)
+                for col in self.mapping:  # Iterate through learned mappings
+                    x_transformed[col] = x_transformed[col].map(self.mapping[col]).fillna(self.global_mean)
 
-            return X_transformed.values  # Return as numpy array if input was numpy array
+            return x_transformed.values  # Return as numpy array if input was numpy array
         # Input is pandas DataFrame
-        X_transformed = X.copy()
+        x_transformed = x.copy()
         for col in self.cols:
             if col in self.mapping:  # Check if the column was fitted
-                X_transformed[col] = X_transformed[col].map(self.mapping[col]).fillna(self.global_mean)
+                x_transformed[col] = x_transformed[col].map(self.mapping[col]).fillna(self.global_mean)
             else:
                 # If a column was specified but not in mapping (e.g., all values unseen), fill with global mean
-                X_transformed[col] = self.global_mean
-        return X_transformed
+                x_transformed[col] = self.global_mean
+        return x_transformed
 
-    def fit_transform(self, X: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None, **fit_params) -> pd.DataFrame | np.ndarray:
+    def fit_transform(self, x: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None, **_fit_params: Any) -> pd.DataFrame | np.ndarray:
         """Fits the encoder and transforms the data.
 
         Args:
-            X (pd.DataFrame | np.ndarray): Training features.
+            x (pd.DataFrame | np.ndarray): Training features.
             y (pd.Series | np.ndarray): Training target.
-            **fit_params: Additional fit parameters.
+            **_fit_params: Additional fit parameters (ignored).
 
         Returns:
             pd.DataFrame | np.ndarray: Transformed data.
         """
         if y is None:
             raise TypeError("fit_transform() missing 1 required positional argument: 'y'")
-        self.fit(X, y)
-        return self.transform(X)
+        self.fit(x, y)
+        return self.transform(x)
 
 
 class OneHotEncoder(BaseEstimator, TransformerMixin):
     """A wrapper around sklearn.preprocessing.OneHotEncoder for categorical features."""
 
-    def __init__(self, cols: list[str | int] | None = None, handle_unknown: str = "ignore"):
+    def __init__(self, cols: list[str | int] | None = None, handle_unknown: str = "ignore") -> None:
         """Initializes the OneHotEncoder.
 
         Args:
@@ -145,75 +143,61 @@ class OneHotEncoder(BaseEstimator, TransformerMixin):
         self.encoder = SklearnOneHotEncoder(handle_unknown=handle_unknown, sparse_output=False)
         self.feature_names_out_ = None  # To store feature names after transformation
 
-    def fit(self, X: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None):
+    def fit(self, x: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None) -> "OneHotEncoder":  # noqa: ARG002
         """Fits the encoder to the training data.
 
         Args:
-            X (pd.DataFrame | np.ndarray): Training features.
+            x (pd.DataFrame | np.ndarray): Training features.
             y (pd.Series | np.ndarray, optional): Training target (ignored).
 
         Returns:
             self: Fitted encoder.
         """
-        if isinstance(X, np.ndarray):
-            X_temp = pd.DataFrame(X)
-            if self.cols is not None:
-                # If cols are indices, select columns by index
-                X_selected = X_temp.iloc[:, self.cols]
-            else:
-                # If cols is None, assume all columns are to be encoded (or handle based on dtype later)
-                X_selected = X_temp
+        if isinstance(x, np.ndarray):
+            x_temp = pd.DataFrame(x)
+            x_selected = x_temp.iloc[:, self.cols] if self.cols is not None else x_temp
         else:  # X is pandas DataFrame
-            if self.cols is not None:
-                X_selected = X[self.cols]
-            else:
-                X_selected = X  # Assume all columns are to be encoded
+            x_selected = x[self.cols] if self.cols is not None else x
 
-        self.encoder.fit(X_selected)
+        self.encoder.fit(x_selected)
         return self
 
-    def transform(self, X: pd.DataFrame | np.ndarray) -> np.ndarray:
+    def transform(self, x: pd.DataFrame | np.ndarray) -> np.ndarray:
         """Transforms the input data using the fitted encoder.
 
         Args:
-            X (pd.DataFrame | np.ndarray): Data to transform.
+            x (pd.DataFrame | np.ndarray): Data to transform.
 
         Returns:
             np.ndarray: Transformed data.
         """
-        if isinstance(X, np.ndarray):
-            X_temp = pd.DataFrame(X)
-            if self.cols is not None:
-                X_selected = X_temp.iloc[:, self.cols]
-            else:
-                X_selected = X_temp
+        if isinstance(x, np.ndarray):
+            x_temp = pd.DataFrame(x)
+            x_selected = x_temp.iloc[:, self.cols] if self.cols is not None else x_temp
         else:  # X is pandas DataFrame
-            if self.cols is not None:
-                X_selected = X[self.cols]
-            else:
-                X_selected = X
+            x_selected = x[self.cols] if self.cols is not None else x
 
-        transformed_data = self.encoder.transform(X_selected)
+        transformed_data = self.encoder.transform(x_selected)
 
         # Store feature names for consistency if needed later
         if self.feature_names_out_ is None:
             if hasattr(self.encoder, "get_feature_names_out"):
-                self.feature_names_out_ = self.encoder.get_feature_names_out(self.cols if self.cols else X_selected.columns)
+                self.feature_names_out_ = self.encoder.get_feature_names_out(self.cols if self.cols else x_selected.columns)
             else:  # Fallback for older sklearn versions or if method is missing
                 self.feature_names_out_ = [f"x{i}" for i in range(transformed_data.shape[1])]  # Generic names
 
         return transformed_data
 
-    def fit_transform(self, X: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None, **fit_params) -> np.ndarray:
+    def fit_transform(self, x: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None, **_fit_params: Any) -> np.ndarray:
         """Fits the encoder and transforms the data.
 
         Args:
-            X (pd.DataFrame | np.ndarray): Training features.
+            x (pd.DataFrame | np.ndarray): Training features.
             y (pd.Series | np.ndarray, optional): Training target (ignored).
-            **fit_params: Additional fit parameters.
+            **_fit_params: Additional fit parameters (ignored).
 
         Returns:
             np.ndarray: Transformed data.
         """
-        self.fit(X, y)
-        return self.transform(X)
+        self.fit(x, y)
+        return self.transform(x)

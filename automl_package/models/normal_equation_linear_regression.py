@@ -1,17 +1,18 @@
 """Linear Regression model using the Normal Equation."""
 
-from typing import Any
+from typing import Any, Never
 
 import numpy as np
 
-from ..utils.metrics import Metrics
+from automl_package.utils.metrics import Metrics
+
 from .base import BaseModel
 
 
 class NormalEquationLinearRegression(BaseModel):
     """Linear Regression model implemented using the Normal Equation (Ridge Regression)."""
 
-    def __init__(self, l2_lambda: float = 0.0, **kwargs):
+    def __init__(self, l2_lambda: float = 0.0, **kwargs: Any) -> None:
         """Initializes the NormalEquationLinearRegression model.
 
         Args:
@@ -23,11 +24,12 @@ class NormalEquationLinearRegression(BaseModel):
             raise ValueError("Early stopping is not applicable to NormalEquationLinearRegression as it is a direct solution method.")
         if "l1_lambda" in kwargs and kwargs["l1_lambda"] > 0:
             raise ValueError(
-                "L1 regularization (Lasso) is not supported by NormalEquationLinearRegression due to non-differentiability at zero. Use iterative solvers for L1 e.g. JAXLinearRegression."
+                "L1 regularization (Lasso) is not supported by NormalEquationLinearRegression due to non-differentiability at zero. "
+                "Use iterative solvers for L1 e.g. JAXLinearRegression."
             )
         self.l2_lambda = l2_lambda
-        self.weights = None
-        self.bias = None
+        self.weights: np.ndarray | None = None
+        self.bias: np.ndarray | None = None
         self.is_regression_model = True
         self._train_residual_std = 0.0
 
@@ -36,59 +38,54 @@ class NormalEquationLinearRegression(BaseModel):
         """Returns the name of the model."""
         return "NormalEquationLinearRegression"
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> int:
+    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
         """Fits the NormalEquationLinearRegression model to the training data.
 
         Args:
-            X (np.ndarray): Feature matrix.
+            x (np.ndarray): Feature matrix.
             y (np.ndarray): Target vector.
 
         Returns:
             int: Number of iterations used for training (always 1 for this model).
         """
-        # Add a bias (intercept) term to X
-        X_augmented = np.hstack([X, np.ones((X.shape[0], 1))])
+        # Calculate weights
+        # X.T @ X + lambda * I
+        identity_matrix = np.identity(x.shape[1])
+        a = x.T @ x + self.l2_lambda * identity_matrix
+        b = x.T @ y
 
-        # Calculate (X.T @ X + lambda * I)
-        identity_matrix = np.identity(X_augmented.shape[1])
-        # Don't regularize the bias term
-        identity_matrix[-1, -1] = 0
+        self.weights = np.linalg.solve(a, b)
 
-        A = X_augmented.T @ X_augmented + self.l2_lambda * identity_matrix
-        b = X_augmented.T @ y
-
-        # Solve for beta (weights and bias)
-        beta = np.linalg.solve(A, b)
-
-        self.weights = beta[:-1]
-        self.bias = beta[-1]
+        # Calculate bias (intercept)
+        # The bias should be the mean of the target since X is centered
+        self.bias = np.mean(y)
 
         # Calculate residual standard deviation for uncertainty estimation
-        y_pred_train = self.predict(X)
+        y_pred_train = self.predict(x)
         self._train_residual_std = np.std(y - y_pred_train)
         if np.isnan(self._train_residual_std):
             self._train_residual_std = 0.0
 
         return 1  # Non-iterative model, so 1 iteration
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.
 
         Args:
-            X (np.ndarray): Feature matrix for prediction.
+            x (np.ndarray): Feature matrix for prediction.
 
         Returns:
             np.ndarray: Predicted values.
         """
         if self.weights is None or self.bias is None:
             raise RuntimeError("Model has not been fitted yet.")
-        return X @ self.weights + self.bias
+        return x @ self.weights + self.bias
 
-    def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
-            X (np.ndarray): Feature matrix for uncertainty estimation.
+            x (np.ndarray): Feature matrix for uncertainty estimation.
 
         Returns:
             np.ndarray: Uncertainty estimates (e.g., standard deviation).
@@ -97,9 +94,9 @@ class NormalEquationLinearRegression(BaseModel):
             raise ValueError("predict_uncertainty is only available for regression models.")
         if self.weights is None or self.bias is None:
             raise RuntimeError("Model has not been fitted yet.")
-        return np.full(X.shape[0], self._train_residual_std)
+        return np.full(x.shape[0], self._train_residual_std)
 
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray) -> np.ndarray:
         """Not implemented for NormalEquationLinearRegression.
 
         Raises:
@@ -127,7 +124,7 @@ class NormalEquationLinearRegression(BaseModel):
             return 0
         return self.weights.size + 1  # weights + bias
 
-    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> Never:
         """Not implemented for NormalEquationLinearRegression.
 
         Raises:
@@ -135,18 +132,18 @@ class NormalEquationLinearRegression(BaseModel):
         """
         raise NotImplementedError("NormalEquationLinearRegression is not a composite model and does not have an internal classifier for separate prediction.")
 
-    def evaluate(self, X: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
+    def evaluate(self, x: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
         """Evaluates the model on a given dataset and saves the metrics.
 
         Args:
-            X (np.ndarray): Feature matrix for evaluation.
+            x (np.ndarray): Feature matrix for evaluation.
             y (np.ndarray): True labels for evaluation.
             save_path (str): Directory to save the metrics files.
 
         Returns:
             np.ndarray: The predictions made by the model.
         """
-        y_pred = self.predict(X)
+        y_pred = self.predict(x)
         metrics_calculator = Metrics("regression", self.name, y, y_pred)
         metrics_calculator.save_metrics(save_path)
         return y_pred

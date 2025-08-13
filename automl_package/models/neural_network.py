@@ -6,7 +6,8 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from ..enums import TaskType, UncertaintyMethod
+from automl_package.enums import TaskType, UncertaintyMethod
+
 from .base_pytorch import PyTorchModelBase
 
 
@@ -21,7 +22,7 @@ class _PyTorchNNModule(nn.Module):
         dropout_rate: float,
         is_regression: bool,
         uncertainty_method: UncertaintyMethod,
-    ):
+    ) -> None:
         super().__init__()
         self.is_regression = is_regression
         self.uncertainty_method = uncertainty_method
@@ -47,7 +48,7 @@ class _PyTorchNNModule(nn.Module):
         layers.append(nn.Linear(hidden_size, current_output_size))
         self.layers = nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, None, None, None]:
         predictions = self.layers(x)
         return predictions, None, None, None
 
@@ -66,8 +67,8 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
         hidden_layers: int = 1,
         hidden_size: int = 64,
         activation: Any = nn.ReLU,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         """Initializes the PyTorchNeuralNetwork.
 
         Args:
@@ -87,7 +88,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
         """Returns the name of the model."""
         return "PyTorchNeuralNetwork"
 
-    def build_model(self):
+    def build_model(self) -> None:
         """Dynamically builds the neural network architecture."""
         self.model = _PyTorchNNModule(
             input_size=self.input_size,
@@ -104,7 +105,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
         if self.task_type == TaskType.REGRESSION:
             if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
                 # Custom Negative Log-Likelihood Loss for Gaussian output
-                def nll_loss(outputs, targets):
+                def nll_loss(outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
                     mean = outputs[:, 0]
                     log_var = outputs[:, 1]
                     # Ensure targets has the same shape as mean for element-wise operations
@@ -112,8 +113,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
                     # Calculate per-sample NLL
                     per_sample_nll = 0.5 * (math.log(2 * math.pi) + log_var + (targets - mean) ** 2 / torch.exp(log_var))
                     # Average over the batch
-                    loss = torch.mean(per_sample_nll)
-                    return loss
+                    return torch.mean(per_sample_nll)
 
                 self.criterion = nll_loss
             else:  # Standard MSE loss for other regression methods

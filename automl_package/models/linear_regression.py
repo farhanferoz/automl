@@ -1,6 +1,6 @@
 """Linear Regression model implemented using JAX."""
 
-from typing import Any
+from typing import Any, Never
 
 import jax
 import jax.numpy as jnp
@@ -9,7 +9,8 @@ from jax import grad, jit
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 
-from ..utils.metrics import Metrics
+from automl_package.utils.metrics import Metrics
+
 from .base import BaseModel
 
 
@@ -20,7 +21,7 @@ class JAXLinearRegression(BaseModel):
     Includes L1 and L2 regularization.
     """
 
-    def __init__(self, learning_rate: float = 0.01, n_iterations: int = 1000, l1_lambda: float = 0.0, l2_lambda: float = 0.0, **kwargs):
+    def __init__(self, learning_rate: float = 0.01, n_iterations: int = 1000, l1_lambda: float = 0.0, l2_lambda: float = 0.0, **kwargs: Any) -> None:
         """Initializes the JAXLinearRegression model.
 
         Args:
@@ -35,8 +36,8 @@ class JAXLinearRegression(BaseModel):
         self.n_iterations = n_iterations
         self.l1_lambda = l1_lambda
         self.l2_lambda = l2_lambda
-        self.weights = None
-        self.bias = None
+        self.weights: jnp.ndarray | None = None
+        self.bias: jnp.ndarray | None = None
         self.key = jax.random.PRNGKey(0)
         self.is_regression_model = True  # Set regression flag
         self._train_residual_std = 0.0  # Stores standard deviation of residuals on training data
@@ -47,9 +48,9 @@ class JAXLinearRegression(BaseModel):
         """Returns the name of the model."""
         return "JAXLinearRegression"
 
-    def _loss_fn(self, weights: jnp.ndarray, bias: jnp.ndarray, X: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
+    def _loss_fn(self, weights: jnp.ndarray, bias: jnp.ndarray, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
         """Mean Squared Error loss function with L1 and L2 regularization."""
-        predictions = jnp.dot(X, weights) + bias
+        predictions = jnp.dot(x, weights) + bias
         mse_loss = jnp.mean((predictions - y) ** 2)
 
         l1_penalty = self.l1_lambda * jnp.sum(jnp.abs(weights))
@@ -57,25 +58,21 @@ class JAXLinearRegression(BaseModel):
 
         return mse_loss + l1_penalty + l2_penalty
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> int:
+    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
         """Fits the JAXLinearRegression model to the training data.
 
         Args:
-            X (np.ndarray): Feature matrix.
+            x (np.ndarray): Feature matrix.
             y (np.ndarray): Target vector.
 
         Returns:
             int: Number of iterations used for training.
         """
-        if self.early_stopping_rounds is not None and self.validation_fraction > 0:
-            X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=self.validation_fraction, random_state=42)
-        else:
-            X_train, y_train = X, y
-            X_val, y_val = None, None
+        x_train, y_train = x, y
 
-        self.n_features = X_train.shape[1]  # Store n_features
+        self.n_features = x_train.shape[1]  # Store n_features
 
-        X_train_jax = jnp.array(X_train, dtype=jnp.float32)
+        x_train_jax = jnp.array(x_train, dtype=jnp.float32)
         y_train_jax = jnp.array(y_train, dtype=jnp.float32)
 
         self.key, subkey_w = jax.random.split(self.key)
@@ -84,60 +81,32 @@ class JAXLinearRegression(BaseModel):
 
         loss_grad = jit(grad(self._loss_fn, argnums=(0, 1)))
 
-        best_val_loss = float("inf")
-        patience_counter = 0
-        best_weights = self.weights
-        best_bias = self.bias
-        best_i = 0
-
         for i in range(self.n_iterations):
-            grads_w, grads_b = loss_grad(self.weights, self.bias, X_train_jax, y_train_jax)
+            grads_w, grads_b = loss_grad(self.weights, self.bias, x_train_jax, y_train_jax)
             self.weights = self.weights - self.learning_rate * grads_w
             self.bias = self.bias - self.learning_rate * grads_b
 
-            if self.early_stopping_rounds is not None and X_val is not None:
-                val_predictions = self.predict(X_val)
-                val_loss = mean_squared_error(y_val, val_predictions)
-
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
-                    patience_counter = 0
-                    best_weights = self.weights
-                    best_bias = self.bias
-                    best_i = i
-                else:
-                    patience_counter += 1
-
-                if patience_counter >= self.early_stopping_rounds:
-                    # print(f"Early stopping at iteration {best_i+1}") # For debugging
-                    break
-            else:
-                best_i = i
-
-        self.weights = best_weights
-        self.bias = best_bias
-
         # Calculate residual standard deviation for uncertainty estimation on the full training data
-        y_pred_train = self.predict(X)
+        y_pred_train = self.predict(x)
         self._train_residual_std = np.std(y - y_pred_train)
         if np.isnan(self._train_residual_std):  # Handle cases of perfect fit or single point
             self._train_residual_std = 0.0
 
-        return best_i + 1  # Return the number of iterations actually used
+        return self.n_iterations  # Return the number of iterations actually used
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.
 
         Args:
-            X (np.ndarray): Feature matrix for prediction.
+            x (np.ndarray): Feature matrix for prediction.
 
         Returns:
             np.ndarray: Predicted values.
         """
         if self.weights is None or self.bias is None:
             raise RuntimeError("Model has not been fitted yet.")
-        X_jax = jnp.array(X, dtype=jnp.float32)
-        predictions = jnp.dot(X_jax, self.weights) + self.bias
+        x_jax = jnp.array(x, dtype=jnp.float32)
+        predictions = jnp.dot(x_jax, self.weights) + self.bias
         return np.array(predictions)
 
     def get_num_parameters(self) -> int:
@@ -150,11 +119,11 @@ class JAXLinearRegression(BaseModel):
             return 0  # Or raise an error if model not fitted
         return self.weights.size + 1  # weights + bias
 
-    def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
-            X (np.ndarray): Feature matrix for uncertainty estimation.
+            x (np.ndarray): Feature matrix for uncertainty estimation.
 
         Returns:
             np.ndarray: Uncertainty estimates (e.g., standard deviation).
@@ -164,9 +133,9 @@ class JAXLinearRegression(BaseModel):
         if self.weights is None or self.bias is None:
             raise RuntimeError("Model has not been fitted yet.")
         # For simplicity, return a constant uncertainty based on training residuals
-        return np.full(X.shape[0], self._train_residual_std)
+        return np.full(x.shape[0], self._train_residual_std)
 
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray) -> np.ndarray:
         """Not implemented for JAXLinearRegression.
 
         Raises:
@@ -187,7 +156,7 @@ class JAXLinearRegression(BaseModel):
             "l2_lambda": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L2 regularization
         }
 
-    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> Never:
         """Not implemented for JAXLinearRegression.
 
         Raises:
@@ -195,18 +164,18 @@ class JAXLinearRegression(BaseModel):
         """
         raise NotImplementedError("JAXLinearRegression is not a composite model and does not have an internal classifier for separate prediction.")
 
-    def evaluate(self, X: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
+    def evaluate(self, x: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
         """Evaluates the model on a given dataset and saves the metrics.
 
         Args:
-            X (np.ndarray): Feature matrix for evaluation.
+            x (np.ndarray): Feature matrix for evaluation.
             y (np.ndarray): True labels for evaluation.
             save_path (str): Directory to save the metrics files.
 
         Returns:
             np.ndarray: The predictions made by the model.
         """
-        y_pred = self.predict(X)
+        y_pred = self.predict(x)
         metrics_calculator = Metrics("regression", self.name, y, y_pred)
         metrics_calculator.save_metrics(save_path)
         return y_pred

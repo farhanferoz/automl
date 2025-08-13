@@ -9,28 +9,32 @@ import torch
 class BaseSelectionStrategy(ABC):
     """Abstract base class for all selection strategies (layer, n_classes, etc.)."""
 
-    def __init__(self, model_instance: Any):
+    def __init__(self, model_instance: Any) -> None:
         """Initializes the BaseSelectionStrategy.
 
         Args:
             model_instance (Any): The model instance this strategy is associated with.
         """
         self.model = model_instance
-        self.policy_optimizer = None
-        self.mode_selection_probs = None  # To store probabilities for external use (e.g., classifier_logits_out)
+        self.policy_optimizer: torch.optim.Optimizer | None = None
+        self.mode_selection_probs: torch.Tensor | None = None  # To store probabilities for external use (e.g., classifier_logits_out)
 
     @abstractmethod
-    def forward(self, x_input: torch.Tensor, logits: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]:
+    def forward(
+        self, x_input: torch.Tensor, logits: torch.Tensor | None
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None]:
         """Processes input and logits to determine selection and compute predictions.
 
         Returns: (final_predictions, n_actual_for_logging, n_probs_for_logging, n_logits_for_logging, log_prob_for_reinforce).
         """
 
-    def setup_optimizers(self, policy_params: Any):
+    @abstractmethod
+    def setup_optimizers(self, policy_params: Any) -> None:
         """Sets up optimizers for policy-based strategies (e.g., REINFORCE)."""
         # Default implementation does nothing for non-RL strategies
 
-    def on_epoch_end(self, **kwargs):
+    @abstractmethod
+    def on_epoch_end(self, **kwargs: Any) -> None:
         """Hook for epoch-end operations (e.g., REINFORCE policy updates)."""
         # Default implementation does nothing
 

@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,14 +21,22 @@ from sklearn.metrics import (
     roc_curve,
 )
 
-from ..enums import RegressionStrategy
-from ..logger import logger
+from automl_package.enums import RegressionStrategy
+from automl_package.logger import logger
 
 
 class Metrics:
     """A class for calculating and plotting various machine learning metrics."""
 
-    def __init__(self, task_type, model_name, y_true, y_pred, y_proba=None, **kwargs):
+    def __init__(
+        self,
+        task_type: str,
+        model_name: str,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        y_proba: np.ndarray | None = None,
+        **kwargs: Any,
+    ) -> None:
         """Initializes the Metrics calculator.
 
         Args:
@@ -59,7 +68,7 @@ class Metrics:
         self.prob_reg_X_original = kwargs.get("prob_reg_X_original")
         self.prob_reg_probas_for_plotting = kwargs.get("prob_reg_probas_for_plotting")
 
-    def _calculate_bins(self, data, n_bins):
+    def _calculate_bins(self, data: np.ndarray, n_bins: int) -> tuple[np.ndarray, np.ndarray, int]:
         percentiles = np.linspace(0, 100, n_bins + 1)
         bin_edges = np.percentile(data, percentiles)
         # Ensure bin edges are unique
@@ -72,7 +81,7 @@ class Metrics:
         bin_midpoints = (unique_bin_edges[:-1] + unique_bin_edges[1:]) / 2
         return unique_bin_edges, bin_midpoints, n_bins
 
-    def calculate_all_metrics(self):
+    def calculate_all_metrics(self) -> dict[str, float]:
         """Calculates all relevant metrics based on the task type.
 
         Returns:
@@ -82,20 +91,19 @@ class Metrics:
             return self.calculate_regression_metrics()
         return self.calculate_classification_metrics()
 
-    def calculate_regression_metrics(self):
+    def calculate_regression_metrics(self) -> dict[str, float]:
         """Calculates regression-specific metrics.
 
         Returns:
             dict: A dictionary of regression metrics.
         """
-        metrics = {
+        return {
             "mae": mean_absolute_error(self.y_true, self.y_pred),
             "rmse": np.sqrt(mean_squared_error(self.y_true, self.y_pred)),
             "r2_score": r2_score(self.y_true, self.y_pred),
         }
-        return metrics
 
-    def calculate_classification_metrics(self):
+    def calculate_classification_metrics(self) -> dict[str, float]:
         """Calculates classification-specific metrics.
 
         Returns:
@@ -120,12 +128,12 @@ class Metrics:
                 metrics["roc_auc"] = roc_auc_score(self.y_true, self.y_proba, multi_class="ovr", average="weighted")
 
             # log_loss expects y_proba to be (n_samples, n_classes) for multi-class, or (n_samples,) for binary
-            # If binary and y_proba is (n_samples,), log_loss handles it.
+            # If binary and y_proba is (n_samples, 2), log_loss handles it.
             # If binary and y_proba is (n_samples, 2), log_loss handles it.
             metrics["log_loss"] = log_loss(self.y_true, self.y_proba)
         return metrics
 
-    def plot_regression_charts(self, save_path):
+    def plot_regression_charts(self, save_path: str) -> None:
         """Generates and saves regression-specific plots.
 
         Args:
@@ -154,7 +162,7 @@ class Metrics:
         plt.savefig(f"{save_path}/residuals_vs_predicted.png")
         plt.close()
 
-    def plot_classification_charts(self, save_path):
+    def plot_classification_charts(self, save_path: str) -> None:
         """Generates and saves classification-specific plots.
 
         Args:
@@ -238,7 +246,7 @@ class Metrics:
             self.plot_predicted_vs_true_classification_rate(save_path)
             self.plot_completeness_vs_purity(save_path)
 
-    def plot_predicted_vs_true_classification_rate(self, save_path):
+    def plot_predicted_vs_true_classification_rate(self, save_path: str) -> None:
         """Plots predicted vs. true classification rate.
 
         Args:
@@ -251,28 +259,25 @@ class Metrics:
         n_bins = max(5, len(self.y_true) // 20)
         bin_edges, bin_midpoints, n_bins = self._calculate_bins(max_proba, n_bins)
 
-        bin_means = []
-        bin_medians = []
-        inverse_cumulative_means = []
+        bin_means: list[float] = []
+        bin_medians: list[float] = []
+        inverse_cumulative_means: list[float] = []
 
         for i in range(n_bins):
-            if i < n_bins - 1:
-                mask = (max_proba >= bin_edges[i]) & (max_proba < bin_edges[i + 1])
-            else:
-                mask = (max_proba >= bin_edges[i]) & (max_proba <= bin_edges[i + 1])
+            mask = (max_proba >= bin_edges[i]) & (max_proba < bin_edges[i + 1]) if i < n_bins - 1 else (max_proba >= bin_edges[i]) & (max_proba <= bin_edges[i + 1])
 
             if np.any(mask):
                 bin_means.append(np.mean(is_correct[mask]))
                 bin_medians.append(np.median(is_correct[mask]))
             else:
-                bin_means.append(0)
-                bin_medians.append(0)
+                bin_means.append(0.0)
+                bin_medians.append(0.0)
 
             inv_cum_mask = max_proba >= bin_edges[i]
             if np.any(inv_cum_mask):
                 inverse_cumulative_means.append(np.mean(is_correct[inv_cum_mask]))
             else:
-                inverse_cumulative_means.append(0)
+                inverse_cumulative_means.append(0.0)
 
         plt.figure(figsize=(12, 8))
         plt.plot(bin_midpoints, bin_means, "o-", label="Mean Classification Rate")
@@ -283,10 +288,11 @@ class Metrics:
         plt.title(f"Predicted vs. True Classification Rate for {self.model_name}")
         plt.legend()
         plt.grid(True)
+        plt.tight_layout()
         plt.savefig(f"{save_path}/predicted_vs_true_classification_rate.png")
         plt.close()
 
-    def plot_completeness_vs_purity(self, save_path):
+    def plot_completeness_vs_purity(self, save_path: str) -> None:
         """Plots completeness vs. purity for classification.
 
         Args:
@@ -299,8 +305,8 @@ class Metrics:
         n_bins = max(5, len(self.y_proba) // 20)
         thresholds, _, _ = self._calculate_bins(max_proba, n_bins)
 
-        completeness = []
-        purity = []
+        completeness: list[float] = []
+        purity: list[float] = []
 
         for t in thresholds:
             mask = max_proba >= t
@@ -308,8 +314,8 @@ class Metrics:
                 completeness.append(np.sum(mask) / len(self.y_true))
                 purity.append(np.mean(is_correct[mask]))
             else:
-                completeness.append(0)
-                purity.append(1)  # Purity is 1 if no examples are selected
+                completeness.append(0.0)
+                purity.append(1.0)  # Purity is 1 if no examples are selected
 
         plt.figure(figsize=(10, 6))
         plt.plot(thresholds, completeness, "o-", label="Completeness")
@@ -319,10 +325,11 @@ class Metrics:
         plt.title(f"Completeness vs. Purity for {self.model_name}")
         plt.legend()
         plt.grid(True)
+        plt.tight_layout()
         plt.savefig(f"{save_path}/completeness_vs_purity.png")
         plt.close()
 
-    def plot_flexible_nn_architecture(self, save_path: str):
+    def plot_flexible_nn_architecture(self, save_path: str) -> None:
         """Plots the architecture decisions of a Flexible Neural Network.
 
         Args:
@@ -339,11 +346,8 @@ class Metrics:
         feature_scaler = self.flexible_nn_feature_scaler
 
         # Inverse transform X_scaled to original scale for plotting
-        X_original = self.y_true  # Assuming y_true has the same shape as X for plotting purposes
-        if feature_scaler:
-            X_original = feature_scaler.inverse_transform(X_original.reshape(-1, 1)).flatten()
-        else:
-            X_original = X_original.flatten()
+        x_original = self.y_true  # Assuming y_true has the same shape as X for plotting purposes
+        x_original = feature_scaler.inverse_transform(x_original.reshape(-1, 1)).flatten() if feature_scaler else x_original.flatten()
 
         # Plot 1: Distribution of chosen active layers
         plt.figure(figsize=(8, 5))
@@ -360,7 +364,7 @@ class Metrics:
         plt.figure(figsize=(10, 6))
         colors = plt.cm.get_cmap("viridis", max_hidden_layers)
         for i in range(max_hidden_layers):
-            plt.scatter(X_original, n_logits[:, i], label=f"Layer {i+1} Logit", alpha=0.6, color=colors(i))
+            plt.scatter(x_original, n_logits[:, i], label=f"Layer {i+1} Logit", alpha=0.6, color=colors(i))
         plt.xlabel("Input Feature")
         plt.ylabel("Logit Value")
         plt.title(f"Flexible NN ({self.model_name}) - Layer Logits vs. Input Feature")
@@ -371,7 +375,7 @@ class Metrics:
 
         logger.info("Flexible NN architecture plots saved successfully.")
 
-    def plot_prob_reg_internal_plots(self, save_path: str):
+    def plot_prob_reg_internal_plots(self, save_path: str) -> None:
         """Plots internal aspects of the Probabilistic Regression model.
 
         Args:
@@ -385,18 +389,18 @@ class Metrics:
         # Plot 1: Internal Classifier Probabilities
         plt.figure(figsize=(10, 6))
         colors = plt.cm.get_cmap("viridis", self.prob_reg_n_classes)
-        X_original_plot = self.prob_reg_X_original.flatten() if self.prob_reg_X_original.ndim > 1 else self.prob_reg_X_original
+        x_original_plot = self.prob_reg_X_original.flatten() if self.prob_reg_X_original.ndim > 1 else self.prob_reg_X_original
 
         # Sort data by X_original_plot for cleaner lines
-        sort_indices = np.argsort(X_original_plot)
-        X_original_plot_sorted = X_original_plot[sort_indices]
+        sort_indices = np.argsort(x_original_plot)
+        x_original_plot_sorted = x_original_plot[sort_indices]
         prob_reg_classifier_probabilities_sorted = self.prob_reg_classifier_probabilities[sort_indices]
 
         if prob_reg_classifier_probabilities_sorted.shape[1] > 1:  # Multi-class
             for i in range(self.prob_reg_n_classes):
-                plt.plot(X_original_plot_sorted, prob_reg_classifier_probabilities_sorted[:, i], label=f"Class {i} Probability", color=colors(i))
+                plt.plot(x_original_plot_sorted, prob_reg_classifier_probabilities_sorted[:, i], label=f"Class {i} Probability", color=colors(i))
         else:  # Binary
-            plt.plot(X_original_plot_sorted, prob_reg_classifier_probabilities_sorted[:, 1], label="Positive Class Probability", color=colors(0))
+            plt.plot(x_original_plot_sorted, prob_reg_classifier_probabilities_sorted[:, 1], label="Positive Class Probability", color=colors(0))
 
         plt.title("Internal Classifier Probabilities vs. Input Feature")
         plt.xlabel("Input Feature Value")
@@ -445,7 +449,7 @@ class Metrics:
 
         logger.info("Probabilistic Regression internal plots saved successfully.")
 
-    def save_metrics(self, save_path):
+    def save_metrics(self, save_path: str) -> None:
         """Saves calculated metrics to a JSON file and generates plots.
 
         Args:

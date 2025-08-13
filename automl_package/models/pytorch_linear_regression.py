@@ -1,8 +1,11 @@
 """PyTorch Linear Regression model."""
 
+from typing import Any
+
 import torch.nn as nn
 
-from ..enums import TaskType
+from automl_package.enums import TaskType
+
 from .base_pytorch import PyTorchModelBase
 
 
@@ -13,7 +16,7 @@ class PyTorchLinearRegression(PyTorchModelBase):
     L1, L2, and automatically learned regularization.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         """Initializes the PyTorchLinearRegression model.
 
         Args:
@@ -28,7 +31,7 @@ class PyTorchLinearRegression(PyTorchModelBase):
         """Returns the name of the model."""
         return "PyTorchLinearRegression"
 
-    def build_model(self):
+    def build_model(self) -> None:
         """Builds the model architecture.
 
         For linear regression, this is a single linear layer.

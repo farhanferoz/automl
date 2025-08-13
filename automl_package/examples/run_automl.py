@@ -28,17 +28,17 @@ if __name__ == "__main__":
     # Split data once for initial training and final retraining
     X_full, X_test_full, y_full, y_test_full = train_test_split(X_reg, y_reg, test_size=0.2, random_state=42)
     # For initial AutoML training (cross-validation on X_full, y_full)
-    X_train_initial, y_train_initial = X_full, y_full  # Use full training data for main train() call
+    x_train_initial, y_train_initial = X_full, y_full  # Use full training data for main train() call
 
     # Generate feature names for better SHAP output
     feature_names_reg = [f"feature_{i}" for i in range(X_reg.shape[1])]
 
     # Instantiate scalers
-    X_scaler_reg = StandardScaler()
+    x_scaler_reg = StandardScaler()
     y_scaler_reg = StandardScaler()
 
     automl_reg = AutoML(
-        task_type=TaskType.REGRESSION, metric="rmse", n_trials=3, n_splits=2, random_state=42, feature_scaler=X_scaler_reg, target_scaler=y_scaler_reg
+        task_type=TaskType.REGRESSION, metric="rmse", n_trials=3, n_splits=2, random_state=42, feature_scaler=x_scaler_reg, target_scaler=y_scaler_reg
     )  # Pass scalers
 
     # Specify which models to consider for this run
@@ -53,7 +53,7 @@ if __name__ == "__main__":
         ModelName.PROBABILISTIC_REGRESSION,
     ]
 
-    automl_reg.train(X_train_initial, y_train_initial, models_to_consider=models_for_reg)
+    automl_reg.train(x_train_initial, y_train_initial, models_to_consider=models_for_reg)
 
     best_model_info_reg = automl_reg.get_best_model_info()
     logger.info("\nRegression Best Model Info:")
@@ -75,15 +75,15 @@ if __name__ == "__main__":
             logger.info(f"Mean uncertainty estimate of initial best regression model (original scale): {np.mean(uncertainty_reg):.4f}")
             logger.info(f"Uncertainty estimates (first 5, original scale): {uncertainty_reg[:5].round(2)}")
         except ValueError as e:
-            logger.error(f"Could not get uncertainty estimates for initial model: {e}")
+            logger.info(f"Could not get uncertainty estimates for initial model: {e}")
         except RuntimeError as e:
-            logger.error(f"Error getting uncertainty estimates for initial model: {e}")
+            logger.info(f"Error getting uncertainty estimates for initial model: {e}")
 
         # Perform feature selection and retrain
         retrained_results_reg = automl_reg.retrain_with_selected_features(
-            X_full_train=X_full,  # Use the full training data for retraining (original scale)
+            x_full_train=X_full,  # Use the full training data for retraining (original scale)
             y_full_train=y_full,  # (original scale)
-            X_full_test=X_test_full,  # (original scale)
+            x_full_test=X_test_full,  # (original scale)
             y_full_test=y_test_full,  # (original scale)
             feature_names=feature_names_reg,
             shap_threshold=0.95,
@@ -95,7 +95,7 @@ if __name__ == "__main__":
             uncertainty_retrained_reg = retrained_results_reg["retrained_model_instance"].predict_uncertainty(retrained_results_reg["X_test_filtered"])
             logger.info(f"Mean uncertainty estimate of retrained regression model (original scale): {np.mean(uncertainty_retrained_reg):.4f}")
         except Exception as e:
-            logger.error(f"Error getting uncertainty for retrained regression model: {e}")
+            logger.info(f"Error getting uncertainty for retrained regression model: {e}")
 
         # Export the retrained model
         model_export_path_reg = "best_automl_reg_model.pkl"
@@ -108,10 +108,7 @@ if __name__ == "__main__":
             sample_input_reg_original = X_test_full[0:1]  # Get first sample from original test data
             # The loaded model's predict method expects data in the *scaled* format it was trained on.
             # The automl_reg instance itself holds the fitted scalers.
-            if automl_reg._fitted_feature_scaler:
-                sample_input_reg_scaled = automl_reg._fitted_feature_scaler.transform(sample_input_reg_original)
-            else:
-                sample_input_reg_scaled = sample_input_reg_original
+            sample_input_reg_scaled = automl_reg._fitted_feature_scaler.transform(sample_input_reg_original) if automl_reg._fitted_feature_scaler else sample_input_reg_original
 
             loaded_prediction_reg_scaled = loaded_model_reg.predict(sample_input_reg_scaled)
 
@@ -125,7 +122,7 @@ if __name__ == "__main__":
                 f"Prediction from loaded regression model for sample {sample_input_reg_original[0].round(2)} (original scale): {loaded_prediction_reg_original_scale[0]:.4f}"
             )
         except Exception as e:
-            logger.error(f"Error demonstrating model load and predict for regression: {e}")
+            logger.info(f"Error demonstrating model load and predict for regression: {e}")
 
     # Save the leaderboard after all operations
     automl_reg.save_leaderboard("regression_leaderboard.json")
@@ -136,14 +133,14 @@ if __name__ == "__main__":
 
     # Split data once for initial training and final retraining
     X_full_clf, X_test_full_clf, y_full_clf, y_test_full_clf = train_test_split(X_clf, y_clf, test_size=0.2, random_state=42)
-    X_train_initial_clf, y_train_initial_clf = X_full_clf, y_full_clf  # Use full training data for main train() call
+    x_train_initial_clf, y_train_initial_clf = X_full_clf, y_full_clf  # Use full training data for main train() call
 
     feature_names_clf = [f"feature_{i}" for i in range(X_clf.shape[1])]
 
     # Instantiate scaler for classification features
-    X_scaler_clf = StandardScaler()
+    x_scaler_clf = StandardScaler()
 
-    automl_clf = AutoML(task_type=TaskType.CLASSIFICATION, metric="accuracy", n_trials=3, n_splits=2, random_state=42, feature_scaler=X_scaler_clf)  # Pass feature scaler
+    automl_clf = AutoML(task_type=TaskType.CLASSIFICATION, metric="accuracy", n_trials=3, n_splits=2, random_state=42, feature_scaler=x_scaler_clf)  # Pass feature scaler
 
     # Specify which models to consider for classification
     models_for_clf = [
@@ -155,7 +152,7 @@ if __name__ == "__main__":
         ModelName.CATBOOST,
     ]
 
-    automl_clf.train(X_train_initial_clf, y_train_initial_clf, models_to_consider=models_for_clf)
+    automl_clf.train(x_train_initial_clf, y_train_initial_clf, models_to_consider=models_for_clf)
 
     best_model_info_clf = automl_clf.get_best_model_info()
     logger.info("\nClassification Best Model Info:")
@@ -177,13 +174,13 @@ if __name__ == "__main__":
             logger.info(f"Mean uncertainty estimate of initial classification model: {np.mean(uncertainty_clf):.4f}")
             logger.info(f"Uncertainty estimates (first 5): {uncertainty_clf[:5].round(2)}")
         except ValueError as e:
-            logger.error(f"As expected, cannot get uncertainty for initial classification model: {e}")
+            logger.info(f"As expected, cannot get uncertainty for initial classification model: {e}")
         except RuntimeError as e:
-            logger.error(f"Error getting uncertainty estimates for initial classification model: {e}")
+            logger.info(f"Error getting uncertainty estimates for initial classification model: {e}")
 
         # Perform feature selection and retrain
         retrained_results_clf = automl_clf.retrain_with_selected_features(
-            X_full_train=X_full_clf, y_full_train=y_full_clf, X_full_test=X_test_full_clf, y_full_test=y_test_full_clf, feature_names=feature_names_clf, shap_threshold=0.95
+            x_full_train=X_full_clf, y_full_train=y_full_clf, x_full_test=X_test_full_clf, y_full_test=y_test_full_clf, feature_names=feature_names_clf, shap_threshold=0.95
         )
         logger.info(f"Selected features for classification: {retrained_results_clf['selected_feature_names']}")
         logger.info(f"Retrained model test accuracy (with selected features): {retrained_results_clf['retrained_metric_value']:.4f}")
@@ -192,7 +189,7 @@ if __name__ == "__main__":
             uncertainty_retrained_clf = retrained_results_clf["retrained_model_instance"].predict_uncertainty(retrained_results_clf["X_test_filtered"])
             logger.info(f"Mean uncertainty estimate of retrained classification model: {np.mean(uncertainty_retrained_clf):.4f}")
         except Exception as e:
-            logger.error(f"Error getting uncertainty for retrained classification model: {e}")
+            logger.info(f"Error getting uncertainty for retrained classification model: {e}")
 
         # Export the retrained model
         model_export_path_clf = "best_automl_clf_model.pkl"
@@ -205,15 +202,12 @@ if __name__ == "__main__":
             sample_input_clf_original = X_test_full_clf[0:1]
             # The loaded model's predict method expects data in the *scaled* format it was trained on.
             # So, we need to transform the sample input using the fitted feature scaler *from the AutoML instance*.
-            if automl_clf._fitted_feature_scaler:
-                sample_input_clf_scaled = automl_clf._fitted_feature_scaler.transform(sample_input_clf_original)
-            else:
-                sample_input_clf_scaled = sample_input_clf_original
+            sample_input_clf_scaled = automl_clf._fitted_feature_scaler.transform(sample_input_clf_original) if automl_clf._fitted_feature_scaler else sample_input_clf_original
 
             loaded_prediction_clf = loaded_model_clf.predict(sample_input_clf_scaled)
             logger.info(f"Prediction from loaded classification model for sample {sample_input_clf_original[0].round(2)}: {loaded_prediction_clf[0]}")
         except Exception as e:
-            logger.error(f"Error demonstrating model load and predict for classification: {e}")
+            logger.info(f"Error demonstrating model load and predict for classification: {e}")
 
     # Save the leaderboard after all operations
     automl_clf.save_leaderboard("classification_leaderboard.json")

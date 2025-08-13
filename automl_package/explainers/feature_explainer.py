@@ -5,11 +5,11 @@ import shap
 import torch
 from sklearn.pipeline import Pipeline  # Import Pipeline for type hinting
 
-from ..enums import ModelName, TaskType
-from ..logger import logger
-from ..models.base import BaseModel
-from ..models.neural_network import PyTorchNeuralNetwork  # Specific import for PyTorchNN DeepExplainer setup
-from ..models.probabilistic_regression import ProbabilisticRegressionModel  # Specific import for its internal model
+from automl_package.enums import ModelName, TaskType
+from automl_package.logger import logger
+from automl_package.models.base import BaseModel
+from automl_package.models.neural_network import PyTorchNeuralNetwork  # Specific import for PyTorchNN DeepExplainer setup
+from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel  # Specific import for its internal model
 
 
 class FeatureExplainer:
@@ -19,21 +19,28 @@ class FeatureExplainer:
     and handles scikit-learn pipelines with an assumed 'scaler' and 'model' step.
     """
 
-    def __init__(self, model_instance: BaseModel | Pipeline, X_background: np.ndarray, feature_names: list[str] = None, device: torch.device = None, max_data_points: int = 50000):
+    def __init__(
+        self,
+        model_instance: BaseModel | Pipeline,
+        x_background: np.ndarray,
+        feature_names: list[str] | None = None,
+        device: torch.device | None = None,
+        max_data_points: int = 50000,
+    ) -> None:
         """Initializes the SHAP explainer based on the model type.
 
         Args:
             model_instance (Union[BaseModel, Pipeline]): The trained model instance from the AutoML pipeline.
                                                           Can be a BaseModel subclass or a scikit-learn Pipeline.
-            X_background (np.ndarray): A background dataset (e.g., a subset of training data) for explainer initialization.
+            x_background (np.ndarray): A background dataset (e.g., a subset of training data) for explainer initialization.
                                        This data should be in the *scaled* format if the model expects scaled input.
             feature_names (List[str], optional): Names of the features. If None, uses generic names.
             device (torch.device, optional): The device (CPU or GPU) to use for PyTorch models.
             max_data_points (int): Maximum number of data points to use for SHAP explanation.
         """
         self.original_model = model_instance  # Store the original object (can be pipeline)
-        self.X_background = X_background
-        self.feature_names = feature_names if feature_names is not None else [f"Feature_{i}" for i in range(X_background.shape[1])]
+        self.x_background = x_background
+        self.feature_names = feature_names if feature_names is not None else [f"Feature_{i}" for i in range(x_background.shape[1])]
         self.explainer = None  # SHAP explainer object
         self.pipeline = None  # To store the sklearn Pipeline if present
         self.scaler = None  # To store the StandardScaler if present within a pipeline
@@ -43,7 +50,7 @@ class FeatureExplainer:
         self.max_data_points = max_data_points
         self._initialize_explainer()
 
-    def _initialize_explainer(self):
+    def _initialize_explainer(self) -> None:
         """Initializes the appropriate SHAP explainer based on the model type.
 
         Handles extraction of model and scaler from scikit-learn Pipelines.
@@ -61,10 +68,7 @@ class FeatureExplainer:
             self.scaler = self.pipeline.named_steps.get("scaler")
 
             # Get the name from the extracted BaseModel
-            if isinstance(self.model_to_explain_directly, BaseModel):
-                model_name_str = self.model_to_explain_directly.name
-            else:  # Fallback for non-BaseModel sklearn estimators
-                model_name_str = type(self.model_to_explain_directly).__name__
+            model_name_str = self.model_to_explain_directly.name if isinstance(self.model_to_explain_directly, BaseModel) else type(self.model_to_explain_directly).__name__
 
         # If it's a BaseModel (not wrapped in a pipeline or it's the extracted one from pipeline)
         elif isinstance(self.original_model, BaseModel):
@@ -84,42 +88,42 @@ class FeatureExplainer:
         elif model_name_str in [ModelName.PYTORCH_NEURAL_NETWORK.value, ModelName.FLEXIBLE_NEURAL_NETWORK.value]:
             logger.info(f"Using shap.DeepExplainer for {model_name_str} model.")
             # For DeepExplainer, we need the raw PyTorch nn.Module and a background dataset
-            background_tensor = torch.tensor(self.X_background, dtype=torch.float32).to(self.device)
+            background_tensor = torch.tensor(self.x_background, dtype=torch.float32).to(self.device)
 
             self.explainer = shap.DeepExplainer(self.model_to_explain_directly.get_internal_model(), background_tensor)
 
         elif model_name_str == ModelName.PROBABILISTIC_REGRESSION.value:
             logger.info("Using shap.DeepExplainer for ProbabilisticRegression model.")
             # ProbabilisticRegressionModel exposes its combined_model (which is an nn.Module) as the internal model
-            background_tensor = torch.tensor(self.X_background, dtype=torch.float32).to(self.device)
+            background_tensor = torch.tensor(self.x_background, dtype=torch.float32).to(self.device)
 
             self.explainer = shap.DeepExplainer(self.model_to_explain_directly.get_internal_model(), background_tensor)
 
         elif model_name_str == ModelName.SKLEARN_LOGISTIC_REGRESSION.value:
             logger.info("Using shap.LinearExplainer for SKLearnLogisticRegression model.")
             # LinearExplainer is efficient for linear models
-            self.explainer = shap.LinearExplainer(self.model_to_explain_directly.get_internal_model(), self.X_background)
+            self.explainer = shap.LinearExplainer(self.model_to_explain_directly.get_internal_model(), self.x_background)
 
         elif model_name_str == ModelName.JAX_LINEAR_REGRESSION.value:
             logger.info("Using shap.KernelExplainer for JAXLinearRegression model (as it's custom JAX and not tree/deep).")
 
             # For custom JAX models not suitable for DeepExplainer, KernelExplainer is a general fallback
-            def jax_linear_predict_wrapper(x):
+            def jax_linear_predict_wrapper(x: np.ndarray) -> np.ndarray:
                 return self.model_to_explain_directly.predict(x)
 
-            self.explainer = shap.KernelExplainer(jax_linear_predict_wrapper, self.X_background)
+            self.explainer = shap.KernelExplainer(jax_linear_predict_wrapper, self.x_background)
 
         else:
             logger.warning(f"Model type '{model_name_str}' not specifically optimized for SHAP. Falling back to shap.KernelExplainer.")
             # For other models, KernelExplainer is a universal fallback. It takes a prediction function.
             # We use the BaseModel's predict method.
-            self.explainer = shap.KernelExplainer(self.model_to_explain_directly.predict, self.X_background)
+            self.explainer = shap.KernelExplainer(self.model_to_explain_directly.predict, self.x_background)
 
-    def explain(self, X_to_explain: np.ndarray):
+    def explain(self, x_to_explain: np.ndarray) -> np.ndarray:
         """Computes SHAP values for the given data.
 
         Args:
-            X_to_explain (np.ndarray): The dataset for which to compute SHAP values.
+            x_to_explain (np.ndarray): The dataset for which to compute SHAP values.
                                        This data should be in the *scaled* format if the model expects scaled input.
 
         Returns:
@@ -129,16 +133,16 @@ class FeatureExplainer:
             raise RuntimeError("SHAP explainer not initialized.")
 
         # If the number of data points exceeds max_data_points, randomly sample
-        if X_to_explain.shape[0] > self.max_data_points:
-            logger.info(f"Sampling {self.max_data_points} data points for SHAP explanation from {X_to_explain.shape[0]} available.")
+        if x_to_explain.shape[0] > self.max_data_points:
+            logger.info(f"Sampling {self.max_data_points} data points for SHAP explanation from {x_to_explain.shape[0]} available.")
             np.random.seed(42)  # for reproducibility
-            sample_indices = np.random.choice(X_to_explain.shape[0], self.max_data_points, replace=False)
-            X_to_explain = X_to_explain[sample_indices]
+            sample_indices = np.random.choice(x_to_explain.shape[0], self.max_data_points, replace=False)
+            x_to_explain = x_to_explain[sample_indices]
 
         # Ensure data is in the correct format for the explainer (e.g., PyTorch tensor for DeepExplainer)
-        data_for_shap = X_to_explain
-        if isinstance(self.model_to_explain_directly, (PyTorchNeuralNetwork, ProbabilisticRegressionModel)):
-            data_for_shap = torch.tensor(X_to_explain, dtype=torch.float32).to(self.model_to_explain_directly.device)
+        data_for_shap = x_to_explain
+        if isinstance(self.model_to_explain_directly, PyTorchNeuralNetwork | ProbabilisticRegressionModel):
+            data_for_shap = torch.tensor(x_to_explain, dtype=torch.float32).to(self.model_to_explain_directly.device)
 
         shap_values_obj = self.explainer.shap_values(data_for_shap)
 
@@ -174,18 +178,16 @@ class FeatureExplainer:
         Returns:
             Dict[str, float]: A dictionary of feature names and their mean absolute SHAP values, sorted.
         """
-        if isinstance(shap_values_object, list):  # Multi-class classification from TreeExplainer/DeepExplainer
-            # Convert list of arrays to a single 3D array (num_classes, num_samples, num_features)
-            # Then take mean of absolute values across num_classes and num_samples
-            abs_shap_values = np.mean(np.abs(np.array(shap_values_object)), axis=0)
-        else:  # Regression or binary classification (single array: num_samples, num_features)
-            abs_shap_values = np.abs(shap_values_object)
+        abs_shap_values = (
+            np.mean(np.abs(np.array(shap_values_object)), axis=0) if isinstance(shap_values_object, list) else np.abs(shap_values_object)
+        )  # Regression or binary classification (single array: num_samples, num_features)
 
         mean_abs_shap = np.mean(abs_shap_values, axis=0)
 
         if len(mean_abs_shap) != len(self.feature_names):
             logger.warning(
-                f"Mismatch between number of SHAP values ({len(mean_abs_shap)}) and feature names ({len(self.feature_names)}). Check model input consistency or provide correct feature_names."
+                f"Mismatch between number of SHAP values ({len(mean_abs_shap)}) and feature names ({len(self.feature_names)}). "
+                "Check model input consistency or provide correct feature_names."
             )
             # Adjust feature names if mismatch, to prevent errors
             self.feature_names = [f"Feature_{i}" for i in range(len(mean_abs_shap))]
@@ -193,5 +195,4 @@ class FeatureExplainer:
         feature_importance = dict(zip(self.feature_names, mean_abs_shap, strict=False))
 
         # Sort in descending order of importance
-        sorted_importance = dict(sorted(feature_importance.items(), key=lambda item: item[1], reverse=True))
-        return sorted_importance
+        return dict(sorted(feature_importance.items(), key=lambda item: item[1], reverse=True))

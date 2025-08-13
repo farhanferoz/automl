@@ -12,7 +12,7 @@ class BaseModel(abc.ABC):
     Defines a common interface for fitting, predicting, and hyperparameter search.
     """
 
-    def __init__(self, early_stopping_rounds: int = None, validation_fraction: float = 0.1, **kwargs):
+    def __init__(self, early_stopping_rounds: int | None = None, validation_fraction: float = 0.1, **kwargs: Any) -> None:
         """Initializes the base model with given parameters.
 
         Args:
@@ -29,11 +29,11 @@ class BaseModel(abc.ABC):
         self.validation_fraction = validation_fraction
 
     @abc.abstractmethod
-    def fit(self, X: np.ndarray, y: np.ndarray) -> int:
+    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
         """Fits the model to the training data.
 
         Args:
-            X (np.ndarray): Feature matrix.
+            x (np.ndarray): Feature matrix.
             y (np.ndarray): Target vector.
 
         Returns:
@@ -41,11 +41,11 @@ class BaseModel(abc.ABC):
         """
 
     @abc.abstractmethod
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.
 
         Args:
-            X (np.ndarray): Feature matrix for prediction.
+            x (np.ndarray): Feature matrix for prediction.
 
         Returns:
             np.ndarray: Predicted values.
@@ -53,14 +53,14 @@ class BaseModel(abc.ABC):
 
     # New abstract method for uncertainty
     @abc.abstractmethod
-    def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
         """Estimates the uncertainty of predictions for new data.
 
         This method is only applicable for regression models.
         For classification models, this method should raise an error or return None.
 
         Args:
-            X (np.ndarray): Feature matrix for uncertainty estimation.
+            x (np.ndarray): Feature matrix for uncertainty estimation.
 
         Returns:
             np.ndarray: Uncertainty estimates (e.g., standard deviation) for each prediction.
@@ -83,25 +83,25 @@ class BaseModel(abc.ABC):
         """Returns the name of the model."""
 
     @abc.abstractmethod
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray) -> np.ndarray:
         """Makes probability predictions on new data. Applicable for classification models.
 
         Args:
-            X (np.ndarray): Feature matrix for prediction.
+            x (np.ndarray): Feature matrix for prediction.
 
         Returns:
             np.ndarray: Predicted probabilities.
         """
 
     @abc.abstractmethod
-    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Returns the internal classifier's predicted classes, probabilities, and.
 
         the corresponding (discretized) true labels for composite models.
         For non-composite models, this method should raise NotImplementedError.
 
         Args:
-            X (np.ndarray): Feature matrix.
+            x (np.ndarray): Feature matrix.
             y_true_original (np.ndarray): Original true labels (will be discretized internally).
 
         Returns:
@@ -116,11 +116,11 @@ class BaseModel(abc.ABC):
         """Returns the total number of trainable parameters in the model."""
 
     @abc.abstractmethod
-    def evaluate(self, X: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
+    def evaluate(self, x: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
         """Evaluates the model on a given dataset and saves the metrics.
 
         Args:
-            X (np.ndarray): Feature matrix for evaluation.
+            x (np.ndarray): Feature matrix for evaluation.
             y (np.ndarray): True labels for evaluation.
             save_path (str): Directory to save the metrics files.
 
@@ -128,7 +128,7 @@ class BaseModel(abc.ABC):
             np.ndarray: The predictions made by the model.
         """
 
-    def get_internal_model(self):
+    def get_internal_model(self) -> Any:
         """Returns the raw underlying model object, if applicable.
 
         Useful for explainability libraries like SHAP.

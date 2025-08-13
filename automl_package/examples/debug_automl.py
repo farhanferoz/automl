@@ -22,8 +22,6 @@ if not logger.handlers:
 
 logger.info("===== Starting AutoML Debugging Session =====")
 
-# Authenticate W&B (replace 'YOUR_WANDB_API_KEY' with your actual key)
-# wandb.login() # Authenticate W&B (API key loaded from environment variable)
 
 # --- Regression Example (Simplified for Debugging) ---
 logger.info("\n--- Running Regression Example with Reduced Settings ---")
@@ -68,9 +66,9 @@ if automl_reg.best_model_name:
         logger.info(f"Mean uncertainty estimate (original scale): {np.mean(uncertainty_values):.4f}")
         logger.info(f"Uncertainty estimates (first 5, original scale): {uncertainty_values[:5].round(2)}")
     except ValueError as e:
-        logger.error(f"Could not get uncertainty estimates for model {automl_reg.best_model_name.value}: {e}")
+        logger.info(f"Could not get uncertainty estimates for model {automl_reg.best_model_name.value}: {e}")
     except NotImplementedError as e:
-        logger.error(f"Uncertainty prediction not implemented for {automl_reg.best_model_name.value}: {e}")
+        logger.info(f"Uncertainty prediction not implemented for {automl_reg.best_model_name.value}: {e}")
 
     logger.info(f"\n--- Getting Feature Importance for Best Regression Model ({automl_reg.best_model_name.value}) ---")
     # Feature names are generic for synthetic data

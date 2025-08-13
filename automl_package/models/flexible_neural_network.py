@@ -37,7 +37,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         hidden_size: int = 64,
         gumbel_tau: float = 0.5,
         n_predictor_layers: int = 1,
-        feature_scaler: Any = None,
+        feature_scaler: Any | None = None,
         gumbel_tau_anneal_rate: float = 0.99,
         n_predictor_learning_rate: float = 0.001,
         layer_selection_method: LayerSelectionMethod = LayerSelectionMethod.GUMBEL_SOFTMAX,
@@ -296,7 +296,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                 for _ in range(self.n_mc_dropout_samples):
                     final_output, _, _, _, _ = self.model(x_tensor)
                     mc_predictions.append(final_output.cpu().numpy().flatten())
-            self.model.eval()
+            self.model.eval()  # Set back to eval mode
             return np.mean(mc_predictions, axis=0)
 
         self.model.eval()
@@ -319,21 +319,21 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         if self.uncertainty_method == UncertaintyMethod.CONSTANT:
             return np.full(x.shape[0], self._train_residual_std)
         if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
-            self.model.eval()
+            self.model.eval()  # Use eval mode for prediction
             with torch.no_grad():
                 final_output, _, _, _, _ = self.model(x_tensor)
                 log_var = final_output[:, 1]
                 uncertainty = torch.exp(0.5 * log_var).cpu().numpy()
             return uncertainty.flatten()
         if self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
-            self.model.train()
+            self.model.train()  # Enable dropout during inference for MC Dropout
             mc_predictions = []
             with torch.no_grad():
                 for _ in range(self.n_mc_dropout_samples):
                     final_output, _, _, _, _ = self.model(x_tensor)
                     mc_predictions.append(final_output.cpu().numpy().flatten())
-            self.model.eval()
-            return np.std(mc_predictions, axis=0)
+            self.model.eval()  # Set back to eval mode
+            return np.std(mc_predictions, axis=0)  # Return std dev of MC samples
         raise ValueError(f"Unknown uncertainty_method: {self.uncertainty_method.value}")
 
     def predict_proba(self, x: np.ndarray) -> np.ndarray:

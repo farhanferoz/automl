@@ -1,21 +1,21 @@
 """CatBoost model wrapper for AutoML."""
 
-from typing import Any
+from typing import Any, Never
 
 import numpy as np
 from catboost import CatBoostClassifier, CatBoostRegressor, Pool
 from sklearn.model_selection import train_test_split
 
-from ..enums import TaskType  # Import TaskType enum
-from ..logger import logger  # Import logger
-from ..utils.metrics import Metrics
-from .base import BaseModel
+from automl_package.enums import TaskType  # Import TaskType enum
+from automl_package.logger import logger  # Import logger
+from automl_package.models.base import BaseModel
+from automl_package.utils.metrics import Metrics
 
 
 class CatBoostModel(BaseModel):
     """CatBoost model wrapper."""
 
-    def __init__(self, task_type: TaskType = TaskType.REGRESSION, **kwargs):
+    def __init__(self, task_type: TaskType = TaskType.REGRESSION, **kwargs: Any) -> None:
         """Initializes the CatBoostModel.
 
         Args:
@@ -24,7 +24,7 @@ class CatBoostModel(BaseModel):
         """  # Use enum
         super().__init__(**kwargs)
         self.task_type = task_type
-        self.model = None
+        self.model: CatBoostRegressor | CatBoostClassifier | None = None
         self.is_regression_model = task_type == TaskType.REGRESSION
         self._train_residual_std = 0.0  # For regression uncertainty
         self.num_iterations_used = 0
@@ -33,6 +33,7 @@ class CatBoostModel(BaseModel):
         if self.task_type == TaskType.REGRESSION:
             self.params.setdefault("loss_function", "RMSE")
             self.params.setdefault("eval_metric", "RMSE")
+            self.params.setdefault("verbose", 0)  # Suppress verbose output during training
         elif self.task_type == TaskType.CLASSIFICATION:
             self.params.setdefault("loss_function", "Logloss")
             self.params.setdefault("eval_metric", "Logloss")
@@ -44,11 +45,11 @@ class CatBoostModel(BaseModel):
         """Returns the name of the model."""
         return "CatBoost"
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> int:
+    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
         """Fits the CatBoost model to the training data.
 
         Args:
-            X (np.ndarray): Feature matrix.
+            x (np.ndarray): Feature matrix.
             y (np.ndarray): Target vector.
 
         Returns:
@@ -57,10 +58,10 @@ class CatBoostModel(BaseModel):
         # Split data for early stopping if enabled
         eval_set = None
         if self.early_stopping_rounds is not None and self.validation_fraction > 0:
-            X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=self.validation_fraction, random_state=42)
-            eval_set = Pool(X_val, y_val)
+            x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=self.validation_fraction, random_state=42)
+            eval_set = Pool(x_val, y_val)
         else:
-            X_train, y_train = X, y
+            x_train, y_train = x, y
 
         if self.task_type == TaskType.REGRESSION:
             self.model = CatBoostRegressor(**self.params)
@@ -77,15 +78,15 @@ class CatBoostModel(BaseModel):
             logger.error(f"task_type must be '{TaskType.REGRESSION.value}' or '{TaskType.CLASSIFICATION.value}'.")
             raise ValueError(f"task_type must be '{TaskType.REGRESSION.value}' or '{TaskType.CLASSIFICATION.value}'.")
 
-        fit_params = {"verbose": False}  # Suppress verbose output during fit
+        fit_params: dict[str, Any] = {}
         if eval_set is not None:
             fit_params["eval_set"] = eval_set
             fit_params["early_stopping_rounds"] = self.early_stopping_rounds
 
-        self.model.fit(X_train, y_train, **fit_params)
+        self.model.fit(x_train, y_train, **fit_params)
 
         if self.is_regression_model:
-            y_pred_train = self.predict(X)
+            y_pred_train = self.predict(x)
             _train_residual_std = np.std(y - y_pred_train)
             if np.isnan(_train_residual_std):
                 self._train_residual_std = 0.0
@@ -95,29 +96,29 @@ class CatBoostModel(BaseModel):
         self.num_iterations_used = self.model.tree_count_ if eval_set is not None and self.model.tree_count_ is not None else self.params.get("iterations", 100)
         return self.num_iterations_used
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.
 
         Args:
-            X (np.ndarray): Feature matrix for prediction.
+            x (np.ndarray): Feature matrix for prediction.
 
         Returns:
             np.ndarray: Predicted values.
         """
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
-        predictions = self.model.predict(X)
+        predictions = self.model.predict(x)
         if self.task_type == TaskType.CLASSIFICATION and predictions.ndim > 1:
             # For multi-class classification, predict returns probabilities if predict_type='RawFormulaVal' or 'Probability'
             # But for default predict, it returns class labels. Ensure it's 1D.
             return predictions.flatten()
         return predictions
 
-    def predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
-            X (np.ndarray): Feature matrix for uncertainty estimation.
+            x (np.ndarray): Feature matrix for uncertainty estimation.
 
         Returns:
             np.ndarray: Uncertainty estimates (e.g., standard deviation).
@@ -127,13 +128,13 @@ class CatBoostModel(BaseModel):
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         # For simplicity, return a constant uncertainty based on training residuals
-        return np.full(X.shape[0], self._train_residual_std)
+        return np.full(x.shape[0], self._train_residual_std)
 
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray) -> np.ndarray:
         """Predicts class probabilities for classification tasks.
 
         Args:
-            X (np.ndarray): Features for probability prediction.
+            x (np.ndarray): Features for probability prediction.
 
         Returns:
             np.ndarray: Predicted probabilities.
@@ -142,7 +143,7 @@ class CatBoostModel(BaseModel):
             raise RuntimeError("Model has not been fitted yet.")
         if self.task_type == TaskType.REGRESSION:
             raise ValueError("predict_proba is not available for regression tasks.")
-        return self.model.predict_proba(X)
+        return self.model.predict_proba(x)
 
     def get_hyperparameter_search_space(self) -> dict[str, Any]:
         """Defines the hyperparameter search space for CatBoost.
@@ -160,7 +161,7 @@ class CatBoostModel(BaseModel):
             "early_stopping_rounds": {"type": "int", "low": 5, "high": 15, "step": 5},
         }
 
-    def get_internal_model(self):
+    def get_internal_model(self) -> CatBoostRegressor | CatBoostClassifier | None:
         """Returns the raw underlying CatBoost model."""
         return self.model
 
@@ -176,7 +177,7 @@ class CatBoostModel(BaseModel):
         # which is a good proxy for the number of parameters in tree-based models.
         return self.model.tree_count_
 
-    def get_classifier_predictions(self, X: np.ndarray, y_true_original: np.ndarray):
+    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> Never:
         """Not implemented for CatBoostModel.
 
         Raises:
@@ -184,21 +185,21 @@ class CatBoostModel(BaseModel):
         """
         raise NotImplementedError("CatBoostModel is not a composite model and does not have an internal classifier for separate prediction.")
 
-    def evaluate(self, X: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
+    def evaluate(self, x: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
         """Evaluates the model on a given dataset and saves the metrics.
 
         Args:
-            X (np.ndarray): Feature matrix for evaluation.
+            x (np.ndarray): Feature matrix for evaluation.
             y (np.ndarray): True labels for evaluation.
             save_path (str): Directory to save the metrics files.
 
         Returns:
             np.ndarray: The predictions made by the model.
         """
-        y_pred = self.predict(X)
+        y_pred = self.predict(x)
         y_proba = None
         if self.task_type == TaskType.CLASSIFICATION:
-            y_proba = self.predict_proba(X)
+            y_proba = self.predict_proba(x)
         metrics_calculator = Metrics(self.task_type.value, self.name, y, y_pred, y_proba)
         metrics_calculator.save_metrics(save_path)
         return y_pred

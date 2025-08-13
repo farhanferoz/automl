@@ -96,11 +96,11 @@ class PyTorchModelBase(BaseModel, ABC):
 
         self.random_seed = random_seed
 
-        self.model = None
-        self.criterion = None
-        self.optimizer = None
-        self.lambda_optimizer = None
-        self.device = None  # Initialize to None
+        self.model: nn.Module | None = None
+        self.criterion: nn.Module | None = None
+        self.optimizer: optim.Optimizer | None = None
+        self.lambda_optimizer: optim.Optimizer | None = None
+        self.device: torch.device | None = None  # Initialize to None
         self.is_regression_model = task_type == TaskType.REGRESSION
         self._train_residual_std = 0.0  # For 'constant' uncertainty method
 
@@ -239,10 +239,7 @@ class PyTorchModelBase(BaseModel, ABC):
 
                 if self._returns_multiple_outputs:
                     outputs_tuple = self.model(batch_x)
-                    print(f"DEBUG: outputs_tuple type: {type(outputs_tuple)}")
-                    print(f"DEBUG: outputs_tuple content: {outputs_tuple}")
                     final_predictions = outputs_tuple[0]
-                    print(f"DEBUG: final_predictions type after outputs_tuple[0]: {type(final_predictions)}")
                     log_prob_for_reinforce = outputs_tuple[3] # Assuming log_prob is the 4th element
                 else:
                     final_predictions = self.model(batch_x)
@@ -421,7 +418,7 @@ class PyTorchModelBase(BaseModel, ABC):
             # Multi-class classification
             return torch.softmax(outputs, dim=1).cpu().numpy()  # Correctly returns (N, num_classes)
 
-    def get_internal_model(self) -> torch.nn.Module:
+    def get_internal_model(self) -> torch.nn.Module | None:
         """Returns the raw underlying PyTorch model (nn.Sequential)."""
         return self.model
 
