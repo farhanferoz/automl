@@ -232,17 +232,26 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                 if self.lambda_optimizer:
                     self.lambda_optimizer.zero_grad()
 
-                final_output, _, _, _, log_prob = self.model(_batch_x)
+                final_output, _, _, n_logits, log_prob = self.model(_batch_x)
                 loss = self.criterion(final_output, batch_y)
                 loss = self._calculate_regularization_loss(loss, self.model)
+
+                if self.layer_selection_method == LayerSelectionMethod.REINFORCE and log_prob is not None:
+                    # Calculate policy loss (REINFORCE)
+                    # The reward signal is typically the negative of the validation loss,
+                    # but for batch-wise updates, we can use the negative of the current batch's main_loss
+                    # or a baseline. For simplicity, let's use negative main_loss as a reward.
+                    # We need to ensure the reward is detached to prevent gradients flowing back through it
+                    # to the main network parameters.
+                    reward = -loss.detach()
+                    policy_loss = -log_prob * reward # Multiply by reward
+                    loss += policy_loss.mean() # Add to main loss
+
                 loss.backward()
 
                 self.optimizer.step()
                 if self.lambda_optimizer:
                     self.lambda_optimizer.step()
-
-                if self.layer_selection_method == LayerSelectionMethod.REINFORCE and log_prob is not None:
-                    epoch_log_probs.append(log_prob)
 
             if x_val is not None:
                 self.model.eval()

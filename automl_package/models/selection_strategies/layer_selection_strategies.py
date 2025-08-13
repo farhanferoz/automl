@@ -216,19 +216,5 @@ class ReinforceStrategy(BaseSelectionStrategy):
         return final_output, n_actual, log_prob, self.mode_selection_probs, torch.tensor(0.0)
 
     def on_epoch_end(self, **kwargs: Any) -> None:
-        """Performs operations at the end of each training epoch.
-
-        Args:
-            **kwargs: Keyword arguments including validation_loss and epoch_log_probs.
-        """
-        validation_loss = kwargs.get("validation_loss")
-        epoch_log_probs = kwargs.get("epoch_log_probs")
-
-        if validation_loss is None or not epoch_log_probs:
-            return
-
-        reward = -validation_loss
-        self.policy_optimizer.zero_grad()
-        policy_loss = -torch.stack(epoch_log_probs).mean() * reward
-        policy_loss.backward()
-        self.policy_optimizer.step()
+        """Performs operations at the end of each training epoch."""
+        pass
