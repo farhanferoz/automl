@@ -192,10 +192,8 @@ class XGBoostModel(BaseModel):
             np.ndarray: The predictions made by the model.
         """
         y_pred = self.predict(x)
-        y_proba = None
         task_type = "regression" if self.is_regression_model else "classification"
-        if task_type == "classification":
-            y_proba = self.predict_proba(x)
-        metrics_calculator = Metrics(task_type, self.name, y, y_pred, y_proba)
+        y_proba = self.predict_proba(x) if task_type == "classification" else None
+        metrics_calculator = Metrics(task_type=task_type, model_name=self.name, x_data=x, y_true=y, y_pred=y_pred, y_proba=y_proba)
         metrics_calculator.save_metrics(save_path)
         return y_pred

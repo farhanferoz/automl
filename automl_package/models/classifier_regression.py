@@ -396,13 +396,13 @@ class ClassifierRegressionModel(BaseModel):
             np.ndarray: The predictions made by the model.
         """
         y_pred = self.predict(x)
-        metrics_calculator = Metrics("regression", self.name, y, y_pred)
+        metrics_calculator = Metrics(task_type="regression", model_name=self.name, x_data=x, y_true=y, y_pred=y_pred)
         metrics_calculator.save_metrics(save_path)
 
         y_pred_internal_clf, y_proba_internal_clf, y_true_discretized = self.get_classifier_predictions(x, y)
 
         logger.info(f"Evaluating internal classifier of {self.name} for classification metrics.")
-        internal_metrics_calculator = Metrics(TaskType.CLASSIFICATION.value, f"{self.name}_InternalClassifier", y_true_discretized, y_pred_internal_clf, y_proba_internal_clf)
+        internal_metrics_calculator = Metrics(task_type=TaskType.CLASSIFICATION.value, model_name=f"{self.name}_InternalClassifier", x_data=x, y_true=y_true_discretized, y_pred=y_pred_internal_clf, y_proba=y_proba_internal_clf)
         internal_metrics_calculator.save_metrics(f"{save_path}_internal_classifier")
 
         self.plot_probability_mappers(plot_path=f"{save_path}_probability_mappers.png")

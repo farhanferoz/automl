@@ -11,6 +11,14 @@ from .base_selection_strategy import BaseSelectionStrategy
 class NoneStrategy(BaseSelectionStrategy):
     """A strategy that does not perform any layer selection, using all layers."""
 
+    def setup_optimizers(self, policy_params: Any) -> None:
+        """No optimizer needed for the NoneStrategy."""
+        pass
+
+    def on_epoch_end(self, **kwargs: Any) -> None:
+        """No special actions needed at the end of the epoch for NoneStrategy."""
+        pass
+
     def forward(self, x_input: torch.Tensor, _logits: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
         """Performs forward pass without layer selection.
 

@@ -399,9 +399,10 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         metrics_calculator = Metrics(
             self.task_type.value,
             self.name,
-            y,
-            y_pred,
-            y_proba,
+            x_data=x,
+            y_true=y,
+            y_pred=y_pred,
+            y_proba=y_proba,
             flexible_nn_n_actual=n_actual,
             flexible_nn_n_logits=n_logits,
             flexible_nn_max_hidden_layers=self.max_hidden_layers,

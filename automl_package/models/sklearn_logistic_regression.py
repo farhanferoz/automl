@@ -210,6 +210,6 @@ class SKLearnLogisticRegression(BaseModel):
         """
         y_pred = self.predict(x)
         y_proba = self.predict_proba(x)
-        metrics_calculator = Metrics("classification", self.name, y, y_pred, y_proba)
+        metrics_calculator = Metrics(task_type="classification", model_name=self.name, x_data=x, y_true=y, y_pred=y_pred, y_proba=y_proba)
         metrics_calculator.save_metrics(save_path)
         return y_pred

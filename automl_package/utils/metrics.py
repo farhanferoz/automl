@@ -6,6 +6,7 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.special import softmax
 from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
@@ -32,6 +33,7 @@ class Metrics:
         self,
         task_type: str,
         model_name: str,
+        x_data: np.ndarray,
         y_true: np.ndarray,
         y_pred: np.ndarray,
         y_proba: np.ndarray | None = None,
@@ -42,6 +44,7 @@ class Metrics:
         Args:
             task_type (str): Type of task ('regression' or 'classification').
             model_name (str): Name of the model.
+            x_data (np.ndarray): Input features data.
             y_true (np.ndarray): True target values.
             y_pred (np.ndarray): Predicted target values.
             y_proba (np.ndarray, optional): Predicted probabilities for classification tasks.
@@ -49,6 +52,7 @@ class Metrics:
         """
         self.task_type = task_type
         self.model_name = model_name
+        self.x_data = x_data
         self.y_true = y_true
         self.y_pred = y_pred
         self.y_proba = y_proba
@@ -335,7 +339,7 @@ class Metrics:
         Args:
             save_path (str): Directory to save the plots.
         """
-        if self.flexible_nn_n_actual is None or self.flexible_nn_n_logits is None:
+        if self.flexible_nn_n_actual is None or self.flexible_nn_n_logits is None or self.x_data is None:
             return
 
         logger.info(f"Plotting Flexible NN Architecture Decisions to {save_path}/flexible_nn_architecture.png ---")
@@ -345,32 +349,55 @@ class Metrics:
         max_hidden_layers = self.flexible_nn_max_hidden_layers
         feature_scaler = self.flexible_nn_feature_scaler
 
-        # Inverse transform X_scaled to original scale for plotting
-        x_original = self.y_true  # Assuming y_true has the same shape as X for plotting purposes
-        x_original = feature_scaler.inverse_transform(x_original.reshape(-1, 1)).flatten() if feature_scaler else x_original.flatten()
+        # Inverse transform x_data to original scale for plotting
+        x_original = self.x_data
+        if feature_scaler:
+            # Handle both 1D and 2D x_data for inverse_transform
+            if x_original.ndim == 1:
+                x_original = feature_scaler.inverse_transform(x_original.reshape(-1, 1)).flatten()
+            else:
+                x_original = feature_scaler.inverse_transform(x_original)[:, 0] # Plot against the first feature
+        else:
+            x_original = x_original.flatten() if x_original.ndim == 1 else x_original[:, 0]
 
-        # Plot 1: Distribution of chosen active layers
-        plt.figure(figsize=(8, 5))
-        hist, bins, _ = plt.hist(n_actual, bins=np.arange(1, max_hidden_layers + 2), align="left", rwidth=0.8, color="navy")
-        plt.xticks(np.arange(1, max_hidden_layers + 1))
-        plt.xlabel("Number of Active Layers")
-        plt.ylabel("Count")
-        plt.title(f"Flexible NN ({self.model_name}) - Chosen Active Layers Distribution")
-        plt.grid(axis="y", alpha=0.75)
-        plt.savefig(f"{save_path}/flexible_nn_active_layers_distribution.png")
-        plt.close()
+        # Calculate n_probs from logits
+        n_probs = softmax(n_logits, axis=1)
+
+        # Calculate weighted average number of layers
+        # Layers are 1-indexed, so multiply probabilities by (index + 1)
+        layer_indices = np.arange(1, max_hidden_layers + 1)
+        weighted_layers = np.sum(n_probs * layer_indices, axis=1)
+
+        fig, axs = plt.subplots(3, 1, figsize=(10, 18))
+
+        # Plot 1: Distribution of chosen active layers (n_actual)
+        axs[0].hist(n_actual, bins=np.arange(1, max_hidden_layers + 2), align="left", rwidth=0.8, color="navy")
+        axs[0].set_xticks(np.arange(1, max_hidden_layers + 1))
+        axs[0].set_xlabel("Number of Active Layers (Actual)")
+        axs[0].set_ylabel("Count")
+        axs[0].set_title(f"Flexible NN ({self.model_name}) - Chosen Active Layers Distribution")
+        axs[0].grid(axis="y", alpha=0.75)
 
         # Plot 2: Logits for each layer vs. Input Feature
-        plt.figure(figsize=(10, 6))
         colors = plt.cm.get_cmap("viridis", max_hidden_layers)
         for i in range(max_hidden_layers):
-            plt.scatter(x_original, n_logits[:, i], label=f"Layer {i+1} Logit", alpha=0.6, color=colors(i))
-        plt.xlabel("Input Feature")
-        plt.ylabel("Logit Value")
-        plt.title(f"Flexible NN ({self.model_name}) - Layer Logits vs. Input Feature")
-        plt.legend(loc="upper left")
-        plt.grid(True)
-        plt.savefig(f"{save_path}/flexible_nn_layer_logits_vs_input.png")
+            axs[1].scatter(x_original, n_logits[:, i], label=f"Layer {i+1} Logit", alpha=0.6, color=colors(i))
+        axs[1].set_xlabel("Input Feature")
+        axs[1].set_ylabel("Logit Value")
+        axs[1].set_title(f"Flexible NN ({self.model_name}) - Layer Logits vs. Input Feature")
+        axs[1].legend(loc="upper left")
+        axs[1].grid(True)
+
+        # Plot 3: Weighted Average Number of Layers vs. Input Feature
+        axs[2].scatter(x_original, weighted_layers, alpha=0.6, color="purple")
+        axs[2].set_xlabel("Input Feature")
+        axs[2].set_ylabel("Weighted Avg. Layers")
+        axs[2].set_title(f"Flexible NN ({self.model_name}) - Weighted Average Layers vs. Input Feature")
+        axs[2].grid(True)
+        axs[2].set_yticks(np.arange(1, max_hidden_layers + 1, 1))
+
+        plt.tight_layout()
+        plt.savefig(f"{save_path}/flexible_nn_architecture.png")
         plt.close()
 
         logger.info("Flexible NN architecture plots saved successfully.")

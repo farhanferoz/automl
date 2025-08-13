@@ -144,6 +144,6 @@ class NormalEquationLinearRegression(BaseModel):
             np.ndarray: The predictions made by the model.
         """
         y_pred = self.predict(x)
-        metrics_calculator = Metrics("regression", self.name, y, y_pred)
+        metrics_calculator = Metrics(task_type="regression", model_name=self.name, x_data=x, y_true=y, y_pred=y_pred)
         metrics_calculator.save_metrics(save_path)
         return y_pred

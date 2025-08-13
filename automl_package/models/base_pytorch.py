@@ -463,10 +463,8 @@ class PyTorchModelBase(BaseModel, ABC):
             np.ndarray: The predictions made by the model.
         """
         y_pred = self.predict(x)
-        y_proba = None
-        if self.task_type == TaskType.CLASSIFICATION:
-            y_proba = self.predict_proba(x)
-        metrics_calculator = Metrics(self.task_type.value, self.name, y, y_pred, y_proba)
+        y_proba = self.predict_proba(x) if self.task_type == TaskType.CLASSIFICATION else None
+        metrics_calculator = Metrics(task_type=self.task_type.value, model_name=self.name, x_data=x, y_true=y, y_pred=y_pred, y_proba=y_proba)
         metrics_calculator.save_metrics(save_path)
         return y_pred
 

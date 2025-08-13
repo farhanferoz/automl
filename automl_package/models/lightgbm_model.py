@@ -195,6 +195,6 @@ class LightGBMModel(BaseModel):
         task_type = "regression" if self.is_regression_model else "classification"
         if task_type == "classification":
             y_proba = self.predict_proba(x)
-        metrics_calculator = Metrics(task_type, self.name, y, y_pred, y_proba)
+        metrics_calculator = Metrics(task_type=task_type, model_name=self.name, x_data=x, y_true=y, y_pred=y_pred, y_proba=y_proba)
         metrics_calculator.save_metrics(save_path)
         return y_pred
