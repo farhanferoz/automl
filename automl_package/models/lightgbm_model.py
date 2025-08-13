@@ -28,6 +28,7 @@ class LightGBMModel(BaseModel):
         self._train_residual_std = 0.0  # For regression uncertainty
         self.num_iterations_used = 0
 
+        self.params.setdefault("verbose", -1)  # Suppress verbose output during training
         if self.task_type == TaskType.REGRESSION:
             self.objective = "regression"
             self.metric = "rmse"

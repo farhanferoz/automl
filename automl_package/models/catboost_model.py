@@ -30,15 +30,14 @@ class CatBoostModel(BaseModel):
         self.num_iterations_used = 0
 
         # Default parameters to ensure basic functionality without warnings
+        self.params.setdefault("verbose", 0)  # Suppress verbose output during training
+        self.params.setdefault("random_seed", 42)  # Ensure reproducibility
         if self.task_type == TaskType.REGRESSION:
             self.params.setdefault("loss_function", "RMSE")
             self.params.setdefault("eval_metric", "RMSE")
-            self.params.setdefault("verbose", 0)  # Suppress verbose output during training
         elif self.task_type == TaskType.CLASSIFICATION:
             self.params.setdefault("loss_function", "Logloss")
             self.params.setdefault("eval_metric", "Logloss")
-            self.params.setdefault("verbose", 0)  # Suppress verbose output during training
-            self.params.setdefault("random_seed", 42)  # Ensure reproducibility
 
     @property
     def name(self) -> str:

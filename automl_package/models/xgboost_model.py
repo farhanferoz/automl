@@ -34,6 +34,7 @@ class XGBoostModel(BaseModel):
         self.is_regression_model = self.objective in ["reg:squarederror", "reg:logistic", "count:poisson", "reg:gamma", "reg:tweedie", "reg:quantile"]
         self._train_residual_std = 0.0  # For regression uncertainty
         self.num_iterations_used = 0
+        self.params.setdefault("verbosity", 0) # Suppress verbose output during training
 
     @property
     def name(self) -> str:
@@ -70,6 +71,7 @@ class XGBoostModel(BaseModel):
         fit_params: dict[str, Any] = {}
         if eval_set is not None:
             fit_params["eval_set"] = eval_set
+            fit_params["verbose"] = False
 
         self.model.fit(x_train, y_train, **fit_params)
 
