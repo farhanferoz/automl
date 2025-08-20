@@ -1,5 +1,6 @@
 """Composite model for regression using classification and probability mapping."""
 
+import os
 from typing import Any
 
 import matplotlib.pyplot as plt  # New import
@@ -9,8 +10,9 @@ from torch.nn import ReLU, Tanh  # Explicitly import ReLU and Tanh
 from automl_package.enums import MapperType, ModelName, TaskType, UncertaintyMethod  # Import enums
 from automl_package.logger import logger  # Import logger
 from automl_package.models.base import BaseModel  # Import BaseModel
+from automl_package.models.probability_mapper import ClassProbabilityMapper
 from automl_package.utils.metrics import Metrics
-from automl_package.utils.probability_mapper import ClassProbabilityMapper
+from automl_package.utils.numerics import create_bins
 
 
 class ClassifierRegressionModel(BaseModel):
@@ -66,16 +68,13 @@ class ClassifierRegressionModel(BaseModel):
         try:
             # Instantiate a dummy base_classifier_class to get its name property
             # Pass a default is_classification=True for models that require it in init
-            if self.base_classifier_class.__name__ in ["XGBoostModel", "LightGBMModel", "CatBoostModel", "SKLearnLogisticRegression"]:
-                temp_instance = self.base_classifier_class(is_classification=True)
-                base_name = temp_instance.name
-            elif self.base_classifier_class.__name__ == "PyTorchNeuralNetwork":
+            if self.base_classifier_class.__name__ in [ModelName.XGBOOST.value, ModelName.LIGHTGBM.value, ModelName.CATBOOST.value, ModelName.SKLEARN_LOGISTIC_REGRESSION.value]:
+                base_name = self.base_classifier_class(is_classification=True).name
+            elif self.base_classifier_class.__name__ == ModelName.PYTORCH_NEURAL_NETWORK.value:
                 # PyTorchNeuralNetwork needs input_size, output_size, task_type
-                temp_instance = self.base_classifier_class(input_size=10, output_size=1, task_type=TaskType.CLASSIFICATION)
-                base_name = temp_instance.name
+                base_name = self.base_classifier_class(input_size=10, output_size=1, task_type=TaskType.CLASSIFICATION).name
             else:
-                temp_instance = self.base_classifier_class()
-                base_name = temp_instance.name
+                base_name = self.base_classifier_class().name
         except Exception as e:
             logger.warning(f"Could not instantiate base_classifier_class to get name: {e}. Using 'UnknownBase'.")
             base_name = "UnknownBase"
@@ -96,15 +95,9 @@ class ClassifierRegressionModel(BaseModel):
         # Ensure y is 1D for percentile calculation
         y_flat = y.flatten() if y.ndim > 1 else y
 
-        # Calculate class boundaries based on percentiles of the original target
-        # e.g., for n_classes=5, percentiles would be [20, 40, 60, 80]
-        percentiles = np.linspace(0, 100, self.n_classes + 1)[1:-1]
-        self.class_boundaries = np.percentile(y_flat, percentiles)
-
-        # Create discrete class labels (y_clf) based on these boundaries
-        y_clf = np.zeros_like(y_flat, dtype=np.int64)
-        for i, boundary in enumerate(self.class_boundaries):
-            y_clf[y_flat > boundary] = i + 1  # Assign class index from 0 to n_classes-1
+        # Calculate and store the bin edges from the training data.
+        # The stored boundaries will be used for all subsequent discretizations.
+        self.class_boundaries, y_clf = create_bins(data=y_flat, n_bins=self.n_classes, min_value=-np.inf, max_value=np.inf)
 
         # 2. Train the base classifier on the discretized labels
         # Prepare parameters for the base classifier, ensuring it's set for classification
@@ -117,7 +110,7 @@ class ClassifierRegressionModel(BaseModel):
         base_classifier_init_params["validation_fraction"] = self.validation_fraction
 
         # Handle specific parameters for PyTorchNN if it's the base classifier
-        if self.base_classifier_class.__name__ == "PyTorchNeuralNetwork":
+        if self.base_classifier_class.__name__ == ModelName.PYTORCH_NEURAL_NETWORK.value:
             base_classifier_init_params["input_size"] = x.shape[1]
             base_classifier_init_params["output_size"] = classifier_output_size
             # Convert string activation to Type[torch.nn.Module]
@@ -129,15 +122,14 @@ class ClassifierRegressionModel(BaseModel):
                 base_classifier_init_params.setdefault("n_mc_dropout_samples", 100)
             else:  # If not MC_DROPOUT, ensure dropout is off
                 base_classifier_init_params["dropout_rate"] = 0.0
-
         # Handle specific parameters for other boosting models if they are the base classifier
-        elif self.base_classifier_class.__name__ == "XGBoostModel":
+        elif self.base_classifier_class.__name__ == ModelName.XGBOOST.value:
             base_classifier_init_params.setdefault("objective", "binary:logistic" if self.n_classes == 2 else "multi:softmax")
             base_classifier_init_params.setdefault("eval_metric", "logloss" if self.n_classes == 2 else "mlogloss")
-        elif self.base_classifier_class.__name__ == "LightGBMModel":
+        elif self.base_classifier_class.__name__ == ModelName.LIGHTGBM.value:
             base_classifier_init_params.setdefault("objective", "binary" if self.n_classes == 2 else "multiclass")
             base_classifier_init_params.setdefault("metric", "binary_logloss" if self.n_classes == 2 else "multi_logloss")
-        elif self.base_classifier_class.__name__ == "CatBoostModel":
+        elif self.base_classifier_class.__name__ == ModelName.CATBOOST.value:
             base_classifier_init_params.setdefault("task_type", TaskType.CLASSIFICATION)
             base_classifier_init_params.setdefault("loss_function", "Logloss" if self.n_classes == 2 else "MultiClass")
             base_classifier_init_params.setdefault("eval_metric", "Logloss" if self.n_classes == 2 else "MultiClass")
@@ -301,11 +293,8 @@ class ClassifierRegressionModel(BaseModel):
         if self.base_classifier is None:
             raise RuntimeError("Base classifier has not been fitted yet.")
 
-        # 1. Discretize the original true labels using the same boundaries as during training
-        y_flat = y_true_original.flatten() if y_true_original.ndim > 1 else y_true_original
-        y_true_discretized = np.zeros_like(y_flat, dtype=int)
-        for i, boundary in enumerate(self.class_boundaries):
-            y_true_discretized[y_flat > boundary] = i + 1
+        # 1. Discretize the original true labels using the boundaries calculated during training.
+        _, y_true_discretized = create_bins(data=y_true_original, unique_bin_edges=self.class_boundaries)
 
         # 2. Get predictions and probabilities from the internal classifier
         y_pred_internal = self.base_classifier.predict(x)
@@ -327,6 +316,7 @@ class ClassifierRegressionModel(BaseModel):
 
         logger.info(f"\n--- Plotting Probability Mappers to {plot_path} ---")
 
+        os.makedirs(os.path.dirname(plot_path), exist_ok=True)
         plt.figure(figsize=(12, 8))
         probas_range = np.linspace(0, 1, 100).reshape(-1, 1)  # Probabilities from 0 to 1
 
@@ -337,15 +327,10 @@ class ClassifierRegressionModel(BaseModel):
 
             # Get mapped values
             mapped_values = mapper.predict(probas_range)
-            if i == 0:
-                lower_bound_str = "-inf"
-                upper_bound_str = f"{self.class_boundaries[0]:.2f}"
-            elif i == self.n_classes - 1:
-                lower_bound_str = f"{self.class_boundaries[self.n_classes - 2]:.2f}"
-                upper_bound_str = "inf"
-            else:
-                lower_bound_str = f"{self.class_boundaries[i-1]:.2f}"
-                upper_bound_str = f"{self.class_boundaries[i]:.2f}"
+
+            # Define class boundary labels for the plot
+            lower_bound_str = f"{self.class_boundaries[i]:.2f}"
+            upper_bound_str = f"{self.class_boundaries[i+1]:.2f}"
 
             label_text = f"Class {i} (Range: {lower_bound_str}-{upper_bound_str})"
             plt.plot(probas_range, mapped_values, label=label_text)
@@ -360,11 +345,12 @@ class ClassifierRegressionModel(BaseModel):
         plt.close()
         logger.info("Probability mappers plot saved successfully.")
 
-    def get_internal_model(self) -> Any | None:
-        """Returns the raw underlying base classifier."""
-        if self.base_classifier:
-            return self.base_classifier.get_internal_model()
-        return None
+    def get_internal_model(self) -> Any:
+        """Returns the raw underlying model object, if applicable.
+
+        Useful for explainability libraries like SHAP.
+        """
+        return self.model
 
     def get_num_parameters(self) -> int:
         """Returns the total number of trainable parameters in the model.
@@ -402,8 +388,15 @@ class ClassifierRegressionModel(BaseModel):
         y_pred_internal_clf, y_proba_internal_clf, y_true_discretized = self.get_classifier_predictions(x, y)
 
         logger.info(f"Evaluating internal classifier of {self.name} for classification metrics.")
-        internal_metrics_calculator = Metrics(task_type=TaskType.CLASSIFICATION.value, model_name=f"{self.name}_InternalClassifier", x_data=x, y_true=y_true_discretized, y_pred=y_pred_internal_clf, y_proba=y_proba_internal_clf)
-        internal_metrics_calculator.save_metrics(f"{save_path}_internal_classifier")
+        internal_metrics_calculator = Metrics(
+            task_type=TaskType.CLASSIFICATION.value,
+            model_name=f"{self.name}_InternalClassifier",
+            x_data=x,
+            y_true=y_true_discretized,
+            y_pred=y_pred_internal_clf,
+            y_proba=y_proba_internal_clf,
+        )
+        internal_metrics_calculator.save_metrics(save_path)
 
-        self.plot_probability_mappers(plot_path=f"{save_path}_probability_mappers.png")
+        self.plot_probability_mappers(plot_path=os.path.join(save_path, "probability_mappers.png"))
         return y_pred

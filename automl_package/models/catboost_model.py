@@ -42,7 +42,7 @@ class CatBoostModel(BaseModel):
     @property
     def name(self) -> str:
         """Returns the name of the model."""
-        return "CatBoost"
+        return "CatBoostModel"
 
     def fit(self, x: np.ndarray, y: np.ndarray) -> int:
         """Fits the CatBoost model to the training data.

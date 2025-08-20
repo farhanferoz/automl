@@ -48,9 +48,9 @@ class _PyTorchNNModule(nn.Module):
         layers.append(nn.Linear(hidden_size, current_output_size))
         self.layers = nn.Sequential(*layers)
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, None, None, None]:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         predictions = self.layers(x)
-        return predictions, None, None, None
+        return predictions
 
 
 class PyTorchNeuralNetwork(PyTorchModelBase):
@@ -67,6 +67,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
         hidden_layers: int = 1,
         hidden_size: int = 64,
         activation: Any = nn.ReLU,
+        device: torch.device | None = None,  # Add device parameter
         **kwargs: Any,
     ) -> None:
         """Initializes the PyTorchNeuralNetwork.
@@ -77,8 +78,8 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
             activation (Any): Activation function to use.
             **kwargs: Additional keyword arguments for PyTorchModelBase.
         """
-        super().__init__(**kwargs)
-        self._returns_multiple_outputs = True  # This model returns multiple outputs
+        super().__init__(device=device, **kwargs)
+        self._returns_multiple_outputs = False  # This model returns a single output
         self.hidden_layers = hidden_layers
         self.hidden_size = hidden_size
         self.activation = activation

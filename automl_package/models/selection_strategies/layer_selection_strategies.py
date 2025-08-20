@@ -13,11 +13,9 @@ class NoneStrategy(BaseSelectionStrategy):
 
     def setup_optimizers(self, policy_params: Any) -> None:
         """No optimizer needed for the NoneStrategy."""
-        pass
 
     def on_epoch_end(self, **kwargs: Any) -> None:
         """No special actions needed at the end of the epoch for NoneStrategy."""
-        pass
 
     def forward(self, x_input: torch.Tensor, _logits: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
         """Performs forward pass without layer selection.
@@ -46,13 +44,8 @@ class NoneStrategy(BaseSelectionStrategy):
 class GumbelSoftmaxStrategy(BaseSelectionStrategy):
     """A strategy that uses Gumbel-Softmax for differentiable layer selection."""
 
-    def setup_optimizers(self, policy_params: Any) -> None:
-        """Sets up optimizers for the Gumbel-Softmax policy."""
-        pass
-
     def on_epoch_end(self, **kwargs: Any) -> None:
         """Performs operations at the end of each training epoch."""
-        pass
 
     def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
         """Performs forward pass using Gumbel-Softmax for layer selection.
@@ -94,13 +87,8 @@ class GumbelSoftmaxStrategy(BaseSelectionStrategy):
 class SoftGatingStrategy(BaseSelectionStrategy):
     """A strategy that uses Softmax for differentiable layer selection."""
 
-    def setup_optimizers(self, policy_params: Any) -> None:
-        """Sets up optimizers for the SoftGating policy."""
-        pass
-
     def on_epoch_end(self, **kwargs: Any) -> None:
         """Performs operations at the end of each training epoch."""
-        pass
 
     def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
         """Performs forward pass using Softmax for layer selection.
@@ -142,13 +130,8 @@ class SoftGatingStrategy(BaseSelectionStrategy):
 class SteStrategy(BaseSelectionStrategy):
     """A strategy that uses Straight-Through Estimator (STE) for hard layer selection."""
 
-    def setup_optimizers(self, policy_params: Any) -> None:
-        """Sets up optimizers for the STE policy."""
-        pass
-
     def on_epoch_end(self, **kwargs: Any) -> None:
         """Performs operations at the end of each training epoch."""
-        pass
 
     def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
         """Performs forward pass using STE for layer selection.
@@ -180,14 +163,6 @@ class SteStrategy(BaseSelectionStrategy):
 class ReinforceStrategy(BaseSelectionStrategy):
     """A strategy that uses REINFORCE for layer selection."""
 
-    def setup_optimizers(self, policy_params: Any) -> None:
-        """Sets up optimizers for the REINFORCE policy.
-
-        Args:
-            policy_params (Any): Parameters of the policy network.
-        """
-        self.policy_optimizer = torch.optim.Adam(policy_params, lr=self.model.n_predictor_learning_rate)
-
     def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Performs forward pass using REINFORCE for layer selection.
 
@@ -217,4 +192,3 @@ class ReinforceStrategy(BaseSelectionStrategy):
 
     def on_epoch_end(self, **kwargs: Any) -> None:
         """Performs operations at the end of each training epoch."""
-        pass

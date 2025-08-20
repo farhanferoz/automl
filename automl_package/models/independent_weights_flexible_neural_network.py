@@ -329,7 +329,7 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             # Granular n_predictor logging
             self.model.eval()
             with torch.no_grad():
-                if self.model.n_predictor: # Add this check
+                if self.model.n_predictor:  # Add this check
                     n_logits_test = self.model.n_predictor(x_test_points)
                     # Use the strategy's select_n method to get detailed info
                     n_actual_test, n_probs_test, _, _ = self.strategy.select_n(x_test_points, n_logits_test)
@@ -341,7 +341,7 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                         logger.info(f"    Logits: {n_logits_test[i].cpu().numpy()}")
                         logger.info(f"    Probs: {n_probs_test[i].cpu().numpy()}")
                         logger.info(f"    Actual N: {n_actual_test[i].item()}")
-                else: # Add this else block
+                else:  # Add this else block
                     logger.info(f"Epoch {epoch+1} - n_predictor not used for {self.layer_selection_method.name} strategy.")
             self.model.train()  # Set back to train mode
 
@@ -527,7 +527,7 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             # The model's forward pass returns all these
             _, n_actual_tensor, n_probs_tensor, n_logits_tensor, _ = self.model(x_tensor)
             n_actual = n_actual_tensor.cpu().numpy()
-            if n_logits_tensor is not None: # Add this check
+            if n_logits_tensor is not None:  # Add this check
                 n_logits = n_logits_tensor.cpu().numpy()
 
         metrics_calculator = Metrics(

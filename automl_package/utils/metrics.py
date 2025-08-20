@@ -24,6 +24,7 @@ from sklearn.metrics import (
 
 from automl_package.enums import RegressionStrategy
 from automl_package.logger import logger
+from automl_package.utils.numerics import create_bins
 
 
 class Metrics:
@@ -57,6 +58,9 @@ class Metrics:
         self.y_pred = y_pred
         self.y_proba = y_proba
 
+        if self.task_type == "regression" and self.y_pred.ndim > 1 and self.y_pred.shape[1] > 1:
+            self.y_pred = self.y_pred[:, 0]
+
         # For Flexible NN architecture plots
         self.flexible_nn_n_actual = kwargs.get("flexible_nn_n_actual")
         self.flexible_nn_n_logits = kwargs.get("flexible_nn_n_logits")
@@ -73,17 +77,9 @@ class Metrics:
         self.prob_reg_probas_for_plotting = kwargs.get("prob_reg_probas_for_plotting")
 
     def _calculate_bins(self, data: np.ndarray, n_bins: int) -> tuple[np.ndarray, np.ndarray, int]:
-        percentiles = np.linspace(0, 100, n_bins + 1)
-        bin_edges = np.percentile(data, percentiles)
-        # Ensure bin edges are unique
-        unique_bin_edges = np.unique(bin_edges)
-        while len(unique_bin_edges) < len(bin_edges) and n_bins > 1:
-            n_bins -= 1
-            percentiles = np.linspace(0, 100, n_bins + 1)
-            bin_edges = np.percentile(data, percentiles)
-            unique_bin_edges = np.unique(bin_edges)
+        unique_bin_edges, _ = create_bins(data, n_bins)
         bin_midpoints = (unique_bin_edges[:-1] + unique_bin_edges[1:]) / 2
-        return unique_bin_edges, bin_midpoints, n_bins
+        return unique_bin_edges, bin_midpoints, len(unique_bin_edges) - 1
 
     def calculate_all_metrics(self) -> dict[str, float]:
         """Calculates all relevant metrics based on the task type.
@@ -145,10 +141,13 @@ class Metrics:
         """
         Path(save_path).mkdir(parents=True, exist_ok=True)
 
+        y_true_flat = self.y_true.flatten()
+        y_pred_flat = self.y_pred.flatten()
+
         # Predicted vs. Actual Plot
         plt.figure(figsize=(10, 6))
-        plt.scatter(self.y_true, self.y_pred, alpha=0.5)
-        plt.plot([self.y_true.min(), self.y_true.max()], [self.y_true.min(), self.y_true.max()], "--r", linewidth=2)
+        plt.scatter(y_true_flat, y_pred_flat, alpha=0.5)
+        plt.plot([y_true_flat.min(), y_true_flat.max()], [y_true_flat.min(), y_true_flat.max()], "--r", linewidth=2)
         plt.xlabel("Actual Values")
         plt.ylabel("Predicted Values")
         plt.title(f"Predicted vs. Actual Values for {self.model_name}")
@@ -156,9 +155,9 @@ class Metrics:
         plt.close()
 
         # Residuals vs. Predicted Plot
-        residuals = self.y_true - self.y_pred
+        residuals = y_true_flat - y_pred_flat
         plt.figure(figsize=(10, 6))
-        plt.scatter(self.y_pred, residuals, alpha=0.5)
+        plt.scatter(y_pred_flat, residuals, alpha=0.5)
         plt.axhline(y=0, color="r", linestyle="--")
         plt.xlabel("Predicted Values")
         plt.ylabel("Residuals")
@@ -260,7 +259,7 @@ class Metrics:
         predicted_classes = np.argmax(self.y_proba, axis=1)
         is_correct = predicted_classes == self.y_true
 
-        n_bins = max(5, len(self.y_true) // 20)
+        n_bins = max(5, len(self.y_true) // 50)
         bin_edges, bin_midpoints, n_bins = self._calculate_bins(max_proba, n_bins)
 
         bin_means: list[float] = []
@@ -306,7 +305,7 @@ class Metrics:
         predicted_classes = np.argmax(self.y_proba, axis=1)
         is_correct = predicted_classes == self.y_true
 
-        n_bins = max(5, len(self.y_proba) // 20)
+        n_bins = max(5, len(self.y_proba) // 50)
         thresholds, _, _ = self._calculate_bins(max_proba, n_bins)
 
         completeness: list[float] = []
@@ -356,7 +355,7 @@ class Metrics:
             if x_original.ndim == 1:
                 x_original = feature_scaler.inverse_transform(x_original.reshape(-1, 1)).flatten()
             else:
-                x_original = feature_scaler.inverse_transform(x_original)[:, 0] # Plot against the first feature
+                x_original = feature_scaler.inverse_transform(x_original)[:, 0]  # Plot against the first feature
         else:
             x_original = x_original.flatten() if x_original.ndim == 1 else x_original[:, 0]
 

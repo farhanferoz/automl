@@ -1,7 +1,8 @@
 """Example script for demonstrating AutoML capabilities with noisy data."""
 
-import numpy as np
 from typing import Any
+
+import numpy as np
 from bokeh.models import Legend, LegendItem
 from bokeh.palettes import Category10
 from bokeh.plotting import figure, show

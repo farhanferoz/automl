@@ -1,5 +1,6 @@
 import os
 import shutil
+
 import numpy as np
 import pandas as pd
 import torch
@@ -42,9 +43,7 @@ def create_synthetic_data(n_samples: int = 1000) -> tuple[np.ndarray, np.ndarray
     return x_sorted.reshape(-1, 1), y_noisy_sorted, y_true_sorted
 
 
-def plot_results_bokeh(
-    x_data: np.ndarray, y_data: np.ndarray, y_true: np.ndarray, predictions: dict[str, np.ndarray], results: dict[str, float], output_path: str
-) -> None:
+def plot_results_bokeh(x_data: np.ndarray, y_data: np.ndarray, y_true: np.ndarray, predictions: dict[str, np.ndarray], results: dict[str, float], output_path: str) -> None:
     """Generates an interactive Bokeh plot for model comparison."""
     p = figure(
         width=1200,
@@ -90,40 +89,122 @@ def run_showcase():
     x, y, y_true = create_synthetic_data()
 
     models_to_test = {
-        "Static NN (5 Layers)": PyTorchNeuralNetwork(hidden_layers=5, hidden_size=128, n_epochs=200, learning_rate=0.005, uncertainty_method=UncertaintyMethod.CONSTANT, early_stopping_rounds=20),
-
+        "Static NN (5 Layers)": PyTorchNeuralNetwork(
+            hidden_layers=5, hidden_size=128, n_epochs=200, learning_rate=0.005, uncertainty_method=UncertaintyMethod.CONSTANT, early_stopping_rounds=20
+        ),
         # Flexible NN (Shared Weights) with all layer selection methods
         "Flexible NN (Shared Weights - NONE)": FlexibleHiddenLayersNN(
-            layer_selection_method=LayerSelectionMethod.NONE, max_hidden_layers=5, n_predictor_layers=0, hidden_size=128, n_epochs=200, learning_rate=0.005, uncertainty_method=UncertaintyMethod.CONSTANT, early_stopping_rounds=20
+            layer_selection_method=LayerSelectionMethod.NONE,
+            max_hidden_layers=5,
+            n_predictor_layers=0,
+            hidden_size=128,
+            n_epochs=200,
+            learning_rate=0.005,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
+            early_stopping_rounds=20,
         ),
         "Flexible NN (Shared Weights - Gumbel-Softmax)": FlexibleHiddenLayersNN(
-            layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX, max_hidden_layers=5, n_predictor_layers=1, hidden_size=128, n_epochs=200, learning_rate=0.005, n_predictor_learning_rate=0.05, gumbel_tau=0.5, gumbel_tau_anneal_rate=0.95, uncertainty_method=UncertaintyMethod.CONSTANT, early_stopping_rounds=20
+            layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
+            max_hidden_layers=5,
+            n_predictor_layers=1,
+            hidden_size=128,
+            n_epochs=200,
+            learning_rate=0.005,
+            n_predictor_learning_rate=0.05,
+            gumbel_tau=0.5,
+            gumbel_tau_anneal_rate=0.95,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
+            early_stopping_rounds=20,
         ),
         "Flexible NN (Shared Weights - Soft Gating)": FlexibleHiddenLayersNN(
-            layer_selection_method=LayerSelectionMethod.SOFT_GATING, max_hidden_layers=5, n_predictor_layers=1, hidden_size=128, n_epochs=200, learning_rate=0.005, n_predictor_learning_rate=0.05, uncertainty_method=UncertaintyMethod.CONSTANT, early_stopping_rounds=20
+            layer_selection_method=LayerSelectionMethod.SOFT_GATING,
+            max_hidden_layers=5,
+            n_predictor_layers=1,
+            hidden_size=128,
+            n_epochs=200,
+            learning_rate=0.005,
+            n_predictor_learning_rate=0.05,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
+            early_stopping_rounds=20,
         ),
         "Flexible NN (Shared Weights - STE)": FlexibleHiddenLayersNN(
-            layer_selection_method=LayerSelectionMethod.STE, max_hidden_layers=5, n_predictor_layers=1, hidden_size=128, n_epochs=200, learning_rate=0.005, n_predictor_learning_rate=0.05, uncertainty_method=UncertaintyMethod.CONSTANT, early_stopping_rounds=20
+            layer_selection_method=LayerSelectionMethod.STE,
+            max_hidden_layers=5,
+            n_predictor_layers=1,
+            hidden_size=128,
+            n_epochs=200,
+            learning_rate=0.005,
+            n_predictor_learning_rate=0.05,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
+            early_stopping_rounds=20,
         ),
         "Flexible NN (Shared Weights - REINFORCE)": FlexibleHiddenLayersNN(
-            layer_selection_method=LayerSelectionMethod.REINFORCE, max_hidden_layers=5, n_predictor_layers=1, hidden_size=128, n_epochs=200, learning_rate=0.005, n_predictor_learning_rate=0.05, uncertainty_method=UncertaintyMethod.CONSTANT, early_stopping_rounds=20
+            layer_selection_method=LayerSelectionMethod.REINFORCE,
+            max_hidden_layers=5,
+            n_predictor_layers=1,
+            hidden_size=128,
+            n_epochs=200,
+            learning_rate=0.005,
+            n_predictor_learning_rate=0.05,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
+            early_stopping_rounds=20,
         ),
-
         # Flexible NN (Independent Weights) with all layer selection methods
         "Flexible NN (Independent Weights - NONE)": IndependentWeightsFlexibleNN(
-            layer_selection_method=LayerSelectionMethod.NONE, max_hidden_layers=5, n_predictor_layers=0, hidden_size=128, n_epochs=200, learning_rate=0.005, uncertainty_method=UncertaintyMethod.CONSTANT, early_stopping_rounds=20
+            layer_selection_method=LayerSelectionMethod.NONE,
+            max_hidden_layers=5,
+            n_predictor_layers=0,
+            hidden_size=128,
+            n_epochs=200,
+            learning_rate=0.005,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
+            early_stopping_rounds=20,
         ),
         "Flexible NN (Independent Weights - Gumbel-Softmax)": IndependentWeightsFlexibleNN(
-            layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX, max_hidden_layers=5, n_predictor_layers=1, hidden_size=128, n_epochs=200, learning_rate=0.005, n_predictor_learning_rate=0.05, gumbel_tau=0.5, gumbel_tau_anneal_rate=0.95, uncertainty_method=UncertaintyMethod.CONSTANT, early_stopping_rounds=20
+            layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
+            max_hidden_layers=5,
+            n_predictor_layers=1,
+            hidden_size=128,
+            n_epochs=200,
+            learning_rate=0.005,
+            n_predictor_learning_rate=0.05,
+            gumbel_tau=0.5,
+            gumbel_tau_anneal_rate=0.95,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
+            early_stopping_rounds=20,
         ),
         "Flexible NN (Independent Weights - Soft Gating)": IndependentWeightsFlexibleNN(
-            layer_selection_method=LayerSelectionMethod.SOFT_GATING, max_hidden_layers=5, n_predictor_layers=1, hidden_size=128, n_epochs=200, learning_rate=0.005, n_predictor_learning_rate=0.05, uncertainty_method=UncertaintyMethod.CONSTANT, early_stopping_rounds=20
+            layer_selection_method=LayerSelectionMethod.SOFT_GATING,
+            max_hidden_layers=5,
+            n_predictor_layers=1,
+            hidden_size=128,
+            n_epochs=200,
+            learning_rate=0.005,
+            n_predictor_learning_rate=0.05,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
+            early_stopping_rounds=20,
         ),
         "Flexible NN (Independent Weights - STE)": IndependentWeightsFlexibleNN(
-            layer_selection_method=LayerSelectionMethod.STE, max_hidden_layers=5, n_predictor_layers=1, hidden_size=128, n_epochs=200, learning_rate=0.005, n_predictor_learning_rate=0.05, uncertainty_method=UncertaintyMethod.CONSTANT, early_stopping_rounds=20
+            layer_selection_method=LayerSelectionMethod.STE,
+            max_hidden_layers=5,
+            n_predictor_layers=1,
+            hidden_size=128,
+            n_epochs=200,
+            learning_rate=0.005,
+            n_predictor_learning_rate=0.05,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
+            early_stopping_rounds=20,
         ),
         "Flexible NN (Independent Weights - REINFORCE)": IndependentWeightsFlexibleNN(
-            layer_selection_method=LayerSelectionMethod.REINFORCE, max_hidden_layers=5, n_predictor_layers=1, hidden_size=128, n_epochs=200, learning_rate=0.005, n_predictor_learning_rate=0.05, uncertainty_method=UncertaintyMethod.CONSTANT, early_stopping_rounds=20
+            layer_selection_method=LayerSelectionMethod.REINFORCE,
+            max_hidden_layers=5,
+            n_predictor_layers=1,
+            hidden_size=128,
+            n_epochs=200,
+            learning_rate=0.005,
+            n_predictor_learning_rate=0.05,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
+            early_stopping_rounds=20,
         ),
     }
 
@@ -168,5 +249,5 @@ def run_showcase():
     print("Showcase complete.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run_showcase()

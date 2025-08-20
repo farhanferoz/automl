@@ -1,5 +1,4 @@
-"""
-Showcase of the FlexibleNeuralNetwork model.
+"""Showcase of the FlexibleNeuralNetwork model.
 
 This script generates a synthetic dataset with varying complexity and uses it to
 demonstrate how a flexible architecture can outperform static ones. It compares
@@ -24,9 +23,9 @@ The script will:
    - For each flexible model, a plot showing how the number of active layers
      changes with the input, demonstrating architectural adaptability.
 """
+
 import os
 import shutil
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -70,9 +69,7 @@ def create_synthetic_data(n_samples: int = 1000) -> tuple[np.ndarray, np.ndarray
     return x_sorted.reshape(-1, 1), y_noisy_sorted, y_true_sorted
 
 
-def plot_results_bokeh(
-    x_data: np.ndarray, y_data: np.ndarray, y_true: np.ndarray, predictions: dict[str, np.ndarray], results: dict[str, float], output_path: str
-) -> None:
+def plot_results_bokeh(x_data: np.ndarray, y_data: np.ndarray, y_true: np.ndarray, predictions: dict[str, np.ndarray], results: dict[str, float], output_path: str) -> None:
     """Generates an interactive Bokeh plot for model comparison."""
     p = figure(
         width=1200,
@@ -121,19 +118,53 @@ def run_showcase():
         "Linear Regression": NormalEquationLinearRegression(),
         "Static NN (3 Layers)": PyTorchNeuralNetwork(hidden_layers=3, hidden_size=64, n_epochs=100, learning_rate=0.01, uncertainty_method=UncertaintyMethod.CONSTANT),
         "Flexible NN (None)": FlexibleHiddenLayersNN(
-            layer_selection_method=LayerSelectionMethod.NONE, max_hidden_layers=5, n_predictor_layers=0, hidden_size=64, n_epochs=200, learning_rate=0.01, uncertainty_method=UncertaintyMethod.CONSTANT
+            layer_selection_method=LayerSelectionMethod.NONE,
+            max_hidden_layers=5,
+            n_predictor_layers=0,
+            hidden_size=64,
+            n_epochs=200,
+            learning_rate=0.01,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
         ),
         "Flexible NN (Soft Gating)": FlexibleHiddenLayersNN(
-            layer_selection_method=LayerSelectionMethod.SOFT_GATING, max_hidden_layers=5, n_predictor_layers=1, hidden_size=64, n_epochs=200, learning_rate=0.01, n_predictor_learning_rate=0.01, uncertainty_method=UncertaintyMethod.CONSTANT
+            layer_selection_method=LayerSelectionMethod.SOFT_GATING,
+            max_hidden_layers=5,
+            n_predictor_layers=1,
+            hidden_size=64,
+            n_epochs=200,
+            learning_rate=0.01,
+            n_predictor_learning_rate=0.01,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
         ),
         "Flexible NN (Gumbel-Softmax)": FlexibleHiddenLayersNN(
-            layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX, max_hidden_layers=5, n_predictor_layers=1, hidden_size=64, n_epochs=200, learning_rate=0.01, n_predictor_learning_rate=0.01, uncertainty_method=UncertaintyMethod.CONSTANT
+            layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
+            max_hidden_layers=5,
+            n_predictor_layers=1,
+            hidden_size=64,
+            n_epochs=200,
+            learning_rate=0.01,
+            n_predictor_learning_rate=0.01,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
         ),
         "Flexible NN (STE)": FlexibleHiddenLayersNN(
-            layer_selection_method=LayerSelectionMethod.STE, max_hidden_layers=5, n_predictor_layers=1, hidden_size=64, n_epochs=200, learning_rate=0.01, n_predictor_learning_rate=0.01, uncertainty_method=UncertaintyMethod.CONSTANT
+            layer_selection_method=LayerSelectionMethod.STE,
+            max_hidden_layers=5,
+            n_predictor_layers=1,
+            hidden_size=64,
+            n_epochs=200,
+            learning_rate=0.01,
+            n_predictor_learning_rate=0.01,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
         ),
         "Flexible NN (Reinforce)": FlexibleHiddenLayersNN(
-            layer_selection_method=LayerSelectionMethod.REINFORCE, max_hidden_layers=5, n_predictor_layers=1, hidden_size=64, n_epochs=200, learning_rate=0.01, n_predictor_learning_rate=0.01, uncertainty_method=UncertaintyMethod.CONSTANT
+            layer_selection_method=LayerSelectionMethod.REINFORCE,
+            max_hidden_layers=5,
+            n_predictor_layers=1,
+            hidden_size=64,
+            n_epochs=200,
+            learning_rate=0.01,
+            n_predictor_learning_rate=0.01,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
         ),
     }
 
@@ -178,5 +209,5 @@ def run_showcase():
     print("Showcase complete.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run_showcase()

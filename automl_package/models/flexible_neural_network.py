@@ -244,12 +244,14 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                     # We need to ensure the reward is detached to prevent gradients flowing back through it
                     # to the main network parameters.
                     reward = -loss.detach()
-                    policy_loss = -log_prob * reward # Multiply by reward
-                    loss += policy_loss.mean() # Add to main loss
+                    policy_loss = -log_prob * reward  # Multiply by reward
+                    loss += policy_loss.mean()  # Add to main loss
 
                 loss.backward()
 
                 self.optimizer.step()
+                if self.strategy.policy_optimizer:
+                    self.strategy.policy_optimizer.step()
                 if self.lambda_optimizer:
                     self.lambda_optimizer.step()
 

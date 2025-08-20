@@ -127,6 +127,7 @@ class BaseModel(abc.ABC):
         Returns:
             np.ndarray: The predictions made by the model.
         """
+        print(f"In base evaluate for {self.name}")
 
     def get_internal_model(self) -> Any:
         """Returns the raw underlying model object, if applicable.

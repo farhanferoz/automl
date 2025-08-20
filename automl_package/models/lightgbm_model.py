@@ -41,7 +41,7 @@ class LightGBMModel(BaseModel):
     @property
     def name(self) -> str:
         """Returns the name of the model."""
-        return "LightGBM"
+        return "LightGBMModel"
 
     def fit(self, x: np.ndarray, y: np.ndarray) -> int:
         """Fits the LightGBM model to the training data.

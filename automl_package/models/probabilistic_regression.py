@@ -1,16 +1,19 @@
 """Probabilistic Regression model implemented in PyTorch."""
 
 import math
-from typing import Any
+import os
+from typing import Any, Optional, Dict, List
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import NClassesSelectionMethod, RegressionStrategy, TaskType, UncertaintyMethod
+from automl_package.enums import MapperType, NClassesSelectionMethod, RegressionStrategy, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.neural_network import PyTorchNeuralNetwork
+from automl_package.models.probability_mapper import ClassProbabilityMapper
 from automl_package.models.selection_strategies.n_classes_strategies import (
     GumbelSoftmaxStrategy,
     NoneStrategy,
@@ -18,6 +21,8 @@ from automl_package.models.selection_strategies.n_classes_strategies import (
     SoftGatingStrategy,
     SteStrategy,
 )
+from automl_package.utils.metrics import Metrics
+from automl_package.utils.numerics import create_bins
 
 
 class ProbabilisticRegressionModel(PyTorchModelBase):
@@ -28,14 +33,16 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
 
     def __init__(
         self,
-        input_size: int | None = None,
+        input_size: Optional[int] = None,
         n_classes: int = 3,  # Number of classes for the internal classifier (used if n_classes_selection_method is NONE)
         n_classes_inf: float = float("inf"),  # Threshold for direct regression
         max_n_classes_for_probabilistic_path: int = 10,  # Max n_classes if n_classes_selection_method is not NONE
-        base_classifier_params: dict[str, Any] | None = None,  # Params for the internal PyTorch NN classifier
-        regression_head_params: dict[str, Any] | None = None,  # Params for each internal PyTorch NN regression head
-        direct_regression_head_params: dict[str, Any] | None = None,  # Params for the direct regression head if n_classes_selection_method is not NONE
+        base_classifier_params: Optional[Dict[str, Any]] = None,  # Params for the internal PyTorch NN classifier
+        regression_head_params: Optional[Dict[str, Any]] = None,  # Params for each internal PyTorch NN regression head
+        direct_regression_head_params: Optional[Dict[str, Any]] = None,  # Params for the direct regression head if n_classes_selection_method is not NONE
         regression_strategy: RegressionStrategy = RegressionStrategy.SEPARATE_HEADS,  # Use enum
+        mapper_type: MapperType = MapperType.LOOKUP_MEDIAN,  # Use enum for mapper type
+        mapper_params: Optional[Dict[str, Any]] = None,  # Parameters for the ClassProbabilityMapper
         n_classes_selection_method: NClassesSelectionMethod = NClassesSelectionMethod.NONE,
         gumbel_tau: float = 0.5,
         n_classes_predictor_learning_rate: float = 0.001,
@@ -45,19 +52,22 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
         uncertainty_method: UncertaintyMethod = UncertaintyMethod.CONSTANT,  # Use enum
         n_mc_dropout_samples: int = 100,
         dropout_rate: float = 0.1,
+        device: Optional[torch.device] = None,  # Add device parameter here
         **kwargs: Any,
     ) -> None:
         """Initializes the ProbabilisticRegressionModel.
 
         Args:
-            input_size (int, optional): The number of input features.
+            input_size (int | None): The number of input features.
             n_classes (int): Number of classes for the internal classifier.
             n_classes_inf (float): Threshold for direct regression.
             max_n_classes_for_probabilistic_path (int): Max n_classes if n_classes_selection_method is not NONE.
-            base_classifier_params (Dict[str, Any]): Parameters for the internal PyTorch NN classifier.
-            regression_head_params (Dict[str, Any]): Parameters for each internal PyTorch NN regression head.
-            direct_regression_head_params (Dict[str, Any]): Parameters for the direct regression head.
+            base_classifier_params (dict[str, Any] | None): Parameters for the internal PyTorch NN classifier.
+            regression_head_params (dict[str, Any] | None): Parameters for each internal PyTorch NN regression head.
+            direct_regression_head_params (dict[str, Any] | None): Parameters for the direct regression head.
             regression_strategy (RegressionStrategy): Strategy for regression.
+            mapper_type (MapperType): The type of probability mapping strategy.
+            mapper_params (dict[str, Any] | None): Parameters for the ClassProbabilityMapper.
             n_classes_selection_method (NClassesSelectionMethod): Method for selecting n_classes.
             gumbel_tau (float): Gumbel-Softmax temperature.
             n_classes_predictor_learning_rate (float): Learning rate for n_classes predictor.
@@ -67,6 +77,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
             uncertainty_method (UncertaintyMethod): Method for uncertainty estimation.
             n_mc_dropout_samples (int): Number of MC dropout samples for uncertainty.
             dropout_rate (float): Dropout rate for MC dropout.
+            device (torch.device | None): The device to run the model on.
             **kwargs: Additional keyword arguments for PyTorchModelBase.
         """
         output_size = 2 if uncertainty_method == UncertaintyMethod.PROBABILISTIC else 1
@@ -80,6 +91,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
             uncertainty_method=uncertainty_method,
             n_mc_dropout_samples=n_mc_dropout_samples,
             dropout_rate=dropout_rate,
+            device=device,  # Pass device to super().__init__
             **kwargs,
         )
         self._returns_multiple_outputs = True  # This model returns multiple outputs
@@ -90,9 +102,14 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
         self.regression_head_params = regression_head_params if regression_head_params is not None else {}
         self.direct_regression_head_params = direct_regression_head_params if direct_regression_head_params is not None else {}
         self.regression_strategy = regression_strategy
+        self.mapper_type = mapper_type
+        self.mapper_params = mapper_params if mapper_params is not None else {}
+        self.probability_mappers: Optional[List[ClassProbabilityMapper]] = []
+        self.class_boundaries: Optional[np.ndarray] = None
         self.n_classes_selection_method = n_classes_selection_method
         self.gumbel_tau = gumbel_tau
         self.n_classes_predictor_learning_rate = n_classes_predictor_learning_rate
+        self.precomputed_class_boundaries: Optional[Dict[int, np.ndarray]] = None
 
         self.direct_regression = self.n_classes_selection_method == NClassesSelectionMethod.NONE and self.n_classes >= self.n_classes_inf
         if self.direct_regression:
@@ -111,32 +128,28 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
     @property
     def name(self) -> str:
         """Returns the name of the model."""
-        return "ProbabilisticRegression"
+        return f"ProbabilisticRegression_{self.regression_strategy.value}"
 
     def build_model(self) -> None:
         """Builds the internal PyTorch nn.Module for the ProbabilisticRegressionModel."""
-        if self.n_classes_selection_method == NClassesSelectionMethod.NONE:
-            regression_output_size = 2 if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else 1
-            temp_model = PyTorchNeuralNetwork(input_size=self.input_size, output_size=regression_output_size, task_type=TaskType.REGRESSION, **self.base_classifier_params)
-            temp_model.build_model()
-            self.model = temp_model.get_internal_model()  # Get the internal nn.Module
-        else:
-            if self.max_n_classes_for_probabilistic_path >= self.n_classes_inf:
-                raise ValueError("max_n_classes_for_probabilistic_path must be less than n_classes_inf when n_classes_selection_method is not NONE.")
-            self.model = _CombinedProbabilisticModel(
-                input_size=self.input_size,
-                n_classes=self.n_classes,  # This n_classes is the user-specified default, not the estimated one
-                n_classes_inf=self.n_classes_inf,
-                max_n_classes_for_probabilistic_path=self.max_n_classes_for_probabilistic_path,
-                base_classifier_params=self.base_classifier_params,
-                regression_head_params=self.regression_head_params,
-                direct_regression_head_params=self.direct_regression_head_params,
-                regression_strategy=self.regression_strategy,
-                uncertainty_method=self.uncertainty_method,
-                n_classes_selection_method=self.n_classes_selection_method,
-                gumbel_tau=self.gumbel_tau,
-                n_classes_predictor_learning_rate=self.n_classes_predictor_learning_rate,
-            )
+        if self.n_classes_selection_method != NClassesSelectionMethod.NONE and self.max_n_classes_for_probabilistic_path >= self.n_classes_inf:
+            raise ValueError("max_n_classes_for_probabilistic_path must be less than n_classes_inf when n_classes_selection_method is not NONE.")
+
+        self.model = _CombinedProbabilisticModel(
+            input_size=self.input_size,
+            n_classes=self.n_classes,
+            n_classes_inf=self.n_classes_inf,
+            max_n_classes_for_probabilistic_path=self.max_n_classes_for_probabilistic_path,
+            base_classifier_params=self.base_classifier_params,
+            regression_head_params=self.regression_head_params,
+            direct_regression_head_params=self.direct_regression_head_params,
+            regression_strategy=self.regression_strategy,
+            uncertainty_method=self.uncertainty_method,
+            n_classes_selection_method=self.n_classes_selection_method,
+            gumbel_tau=self.gumbel_tau,
+            n_classes_predictor_learning_rate=self.n_classes_predictor_learning_rate,
+            device=self.device,
+        )
         self.model.to(self.device)
 
         # Set up criterion based on task type and uncertainty method
@@ -199,6 +212,32 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
             n_classes_predictor_params = self.model.n_classes_predictor.parameters()
             self.model.n_classes_strategy.setup_optimizers(n_classes_predictor_params)
 
+    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
+        """Fits the ProbabilisticRegressionModel.
+
+        This involves pre-calculating the class boundaries for all possible `k` values
+        before calling the main training loop in the parent class.
+
+        Args:
+            x (np.ndarray): Training features.
+            y (np.ndarray): Original continuous target values.
+
+        Returns:
+            int: The number of epochs trained.
+        """
+        if not self.direct_regression:
+            self.precomputed_class_boundaries = {}
+            y_flat = y.flatten() if y.ndim > 1 else y
+
+            max_k = self.max_n_classes_for_probabilistic_path if self.n_classes_selection_method != NClassesSelectionMethod.NONE else self.n_classes
+
+            # Pre-calculate and store boundaries for all possible k values
+            for k in [max_k] if self.n_classes_selection_method == NClassesSelectionMethod.NONE else range(2, max_k + 1):
+                boundaries, _ = create_bins(data=y_flat, n_bins=k, min_value=-np.inf, max_value=np.inf)
+                self.precomputed_class_boundaries[k] = boundaries
+
+        return super().fit(x, y)
+
     def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Returns the internal classifier's predicted classes, probabilities, and.
 
@@ -216,8 +255,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
         """
         if self.direct_regression:
             raise NotImplementedError("get_classifier_predictions is not available in direct regression mode.")
-        if self.model is None:
-            raise RuntimeError("Model has not been fitted yet.")
+        if self.model is None or self.precomputed_class_boundaries is None:
+            raise RuntimeError("Model has not been fitted yet or class boundaries were not computed.")
 
         self.model.eval()
         x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
@@ -225,43 +264,47 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
             # The model's forward pass now returns predictions, classifier_logits_out, and selected_k_values
             _, returned_classifier_logits, selected_k_values_tensor, _ = self.model(x_tensor)
 
-            # Initialize selected_k_values and n_classes_for_classifier_output
             selected_k_values = selected_k_values_tensor.cpu().numpy()
-            n_classes_for_classifier_output = self.n_classes
             probabilistic_indices = np.where(selected_k_values < self.n_classes_inf)[0]
 
             if self.n_classes_selection_method != NClassesSelectionMethod.NONE:
                 if len(probabilistic_indices) == 0:
                     raise NotImplementedError("No probabilistic predictions were made for the given X. All samples went to direct regression.")
                 n_classes_for_classifier_output = self.max_n_classes_for_probabilistic_path
+            else:
+                n_classes_for_classifier_output = self.n_classes
 
             y_flat = y_true_original.flatten() if y_true_original.ndim > 1 else y_true_original
-            y_true_discretized = np.zeros_like(y_flat, dtype=int)
+            y_true_discretized = np.full_like(y_flat, -1, dtype=int)  # Default to -1 (for direct regression)
 
-            # Precompute class boundaries for all possible k values
-            precomputed_class_boundaries = {}
-            # Iterate up to max_n_classes_for_probabilistic_path if dynamic, else self.n_classes
-            max_k_val_for_boundaries = self.max_n_classes_for_probabilistic_path if self.n_classes_selection_method != NClassesSelectionMethod.NONE else self.n_classes
-            for k_val in range(2, int(self.n_classes_inf) if self.n_classes_inf != float("inf") else max_k_val_for_boundaries + 1):
-                percentiles = np.linspace(0, 100, k_val + 1)[1:-1]
-                precomputed_class_boundaries[k_val] = np.percentile(y_flat, percentiles)
+            # Discretize y_true using the pre-computed boundaries from the training set by grouping samples by k
+            probabilistic_k_values = selected_k_values[probabilistic_indices]
+            unique_k_values = np.unique(probabilistic_k_values)
 
-            for i in range(y_true_original.shape[0]):
-                k = selected_k_values[i]
-                if k < self.n_classes_inf:  # Only discretize if it's a probabilistic mode
-                    boundaries = precomputed_class_boundaries[k]
-                    y_true_discretized[i] = np.digitize(y_flat[i], boundaries)
-                else:
-                    y_true_discretized[i] = -1  # Indicate no discretization for direct regression samples
+            for k_val in unique_k_values:
+                k = int(k_val)
+                # Create a mask for samples corresponding to the current k
+                mask = probabilistic_k_values == k
+                # Get the original indices for these samples
+                original_indices = probabilistic_indices[mask]
+
+                if len(original_indices) > 0:
+                    assert k in self.precomputed_class_boundaries
+                    boundaries = self.precomputed_class_boundaries[k]
+                    # Discretize all samples for this k at once
+                    _, discretized_labels = create_bins(data=y_flat[original_indices], unique_bin_edges=boundaries)
+                    y_true_discretized[original_indices] = discretized_labels
 
             # Use the returned_classifier_logits directly
             classifier_logits_for_proba = returned_classifier_logits[probabilistic_indices]
 
             # Re-apply softmax to get probabilities for the probabilistic samples
             # Need to re-mask and softmax as the stored logits might be from the full max_n_classes_allowed
-            masked_classifier_logits = torch.full_like(classifier_logits_for_proba, float("-inf"))
-            for i, k in enumerate(selected_k_values[probabilistic_indices]):
-                masked_classifier_logits[i, :k] = classifier_logits_for_proba[i, :k]
+            k_values = torch.tensor(selected_k_values[probabilistic_indices], device=classifier_logits_for_proba.device).long()
+            max_k = classifier_logits_for_proba.shape[1]
+            col_indices = torch.arange(max_k, device=classifier_logits_for_proba.device)
+            mask = col_indices < k_values.unsqueeze(1)
+            masked_classifier_logits = torch.where(mask, classifier_logits_for_proba, float("-inf"))
 
             if n_classes_for_classifier_output == 2:
                 proba_positive = torch.sigmoid(masked_classifier_logits[:, 0])  # Assuming binary classification for classifier
@@ -273,6 +316,120 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
 
         return y_pred_internal, y_proba_internal, y_true_discretized
 
+    def plot_probability_mappers(self, plot_path: str = "probability_mappers.png") -> None:
+        """Plots the functions that map class probabilities to regression values.
+
+        Args:
+            plot_path (str): The path to the file where the plot will be saved.
+        """
+        if self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
+            logger.info("Plotting probability mappers is not applicable for the SINGLE_HEAD_FINAL_OUTPUT strategy.")
+            return
+
+        if not self.model:
+            logger.warning("No model found. Please fit the model first.")
+            return
+        if self.precomputed_class_boundaries is None:
+            logger.warning("Class boundaries not computed. Please fit the model first.")
+            return
+
+        logger.info(f"\n--- Plotting Probability Mappers to {plot_path} ---")
+
+        os.makedirs(os.path.dirname(plot_path), exist_ok=True)
+        # Use the pre-computed class boundaries for the fixed n_classes case
+        self.class_boundaries = self.precomputed_class_boundaries[self.n_classes]
+
+        plt.figure(figsize=(12, 8))
+        probas_range = torch.linspace(0, 1, 100).reshape(-1, 1).to(self.device)
+
+        self.model.eval()  # Set model to evaluation mode
+        with torch.no_grad():
+            if self.regression_strategy == RegressionStrategy.SEPARATE_HEADS:
+                for i, head in enumerate(self.model.regression_module.heads):
+                    mapped_values = head(probas_range).cpu().numpy()
+                    # We only care about the mean for this plot
+                    if mapped_values.shape[1] > 1:
+                        mapped_values = mapped_values[:, 0]
+
+                    lower_bound_str = f"{self.class_boundaries[i]:.2f}"
+                    upper_bound_str = f"{self.class_boundaries[i+1]:.2f}"
+                    label_text = f"Class {i} (Range: {lower_bound_str}-{upper_bound_str})"
+                    plt.plot(probas_range.cpu().numpy(), mapped_values, label=label_text)
+
+            elif self.regression_strategy == RegressionStrategy.SINGLE_HEAD_N_OUTPUTS:
+                for i in range(self.n_classes):
+                    # Create input where probability of class i varies and others are uniform
+                    input_probas = torch.zeros(100, self.n_classes).to(self.device)
+                    p_i = probas_range.squeeze()
+                    input_probas[:, i] = p_i
+                    # Distribute remaining probability mass
+                    if self.n_classes > 1:
+                        remaining_p = (1 - p_i) / (self.n_classes - 1)
+                        for j in range(self.n_classes):
+                            if i == j:
+                                continue
+                            input_probas[:, j] = remaining_p
+
+                    # Get mapped values from the single head
+                    y_output_all_classes = self.model.regression_module.head(input_probas)
+                    all_mapped_values = (
+                        y_output_all_classes.reshape(input_probas.shape[0], self.model.regression_module.n_classes, self.model.regression_module.regression_output_size)
+                        .cpu()
+                        .numpy()
+                    )
+                    # We want the mapped value for class i
+                    mapped_values_for_class_i = all_mapped_values[:, i, 0]  # Just the mean
+
+                    lower_bound_str = f"{self.class_boundaries[i]:.2f}"
+                    upper_bound_str = f"{self.class_boundaries[i+1]:.2f}"
+                    label_text = f"Class {i} (Range: {lower_bound_str}-{upper_bound_str})"
+                    plt.plot(probas_range.cpu().numpy(), mapped_values_for_class_i, label=label_text)
+
+        plt.title(f"Probability Mappers for {self.name}")
+        plt.xlabel("Class Probability")
+        plt.ylabel("Mapped Original Regression Value")
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(plot_path)
+        plt.close()
+        logger.info("Probability mappers plot saved successfully.")
+
+    def evaluate(self, x: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
+        """Evaluates the model on a given dataset and saves the metrics.
+
+        Args:
+            x (np.ndarray): Feature matrix for evaluation.
+            y (np.ndarray): True labels for evaluation.
+            save_path (str): Directory to save the metrics files.
+
+        Returns:
+            np.ndarray: The predictions made by the model.
+        """
+        y_pred = self.predict(x)
+        metrics_calculator = Metrics(task_type="regression", model_name=self.name, x_data=x, y_true=y, y_pred=y_pred)
+        metrics_calculator.save_metrics(save_path)
+
+        if not self.direct_regression:
+            y_pred_internal_clf, y_proba_internal_clf, y_true_discretized = self.get_classifier_predictions(x, y)
+
+            logger.info(f"Evaluating internal classifier of {self.name} for classification metrics.")
+            internal_metrics_calculator = Metrics(
+                task_type=TaskType.CLASSIFICATION.value,
+                model_name=f"{self.name}_InternalClassifier",
+                x_data=x,
+                y_true=y_true_discretized,
+                y_pred=y_pred_internal_clf,
+                y_proba=y_proba_internal_clf,
+                prob_reg_regression_strategy=self.regression_strategy,
+            )
+            internal_metrics_calculator.save_metrics(save_path)
+
+            # Plot probability mappers
+            self.plot_probability_mappers(plot_path=os.path.join(save_path, "probability_mappers.png"))
+
+        return y_pred
+
 
 class _BaseRegressionHead(nn.Module):
     """A single regression head for ProbabilisticRegressionModel.
@@ -280,13 +437,14 @@ class _BaseRegressionHead(nn.Module):
     Handles its own layers and probabilistic output processing.
     """
 
-    def __init__(self, input_size: int, output_size: int, hidden_layers: int, hidden_size: int, use_batch_norm: bool, dropout_rate: float, uncertainty_method: UncertaintyMethod) -> None:
+    def __init__(
+        self, input_size: int, output_size: int, hidden_layers: int, hidden_size: int, use_batch_norm: bool, dropout_rate: float, uncertainty_method: UncertaintyMethod
+    ) -> None:
         super().__init__()
         self.uncertainty_method = uncertainty_method
         self.output_size = output_size
 
-        layers = []
-        layers.append(nn.Linear(input_size, hidden_size))
+        layers = [nn.Linear(input_size, hidden_size)]
         if use_batch_norm:
             layers.append(nn.BatchNorm1d(hidden_size))
         layers.append(nn.ReLU())
@@ -326,7 +484,13 @@ class _SeparateHeadsRegressionModule(nn.Module):
         for _ in range(n_classes):
             self.heads.append(
                 _BaseRegressionHead(
-                    input_size=1, output_size=regression_output_size, uncertainty_method=uncertainty_method, **regression_head_params  # Each head takes a single probability
+                    input_size=1,
+                    output_size=regression_output_size,
+                    hidden_layers=regression_head_params.get("hidden_layers", 1),
+                    hidden_size=regression_head_params.get("hidden_size", 32),
+                    use_batch_norm=regression_head_params.get("use_batch_norm", True),
+                    dropout_rate=regression_head_params.get("dropout_rate", 0.0),
+                    uncertainty_method=uncertainty_method,
                 )
             )
 
@@ -346,11 +510,20 @@ class _SingleHeadNOutputsRegressionModule(nn.Module):
         super().__init__()
         self.n_classes = n_classes
         self.regression_output_size = regression_output_size
-        self.head = _BaseRegressionHead(input_size=input_size, output_size=n_classes * regression_output_size, uncertainty_method=uncertainty_method, **regression_head_params)
+        self.head = _BaseRegressionHead(
+            input_size=input_size,  # The input size is the original input size
+            output_size=n_classes * regression_output_size,
+            hidden_layers=regression_head_params.get("hidden_layers", 1),
+            hidden_size=regression_head_params.get("hidden_size", 32),
+            use_batch_norm=regression_head_params.get("use_batch_norm", True),
+            dropout_rate=regression_head_params.get("dropout_rate", 0.0),
+            uncertainty_method=uncertainty_method,
+        )
 
-    def forward(self, head_input_probas: torch.Tensor) -> torch.Tensor:
-        y_output_all_classes = self.head(head_input_probas)
-        return y_output_all_classes.reshape(head_input_probas.shape[0], self.n_classes, self.regression_output_size)
+    def forward(self, probabilities: torch.Tensor) -> torch.Tensor:
+        y_output_all_classes = self.head(probabilities)
+        regression_outputs = y_output_all_classes.reshape(probabilities.shape[0], self.n_classes, self.regression_output_size)
+        return torch.sum(probabilities.unsqueeze(-1) * regression_outputs, dim=1)
 
 
 class _SingleHeadFinalOutputRegressionModule(nn.Module):
@@ -358,7 +531,15 @@ class _SingleHeadFinalOutputRegressionModule(nn.Module):
 
     def __init__(self, input_size: int, regression_head_params: dict[str, Any], uncertainty_method: UncertaintyMethod, regression_output_size: int) -> None:
         super().__init__()
-        self.head = _BaseRegressionHead(input_size=input_size, output_size=regression_output_size, uncertainty_method=uncertainty_method, **regression_head_params)
+        self.head = _BaseRegressionHead(
+            input_size=input_size,
+            output_size=regression_output_size,
+            hidden_layers=regression_head_params.get("hidden_layers", 1),
+            hidden_size=regression_head_params.get("hidden_size", 32),
+            use_batch_norm=regression_head_params.get("use_batch_norm", True),
+            dropout_rate=regression_head_params.get("dropout_rate", 0.0),
+            uncertainty_method=uncertainty_method,
+        )
 
     def forward(self, head_input_probas: torch.Tensor) -> torch.Tensor:
         return self.head(head_input_probas)
@@ -384,8 +565,11 @@ class _CombinedProbabilisticModel(nn.Module):
         n_classes_selection_method: NClassesSelectionMethod,
         gumbel_tau: float,
         n_classes_predictor_learning_rate: float,
+        device: torch.device,  # Add device parameter
     ) -> None:
         super().__init__()
+        self.input_size = input_size
+        self.device = device  # Assign device to self
         self.n_classes_inf = n_classes_inf
         self.max_n_classes_for_probabilistic_path = max_n_classes_for_probabilistic_path
         self.regression_strategy = regression_strategy
@@ -406,26 +590,34 @@ class _CombinedProbabilisticModel(nn.Module):
 
         if self.n_classes_selection_method != NClassesSelectionMethod.NONE:
             self.n_classes = self.max_n_classes_for_probabilistic_path
-            # n_classes_predictor: outputs logits for (max_n_classes_for_probabilistic_path - 2 + 1) modes
+            # n_classes_predictor: outputs logits for (max_n_classes_for_probabilistic_path - 2 + 1) modes e.g. with max_n_classes_for_probabilistic_path = 5, possible choices
+            # for k (the number of bins) in the probabilistic path are: 2, 3, 4, and 5
             # (2 to max_n_classes_for_probabilistic_path) + 1 for direct regression
             n_classes_predictor_output_size = (self.max_n_classes_for_probabilistic_path - 2 + 1) + 1
-            self.n_classes_predictor = PyTorchNeuralNetwork(
-                input_size=input_size, output_size=n_classes_predictor_output_size, task_type=TaskType.CLASSIFICATION, **base_classifier_params
-            ).get_internal_model()
+            n_classes_predictor_instance = PyTorchNeuralNetwork(
+                input_size=input_size, output_size=n_classes_predictor_output_size, task_type=TaskType.CLASSIFICATION, device=self.device, **base_classifier_params
+            )
+            n_classes_predictor_instance.build_model()  # Explicitly build the model
+            self.n_classes_predictor = n_classes_predictor_instance.get_internal_model()
 
             # Direct regression head
-            self.direct_regression_head = PyTorchNeuralNetwork(
-                input_size=input_size, output_size=self.regression_output_size, task_type=TaskType.REGRESSION, **direct_regression_head_params
-            ).get_internal_model()
+            direct_regression_head_instance = PyTorchNeuralNetwork(
+                input_size=input_size, output_size=self.regression_output_size, task_type=TaskType.REGRESSION, device=self.device, **direct_regression_head_params
+            )
+            direct_regression_head_instance.build_model()  # Explicitly build the model
+            self.direct_regression_head = direct_regression_head_instance.get_internal_model()
         else:
             self.n_classes = n_classes
             self.n_classes_predictor = None
             self.direct_regression_head = None
 
         # Classifier part: Use PyTorchNeuralNetwork's internal architecture logic
-        classifier_output_size = 1 if self.n_classes == 2 else self.n_classes
-        temp_classifier_instance = PyTorchNeuralNetwork(input_size=input_size, output_size=classifier_output_size, task_type=TaskType.CLASSIFICATION, **base_classifier_params)
-        self.classifier_layers = temp_classifier_instance.model
+        classifier_output_size = self.n_classes
+        temp_classifier_instance = PyTorchNeuralNetwork(
+            input_size=input_size, output_size=classifier_output_size, task_type=TaskType.CLASSIFICATION, device=self.device, **base_classifier_params  # Pass device here as well
+        )
+        temp_classifier_instance.build_model()  # Explicitly build the model
+        self.classifier_layers = temp_classifier_instance.get_internal_model()
 
         if self.regression_strategy == RegressionStrategy.SEPARATE_HEADS:
             self.regression_module = _SeparateHeadsRegressionModule(
@@ -436,7 +628,7 @@ class _CombinedProbabilisticModel(nn.Module):
             )
         elif self.regression_strategy == RegressionStrategy.SINGLE_HEAD_N_OUTPUTS:
             self.regression_module = _SingleHeadNOutputsRegressionModule(
-                input_size=self.n_classes if self.n_classes == 1 else self.n_classes - 1,
+                input_size=self.n_classes,
                 n_classes=self.n_classes,
                 regression_head_params=regression_head_params,
                 uncertainty_method=self.uncertainty_method,
@@ -444,7 +636,7 @@ class _CombinedProbabilisticModel(nn.Module):
             )
         elif self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
             self.regression_module = _SingleHeadFinalOutputRegressionModule(
-                input_size=self.n_classes if self.n_classes == 1 else self.n_classes - 1,
+                input_size=self.n_classes,  # Changed from self.n_classes - 1
                 regression_head_params=regression_head_params,
                 uncertainty_method=self.uncertainty_method,
                 regression_output_size=self.regression_output_size,
@@ -452,38 +644,25 @@ class _CombinedProbabilisticModel(nn.Module):
         else:
             raise ValueError(f"Unknown regression_strategy: {regression_strategy}")
 
-    def _compute_predictions_for_k(self, x_input: torch.Tensor, k_val: int) -> torch.Tensor:
+    def _compute_predictions_for_k(self, classifier_raw_logits: torch.Tensor, k_val: int) -> torch.Tensor:
         """Helper to compute regression predictions for a given k_val."""
-        classifier_raw_logits = self.classifier_layers(x_input)
-
         masked_classifier_logits = torch.full_like(classifier_raw_logits, float("-inf"))
         masked_classifier_logits[:, :k_val] = classifier_raw_logits[:, :k_val]
 
         probabilities = torch.softmax(masked_classifier_logits, dim=1)
         return self.regression_module(probabilities)
 
-    def forward(self, x_input: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]:
+    def forward(self, x_input: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         n_classes_predictor_logits = self.n_classes_predictor(x_input) if self.n_classes_selection_method != NClassesSelectionMethod.NONE else None
 
-        final_predictions, selected_k_values, log_prob_for_reinforce = self.n_classes_strategy.forward(x_input, n_classes_predictor_logits)
-
-        # For classifier_logits_out, we need to decide what to return.
-        # For soft methods, it's not a single set of logits.
-        # For simplicity, let's return the logits corresponding to the argmax selected k.
-        # This is primarily for the get_classifier_predictions method.
-        # This part might need further refinement depending on how get_classifier_predictions is used.
-        classifier_logits_out = torch.zeros(x_input.size(0), self.n_classes).to(x_input.device)
-        if self.n_classes_selection_method != NClassesSelectionMethod.NONE:
-            # Exclude direct reg mode from argmax for classifier_logits_out
-            # This assumes that the strategy has a 'mode_selection_probs' attribute after forward pass
-            # which is true for GumbelSoftmaxStrategy and SoftGatingStrategy.
-            # For STE and REINFORCE, it's a hard one-hot, so argmax is still valid.
-            argmax_k_indices = torch.argmax(self.n_classes_strategy.mode_selection_probs[:, :-1], dim=1)
-            for i in range(x_input.size(0)):
-                k_for_classifier_out = argmax_k_indices[i] + 2  # Convert index to k value
-                # Ensure that classifier_layers is called with the correct input shape
-                classifier_logits_out[i, :k_for_classifier_out] = self.classifier_layers(x_input[i].unsqueeze(0))[:, :k_for_classifier_out]
-        else:
-            classifier_logits_out = self.classifier_layers(x_input)
+        final_predictions, selected_k_values, log_prob_for_reinforce, classifier_logits_out = self.n_classes_strategy.forward(x_input, n_classes_predictor_logits)
 
         return final_predictions, classifier_logits_out, selected_k_values, log_prob_for_reinforce
+
+    def get_num_parameters(self) -> int:
+        """Returns the total number of trainable parameters in the model.
+
+        Returns:
+            int: The total number of parameters.
+        """
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)

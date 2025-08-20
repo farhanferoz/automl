@@ -1,6 +1,6 @@
 """This module contains the strategies for the IndependentWeightsFlexibleNN model."""
 
-from typing import Any, Tuple
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -8,7 +8,7 @@ from torch.distributions import Categorical
 
 from automl_package.models.selection_strategies.base_selection_strategy import BaseSelectionStrategy
 
-SelectionOutput = Tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]
+SelectionOutput = tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]
 ForwardOutput = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
 
 
@@ -101,8 +101,7 @@ class IndependentWeightsNoneStrategy(BaseSelectionStrategy):
 
     def on_epoch_end(self, validation_loss: float, epoch_log_probs: Any) -> None:
         """This method is called at the end of each epoch."""
-        pass  # No annealing or policy update
-
+        # No annealing or policy update
 
 
 class IndependentWeightsSoftGatingStrategy(BaseSelectionStrategy):
@@ -147,7 +146,7 @@ class IndependentWeightsSoftGatingStrategy(BaseSelectionStrategy):
 
     def on_epoch_end(self, validation_loss: float, epoch_log_probs: Any) -> None:
         """This method is called at the end of each epoch."""
-        pass  # No annealing or policy update specific to soft gating
+        # No annealing or policy update specific to soft gating
 
 
 class IndependentWeightsSteStrategy(BaseSelectionStrategy):
@@ -191,7 +190,7 @@ class IndependentWeightsSteStrategy(BaseSelectionStrategy):
 
     def on_epoch_end(self, validation_loss: float, epoch_log_probs: Any) -> None:
         """This method is called at the end of each epoch."""
-        pass  # No annealing or policy update specific to STE
+        # No annealing or policy update specific to STE
 
 
 class IndependentWeightsReinforceStrategy(BaseSelectionStrategy):
@@ -235,6 +234,6 @@ class IndependentWeightsReinforceStrategy(BaseSelectionStrategy):
 
     def on_epoch_end(self, validation_loss: float, epoch_log_probs: Any) -> None:
         """This method is called at the end of each epoch."""
-        pass  # REINFORCE update happens in the main training loop (FlexibleHiddenLayersNN.fit)
+        # REINFORCE update happens in the main training loop (FlexibleHiddenLayersNN.fit)
         # The policy_optimizer.step() is called there.
         # This method can be used for any epoch-end logging or annealing specific to REINFORCE.

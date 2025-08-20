@@ -108,8 +108,8 @@ class PyTorchModelBase(BaseModel, ABC):
         if self.is_regression_model:
             if self.uncertainty_method not in [UncertaintyMethod.CONSTANT, UncertaintyMethod.MC_DROPOUT, UncertaintyMethod.PROBABILISTIC]:
                 raise ValueError(f"Unsupported uncertainty_method for regression: {self.uncertainty_method.value}. Choose from 'constant', 'mc_dropout', 'probabilistic'.")
-            if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC and self.output_size != 1:
-                raise ValueError("For 'probabilistic' uncertainty, base output_size must be 1 (it will be expanded to 2 internally).")
+            if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC and self.output_size != 2:
+                raise ValueError("For 'probabilistic' uncertainty, output_size must be 2 (mean and variance).")
         elif self.uncertainty_method != UncertaintyMethod.CONSTANT:
             logger.warning(f"uncertainty_method '{self.uncertainty_method.value}' is not applicable for classification task. Using 'constant'.")
             self.uncertainty_method = UncertaintyMethod.CONSTANT
@@ -181,12 +181,7 @@ class PyTorchModelBase(BaseModel, ABC):
         # Set device here, just before model building and training
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        if self.learn_regularization_lambdas:
-            if self.using_l1_regularization:
-                self.l1_log_lambda = nn.Parameter(torch.tensor(np.log(1e-4), dtype=torch.float32))
-            if self.using_l2_regularization:
-                self.l2_log_lambda = nn.Parameter(torch.tensor(np.log(1e-4), dtype=torch.float32))
-
+        # Move random seed setup before build_model()
         if self.random_seed is not None:
             torch.manual_seed(self.random_seed)
             np.random.seed(self.random_seed)
@@ -194,6 +189,12 @@ class PyTorchModelBase(BaseModel, ABC):
                 torch.cuda.manual_seed_all(self.random_seed)
 
         self.build_model()  # Build model with correct output size and dropout if needed
+
+        if self.learn_regularization_lambdas:
+            if self.using_l1_regularization:
+                self.l1_log_lambda = nn.Parameter(torch.tensor(np.log(1e-4), dtype=torch.float32))
+            if self.using_l2_regularization:
+                self.l2_log_lambda = nn.Parameter(torch.tensor(np.log(1e-4), dtype=torch.float32))
         self._setup_optimizers(self.model)  # Setup optimizers after model is built
 
         # Split data for early stopping if enabled
@@ -206,22 +207,30 @@ class PyTorchModelBase(BaseModel, ABC):
             x_train, y_train = x, y
 
         x_train_tensor = torch.tensor(x_train, dtype=torch.float32).to(self.device)
-        y_train_tensor = torch.tensor(y_train, dtype=torch.float32).to(self.device)
         if self.task_type == TaskType.CLASSIFICATION:
-            y_train_tensor = y_train_tensor.long()
-        # Ensure y_train_tensor is 2D for both regression and binary classification
-        if (self.task_type == TaskType.REGRESSION) or (self.task_type == TaskType.CLASSIFICATION and self.output_size == 1):
-            y_train_tensor = y_train_tensor.unsqueeze(1)
+            # For binary classification (output_size == 1), targets should be float (0.0 or 1.0)
+            if self.output_size == 1:
+                y_train_tensor = torch.tensor(y_train, dtype=torch.float32).to(self.device)
+                y_train_tensor = y_train_tensor.unsqueeze(1)
+            else:  # Multi-class classification, targets should be long
+                y_train_tensor = torch.tensor(y_train, dtype=torch.long).to(self.device)
+        elif self.task_type == TaskType.REGRESSION:
+            y_train_tensor = torch.tensor(y_train, dtype=torch.float32).to(self.device)
 
         train_dataset = torch.utils.data.TensorDataset(x_train_tensor, y_train_tensor)
         train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
 
         if x_val is not None:
             x_val_tensor = torch.tensor(x_val, dtype=torch.float32).to(self.device)
-            y_val_tensor = torch.tensor(y_val, dtype=torch.float32).to(self.device)
             if self.task_type == TaskType.CLASSIFICATION:
-                y_val_tensor = y_val_tensor.long()
-            if (self.task_type == TaskType.REGRESSION) or (self.task_type == TaskType.CLASSIFICATION and self.output_size == 1):
+                # For binary classification (output_size == 1), targets should be float (0.0 or 1.0)
+                if self.output_size == 1:
+                    y_val_tensor = torch.tensor(y_val, dtype=torch.float32).to(self.device)
+                    y_val_tensor = y_val_tensor.unsqueeze(1)
+                else:  # Multi-class classification, targets should be long
+                    y_val_tensor = torch.tensor(y_val, dtype=torch.long).to(self.device)
+            elif self.task_type == TaskType.REGRESSION:
+                y_val_tensor = torch.tensor(y_val, dtype=torch.float32).to(self.device)
                 y_val_tensor = y_val_tensor.unsqueeze(1)
 
         best_val_loss = float("inf")
@@ -240,11 +249,13 @@ class PyTorchModelBase(BaseModel, ABC):
                 if self._returns_multiple_outputs:
                     outputs_tuple = self.model(batch_x)
                     final_predictions = outputs_tuple[0]
-                    log_prob_for_reinforce = outputs_tuple[3] # Assuming log_prob is the 4th element
+                    log_prob_for_reinforce = outputs_tuple[3]  # Assuming log_prob is the 4th element
                 else:
                     final_predictions = self.model(batch_x)
                     log_prob_for_reinforce = None
 
+                if self.task_type == TaskType.REGRESSION:
+                    batch_y = batch_y.unsqueeze(1)
                 loss = self.criterion(final_predictions, batch_y)
 
                 loss = self._calculate_regularization_loss(loss, self.model)
@@ -346,8 +357,8 @@ class PyTorchModelBase(BaseModel, ABC):
             if self.task_type == TaskType.CLASSIFICATION:
                 predictions = (torch.sigmoid(outputs) > 0.5).cpu().numpy().astype(int) if self.output_size == 1 else torch.argmax(outputs, dim=1).cpu().numpy()
             else:  # Regression
-                predictions = outputs[:, 0].cpu().numpy() if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else outputs.cpu().numpy()
-        return predictions.flatten()  # Ensure flat array output
+                predictions = outputs.cpu().numpy()  # Always return outputs as is
+        return predictions  # Do not flatten here, let the caller handle it
 
     def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
         """Estimates uncertainty for regression using constant, MC Dropout, or probabilistic methods.
@@ -418,8 +429,11 @@ class PyTorchModelBase(BaseModel, ABC):
             # Multi-class classification
             return torch.softmax(outputs, dim=1).cpu().numpy()  # Correctly returns (N, num_classes)
 
-    def get_internal_model(self) -> torch.nn.Module | None:
-        """Returns the raw underlying PyTorch model (nn.Sequential)."""
+    def get_internal_model(self) -> Any:
+        """Returns the raw underlying model object, if applicable.
+
+        Useful for explainability libraries like SHAP.
+        """
         return self.model
 
     def get_num_parameters(self) -> int:
@@ -464,7 +478,7 @@ class PyTorchModelBase(BaseModel, ABC):
         """
         y_pred = self.predict(x)
         y_proba = self.predict_proba(x) if self.task_type == TaskType.CLASSIFICATION else None
-        metrics_calculator = Metrics(task_type=self.task_type.value, model_name=self.name, x_data=x, y_true=y, y_pred=y_pred, y_proba=y_proba)
+        metrics_calculator = Metrics(task_type=self.task_type.value, model_name=self.name, x_data=x, y_true=y, y_pred=y_pred.flatten(), y_proba=y_proba)
         metrics_calculator.save_metrics(save_path)
         return y_pred
 

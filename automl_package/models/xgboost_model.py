@@ -34,12 +34,12 @@ class XGBoostModel(BaseModel):
         self.is_regression_model = self.objective in ["reg:squarederror", "reg:logistic", "count:poisson", "reg:gamma", "reg:tweedie", "reg:quantile"]
         self._train_residual_std = 0.0  # For regression uncertainty
         self.num_iterations_used = 0
-        self.params.setdefault("verbosity", 0) # Suppress verbose output during training
+        self.params.setdefault("verbosity", 0)  # Suppress verbose output during training
 
     @property
     def name(self) -> str:
         """Returns the name of the model."""
-        return "XGBoost"
+        return "XGBoostModel"
 
     def fit(self, x: np.ndarray, y: np.ndarray) -> int:
         """Fits the XGBoost model to the training data.
