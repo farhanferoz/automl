@@ -1,15 +1,14 @@
 """Composite model for regression using classification and probability mapping."""
 
 import os
-from typing import Any
-
-import matplotlib.pyplot as plt  # New import
+from typing import Any, List
+import matplotlib.pyplot as plt
 import numpy as np
-from torch.nn import ReLU, Tanh  # Explicitly import ReLU and Tanh
+from torch.nn import ReLU, Tanh
 
-from automl_package.enums import MapperType, ModelName, TaskType, UncertaintyMethod  # Import enums
-from automl_package.logger import logger  # Import logger
-from automl_package.models.base import BaseModel  # Import BaseModel
+from automl_package.enums import MapperType, ModelName, TaskType, UncertaintyMethod
+from automl_package.logger import logger
+from automl_package.models.base import BaseModel
 from automl_package.models.probability_mapper import ClassProbabilityMapper
 from automl_package.utils.metrics import Metrics
 from automl_package.utils.numerics import create_bins
@@ -81,6 +80,16 @@ class ClassifierRegressionModel(BaseModel):
 
         return f"{base_name}_to_Reg_{self.mapper_type.value}"  # Dynamically append base name and mapper type
 
+    def _fit_mappers(self, y_proba_all: np.ndarray, y_flat: np.ndarray, mapper_type: MapperType) -> List[ClassProbabilityMapper]:
+        class_mappers = [None] * self.n_classes
+        for c in range(self.n_classes):
+            # Define the range for the current class in terms of original y values
+            # (used to select original y values belonging to this class)
+            mapper = ClassProbabilityMapper(mapper_type, **self.mapper_params)
+            mapper.fit(y_proba_all[:, c].reshape(-1, 1), y_flat)
+            class_mappers[c] = mapper
+        return class_mappers
+
     def fit(self, x: np.ndarray, y: np.ndarray) -> int:
         """Fits the underlying regression model and then trains the probability mapper.
 
@@ -88,7 +97,7 @@ class ClassifierRegressionModel(BaseModel):
             x (np.ndarray): Training features.
             y (np.ndarray): Original continuous target values.
         """
-        if not self.is_regression_model:  # This model should always be for regression
+        if not self.is_regression_model:
             raise ValueError("This model is designed for regression tasks.")
 
         # 1. Discretize the target variable into N balanced classes
@@ -141,6 +150,7 @@ class ClassifierRegressionModel(BaseModel):
         # Get probabilities for all classes from the trained classifier
         # y_proba_all will be (n_samples, n_classes)
         y_proba_all = self.base_classifier.predict_proba(x)
+
         if y_proba_all.shape[1] != self.n_classes:
             # Handle binary classification case where predict_proba might return (N,) or (N,1) for positive class only.
             # Ensure y_proba_all is (N, 2) if it was a binary classifier.
@@ -151,14 +161,35 @@ class ClassifierRegressionModel(BaseModel):
             else:
                 raise ValueError(f"Classifier predict_proba output shape {y_proba_all.shape} does not match n_classes {self.n_classes}.")
 
-        self.class_mappers = [None] * self.n_classes
+        if self.mapper_type == MapperType.AUTO:
+            best_mapper_type = None
+            min_loss = float("inf")
 
-        for c in range(self.n_classes):
-            # Define the range for the current class in terms of original y values
-            # (used to select original y values belonging to this class)
-            mapper = ClassProbabilityMapper(self.mapper_type, **self.mapper_params)
-            mapper.fit(y_proba_all[:, c].reshape(-1, 1), y_flat)
-            self.class_mappers[c] = mapper
+            # The four mapper types to test
+            mappers_to_test = [MapperType.LINEAR, MapperType.LOOKUP_MEDIAN, MapperType.LOOKUP_MEAN, MapperType.SPLINE]
+            for mapper_type_to_test in mappers_to_test:
+                temp_mappers = self._fit_mappers(y_proba_all=y_proba_all, y_flat=y_flat, mapper_type=mapper_type_to_test)
+
+                # Predict using the temporary mappers
+                final_predictions = np.zeros(x.shape[0])
+                for c in range(self.n_classes):
+                    proba_for_current_class = y_proba_all[:, c].reshape(-1, 1)
+                    expected_y_from_mapper = temp_mappers[c].predict(proba_for_current_class)
+                    final_predictions += proba_for_current_class.flatten() * expected_y_from_mapper
+
+                # Calculate loss
+                loss = np.mean((y_flat - final_predictions) ** 2)  # MSE
+
+                if loss < min_loss:
+                    min_loss = loss
+                    best_mapper_type = mapper_type_to_test
+                    self.class_mappers = temp_mappers
+
+            self.mapper_type = best_mapper_type
+            logger.info(f"Auto-selected mapper type: {self.mapper_type.value}")
+        else:
+            self.class_mappers = self._fit_mappers(y_proba_all=y_proba_all, y_flat=y_flat, mapper_type=self.mapper_type)
+
         return num_iterations_used
 
     def predict(self, x: np.ndarray) -> np.ndarray:
@@ -266,7 +297,7 @@ class ClassifierRegressionModel(BaseModel):
                     ModelName.CATBOOST.value,  # Ensure CatBoost is initialized for classification
                 ],
             },
-            "mapper_type": {"type": "categorical", "choices": [e.value for e in MapperType]},  # Use enum values
+            "mapper_type": {"type": "categorical", "choices": [e.value for e in MapperType if e != MapperType.AUTO]},  # Use enum values
             # Parameters for lookup mappers (will be sampled conditionally in AutoML)
             "n_partitions_min_lookup": {"type": "int", "low": 5, "high": 10},
             "n_partitions_max_lookup": {"type": "int", "low": 10, "high": 50},

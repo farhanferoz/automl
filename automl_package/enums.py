@@ -30,9 +30,10 @@ class MapperType(Enum):
     """Enum for different probability mapping strategies."""
 
     LINEAR = "linear"
-    LOOKUP_MEAN = "lookup_mean"
     LOOKUP_MEDIAN = "lookup_median"
+    LOOKUP_MEAN = "lookup_mean"
     SPLINE = "spline"
+    AUTO = "auto"
 
 
 class ModelName(Enum):
