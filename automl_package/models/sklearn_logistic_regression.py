@@ -5,11 +5,10 @@ from typing import Any, Never
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
-from sklearn.model_selection import train_test_split
 
+from automl_package.models.base import BaseModel
+from automl_package.utils.data_handler import create_train_val_split
 from automl_package.utils.metrics import Metrics
-
-from .base import BaseModel
 
 
 class SKLearnLogisticRegression(BaseModel):
@@ -19,19 +18,21 @@ class SKLearnLogisticRegression(BaseModel):
     Supports L1, L2, and ElasticNet regularization.
     """
 
-    def __init__(self, penalty: str = "l2", c: float = 1.0, l1_ratio: float | None = None, **kwargs: Any) -> None:
+    def __init__(self, penalty: str = "l2", c: float = 1.0, l1_ratio: float | None = None, random_seed: int | None = None, **kwargs: Any) -> None:
         """Initializes the SKLearnLogisticRegression model.
 
         Args:
             penalty (str): The type of regularization to use ('l1', 'l2', or 'elasticnet').
             c (float): Inverse of regularization strength.
             l1_ratio (float, optional): The ElasticNet mixing parameter, between 0 and 1.
+            random_seed (int, optional): Random seed for reproducibility.
             **kwargs: Additional keyword arguments for the BaseModel.
         """
         super().__init__(**kwargs)
         self.penalty = penalty
         self.C = c  # Inverse of regularization strength
         self.l1_ratio = l1_ratio  # For elasticnet
+        self.random_seed = random_seed
         self.model: LogisticRegression | None = None
         self.is_regression_model = False  # Not a regression model
 
@@ -40,15 +41,12 @@ class SKLearnLogisticRegression(BaseModel):
         """Returns the name of the model."""
         return "SKLearnLogisticRegression"
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
+    def fit(self, x: np.ndarray, y: np.ndarray) -> None:
         """Fits the Logistic Regression model to the training data.
 
         Args:
             x (np.ndarray): Feature matrix.
             y (np.ndarray): Target vector.
-
-        Returns:
-            int: Number of iterations used for training.
         """
         if self.penalty == "elasticnet" and self.l1_ratio is None:
             raise ValueError("l1_ratio must be specified when penalty is 'elasticnet'.")
@@ -66,10 +64,14 @@ class SKLearnLogisticRegression(BaseModel):
             base_model = LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, warm_start=True, max_iter=1, **self.params)
 
         if self.early_stopping_rounds is not None and self.validation_fraction > 0:
-            x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=self.validation_fraction, random_state=42, stratify=y)
+            self.train_indices, self.val_indices = create_train_val_split(x, y, self.validation_fraction, self.random_seed)
+            x_train, x_val = x[self.train_indices], x[self.val_indices]
+            y_train, y_val = y[self.train_indices], y[self.val_indices]
         else:
             x_train, y_train = x, y
             x_val, y_val = None, None
+            self.train_indices = np.arange(x.shape[0])
+            self.val_indices = None
 
         best_val_loss = float("inf")
         patience_counter = 0
@@ -107,7 +109,7 @@ class SKLearnLogisticRegression(BaseModel):
             base_model.intercept_ = best_model_state["intercept_"]
 
         self.model = base_model
-        return best_i + 1  # Return the number of iterations actually used
+        self.num_iterations_used = best_i + 1
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.

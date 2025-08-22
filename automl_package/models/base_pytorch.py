@@ -7,11 +7,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.model_selection import train_test_split
 
 from automl_package.enums import LearnedRegularizationType, NClassesSelectionMethod, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
+from automl_package.utils.data_handler import create_train_val_split
 from automl_package.utils.metrics import Metrics
 from automl_package.utils.numerics import aggregate_stats, log_erfc
 
@@ -168,12 +168,11 @@ class PyTorchModelBase(BaseModel, ABC):
 
         return loss
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
+    def fit(self, x: np.ndarray, y: np.ndarray) -> None:
         """Trains the PyTorch Neural Network.
 
         :param x: The input features.
         :param y: The target values.
-        :return: The number of epochs trained.
         """
         if self.input_size is None:
             self.input_size = 1 if x.ndim == 1 else x.shape[1]
@@ -197,14 +196,15 @@ class PyTorchModelBase(BaseModel, ABC):
                 self.l2_log_lambda = nn.Parameter(torch.tensor(np.log(1e-4), dtype=torch.float32))
         self._setup_optimizers(self.model)  # Setup optimizers after model is built
 
-        # Split data for early stopping if enabled
-        x_val, y_val = None, None
-        x_val_tensor, y_val_tensor = None, None
-
         if self.early_stopping_rounds is not None and self.validation_fraction > 0:
-            x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=self.validation_fraction, random_state=42)
+            self.train_indices, self.val_indices = create_train_val_split(x, y, self.validation_fraction, self.random_seed)
+            x_train, x_val = x[self.train_indices], x[self.val_indices]
+            y_train, y_val = y[self.train_indices], y[self.val_indices]
         else:
             x_train, y_train = x, y
+            self.train_indices = np.arange(x.shape[0])
+            self.val_indices = None
+            x_val, y_val = None, None
 
         x_train_tensor = torch.tensor(x_train, dtype=torch.float32).to(self.device)
         if self.task_type == TaskType.CLASSIFICATION:
@@ -254,9 +254,8 @@ class PyTorchModelBase(BaseModel, ABC):
                     final_predictions = self.model(batch_x)
                     log_prob_for_reinforce = None
 
-                if self.task_type == TaskType.REGRESSION:
-                    batch_y = batch_y.unsqueeze(1)
-                loss = self.criterion(final_predictions, batch_y)
+                batch_y_processed = batch_y.unsqueeze(1) if self.task_type == TaskType.REGRESSION else batch_y
+                loss = self.criterion(final_predictions, batch_y_processed)
 
                 loss = self._calculate_regularization_loss(loss, self.model)
 
@@ -319,7 +318,7 @@ class PyTorchModelBase(BaseModel, ABC):
             if self.l2_log_lambda is not None:
                 logger.info(f"Learned L2 Lambda: {torch.exp(self.l2_log_lambda).item():.6f}")
 
-        return best_epoch + 1  # Return the number of epochs actually used
+        self.num_iterations_used = best_epoch + 1
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions with the PyTorch Neural Network.

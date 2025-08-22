@@ -1,10 +1,20 @@
+"""Base mapper for probability mapping."""
+
 from abc import ABC, abstractmethod
 
 import numpy as np
 
 
 class BaseMapper(ABC):
+    """Base class for probability mappers."""
+
     def fit(self, probas: np.ndarray, y_original: np.ndarray) -> None:
+        """Fits the mapper.
+
+        Args:
+            probas (np.ndarray): The probabilities.
+            y_original (np.ndarray): The original y values.
+        """
         if probas.ndim == 2 and probas.shape[1] == 1:
             probas = probas.flatten()
 
@@ -31,8 +41,24 @@ class BaseMapper(ABC):
 
     @abstractmethod
     def predict(self, probas_new: np.ndarray) -> np.ndarray:
+        """Predicts the mapped values.
+
+        Args:
+            probas_new (np.ndarray): The new probabilities.
+
+        Returns:
+            np.ndarray: The predicted values.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def predict_variance(self, probas_new: np.ndarray) -> np.ndarray:
+        """Predicts the variance of the mapped values.
+
+        Args:
+            probas_new (np.ndarray): The new probabilities.
+
+        Returns:
+            np.ndarray: The predicted variances.
+        """
         raise NotImplementedError

@@ -27,17 +27,17 @@ class BaseModel(abc.ABC):
         self.is_composite_regression_model = False  # New flag to identify composite models that have an internal classifier
         self.early_stopping_rounds = early_stopping_rounds
         self.validation_fraction = validation_fraction
+        self.num_iterations_used = 0
+        self.train_indices = None
+        self.val_indices = None
 
     @abc.abstractmethod
-    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
+    def fit(self, x: np.ndarray, y: np.ndarray) -> None:
         """Fits the model to the training data.
 
         Args:
             x (np.ndarray): Feature matrix.
             y (np.ndarray): Target vector.
-
-        Returns:
-            int: Number of iterations/epochs/estimators.
         """
 
     @abc.abstractmethod

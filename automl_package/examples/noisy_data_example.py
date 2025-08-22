@@ -22,9 +22,10 @@ from automl_package.models.pytorch_linear_regression import PyTorchLinearRegress
 from automl_package.models.xgboost_model import XGBoostModel
 
 
-def generate_noisy_data(n_samples: int = 1000, noise_level: float = 0.5) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def generate_noisy_data(n_samples: int = 1000, noise_level: float = 0.5, random_seed: int | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Generates synthetic data with a non-linear relationship and significant noise."""
-    np.random.seed(42)
+    if random_seed is not None:
+        np.random.seed(random_seed)
     x = np.random.rand(n_samples, 1) * 10
     # A non-linear relationship
     y_true = np.sin(x).ravel() + x.ravel() * 0.5
@@ -94,8 +95,9 @@ def plot_results_bokeh(x_train: np.ndarray, y_train: np.ndarray, x_test: np.ndar
 
 def run_experiment() -> None:
     """Runs the full experiment to compare model performances."""
-    x, y, y_true = generate_noisy_data()
-    x_train, x_test, y_train, y_test, y_true_train, y_true_test = train_test_split(x, y, y_true, test_size=0.2, random_state=42)
+    random_seed = 42
+    x, y, y_true = generate_noisy_data(random_seed=random_seed)
+    x_train, x_test, y_train, y_test, y_true_train, y_true_test = train_test_split(x, y, y_true, test_size=0.2, random_state=random_seed)
 
     # Scale features and target
     scaler_x = StandardScaler()
@@ -121,7 +123,7 @@ def run_experiment() -> None:
         learn_regularization_lambdas=True,
         learned_regularization_type=LearnedRegularizationType.L1_L2,
         lambda_learning_rate=0.001,
-        random_seed=1,
+        random_seed=random_seed,
     )
 
     # Flexible Neural Network
@@ -153,7 +155,7 @@ def run_experiment() -> None:
         learn_regularization_lambdas=True,
         learned_regularization_type=LearnedRegularizationType.L1_L2,
         lambda_learning_rate=0.001,
-        random_seed=1,
+        random_seed=random_seed,
     )
 
     # CatBoost Model
@@ -162,7 +164,7 @@ def run_experiment() -> None:
         iterations=100,
         learning_rate=0.1,
         early_stopping_rounds=20,
-        random_seed=1,
+        random_seed=random_seed,
     )
 
     # LightGBM Model
@@ -171,7 +173,7 @@ def run_experiment() -> None:
         n_estimators=100,
         learning_rate=0.1,
         early_stopping_rounds=20,
-        random_seed=1,
+        random_seed=random_seed,
     )
 
     # Linear Regression
@@ -179,7 +181,7 @@ def run_experiment() -> None:
         learning_rate=0.01,
         n_iterations=1000,
         task_type=TaskType.REGRESSION,
-        random_seed=1,
+        random_seed=random_seed,
     )
 
     # Normal Equation Linear Regression
@@ -195,7 +197,7 @@ def run_experiment() -> None:
         learning_rate=0.01,
         early_stopping_rounds=20,
         validation_fraction=0.2,
-        random_seed=1,
+        random_seed=random_seed,
     )
 
     # XGBoost Model
@@ -204,7 +206,7 @@ def run_experiment() -> None:
         n_epochs=100,
         learning_rate=0.1,
         early_stopping_rounds=20,
-        random_seed=1,
+        random_seed=random_seed,
     )
 
     models = {

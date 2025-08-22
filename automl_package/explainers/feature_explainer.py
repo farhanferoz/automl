@@ -26,6 +26,7 @@ class FeatureExplainer:
         feature_names: list[str] | None = None,
         device: torch.device | None = None,
         max_data_points: int = 50000,
+        random_state: int | None = None,
     ) -> None:
         """Initializes the SHAP explainer based on the model type.
 
@@ -37,6 +38,7 @@ class FeatureExplainer:
             feature_names (List[str], optional): Names of the features. If None, uses generic names.
             device (torch.device, optional): The device (CPU or GPU) to use for PyTorch models.
             max_data_points (int): Maximum number of data points to use for SHAP explanation.
+            random_state (int, optional): Random seed for reproducibility. Defaults to None.
         """
         self.original_model = model_instance  # Store the original object (can be pipeline)
         self.x_background = x_background
@@ -48,6 +50,7 @@ class FeatureExplainer:
 
         self.device = device
         self.max_data_points = max_data_points
+        self.random_state = random_state
         self._initialize_explainer()
 
     def _initialize_explainer(self) -> None:
@@ -135,8 +138,8 @@ class FeatureExplainer:
         # If the number of data points exceeds max_data_points, randomly sample
         if x_to_explain.shape[0] > self.max_data_points:
             logger.info(f"Sampling {self.max_data_points} data points for SHAP explanation from {x_to_explain.shape[0]} available.")
-            np.random.seed(42)  # for reproducibility
-            sample_indices = np.random.choice(x_to_explain.shape[0], self.max_data_points, replace=False)
+            rng = np.random.default_rng(self.random_state)
+            sample_indices = rng.choice(x_to_explain.shape[0], self.max_data_points, replace=False)
             x_to_explain = x_to_explain[sample_indices]
 
         # Ensure data is in the correct format for the explainer (e.g., PyTorch tensor for DeepExplainer)

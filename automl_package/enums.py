@@ -29,11 +29,24 @@ class RegressionStrategy(Enum):
 class MapperType(Enum):
     """Enum for different probability mapping strategies."""
 
-    LINEAR = "linear"
-    LOOKUP_MEDIAN = "lookup_median"
-    LOOKUP_MEAN = "lookup_mean"
-    SPLINE = "spline"
-    AUTO = "auto"
+    LINEAR = ("linear", False)
+    LOOKUP_MEDIAN = ("lookup_median", False)
+    LOOKUP_MEAN = ("lookup_mean", False)
+    SPLINE = ("spline", False)
+    AUTO = ("auto", False)
+    NN_SEPARATE_HEADS = ("nn_separate_heads", True)
+    NN_SINGLE_HEAD_N_OUTPUTS = ("nn_single_head_n_outputs", True)
+    NN_SINGLE_HEAD_FINAL_OUTPUT = ("nn_single_head_final_output", True)
+
+    def __init__(self, label: str, is_nn: bool) -> None:
+        """Initializes the MapperType enum member.
+
+        Args:
+            label: The string value for the enum.
+            is_nn: A boolean indicating if the mapper is a neural network.
+        """
+        self.label = label
+        self.is_nn = is_nn
 
 
 class ModelName(Enum):

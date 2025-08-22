@@ -11,12 +11,13 @@ def create_bins(
     data: np.ndarray, n_bins: int | None = None, unique_bin_edges: np.ndarray | None = None, min_value: float | None = None, max_value: float | None = None
 ) -> tuple[np.ndarray, np.ndarray]:
     """Creates bins for a given dataset and returns the bin edges and the bin index for each data point.
+
     It handles duplicate bin edges by reducing the number of bins until all bin edges are unique.
 
     Args:
         data (np.ndarray): The input data.
         n_bins (Optional int): The desired number of bins.
-        unique_bin_edges (Optional np.ndarry) if provided then only bin_indices will be created
+        unique_bin_edges (Optional np.ndarray): If provided, these bin edges will be used instead of creating new ones.
         min_value: (Optional float): If provided then the lower value of first bin
         max_value: (Optional float): If provided then the upper value of last bin
 

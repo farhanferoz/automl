@@ -4,11 +4,10 @@ from typing import Any, Never
 
 import numpy as np
 import xgboost as xgb
-from sklearn.model_selection import train_test_split
 
+from automl_package.models.base import BaseModel
+from automl_package.utils.data_handler import create_train_val_split
 from automl_package.utils.metrics import Metrics
-
-from .base import BaseModel
 
 
 class XGBoostModel(BaseModel):
@@ -18,17 +17,19 @@ class XGBoostModel(BaseModel):
     as they implement the BaseModel interface. This is not a redeclaration error.
     """
 
-    def __init__(self, objective: str = "reg:squarederror", eval_metric: str = "rmse", **kwargs: Any) -> None:
+    def __init__(self, objective: str = "reg:squarederror", eval_metric: str = "rmse", random_seed: int | None = None, **kwargs: Any) -> None:
         """Initializes the XGBoostModel.
 
         Args:
             objective (str): The learning objective function.
             eval_metric (str): The evaluation metric.
+            random_seed (int, optional): Random seed for reproducibility.
             **kwargs: Additional keyword arguments for the XGBoost model.
         """
         super().__init__(**kwargs)
         self.objective = objective
         self.eval_metric = eval_metric
+        self.random_seed = random_seed
         self.model: xgb.XGBRegressor | xgb.XGBClassifier | None = None
         # Determine if it's a regression model based on objective
         self.is_regression_model = self.objective in ["reg:squarederror", "reg:logistic", "count:poisson", "reg:gamma", "reg:tweedie", "reg:quantile"]
@@ -41,24 +42,25 @@ class XGBoostModel(BaseModel):
         """Returns the name of the model."""
         return "XGBoostModel"
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
+    def fit(self, x: np.ndarray, y: np.ndarray) -> None:
         """Fits the XGBoost model to the training data.
 
         Args:
             x (np.ndarray): Feature matrix.
             y (np.ndarray): Target vector.
-
-        Returns:
-            int: Number of iterations used for training.
         """
         # Split data for early stopping if enabled
         eval_set = None
         if self.early_stopping_rounds is not None and self.validation_fraction > 0:
-            x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=self.validation_fraction, random_state=42)
+            self.train_indices, self.val_indices = create_train_val_split(x, y, self.validation_fraction, self.random_seed)
+            x_train, x_val = x[self.train_indices], x[self.val_indices]
+            y_train, y_val = y[self.train_indices], y[self.val_indices]
             eval_set = [(x_val, y_val)]
             self.params["early_stopping_rounds"] = self.early_stopping_rounds
         else:
             x_train, y_train = x, y
+            self.train_indices = np.arange(x.shape[0])
+            self.val_indices = None
 
         # Handle classification objectives for XGBoost based on objective string
         if self.objective in ["binary:logistic", "multi:softmax", "multi:softprob"]:
@@ -84,7 +86,6 @@ class XGBoostModel(BaseModel):
                 self._train_residual_std = _train_residual_std
 
         self.num_iterations_used = self.model.best_iteration if eval_set is not None and self.model.best_iteration is not None else self.model.n_estimators
-        return self.num_iterations_used
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.

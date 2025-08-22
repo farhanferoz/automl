@@ -48,7 +48,7 @@ class AutoML:
         metric: str = "rmse",  # e.g., 'rmse', 'accuracy', 'log_loss'
         n_trials: int = 20,
         n_splits: int = 5,
-        random_state: int = 42,
+        random_state: int | None = None,
         feature_scaler: TransformerMixin | None = None,
         target_scaler: TransformerMixin | None = None,
         use_wandb: bool = False,
@@ -81,7 +81,7 @@ class AutoML:
         self.metric = metric
         self.n_trials = n_trials
         self.n_splits = n_splits
-        self.random_state = random_state
+        self.random_state = random_state if random_state is not None else 42
         self.use_wandb = use_wandb
         self.categorical_features = categorical_features
         self.auto_detect_categorical = auto_detect_categorical
@@ -229,7 +229,7 @@ class AutoML:
             base_model_enum = ModelName(base_classifier_name_str)  # Convert string back to Enum
             base_classifier_class = self.models_registry[base_model_enum]
 
-            mapper_type_str = params.pop("mapper_type", MapperType.SPLINE.value)
+            mapper_type_str = params.pop("mapper_type", MapperType.SPLINE.label)
             mapper_type = MapperType(mapper_type_str)
 
             # Reconstruct base_classifier_params
@@ -476,7 +476,7 @@ class AutoML:
                     params[param_key] = trial.suggest_categorical(param_key, config["choices"])
 
             # Parameters for the probability mapper
-            mapper_type_val = trial.suggest_categorical("mapper_type", [e.value for e in MapperType])
+            mapper_type_val = trial.suggest_categorical("mapper_type", [e.label for e in MapperType])
             params["mapper_type"] = mapper_type_val
 
             # Conditional mapper params

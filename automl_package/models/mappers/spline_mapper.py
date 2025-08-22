@@ -1,3 +1,7 @@
+"""Spline mapper for probability mapping."""
+
+from typing import Any
+
 import numpy as np
 from scipy.interpolate import UnivariateSpline
 
@@ -6,7 +10,10 @@ from automl_package.models.mappers.base_mapper import BaseMapper
 
 
 class SplineMapper(BaseMapper):
-    def __init__(self, **kwargs):
+    """Mapper that uses a spline to map probabilities to regression values."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Initializes the SplineMapper."""
         self.model = None
         self.spline_k = kwargs.get("spline_k", 3)
         self.spline_s = kwargs.get("spline_s")
@@ -34,17 +41,33 @@ class SplineMapper(BaseMapper):
         _spline_residual_variance = np.var(y_original - y_pred_train)
         self._spline_residual_variance = 0.0 if np.isnan(_spline_residual_variance) else _spline_residual_variance
 
-    def _fit_empty(self, probas: np.ndarray, y_original: np.ndarray) -> None:
+    def _fit_empty(self, probas: np.ndarray, y_original: np.ndarray) -> None:  # noqa: ARG002
         self.model = UnivariateSpline(x=[0, 1], y=[0, 0], k=1, s=0)
         self._spline_residual_variance = 0.0
 
     def predict(self, probas_new: np.ndarray) -> np.ndarray:
+        """Predicts the mapped values.
+
+        Args:
+            probas_new (np.ndarray): The new probabilities.
+
+        Returns:
+            np.ndarray: The predicted values.
+        """
         if self.model is None:
             raise RuntimeError("Spline mapper has not been fitted yet.")
         probas_new_clipped = np.clip(probas_new, self.model.get_knots()[0], self.model.get_knots()[-1]) if len(self.model.get_knots()) > 1 else probas_new
         return self.model(probas_new_clipped).flatten()
 
     def predict_variance(self, probas_new: np.ndarray) -> np.ndarray:
+        """Predicts the variance of the mapped values.
+
+        Args:
+            probas_new (np.ndarray): The new probabilities.
+
+        Returns:
+            np.ndarray: The predicted variances.
+        """
         if self.model is None:
             raise RuntimeError("Spline mapper has not been fitted yet.")
         return np.full(probas_new.shape[0], self._spline_residual_variance)

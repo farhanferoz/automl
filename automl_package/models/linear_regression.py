@@ -79,7 +79,7 @@ class JAXLinearRegression(BaseModel):
 
         loss_grad = jit(grad(self._loss_fn, argnums=(0, 1)))
 
-        for i in range(self.n_iterations):
+        for _i in range(self.n_iterations):
             grads_w, grads_b = loss_grad(self.weights, self.bias, x_train_jax, y_train_jax)
             self.weights = self.weights - self.learning_rate * grads_w
             self.bias = self.bias - self.learning_rate * grads_b

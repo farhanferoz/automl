@@ -15,7 +15,7 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
     to prevent target leakage during training.
     """
 
-    def __init__(self, cols: list[str | int] | None = None, smoothing: float = 1.0, min_samples_leaf: int = 1) -> None:
+    def __init__(self, cols: list[str | int] | None = None, smoothing: float = 1.0, min_samples_leaf: int = 1, random_state: int | None = None) -> None:
         """Initializes the OrderedTargetEncoder.
 
         Args:
@@ -23,10 +23,12 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
                                               If None, all categorical columns will be encoded.
             smoothing (float): Smoothing factor to prevent overfitting to rare categories.
             min_samples_leaf (int): Minimum number of samples per leaf for target encoding.
+            random_state (int, optional): Random seed for reproducibility. Defaults to None.
         """
         self.cols = cols
         self.smoothing = smoothing
         self.min_samples_leaf = min_samples_leaf
+        self.random_state = random_state
         self.mapping = {}
         self.global_mean = None
 
@@ -58,7 +60,7 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
             temp_df = pd.DataFrame({"col": x[col], "target": y})
 
             # Shuffle the data to create a random permutation for leakage-free calculation
-            temp_df = temp_df.sample(frac=1, random_state=42).reset_index(drop=True)
+            temp_df = temp_df.sample(frac=1, random_state=self.random_state).reset_index(drop=True)
 
             # Calculate cumulative sum and count for each category
             cumsum = temp_df.groupby("col")["target"].cumsum() - temp_df["target"]

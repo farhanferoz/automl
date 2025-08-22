@@ -24,19 +24,22 @@ logger.info("===== Starting AutoML Debugging Session =====")
 
 
 # --- Regression Example (Simplified for Debugging) ---
-logger.info("\n--- Running Regression Example with Reduced Settings ---")
-X_reg, y_reg = make_regression(n_samples=100, n_features=5, noise=5.0, random_state=42)
+logger.info("--- Running Regression Example with Reduced Settings ---")
+random_seed = 42
+X_reg, y_reg = make_regression(n_samples=100, n_features=5, noise=5.0, random_state=random_seed)
 y_reg = y_reg + abs(y_reg.min()) + 1  # Ensure y is positive for certain percentile calcs
 
 # Split data for initial training (for AutoML's CV) and final test evaluation
-X_train_initial_reg, X_test_full_reg, y_train_initial_reg, y_test_full_reg = train_test_split(X_reg, y_reg, test_size=0.2, random_state=42)
+X_train_initial_reg, X_test_full_reg, y_train_initial_reg, y_test_full_reg = train_test_split(X_reg, y_reg, test_size=0.2, random_state=random_seed)
 
 # Instantiate scalers
 X_scaler_reg = StandardScaler()
 y_scaler_reg = StandardScaler()
 
 # Configure AutoML for quick debugging
-automl_reg = AutoML(task_type=TaskType.REGRESSION, metric="rmse", n_trials=2, n_splits=2, random_state=42, feature_scaler=X_scaler_reg, target_scaler=y_scaler_reg, use_wandb=True)
+automl_reg = AutoML(
+    task_type=TaskType.REGRESSION, metric="rmse", n_trials=2, n_splits=2, random_state=random_seed, feature_scaler=X_scaler_reg, target_scaler=y_scaler_reg, use_wandb=True
+)
 
 # --- Select ONE model to debug at a time by uncommenting it ---
 models_for_reg = [
@@ -50,7 +53,9 @@ models_for_reg = [
     # ModelName.PROBABILISTIC_REGRESSION,
 ]
 
-automl_reg = AutoML(task_type=TaskType.REGRESSION, metric="rmse", n_trials=1, n_splits=2, random_state=42, feature_scaler=X_scaler_reg, target_scaler=y_scaler_reg, use_wandb=False)
+automl_reg = AutoML(
+    task_type=TaskType.REGRESSION, metric="rmse", n_trials=1, n_splits=2, random_state=random_seed, feature_scaler=X_scaler_reg, target_scaler=y_scaler_reg, use_wandb=False
+)
 automl_reg.train(X_train_initial_reg, y_train_initial_reg, models_to_consider=models_for_reg)
 
 if automl_reg.best_model_name:

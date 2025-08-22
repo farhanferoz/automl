@@ -1,3 +1,5 @@
+"""Showcase for independent weights flexible neural network."""
+
 import os
 import shutil
 
@@ -15,9 +17,10 @@ from automl_package.models.independent_weights_flexible_neural_network import In
 from automl_package.models.neural_network import PyTorchNeuralNetwork
 
 
-def create_synthetic_data(n_samples: int = 1000) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def create_synthetic_data(n_samples: int = 1000, random_seed: int | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Creates a synthetic dataset with varying complexity."""
-    np.random.seed(42)
+    if random_seed is not None:
+        np.random.seed(random_seed)
     x = np.random.uniform(-5, 5, n_samples)
 
     # Define the piecewise function
@@ -84,9 +87,10 @@ def plot_results_bokeh(x_data: np.ndarray, y_data: np.ndarray, y_true: np.ndarra
     print(f"Saved main prediction comparison plot to {output_path}")
 
 
-def run_showcase():
+def run_showcase() -> None:
     """Runs the full showcase demonstration for independent weights."""
-    x, y, y_true = create_synthetic_data()
+    random_seed = 42
+    x, y, y_true = create_synthetic_data(random_seed=random_seed)
 
     models_to_test = {
         "Static NN (5 Layers)": PyTorchNeuralNetwork(
@@ -221,8 +225,8 @@ def run_showcase():
         print(f"Training {name}...")
         # Set random seed for reproducibility of torch models
         if hasattr(model, "random_seed"):
-            model.random_seed = 42
-            torch.manual_seed(42)
+            model.random_seed = random_seed
+            torch.manual_seed(random_seed)
 
         model.fit(x, y)
         save_path = os.path.join(output_dir, name.replace(" ", "_").replace("-", "_").replace("(", "").replace(")", ""))

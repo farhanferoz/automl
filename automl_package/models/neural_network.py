@@ -49,8 +49,7 @@ class _PyTorchNNModule(nn.Module):
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        predictions = self.layers(x)
-        return predictions
+        return self.layers(x)
 
 
 class PyTorchNeuralNetwork(PyTorchModelBase):
@@ -76,6 +75,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
             hidden_layers (int): Number of hidden layers.
             hidden_size (int): Number of neurons in each hidden layer.
             activation (Any): Activation function to use.
+            device (torch.device, optional): The device to run the model on.
             **kwargs: Additional keyword arguments for PyTorchModelBase.
         """
         super().__init__(device=device, **kwargs)

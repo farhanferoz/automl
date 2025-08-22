@@ -352,10 +352,9 @@ class Metrics:
         x_original = self.x_data
         if feature_scaler:
             # Handle both 1D and 2D x_data for inverse_transform
-            if x_original.ndim == 1:
-                x_original = feature_scaler.inverse_transform(x_original.reshape(-1, 1)).flatten()
-            else:
-                x_original = feature_scaler.inverse_transform(x_original)[:, 0]  # Plot against the first feature
+            x_original = (
+                feature_scaler.inverse_transform(x_original.reshape(-1, 1)).flatten() if x_original.ndim == 1 else feature_scaler.inverse_transform(x_original)[:, 0]
+            )  # Plot against the first feature
         else:
             x_original = x_original.flatten() if x_original.ndim == 1 else x_original[:, 0]
 

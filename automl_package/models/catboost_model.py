@@ -4,26 +4,28 @@ from typing import Any, Never
 
 import numpy as np
 from catboost import CatBoostClassifier, CatBoostRegressor, Pool
-from sklearn.model_selection import train_test_split
 
 from automl_package.enums import TaskType  # Import TaskType enum
 from automl_package.logger import logger  # Import logger
 from automl_package.models.base import BaseModel
+from automl_package.utils.data_handler import create_train_val_split
 from automl_package.utils.metrics import Metrics
 
 
 class CatBoostModel(BaseModel):
     """CatBoost model wrapper."""
 
-    def __init__(self, task_type: TaskType = TaskType.REGRESSION, **kwargs: Any) -> None:
+    def __init__(self, task_type: TaskType = TaskType.REGRESSION, random_seed: int | None = None, **kwargs: Any) -> None:
         """Initializes the CatBoostModel.
 
         Args:
             task_type (TaskType): The type of machine learning task (regression or classification).
+            random_seed (int, optional): Random seed for reproducibility.
             **kwargs: Additional keyword arguments for the CatBoost model.
         """  # Use enum
         super().__init__(**kwargs)
         self.task_type = task_type
+        self.random_seed = random_seed
         self.model: CatBoostRegressor | CatBoostClassifier | None = None
         self.is_regression_model = task_type == TaskType.REGRESSION
         self._train_residual_std = 0.0  # For regression uncertainty
@@ -31,7 +33,8 @@ class CatBoostModel(BaseModel):
 
         # Default parameters to ensure basic functionality without warnings
         self.params.setdefault("verbose", 0)  # Suppress verbose output during training
-        self.params.setdefault("random_seed", 42)  # Ensure reproducibility
+        if self.random_seed is not None:
+            self.params.setdefault("random_seed", self.random_seed)  # Ensure reproducibility
         if self.task_type == TaskType.REGRESSION:
             self.params.setdefault("loss_function", "RMSE")
             self.params.setdefault("eval_metric", "RMSE")
@@ -44,23 +47,24 @@ class CatBoostModel(BaseModel):
         """Returns the name of the model."""
         return "CatBoostModel"
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
+    def fit(self, x: np.ndarray, y: np.ndarray) -> None:
         """Fits the CatBoost model to the training data.
 
         Args:
             x (np.ndarray): Feature matrix.
             y (np.ndarray): Target vector.
-
-        Returns:
-            int: Number of iterations used for training.
         """
         # Split data for early stopping if enabled
         eval_set = None
         if self.early_stopping_rounds is not None and self.validation_fraction > 0:
-            x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=self.validation_fraction, random_state=42)
+            self.train_indices, self.val_indices = create_train_val_split(x, y, self.validation_fraction, self.random_seed)
+            x_train, x_val = x[self.train_indices], x[self.val_indices]
+            y_train, y_val = y[self.train_indices], y[self.val_indices]
             eval_set = Pool(x_val, y_val)
         else:
             x_train, y_train = x, y
+            self.train_indices = np.arange(x.shape[0])
+            self.val_indices = None
 
         if self.task_type == TaskType.REGRESSION:
             self.model = CatBoostRegressor(**self.params)
@@ -93,7 +97,6 @@ class CatBoostModel(BaseModel):
                 self._train_residual_std = _train_residual_std
 
         self.num_iterations_used = self.model.tree_count_ if eval_set is not None and self.model.tree_count_ is not None else self.params.get("iterations", 100)
-        return self.num_iterations_used
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.

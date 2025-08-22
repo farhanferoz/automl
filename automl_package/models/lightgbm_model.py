@@ -4,25 +4,27 @@ from typing import Any, NoReturn
 
 import lightgbm as lgb
 import numpy as np
-from sklearn.model_selection import train_test_split
 
 from automl_package.enums import TaskType
 from automl_package.models.base import BaseModel
+from automl_package.utils.data_handler import create_train_val_split
 from automl_package.utils.metrics import Metrics
 
 
 class LightGBMModel(BaseModel):
     """LightGBM model wrapper."""
 
-    def __init__(self, task_type: TaskType = TaskType.REGRESSION, **kwargs: Any) -> None:
+    def __init__(self, task_type: TaskType = TaskType.REGRESSION, random_seed: int | None = None, **kwargs: Any) -> None:
         """Initializes the LightGBMModel.
 
         Args:
             task_type (TaskType): The type of machine learning task (regression or classification).
+            random_seed (int, optional): Random seed for reproducibility.
             **kwargs: Additional keyword arguments for the LightGBM model.
         """
         super().__init__(**kwargs)
         self.task_type = task_type
+        self.random_seed = random_seed
         self.model = None
         self.is_regression_model = task_type == TaskType.REGRESSION
         self._train_residual_std = 0.0  # For regression uncertainty
@@ -43,23 +45,24 @@ class LightGBMModel(BaseModel):
         """Returns the name of the model."""
         return "LightGBMModel"
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
+    def fit(self, x: np.ndarray, y: np.ndarray) -> None:
         """Fits the LightGBM model to the training data.
 
         Args:
             x (np.ndarray): Feature matrix.
             y (np.ndarray): Target vector.
-
-        Returns:
-            int: Number of iterations used for training.
         """
         # Split data for early stopping if enabled
         eval_set = None
         if self.early_stopping_rounds is not None and self.validation_fraction > 0:
-            x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=self.validation_fraction, random_state=42)
+            self.train_indices, self.val_indices = create_train_val_split(x, y, self.validation_fraction, self.random_seed)
+            x_train, x_val = x[self.train_indices], x[self.val_indices]
+            y_train, y_val = y[self.train_indices], y[self.val_indices]
             eval_set = [(x_val, y_val)]
         else:
             x_train, y_train = x, y
+            self.train_indices = np.arange(x.shape[0])
+            self.val_indices = None
 
         if self.task_type == TaskType.CLASSIFICATION:
             # For multi-class classification, adjust objective and metric
@@ -90,7 +93,6 @@ class LightGBMModel(BaseModel):
                 self._train_residual_std = _train_residual_std
 
         self.num_iterations_used = self.model._best_iteration if eval_set is not None and self.model._best_iteration is not None else self.model.n_estimators
-        return self.num_iterations_used
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.

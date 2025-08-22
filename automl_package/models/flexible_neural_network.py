@@ -193,7 +193,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
 
         x_train, x_val, y_train, y_val = (x, None, y, None)
         if self.early_stopping_rounds is not None and self.validation_fraction > 0:
-            x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=self.validation_fraction, random_state=42)
+            x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=self.validation_fraction, random_state=self.random_seed)
 
         x_train_tensor = torch.tensor(x_train, dtype=torch.float32).to(self.device)
         y_train_tensor = torch.tensor(y_train, dtype=torch.float32).to(self.device)

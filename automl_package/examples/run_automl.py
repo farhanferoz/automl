@@ -22,11 +22,12 @@ if __name__ == "__main__":
 
     logger.info("--- Running Regression Example with Uncertainty ---")
 
-    X_reg, y_reg = make_regression(n_samples=500, n_features=10, noise=10.0, random_state=42)
+    random_seed = 42
+    X_reg, y_reg = make_regression(n_samples=500, n_features=10, noise=10.0, random_state=random_seed)
     y_reg = y_reg + abs(y_reg.min()) + 1  # Ensure y is positive for percentile calc robustness
 
     # Split data once for initial training and final retraining
-    X_full, X_test_full, y_full, y_test_full = train_test_split(X_reg, y_reg, test_size=0.2, random_state=42)
+    X_full, X_test_full, y_full, y_test_full = train_test_split(X_reg, y_reg, test_size=0.2, random_state=random_seed)
     # For initial AutoML training (cross-validation on X_full, y_full)
     x_train_initial, y_train_initial = X_full, y_full  # Use full training data for main train() call
 
@@ -38,7 +39,7 @@ if __name__ == "__main__":
     y_scaler_reg = StandardScaler()
 
     automl_reg = AutoML(
-        task_type=TaskType.REGRESSION, metric="rmse", n_trials=3, n_splits=2, random_state=42, feature_scaler=x_scaler_reg, target_scaler=y_scaler_reg
+        task_type=TaskType.REGRESSION, metric="rmse", n_trials=3, n_splits=2, random_state=random_seed, feature_scaler=x_scaler_reg, target_scaler=y_scaler_reg
     )  # Pass scalers
 
     # Specify which models to consider for this run
@@ -128,11 +129,11 @@ if __name__ == "__main__":
     automl_reg.save_leaderboard("regression_leaderboard.json")
 
     # --- Classification Example ---
-    logger.info("\n--- Running Classification Example ---")
-    X_clf, y_clf = make_classification(n_samples=500, n_features=10, n_classes=2, random_state=42)
+    logger.info("--- Running Classification Example ---")
+    X_clf, y_clf = make_classification(n_samples=500, n_features=10, n_classes=2, random_state=random_seed)
 
     # Split data once for initial training and final retraining
-    X_full_clf, X_test_full_clf, y_full_clf, y_test_full_clf = train_test_split(X_clf, y_clf, test_size=0.2, random_state=42)
+    X_full_clf, X_test_full_clf, y_full_clf, y_test_full_clf = train_test_split(X_clf, y_clf, test_size=0.2, random_state=random_seed)
     x_train_initial_clf, y_train_initial_clf = X_full_clf, y_full_clf  # Use full training data for main train() call
 
     feature_names_clf = [f"feature_{i}" for i in range(X_clf.shape[1])]
@@ -140,7 +141,7 @@ if __name__ == "__main__":
     # Instantiate scaler for classification features
     x_scaler_clf = StandardScaler()
 
-    automl_clf = AutoML(task_type=TaskType.CLASSIFICATION, metric="accuracy", n_trials=3, n_splits=2, random_state=42, feature_scaler=x_scaler_clf)  # Pass feature scaler
+    automl_clf = AutoML(task_type=TaskType.CLASSIFICATION, metric="accuracy", n_trials=3, n_splits=2, random_state=random_seed, feature_scaler=x_scaler_clf)  # Pass feature scaler
 
     # Specify which models to consider for classification
     models_for_clf = [

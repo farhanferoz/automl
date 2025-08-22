@@ -1,3 +1,5 @@
+"""Probability mapper for regression tasks."""
+
 from typing import Any
 
 import numpy as np
@@ -9,9 +11,7 @@ from automl_package.models.mappers.spline_mapper import SplineMapper
 
 
 class ClassProbabilityMapper:
-    """Maps classification probabilities for a single class back to original regression values.
-    This class acts as a factory for different mapping strategies.
-    """
+    """Maps classification probabilities for a single class back to original regression values."""
 
     def __init__(self, mapper_type: MapperType = MapperType.LINEAR, **kwargs: Any) -> None:
         """Initializes the ClassProbabilityMapper.
@@ -23,14 +23,14 @@ class ClassProbabilityMapper:
         self.mapper_type = mapper_type
         self.mapper = self._create_mapper(**kwargs)
 
-    def _create_mapper(self, **kwargs):
+    def _create_mapper(self, **kwargs: Any) -> Any:
         if self.mapper_type == MapperType.LINEAR:
             return LinearMapper(**kwargs)
         if self.mapper_type in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
             return LookupMapper(mapper_type=self.mapper_type, **kwargs)
         if self.mapper_type == MapperType.SPLINE:
             return SplineMapper(**kwargs)
-        raise ValueError(f"Unsupported mapper_type: {self.mapper_type.value}")
+        raise ValueError(f"Unsupported mapper_type: {self.mapper_type.label}")
 
     def fit(self, probas: np.ndarray, y_original: np.ndarray) -> None:
         """Fits the mapping from probabilities to corresponding original target values.
