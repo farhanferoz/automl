@@ -6,7 +6,6 @@ from typing import Any
 import numpy as np
 import torch
 import torch.nn as nn
-from sklearn.model_selection import train_test_split
 
 from automl_package.enums import LayerSelectionMethod, TaskType, UncertaintyMethod
 from automl_package.logger import logger
@@ -57,8 +56,7 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             layer_selection_method (LayerSelectionMethod): Method for selecting active layers.
             **kwargs: Additional keyword arguments for PyTorchModelBase.
         """
-        super().__init__(**kwargs)
-        self._returns_multiple_outputs = True
+        super().__init__(early_stopping_rounds=kwargs.get("early_stopping_rounds"), cv_folds=kwargs.get("cv_folds"), **kwargs)
 
         # Validation logic
         if layer_selection_method == LayerSelectionMethod.NONE and n_predictor_layers != 0:
@@ -204,12 +202,22 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         else:
             raise ValueError("task_type must be 'regression' or 'classification'")
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
-        """Trains the IndependentWeightsFlexibleNN.
+    def _fit_single(
+        self, x: np.ndarray, y: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+    ) -> tuple[int, list[float]]:
+        """Fits a single model instance.
 
         Args:
-            x (np.ndarray): Training features.
-            y (np.ndarray): Training targets.
+            x (np.ndarray): The training features.
+            y (np.ndarray): The training targets.
+            x_val (np.ndarray | None): The validation features.
+            y_val (np.ndarray | None): The validation targets.
+            forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
+
+        Returns:
+            tuple[int, list[float]]: A tuple containing:
+                - The number of iterations the model was trained for.
+                - A list of the validation loss values for each epoch.
         """
         if self.input_size is None:
             self.input_size = 1 if x.ndim == 1 else x.shape[1]
@@ -231,9 +239,7 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         self.build_model()
         self._setup_optimizers(self.model)
 
-        x_train, x_val, y_train, y_val = (x, None, y, None)
-        if self.early_stopping_rounds is not None and self.validation_fraction > 0:
-            x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=self.validation_fraction, random_state=self.random_seed)
+        x_train, y_train, x_val, y_val = self._prepare_train_val_data(x, y, x_val, y_val)
 
         x_train_tensor = torch.tensor(x_train, dtype=torch.float32).to(self.device)
         y_train_tensor = torch.tensor(y_train, dtype=torch.float32).to(self.device)
@@ -258,11 +264,11 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         patience_counter = 0
         best_model_state = None
         best_epoch = 0
+        val_loss_history = []
 
-        # Define test points for n_predictor logging
-        x_test_points = torch.tensor([-2.5, 2.5], dtype=torch.float32).unsqueeze(1).to(self.device)
+        n_epochs = forced_iterations if forced_iterations is not None else self.n_epochs
 
-        for epoch in range(int(self.n_epochs)):
+        for epoch in range(int(n_epochs)):
             self.model.train()
             epoch_log_probs = []
             for _batch_x, batch_y in train_dataloader:
@@ -304,11 +310,12 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                 if self.lambda_optimizer:
                     self.lambda_optimizer.step()
 
-            if x_val is not None:
+            if x_val_tensor is not None and y_val_tensor is not None:
                 self.model.eval()
                 with torch.no_grad():
                     val_outputs, _, _, _, _ = self.model(x_val_tensor)
                     val_loss = self.criterion(val_outputs, y_val_tensor).item()
+                val_loss_history.append(val_loss)
 
                 # Pass collected epoch_log_probs
                 self.strategy.on_epoch_end(validation_loss=val_loss, epoch_log_probs=epoch_log_probs)
@@ -321,32 +328,13 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                 else:
                     patience_counter += 1
 
-                if patience_counter >= self.early_stopping_rounds:
+                if self.early_stopping_rounds and patience_counter >= self.early_stopping_rounds:
                     logger.info(f"Early stopping at epoch {best_epoch + 1}")
                     break
             else:
                 best_epoch = epoch
 
-            # Granular n_predictor logging
-            self.model.eval()
-            with torch.no_grad():
-                if self.model.n_predictor:  # Add this check
-                    n_logits_test = self.model.n_predictor(x_test_points)
-                    # Use the strategy's select_n method to get detailed info
-                    n_actual_test, n_probs_test, _, _ = self.strategy.select_n(x_test_points, n_logits_test)
-
-                    if self.layer_selection_method == LayerSelectionMethod.GUMBEL_SOFTMAX:
-                        logger.info(f"Epoch {epoch+1} - Gumbel Tau: {self.strategy.gumbel_tau:.4f}")
-                    for i, x_val_point in enumerate(x_test_points.cpu().numpy().flatten()):
-                        logger.info(f"  x={x_val_point:.2f}:")
-                        logger.info(f"    Logits: {n_logits_test[i].cpu().numpy()}")
-                        logger.info(f"    Probs: {n_probs_test[i].cpu().numpy()}")
-                        logger.info(f"    Actual N: {n_actual_test[i].item()}")
-                else:  # Add this else block
-                    logger.info(f"Epoch {epoch+1} - n_predictor not used for {self.layer_selection_method.name} strategy.")
-            self.model.train()  # Set back to train mode
-
-        if best_model_state:
+        if best_model_state and x_val_tensor is not None:
             self.model.load_state_dict(best_model_state)
 
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
@@ -361,7 +349,11 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             if self.l2_log_lambda is not None:
                 logger.info(f"Learned L2 Lambda: {torch.exp(self.l2_log_lambda).item():.6f}")
 
-        return best_epoch + 1
+        return best_epoch + 1, val_loss_history
+
+    def _clone(self) -> "IndependentWeightsFlexibleNN":
+        """Creates a new instance of the model with the same parameters."""
+        return self.__class__(**self.get_params())
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions with the IndependentWeightsFlexibleNN."""

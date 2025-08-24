@@ -3,10 +3,10 @@
 from typing import Any, Never
 
 import numpy as np
+from sklearn.metrics import mean_squared_error
 
+from automl_package.models.base import BaseModel
 from automl_package.utils.metrics import Metrics
-
-from .base import BaseModel
 
 
 class NormalEquationLinearRegression(BaseModel):
@@ -38,35 +38,52 @@ class NormalEquationLinearRegression(BaseModel):
         """Returns the name of the model."""
         return "NormalEquationLinearRegression"
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
-        """Fits the NormalEquationLinearRegression model to the training data.
+    def _fit_single(self, x: np.ndarray, y: np.ndarray, forced_iterations: int | None = None) -> tuple[int, list[float]]:
+        """Fits a single model instance.
 
         Args:
-            x (np.ndarray): Feature matrix.
-            y (np.ndarray): Target vector.
+            x (np.ndarray): The training features.
+            y (np.ndarray): The training targets.
+            forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
 
         Returns:
-            int: Number of iterations used for training (always 1 for this model).
+            tuple[int, list[float]]: A tuple containing:
+                - The number of iterations the model was trained for.
+                - A list of the validation loss values for each epoch.
         """
-        # Calculate weights
-        # X.T @ X + lambda * I
         identity_matrix = np.identity(x.shape[1])
         a = x.T @ x + self.l2_lambda * identity_matrix
         b = x.T @ y
 
         self.weights = np.linalg.solve(a, b)
 
-        # Calculate bias (intercept)
-        # The bias should be the mean of the target since X is centered
         self.bias = np.mean(y)
 
-        # Calculate residual standard deviation for uncertainty estimation
         y_pred_train = self.predict(x)
         self._train_residual_std = np.std(y - y_pred_train)
         if np.isnan(self._train_residual_std):
             self._train_residual_std = 0.0
 
-        return 1  # Non-iterative model, so 1 iteration
+        return 1, []
+
+    def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        """Evaluates a trial for hyperparameter optimization."""
+        return np.sqrt(mean_squared_error(y_true, y_pred))
+
+    def _clone(self) -> "NormalEquationLinearRegression":
+        """Creates a new instance of the model with the same parameters."""
+        return NormalEquationLinearRegression(**self.get_params())
+
+    def get_params(self) -> dict[str, Any]:
+        """Gets parameters for this estimator.
+
+        Returns:
+            dict: Parameter names mapped to their values.
+        """
+        return {
+            "l2_lambda": self.l2_lambda,
+            **self.params,
+        }
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.
@@ -147,3 +164,9 @@ class NormalEquationLinearRegression(BaseModel):
         metrics_calculator = Metrics(task_type="regression", model_name=self.name, x_data=x, y_true=y, y_pred=y_pred)
         metrics_calculator.save_metrics(save_path)
         return y_pred
+
+    def cross_validate(self, x: np.ndarray, y: np.ndarray, cv: int) -> dict[str, Any]:
+        """Performs cross-validation and returns the scores."""
+        self.cv_folds = cv
+        self.fit(x, y)
+        return {"test_score": self.cv_score_mean_}

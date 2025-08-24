@@ -54,7 +54,6 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
         uncertainty_method: UncertaintyMethod = UncertaintyMethod.CONSTANT,  # Use enum
         n_mc_dropout_samples: int = 100,
         dropout_rate: float = 0.1,
-        device: torch.device | None = None,  # Add device parameter here
         add_classification_loss: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -100,10 +99,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
             uncertainty_method=uncertainty_method,
             n_mc_dropout_samples=n_mc_dropout_samples,
             dropout_rate=dropout_rate,
-            device=device,  # Pass device to super().__init__
             **kwargs,
         )
-        self._returns_multiple_outputs = True  # This model returns multiple outputs
         self.n_classes = n_classes
         self.n_classes_inf = n_classes_inf
         self.max_n_classes_for_probabilistic_path = max_n_classes_for_probabilistic_path
@@ -255,18 +252,18 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
             n_classes_predictor_params = self.model.n_classes_predictor.parameters()
             self.model.n_classes_strategy.setup_optimizers(n_classes_predictor_params)
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
-        """Fits the ProbabilisticRegressionModel.
-
-        This involves pre-calculating the class boundaries for all possible `k` values
-        before calling the main training loop in the parent class.
+    def _fit_single(self, x: np.ndarray, y: np.ndarray, forced_iterations: int | None = None) -> tuple[int, list[float]]:
+        """Fits a single model instance.
 
         Args:
-            x (np.ndarray): Training features.
-            y (np.ndarray): Original continuous target values.
+            x (np.ndarray): The training features.
+            y (np.ndarray): The training targets.
+            forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
 
         Returns:
-            int: The number of epochs trained.
+            tuple[int, list[float]]: A tuple containing:
+                - The number of iterations the model was trained for.
+                - A list of the validation loss values for each epoch.
         """
         if not self.direct_regression:
             self.precomputed_class_boundaries = {}
@@ -279,7 +276,11 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
                 boundaries, _ = create_bins(data=y_flat, n_bins=k, min_value=-np.inf, max_value=np.inf)
                 self.precomputed_class_boundaries[k] = boundaries
 
-        return super().fit(x, y)
+        return super()._fit_single(x, y, forced_iterations)
+
+    def _clone(self) -> "ProbabilisticRegressionModel":
+        """Creates a new instance of the model with the same parameters."""
+        return self.__class__(**self.get_params())
 
     def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Returns the internal classifier's predicted classes, probabilities, and.

@@ -6,7 +6,6 @@ from typing import Any
 import numpy as np
 import torch
 import torch.nn as nn
-from sklearn.model_selection import train_test_split
 
 from automl_package.enums import LayerSelectionMethod, TaskType, UncertaintyMethod
 from automl_package.logger import logger
@@ -56,8 +55,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             layer_selection_method (LayerSelectionMethod): Method for selecting active layers.
             **kwargs: Additional keyword arguments for PyTorchModelBase.
         """
-        super().__init__(**kwargs)
-        self._returns_multiple_outputs = True
+        super().__init__(early_stopping_rounds=kwargs.get("early_stopping_rounds"), cv_folds=kwargs.get("cv_folds"), **kwargs)
 
         # Validation logic
         if layer_selection_method == LayerSelectionMethod.NONE and n_predictor_layers != 0:
@@ -164,12 +162,22 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         else:
             raise ValueError("task_type must be 'regression' or 'classification'")
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
-        """Trains the FlexibleHiddenLayersNN.
+    def _fit_single(
+        self, x: np.ndarray, y: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+    ) -> tuple[int, list[float]]:
+        """Fits a single model instance.
 
         Args:
-            x (np.ndarray): Training features.
-            y (np.ndarray): Training targets.
+            x (np.ndarray): The training features.
+            y (np.ndarray): The training targets.
+            x_val (np.ndarray | None): The validation features.
+            y_val (np.ndarray | None): The validation targets.
+            forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
+
+        Returns:
+            tuple[int, list[float]]: A tuple containing:
+                - The number of iterations the model was trained for.
+                - A list of the validation loss values for each epoch.
         """
         if self.input_size is None:
             self.input_size = 1 if x.ndim == 1 else x.shape[1]
@@ -191,9 +199,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         self.build_model()
         self._setup_optimizers(self.model)
 
-        x_train, x_val, y_train, y_val = (x, None, y, None)
-        if self.early_stopping_rounds is not None and self.validation_fraction > 0:
-            x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=self.validation_fraction, random_state=self.random_seed)
+        x_train, y_train, x_val, y_val = self._prepare_train_val_data(x, y, x_val, y_val)
 
         x_train_tensor = torch.tensor(x_train, dtype=torch.float32).to(self.device)
         y_train_tensor = torch.tensor(y_train, dtype=torch.float32).to(self.device)
@@ -218,11 +224,13 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         patience_counter = 0
         best_model_state = None
         best_epoch = 0
+        val_loss_history = []
 
         if self.layer_selection_method not in [LayerSelectionMethod.GUMBEL_SOFTMAX, LayerSelectionMethod.STE]:
             logger.info("Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.")
 
-        for epoch in range(int(self.n_epochs)):
+        n_epochs = forced_iterations or self.n_epochs
+        for epoch in range(int(n_epochs)):
             self.model.train()
             epoch_log_probs = []
             for _batch_x, batch_y in train_dataloader:
@@ -260,6 +268,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                 with torch.no_grad():
                     val_outputs, _, _, _, _ = self.model(x_val_tensor)
                     val_loss = self.criterion(val_outputs, y_val_tensor).item()
+                val_loss_history.append(val_loss)
 
                 self.strategy.on_epoch_end(validation_loss=val_loss, epoch_log_probs=epoch_log_probs)
 
@@ -292,7 +301,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             if self.l2_log_lambda is not None:
                 logger.info(f"Learned L2 Lambda: {torch.exp(self.l2_log_lambda).item():.6f}")
 
-        return best_epoch + 1
+        return best_epoch + 1, val_loss_history
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions with the FlexibleHiddenLayersNN."""
@@ -434,3 +443,20 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         if model.n_predictor:
             policy_params = model.n_predictor.parameters()
             self.strategy.setup_optimizers(policy_params)
+
+    def get_params(self) -> dict[str, Any]:
+        """Gets the parameters of the model."""
+        params = super().get_params()
+        params.update(
+            {
+                "max_hidden_layers": self.max_hidden_layers,
+                "hidden_size": self.hidden_size,
+                "gumbel_tau": self.gumbel_tau,
+                "n_predictor_layers": self.n_predictor_layers,
+                "feature_scaler": self.feature_scaler,
+                "gumbel_tau_anneal_rate": self.gumbel_tau_anneal_rate,
+                "n_predictor_learning_rate": self.n_predictor_learning_rate,
+                "layer_selection_method": self.layer_selection_method,
+            }
+        )
+        return params

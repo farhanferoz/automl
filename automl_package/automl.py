@@ -16,7 +16,6 @@ import torch.nn as nn
 import wandb
 from sklearn.base import TransformerMixin, clone
 from sklearn.metrics import accuracy_score, log_loss, mean_squared_error
-from sklearn.model_selection import KFold
 
 from .enums import CategoricalEncodingStrategy, MapperType, ModelName, RegressionStrategy, TaskType, UncertaintyMethod
 from .explainers.feature_explainer import FeatureExplainer
@@ -557,93 +556,31 @@ class AutoML:
         self,
         model_name: ModelName,
         x_processed: pd.DataFrame | np.ndarray,
-        y: np.ndarray,
         y_for_training: np.ndarray,
         num_classes_for_instantiation: int | None,
-        kf: KFold,
     ) -> Callable[[optuna.Trial], float]:
         def objective(trial: optuna.Trial) -> float:
             current_model_params, _ = self._sample_params_for_trial(trial, model_name)
 
-            fold_metrics = []
-            fold_best_iterations = []  # To store best iteration for each fold
+            try:
+                model_instance = self._instantiate_model(model_name, current_model_params.copy(), x_processed.shape[1], num_classes=num_classes_for_instantiation)
 
-            for fold, (train_idx, val_idx) in enumerate(kf.split(x_processed, y_for_training)):
-                x_train_fold, x_val_fold = (
-                    (x_processed.iloc[train_idx], x_processed.iloc[val_idx]) if isinstance(x_processed, pd.DataFrame) else (x_processed[train_idx], x_processed[val_idx])
-                )
-                y_train_fold, y_val_fold = y_for_training[train_idx], y_for_training[val_idx]
+                cv_results = model_instance.cross_validate(x_processed, y_for_training, cv=self.n_splits)
 
-                # Apply categorical encoding within the fold
-                if self._final_categorical_features:
-                    if self.categorical_encoding_strategy == CategoricalEncodingStrategy.ORDERED_TARGET:
-                        fold_encoder = OrderedTargetEncoder(cols=self._final_categorical_features)
-                        x_train_fold = fold_encoder.fit_transform(x_train_fold, y_train_fold)
-                        x_val_fold = fold_encoder.transform(x_val_fold)
-                    elif self.categorical_encoding_strategy == CategoricalEncodingStrategy.ONE_HOT:
-                        fold_encoder = OneHotEncoder(cols=self._final_categorical_features)
-                        x_train_fold = fold_encoder.fit_transform(x_train_fold)
-                        x_val_fold = fold_encoder.transform(x_val_fold)
+                avg_metric = cv_results["mean_test_score"]
 
-                # Apply feature scaling within the fold
-                if self.feature_scaler:
-                    fold_scaler = clone(self.feature_scaler)
-                    x_train_fold = fold_scaler.fit_transform(x_train_fold)
-                    x_val_fold = fold_scaler.transform(x_val_fold)
+                logger.info(f"  Average {self.metric} for {model_name.value}: {avg_metric:.4f}")
 
-                try:
-                    # Instantiate the model with sampled parameters
-                    model_instance = self._instantiate_model(model_name, current_model_params.copy(), x_train_fold.shape[1], num_classes=num_classes_for_instantiation)
+                trial.report(avg_metric, step=trial.number)
 
-                    # Fit the model and capture the number of iterations/epochs used
-                    num_iterations_used = model_instance.fit(x_train_fold, y_train_fold)  # Fit on scaled/transformed data
-                    fold_best_iterations.append(num_iterations_used)
+                if trial.should_prune():
+                    raise optuna.exceptions.TrialPruned
 
-                    predictions_scaled = model_instance.predict(x_val_fold)
+                return avg_metric
 
-                    # --- Denormalize predictions for metric evaluation (only for regression) ---
-                    if self.task_type == TaskType.REGRESSION and self.target_scaler:
-                        predictions_original_scale = self.target_scaler.inverse_transform(predictions_scaled.reshape(-1, 1)).flatten()
-                        y_val_original_scale = y[val_idx]  # Compare against original unscaled y
-                    else:
-                        predictions_original_scale = predictions_scaled
-                        y_val_original_scale = y_val_fold  # For classification, y_val is already unscaled or discrete
-
-                    y_proba = None
-                    if self.task_type == TaskType.CLASSIFICATION and self.metric == "log_loss":
-                        # For classification, get probabilities if the model supports it
-                        if hasattr(model_instance, "predict_proba") and model_instance.predict_proba is not None:
-                            y_proba = model_instance.predict_proba(x_val_fold)
-                        else:
-                            logger.warning(f"Model {model_name.value} does not support predict_proba. Cannot calculate log_loss.")
-                            # Fallback for log_loss if predict_proba is not available: use predicted classes as probabilities (0 or 1)
-                            # This is not ideal but prevents crash.
-                            y_proba = (
-                                np.eye(num_classes_for_instantiation)[predictions_original_scale.astype(int)]
-                                if num_classes_for_instantiation > 2
-                                else np.vstack((1 - predictions_original_scale, predictions_original_scale)).T
-                            )
-
-                    metric_value = self._evaluate_metric(y_val_original_scale, predictions_original_scale, y_proba)
-                    fold_metrics.append(metric_value)
-
-                except Exception as e:
-                    logger.error(f"Error during cross-validation for {model_name.value} (Fold {fold + 1}): {e}")
-                    # If an error occurs, return a very large number for minimization or very small for maximization
-                    # to penalize this set of hyperparameters.
-                    return float("inf") if self._is_minimize_metric() else -float("inf")
-
-            avg_metric = np.mean(fold_metrics)
-            logger.info(f"  Average {self.metric} for {model_name.value}: {avg_metric:.4f}")
-
-            # Report intermediate objective value to Optuna
-            trial.report(avg_metric, step=trial.number)
-
-            # Handle pruning based on the metric
-            if trial.should_prune():
-                raise optuna.exceptions.TrialPruned
-
-            return avg_metric
+            except Exception as e:
+                logger.error(f"Error during cross-validation for {model_name.value}: {e}")
+                return float("inf") if self._is_minimize_metric() else -float("inf")
 
         return objective
 
@@ -732,8 +669,6 @@ class AutoML:
         if models_to_consider is None:
             models_to_consider = list(self.models_registry.keys())
 
-        kf = KFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state)
-
         self.leaderboard = []  # Reset leaderboard for new training run
 
         for model_name in models_to_consider:  # model_name is now an Enum
@@ -752,7 +687,7 @@ class AutoML:
 
             logger.info(f"\n--- Optimizing {model_name.value} ---")
 
-            objective = self._create_objective(model_name, x_processed, y, y_for_training, num_classes_for_instantiation, kf)
+            objective = self._create_objective(model_name, x_processed, y, y_for_training, num_classes_for_instantiation)
 
             # Run optimization for the current model
             study = self.optuna_optimizer.optimize(objective, callbacks=None)

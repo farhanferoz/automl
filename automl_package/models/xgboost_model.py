@@ -4,9 +4,10 @@ from typing import Any, Never
 
 import numpy as np
 import xgboost as xgb
+from sklearn.metrics import accuracy_score, mean_squared_error
 
+from automl_package.enums import TaskType
 from automl_package.models.base import BaseModel
-from automl_package.utils.data_handler import create_train_val_split
 from automl_package.utils.metrics import Metrics
 
 
@@ -17,58 +18,75 @@ class XGBoostModel(BaseModel):
     as they implement the BaseModel interface. This is not a redeclaration error.
     """
 
-    def __init__(self, objective: str = "reg:squarederror", eval_metric: str = "rmse", random_seed: int | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        objective: str = "reg:squarederror",
+        eval_metric: str = "rmse",
+        random_seed: int | None = None,
+        task_type: TaskType = TaskType.REGRESSION,
+        **kwargs: Any,
+    ) -> None:
         """Initializes the XGBoostModel.
 
         Args:
             objective (str): The learning objective function.
             eval_metric (str): The evaluation metric.
             random_seed (int, optional): Random seed for reproducibility.
-            **kwargs: Additional keyword arguments for the XGBoost model.
+            task_type (TaskType): The type of task (regression or classification).
+            **kwargs: Additional keyword arguments for the BaseModel.
         """
         super().__init__(**kwargs)
         self.objective = objective
         self.eval_metric = eval_metric
         self.random_seed = random_seed
+        self.task_type = task_type
         self.model: xgb.XGBRegressor | xgb.XGBClassifier | None = None
-        # Determine if it's a regression model based on objective
-        self.is_regression_model = self.objective in ["reg:squarederror", "reg:logistic", "count:poisson", "reg:gamma", "reg:tweedie", "reg:quantile"]
-        self._train_residual_std = 0.0  # For regression uncertainty
+        self.is_regression_model = self.task_type == TaskType.REGRESSION
+        self._train_residual_std = 0.0
         self.num_iterations_used = 0
-        self.params.setdefault("verbosity", 0)  # Suppress verbose output during training
+        self.params.setdefault("verbosity", 0)
 
     @property
     def name(self) -> str:
         """Returns the name of the model."""
         return "XGBoostModel"
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> None:
-        """Fits the XGBoost model to the training data.
+    def _fit_single(
+        self, x: np.ndarray, y: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+    ) -> tuple[int, list[float]]:
+        """Fits a single model instance.
 
         Args:
-            x (np.ndarray): Feature matrix.
-            y (np.ndarray): Target vector.
+            x (np.ndarray): The training features.
+            y (np.ndarray): The training targets.
+            x_val (np.ndarray | None): The validation features.
+            y_val (np.ndarray | None): The validation targets.
+            forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
+
+        Returns:
+            tuple[int, list[float]]: A tuple containing:
+                - The number of iterations the model was trained for.
+                - A list of the validation loss values for each epoch.
         """
-        # Split data for early stopping if enabled
         eval_set = None
-        if self.early_stopping_rounds is not None and self.validation_fraction > 0:
-            self.train_indices, self.val_indices = create_train_val_split(x, y, self.validation_fraction, self.random_seed)
-            x_train, x_val = x[self.train_indices], x[self.val_indices]
-            y_train, y_val = y[self.train_indices], y[self.val_indices]
+        use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
+
+        x_train, y_train, x_val, y_val = self._prepare_train_val_data(x, y, x_val, y_val)
+
+        if use_early_stopping and x_val is not None:
             eval_set = [(x_val, y_val)]
             self.params["early_stopping_rounds"] = self.early_stopping_rounds
         else:
-            x_train, y_train = x, y
             self.train_indices = np.arange(x.shape[0])
             self.val_indices = None
 
-        # Handle classification objectives for XGBoost based on objective string
-        if self.objective in ["binary:logistic", "multi:softmax", "multi:softprob"]:
-            # For classification, use XGBClassifier
-            self.model = xgb.XGBClassifier(objective=self.objective, eval_metric=self.eval_metric, **self.params)
+        if self.task_type == TaskType.CLASSIFICATION:
+            self.model = xgb.XGBClassifier(objective=self.objective, eval_metric=self.eval_metric, random_state=self.random_seed, **self.params)
         else:
-            # For regression, use XGBRegressor
-            self.model = xgb.XGBRegressor(objective=self.objective, eval_metric=self.eval_metric, **self.params)
+            self.model = xgb.XGBRegressor(objective=self.objective, eval_metric=self.eval_metric, random_state=self.random_seed, **self.params)
+
+        if forced_iterations is not None:
+            self.model.n_estimators = forced_iterations
 
         fit_params: dict[str, Any] = {}
         if eval_set is not None:
@@ -79,13 +97,44 @@ class XGBoostModel(BaseModel):
 
         if self.is_regression_model:
             y_pred_train = self.predict(x)
-            _train_residual_std = np.std(y - y_pred_train)
-            if np.isnan(_train_residual_std):
+            self._train_residual_std = np.std(y - y_pred_train)
+            if np.isnan(self._train_residual_std):
                 self._train_residual_std = 0.0
-            else:
-                self._train_residual_std = _train_residual_std
 
-        self.num_iterations_used = self.model.best_iteration if eval_set is not None and self.model.best_iteration is not None else self.model.n_estimators
+        best_iteration = self.model.best_iteration if use_early_stopping and self.model.best_iteration is not None else self.model.n_estimators
+        return best_iteration, []
+
+    def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        """Evaluates a trial for hyperparameter optimization."""
+        if self.is_regression_model:
+            return np.sqrt(mean_squared_error(y_true, y_pred))
+
+        y_pred_labels = np.argmax(y_pred, axis=1) if y_pred.ndim == 2 else np.round(y_pred)
+        return accuracy_score(y_true, y_pred_labels)
+
+    def _clone(self) -> "XGBoostModel":
+        """Creates a new instance of the model with the same parameters."""
+        return XGBoostModel(**self.get_params())
+
+    def get_params(self) -> dict[str, Any]:
+        """Gets parameters for this estimator.
+
+        Returns:
+            dict: Parameter names mapped to their values.
+        """
+        return {
+            "objective": self.objective,
+            "eval_metric": self.eval_metric,
+            "random_seed": self.random_seed,
+            "task_type": self.task_type,
+            **self.params,
+        }
+
+    def cross_validate(self, x: np.ndarray, y: np.ndarray, cv: int) -> dict[str, Any]:
+        """Performs cross-validation and returns the scores."""
+        self.cv_folds = cv
+        self.fit(x, y)
+        return {"test_score": self.cv_score_mean_}
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.

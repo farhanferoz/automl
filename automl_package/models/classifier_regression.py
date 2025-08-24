@@ -5,6 +5,7 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+from sklearn.metrics import mean_squared_error
 from torch.nn import ReLU, Tanh
 
 from automl_package.enums import (
@@ -40,8 +41,6 @@ class ClassifierRegressionModel(BaseModel):
         mapper_params: dict[str, Any] | None = None,  # Parameters for the ClassProbabilityMapper
         nn_mapper_params: dict[str, Any] | None = None,  # Parameters for the NeuralNetworkMapper
         auto_include_nn_mappers: bool = True,  # Whether to include NN mappers in AUTO mode
-        early_stopping_rounds: int | None = None,
-        validation_fraction: float | None = None,
         **kwargs: Any,
     ) -> None:
         """Initializes the ClassifierRegressionModel.
@@ -54,8 +53,6 @@ class ClassifierRegressionModel(BaseModel):
             mapper_params (dict[str, Any] | None): Parameters for the ClassProbabilityMapper.
             nn_mapper_params (dict[str, Any] | None): Parameters for the NeuralNetworkMapper.
             auto_include_nn_mappers (bool): Whether to include NN mappers in AUTO mode.
-            early_stopping_rounds (int | None): The number of epochs with no improvement after which training will be stopped.
-            validation_fraction (float | None): The proportion of training data to set aside as validation data for early stopping.
             **kwargs: Additional keyword arguments for the BaseModel.
         """
         super().__init__(**kwargs)
@@ -68,8 +65,6 @@ class ClassifierRegressionModel(BaseModel):
         self.mapper_params = mapper_params if mapper_params is not None else {}
         self.nn_mapper_params = nn_mapper_params if nn_mapper_params is not None else {}
         self.auto_include_nn_mappers = auto_include_nn_mappers
-        self.early_stopping_rounds = early_stopping_rounds
-        self.validation_fraction = validation_fraction
 
         self.base_classifier: BaseModel | None = None  # The instantiated base classifier model
         self.class_boundaries: np.ndarray | None = None  # Stores percentile values for discretization
@@ -112,7 +107,12 @@ class ClassifierRegressionModel(BaseModel):
         return class_mappers
 
     def _fit_and_predict_mapper(
-        self, mapper_type: MapperType, y_proba_all: np.ndarray, y_flat: np.ndarray, train_indices: np.ndarray | None, val_indices: np.ndarray | None
+        self,
+        mapper_type: MapperType,
+        y_proba_all: np.ndarray,
+        y_flat: np.ndarray,
+        train_indices: np.ndarray | None,
+        val_indices: np.ndarray | None,
     ) -> tuple[list, np.ndarray]:
         """Fits a given mapper type and returns the fitted mappers and predictions."""
         fitted_mappers = []
@@ -145,18 +145,32 @@ class ClassifierRegressionModel(BaseModel):
 
         return fitted_mappers, predictions
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> None:
-        """Fits the underlying regression model and then trains the probability mapper.
+    def _fit_single(
+        self, x: np.ndarray, y: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+    ) -> tuple[int, list[float]]:
+        """Fits a single model instance.
 
         Args:
-            x (np.ndarray): Training features.
-            y (np.ndarray): Original continuous target values.
+            x (np.ndarray): The training features.
+            y (np.ndarray): The training targets.
+            x_val (np.ndarray | None): The validation features.
+            y_val (np.ndarray | None): The validation targets.
+            forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
+
+        Returns:
+            tuple[int, list[float]]: A tuple containing:
+                - The number of iterations the model was trained for.
+                - A list of the validation loss values for each epoch.
         """
         if not self.is_regression_model:
             raise ValueError("This model is designed for regression tasks.")
 
         y_flat = y.flatten() if y.ndim > 1 else y
         self.class_boundaries, y_clf = create_bins(data=y_flat, n_bins=self.n_classes, min_value=-np.inf, max_value=np.inf)
+
+        y_val_clf = None
+        if y_val is not None:
+            _, y_val_clf = create_bins(data=y_val.flatten() if y_val.ndim > 1 else y_val, unique_bin_edges=self.class_boundaries)
 
         classifier_output_size = 1 if self.n_classes == 2 else self.n_classes
         base_classifier_init_params = self.base_classifier_params.copy()
@@ -186,7 +200,7 @@ class ClassifierRegressionModel(BaseModel):
             base_classifier_init_params.setdefault("eval_metric", "Logloss" if self.n_classes == 2 else "MultiClass")
 
         self.base_classifier = self.base_classifier_class(**base_classifier_init_params)
-        self.base_classifier.fit(x, y_clf.astype(np.int64))
+        self.base_classifier._fit_single(x, y_clf.astype(np.int64), x_val, y_val_clf.astype(np.int64) if y_val_clf is not None else None, forced_iterations=forced_iterations)
         self.num_iterations_used = self.base_classifier.num_iterations_used
         self.train_indices = self.base_classifier.train_indices
         self.val_indices = self.base_classifier.val_indices
@@ -222,6 +236,15 @@ class ClassifierRegressionModel(BaseModel):
             logger.info(f"Auto-selected mapper type: {self.mapper_type.label}")
         else:
             self.class_mappers, _ = self._fit_and_predict_mapper(self.mapper_type, y_proba_all, y_flat, self.train_indices, self.val_indices)
+        return 0, []
+
+    def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        """Evaluates a trial for hyperparameter optimization."""
+        return np.sqrt(mean_squared_error(y_true, y_pred))
+
+    def _clone(self) -> "ClassifierRegressionModel":
+        """Creates a new instance of the model with the same parameters."""
+        return ClassifierRegressionModel(**self.get_params())
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions (expected regression output) using the composite model.
@@ -318,7 +341,7 @@ class ClassifierRegressionModel(BaseModel):
         """
         # This model's search space defines its own parameters and the choice of base classifier.
         # The base_classifier_params themselves will be dynamically sampled within AutoML._sample_params_for_trial
-        return {
+        space = {
             "n_classes": {"type": "int", "low": 2, "high": 10},  # Number of classes for discretization
             # Base classifier chosen from a categorical list of model names
             "base_classifier_name": {
@@ -345,6 +368,9 @@ class ClassifierRegressionModel(BaseModel):
             "nn_mapper_params__regression_head_params__hidden_size": {"type": "int", "low": 16, "high": 64, "step": 16},
             "nn_mapper_params__regression_head_params__use_batch_norm": {"type": "categorical", "choices": [True, False]},
         }
+        if self.search_space_override:
+            space.update(self.search_space_override)
+        return space
 
     def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Returns the internal classifier's predicted classes, probabilities, and.
@@ -475,3 +501,9 @@ class ClassifierRegressionModel(BaseModel):
 
         self.plot_probability_mappers(plot_path=os.path.join(save_path, "probability_mappers.png"))
         return y_pred
+
+    def cross_validate(self, x: np.ndarray, y: np.ndarray, cv: int) -> dict[str, Any]:
+        """Performs cross-validation."""
+        self.cv_folds = cv
+        self.fit(x, y)
+        return {"test_score": self.cv_score_mean_}

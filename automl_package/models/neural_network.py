@@ -66,7 +66,6 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
         hidden_layers: int = 1,
         hidden_size: int = 64,
         activation: Any = nn.ReLU,
-        device: torch.device | None = None,  # Add device parameter
         **kwargs: Any,
     ) -> None:
         """Initializes the PyTorchNeuralNetwork.
@@ -78,8 +77,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
             device (torch.device, optional): The device to run the model on.
             **kwargs: Additional keyword arguments for PyTorchModelBase.
         """
-        super().__init__(device=device, **kwargs)
-        self._returns_multiple_outputs = False  # This model returns a single output
+        super().__init__(**kwargs)
         self.hidden_layers = hidden_layers
         self.hidden_size = hidden_size
         self.activation = activation
@@ -138,3 +136,15 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
             }
         )
         return space
+
+    def get_params(self) -> dict[str, Any]:
+        """Gets the parameters of the model."""
+        params = super().get_params()
+        params.update(
+            {
+                "hidden_layers": self.hidden_layers,
+                "hidden_size": self.hidden_size,
+                "activation": self.activation,
+            }
+        )
+        return params

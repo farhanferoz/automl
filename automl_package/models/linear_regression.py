@@ -6,21 +6,18 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import grad, jit
+from sklearn.metrics import mean_squared_error
 
 from automl_package.utils.metrics import Metrics
 
 from .base import BaseModel
 
 
-class JAXLinearRegression(BaseModel):
-    """Linear Regression model implemented using JAX.
-
-    Supports basic linear regression with gradient descent and residual-based uncertainty.
-    Includes L1 and L2 regularization.
-    """
+class LinearRegressionModel(BaseModel):
+    """Linear Regression model implemented using JAX."""
 
     def __init__(self, learning_rate: float = 0.01, n_iterations: int = 1000, l1_lambda: float = 0.0, l2_lambda: float = 0.0, **kwargs: Any) -> None:
-        """Initializes the JAXLinearRegression model.
+        """Initializes the LinearRegressionModel model.
 
         Args:
             learning_rate (float): The learning rate for gradient descent.
@@ -37,9 +34,9 @@ class JAXLinearRegression(BaseModel):
         self.weights: jnp.ndarray | None = None
         self.bias: jnp.ndarray | None = None
         self.key = jax.random.PRNGKey(0)
-        self.is_regression_model = True  # Set regression flag
-        self._train_residual_std = 0.0  # Stores standard deviation of residuals on training data
-        self.n_features = 0  # Initialize n_features
+        self.is_regression_model = True
+        self._train_residual_std = 0.0
+        self.n_features = 0
 
     @property
     def name(self) -> str:
@@ -56,19 +53,22 @@ class JAXLinearRegression(BaseModel):
 
         return mse_loss + l1_penalty + l2_penalty
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> int:
-        """Fits the JAXLinearRegression model to the training data.
+    def _fit_single(self, x: np.ndarray, y: np.ndarray, forced_iterations: int | None = None) -> tuple[int, list[float]]:
+        """Fits a single model instance.
 
         Args:
-            x (np.ndarray): Feature matrix.
-            y (np.ndarray): Target vector.
+            x (np.ndarray): The training features.
+            y (np.ndarray): The training targets.
+            forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
 
         Returns:
-            int: Number of iterations used for training.
+            tuple[int, list[float]]: A tuple containing:
+                - The number of iterations the model was trained for.
+                - A list of the validation loss values for each epoch.
         """
         x_train, y_train = x, y
 
-        self.n_features = x_train.shape[1]  # Store n_features
+        self.n_features = x_train.shape[1]
 
         x_train_jax = jnp.array(x_train, dtype=jnp.float32)
         y_train_jax = jnp.array(y_train, dtype=jnp.float32)
@@ -79,18 +79,40 @@ class JAXLinearRegression(BaseModel):
 
         loss_grad = jit(grad(self._loss_fn, argnums=(0, 1)))
 
-        for _i in range(self.n_iterations):
+        iterations = forced_iterations or self.n_iterations
+        for _i in range(iterations):
             grads_w, grads_b = loss_grad(self.weights, self.bias, x_train_jax, y_train_jax)
             self.weights = self.weights - self.learning_rate * grads_w
             self.bias = self.bias - self.learning_rate * grads_b
 
-        # Calculate residual standard deviation for uncertainty estimation on the full training data
         y_pred_train = self.predict(x)
         self._train_residual_std = np.std(y - y_pred_train)
-        if np.isnan(self._train_residual_std):  # Handle cases of perfect fit or single point
+        if np.isnan(self._train_residual_std):
             self._train_residual_std = 0.0
 
-        return self.n_iterations  # Return the number of iterations actually used
+        return iterations, []
+
+    def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        """Evaluates a trial for hyperparameter optimization."""
+        return np.sqrt(mean_squared_error(y_true, y_pred))
+
+    def _clone(self) -> "LinearRegressionModel":
+        """Creates a new instance of the model with the same parameters."""
+        return LinearRegressionModel(**self.get_params())
+
+    def get_params(self) -> dict[str, Any]:
+        """Gets parameters for this estimator.
+
+        Returns:
+            dict: Parameter names mapped to their values.
+        """
+        return {
+            "learning_rate": self.learning_rate,
+            "n_iterations": self.n_iterations,
+            "l1_lambda": self.l1_lambda,
+            "l2_lambda": self.l2_lambda,
+            **self.params,
+        }
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.
@@ -177,3 +199,9 @@ class JAXLinearRegression(BaseModel):
         metrics_calculator = Metrics(task_type="regression", model_name=self.name, x_data=x, y_true=y, y_pred=y_pred)
         metrics_calculator.save_metrics(save_path)
         return y_pred
+
+    def cross_validate(self, x: np.ndarray, y: np.ndarray, cv: int) -> dict[str, Any]:
+        """Performs cross-validation and returns the scores."""
+        self.cv_folds = cv
+        self.fit(x, y)
+        return {"test_score": self.cv_score_mean_}

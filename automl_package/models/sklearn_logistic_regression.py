@@ -4,22 +4,17 @@ from typing import Any, Never
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import log_loss
+from sklearn.metrics import accuracy_score, log_loss
 
 from automl_package.models.base import BaseModel
-from automl_package.utils.data_handler import create_train_val_split
 from automl_package.utils.metrics import Metrics
 
 
-class SKLearnLogisticRegression(BaseModel):
-    """Logistic Regression model using scikit-learn.
-
-    Primarily for classification, but used internally by ClassifierRegression.
-    Supports L1, L2, and ElasticNet regularization.
-    """
+class SklearnLogisticRegression(BaseModel):
+    """Logistic Regression model using scikit-learn."""
 
     def __init__(self, penalty: str = "l2", c: float = 1.0, l1_ratio: float | None = None, random_seed: int | None = None, **kwargs: Any) -> None:
-        """Initializes the SKLearnLogisticRegression model.
+        """Initializes the SklearnLogisticRegression model.
 
         Args:
             penalty (str): The type of regularization to use ('l1', 'l2', or 'elasticnet').
@@ -34,19 +29,29 @@ class SKLearnLogisticRegression(BaseModel):
         self.l1_ratio = l1_ratio  # For elasticnet
         self.random_seed = random_seed
         self.model: LogisticRegression | None = None
-        self.is_regression_model = False  # Not a regression model
+        self.is_regression_model = False
 
     @property
     def name(self) -> str:
         """Returns the name of the model."""
         return "SKLearnLogisticRegression"
 
-    def fit(self, x: np.ndarray, y: np.ndarray) -> None:
-        """Fits the Logistic Regression model to the training data.
+    def _fit_single(
+        self, x: np.ndarray, y: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+    ) -> tuple[int, list[float]]:
+        """Fits a single model instance.
 
         Args:
-            x (np.ndarray): Feature matrix.
-            y (np.ndarray): Target vector.
+            x (np.ndarray): The training features.
+            y (np.ndarray): The training targets.
+            x_val (np.ndarray | None): The validation features.
+            y_val (np.ndarray | None): The validation targets.
+            forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
+
+        Returns:
+            tuple[int, list[float]]: A tuple containing:
+                - The number of iterations the model was trained for.
+                - A list of the validation loss values for each epoch.
         """
         if self.penalty == "elasticnet" and self.l1_ratio is None:
             raise ValueError("l1_ratio must be specified when penalty is 'elasticnet'.")
@@ -57,59 +62,90 @@ class SKLearnLogisticRegression(BaseModel):
         elif self.penalty == "elasticnet":
             solver = "saga"  # Supports ElasticNet
 
-        # Initialize the model with warm_start for iterative fitting
-        if self.penalty == "elasticnet":
-            base_model = LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, l1_ratio=self.l1_ratio, warm_start=True, max_iter=1, **self.params)
-        else:
-            base_model = LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, warm_start=True, max_iter=1, **self.params)
+        use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
 
-        if self.early_stopping_rounds is not None and self.validation_fraction > 0:
-            self.train_indices, self.val_indices = create_train_val_split(x, y, self.validation_fraction, self.random_seed)
-            x_train, x_val = x[self.train_indices], x[self.val_indices]
-            y_train, y_val = y[self.train_indices], y[self.val_indices]
-        else:
-            x_train, y_train = x, y
-            x_val, y_val = None, None
-            self.train_indices = np.arange(x.shape[0])
-            self.val_indices = None
+        x_train, y_train, x_val, y_val = self._prepare_train_val_data(x, y, x_val, y_val)
 
-        best_val_loss = float("inf")
-        patience_counter = 0
-        best_model_state = None
-        best_i = 0
+        if use_early_stopping:
+            self.model = (
+                LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, l1_ratio=self.l1_ratio, warm_start=True, max_iter=1, **self.params)
+                if self.penalty == "elasticnet"
+                else LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, warm_start=True, max_iter=1, **self.params)
+            )
 
-        # Determine the number of iterations. Use a large number if early stopping is enabled,
-        # otherwise use the model's default max_iter or a specified one.
-        n_iterations = self.params.get("max_iter", 1000)
+            best_val_loss = float("inf")
+            patience_counter = 0
+            best_model_state = None
+            best_iter = 0
+            loss_history = []
 
-        for i in range(n_iterations):
-            base_model.fit(x_train, y_train)
+            n_iterations = forced_iterations or self.params.get("max_iter", 1000)
 
-            if self.early_stopping_rounds is not None and x_val is not None:
-                y_pred_proba_val = base_model.predict_proba(x_val)
+            for i in range(n_iterations):
+                self.model.fit(x_train, y_train)
+
+                y_pred_proba_val = self.model.predict_proba(x_val)
                 val_loss = log_loss(y_val, y_pred_proba_val)
+                loss_history.append(val_loss)
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     patience_counter = 0
-                    # Store a deep copy of the model's state
-                    best_model_state = {"coef_": base_model.coef_.copy(), "intercept_": base_model.intercept_.copy()}
-                    best_i = i
+                    best_model_state = {"coef_": self.model.coef_.copy(), "intercept_": self.model.intercept_.copy(), "classes_": self.model.classes_.copy()}
+                    best_iter = i
                 else:
                     patience_counter += 1
 
                 if patience_counter >= self.early_stopping_rounds:
                     break
-            else:
-                best_i = i
 
-        # Set the model to the best state found during early stopping
-        if best_model_state:
-            base_model.coef_ = best_model_state["coef_"]
-            base_model.intercept_ = best_model_state["intercept_"]
+            if best_model_state:
+                self.model.coef_ = best_model_state["coef_"]
+                self.model.intercept_ = best_model_state["intercept_"]
+                self.model.classes_ = best_model_state["classes_"]
 
-        self.model = base_model
-        self.num_iterations_used = best_i + 1
+            n_iterations = best_iter + 1
+        else:
+            n_iterations = forced_iterations or self.params.get("max_iter", 1000)
+            if self.penalty == "elasticnet":
+                self.model = (
+                    LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, l1_ratio=self.l1_ratio, max_iter=n_iterations, **self.params)
+                    if self.penalty == "elasticnet"
+                    else LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, max_iter=n_iterations, **self.params)
+                )
+
+            self.model.fit(x, y)
+            n_iterations = self.model.n_iter_[0]
+            loss_history = []
+        return n_iterations, loss_history
+
+    def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        """Evaluates a trial for hyperparameter optimization."""
+        return accuracy_score(y_true, y_pred)
+
+    def _clone(self) -> "SklearnLogisticRegression":
+        """Creates a new instance of the model with the same parameters."""
+        return SklearnLogisticRegression(**self.get_params())
+
+    def get_params(self) -> dict[str, Any]:
+        """Gets parameters for this estimator.
+
+        Returns:
+            dict: Parameter names mapped to their values.
+        """
+        return {
+            "penalty": self.penalty,
+            "c": self.C,
+            "l1_ratio": self.l1_ratio,
+            "random_seed": self.random_seed,
+            **self.params,
+        }
+
+    def cross_validate(self, x: np.ndarray, y: np.ndarray, cv: int) -> dict[str, Any]:
+        """Performs cross-validation and returns the scores."""
+        self.cv_folds = cv
+        self.fit(x, y)
+        return {"test_score": self.cv_score_mean_}
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.
