@@ -15,7 +15,13 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
     to prevent target leakage during training.
     """
 
-    def __init__(self, cols: list[str | int] | None = None, smoothing: float = 1.0, min_samples_leaf: int = 1, random_state: int | None = None) -> None:
+    def __init__(
+        self,
+        cols: list[str | int] | None = None,
+        smoothing: float = 1.0,
+        min_samples_leaf: int = 1,
+        random_state: int | None = None,
+    ) -> None:
         """Initializes the OrderedTargetEncoder.
 
         Args:
@@ -46,7 +52,10 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
             raise TypeError("fit() missing 1 required positional argument: 'y'")
 
         if isinstance(x, np.ndarray):
-            x = pd.DataFrame(x, columns=pd.Index([f"col_{i}" for i in range(x.shape[1])], dtype=object))
+            x = pd.DataFrame(
+                x,
+                columns=pd.Index([f"col_{i}" for i in range(x.shape[1])], dtype=object),
+            )
             if self.cols is not None:
                 self.cols = [f"col_{i}" for i in self.cols]  # Adjust column names if indices were given
 
@@ -89,7 +98,10 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
             pd.DataFrame | np.ndarray: Transformed data.
         """
         if isinstance(x, np.ndarray):
-            x_transformed = pd.DataFrame(x, columns=pd.Index([f"col_{i}" for i in range(x.shape[1])], dtype=object))
+            x_transformed = pd.DataFrame(
+                x,
+                columns=pd.Index([f"col_{i}" for i in range(x.shape[1])], dtype=object),
+            )
             if self.cols is not None:
                 # Create a list of column names that are actually categorical features
                 categorical_col_names = [col for col in self.cols if col in self.mapping]
@@ -112,7 +124,12 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
                 x_transformed[col] = self.global_mean
         return x_transformed
 
-    def fit_transform(self, x: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None, **_fit_params: Any) -> pd.DataFrame | np.ndarray:
+    def fit_transform(
+        self,
+        x: pd.DataFrame | np.ndarray,
+        y: pd.Series | np.ndarray | None = None,
+        **_fit_params: Any,
+    ) -> pd.DataFrame | np.ndarray:
         """Fits the encoder and transforms the data.
 
         Args:
@@ -145,7 +162,11 @@ class OneHotEncoder(BaseEstimator, TransformerMixin):
         self.encoder = SklearnOneHotEncoder(handle_unknown=handle_unknown, sparse_output=False)
         self.feature_names_out_ = None  # To store feature names after transformation
 
-    def fit(self, x: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None) -> "OneHotEncoder":  # noqa: ARG002
+    def fit(
+        self,
+        x: pd.DataFrame | np.ndarray,
+        y: pd.Series | np.ndarray | None = None,  # noqa: ARG002
+    ) -> "OneHotEncoder":
         """Fits the encoder to the training data.
 
         Args:
@@ -190,7 +211,12 @@ class OneHotEncoder(BaseEstimator, TransformerMixin):
 
         return transformed_data
 
-    def fit_transform(self, x: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None, **_fit_params: Any) -> np.ndarray:
+    def fit_transform(
+        self,
+        x: pd.DataFrame | np.ndarray,
+        y: pd.Series | np.ndarray | None = None,
+        **_fit_params: Any,
+    ) -> np.ndarray:
         """Fits the encoder and transforms the data.
 
         Args:

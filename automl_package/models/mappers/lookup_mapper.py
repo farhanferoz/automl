@@ -62,7 +62,11 @@ class LookupMapper(BaseMapper):
         }
 
     def _fit_empty(self) -> None:
-        self.lookup_table = {LookupTableEntries.KEYS: np.array([0.0, 1.0]), LookupTableEntries.VALUES: np.array([0.0, 0.0]), LookupTableEntries.VARIANCES: np.array([0.0, 0.0])}
+        self.lookup_table = {
+            LookupTableEntries.KEYS: np.array([0.0, 1.0]),
+            LookupTableEntries.VALUES: np.array([0.0, 0.0]),
+            LookupTableEntries.VARIANCES: np.array([0.0, 0.0]),
+        }
 
     def _find_indices(self, probas_new: np.ndarray) -> np.ndarray:
         keys = self.lookup_table[LookupTableEntries.KEYS]

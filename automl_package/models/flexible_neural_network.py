@@ -1,13 +1,19 @@
 """Flexible Neural Network model with dynamic hidden layers."""
 
 import math
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import LayerSelectionMethod, TaskType, UncertaintyMethod
+from automl_package.enums import (
+    ActivationFunction,
+    LayerSelectionMethod,
+    Metric,
+    TaskType,
+    UncertaintyMethod,
+)
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.selection_strategies.layer_selection_strategies import (
@@ -17,7 +23,7 @@ from automl_package.models.selection_strategies.layer_selection_strategies impor
     SoftGatingStrategy,
     SteStrategy,
 )
-from automl_package.utils.metrics import Metrics
+from automl_package.utils.pytorch_utils import get_activation_function_map
 
 
 class FlexibleHiddenLayersNN(PyTorchModelBase):
@@ -30,50 +36,42 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
     Supports constant, MC-Dropout, and probabilistic uncertainty estimation for regression.
     """
 
+    _defaults: ClassVar[dict[str, Any]] = {
+        "max_hidden_layers": 3,
+        "hidden_size": 64,
+        "activation": ActivationFunction.RELU,
+        "gumbel_tau": 0.5,
+        "n_predictor_layers": 1,
+        "feature_scaler": None,
+        "gumbel_tau_anneal_rate": 0.99,
+        "n_predictor_learning_rate": 0.001,
+        "layer_selection_method": LayerSelectionMethod.GUMBEL_SOFTMAX,
+    }
+
     def __init__(
         self,
-        max_hidden_layers: int = 3,
-        hidden_size: int = 64,
-        gumbel_tau: float = 0.5,
-        n_predictor_layers: int = 1,
-        feature_scaler: Any | None = None,
-        gumbel_tau_anneal_rate: float = 0.99,
-        n_predictor_learning_rate: float = 0.001,
-        layer_selection_method: LayerSelectionMethod = LayerSelectionMethod.GUMBEL_SOFTMAX,
         **kwargs: Any,
     ) -> None:
-        """Initializes the FlexibleHiddenLayersNN.
-
-        Args:
-            max_hidden_layers (int): Maximum number of hidden layers.
-            hidden_size (int): Number of neurons in each hidden layer.
-            gumbel_tau (float): Initial temperature for Gumbel-Softmax.
-            n_predictor_layers (int): Number of layers in the n_predictor network.
-            feature_scaler (Any): Feature scaler instance.
-            gumbel_tau_anneal_rate (float): Annealing rate for gumbel_tau.
-            n_predictor_learning_rate (float): Learning rate for the n_predictor network.
-            layer_selection_method (LayerSelectionMethod): Method for selecting active layers.
-            **kwargs: Additional keyword arguments for PyTorchModelBase.
-        """
-        super().__init__(early_stopping_rounds=kwargs.get("early_stopping_rounds"), cv_folds=kwargs.get("cv_folds"), **kwargs)
+        """Initializes the FlexibleHiddenLayersNN."""
+        # Apply this class's defaults and then pass to the parent constructor
+        for key, value in FlexibleHiddenLayersNN._defaults.items():
+            kwargs.setdefault(key, value)
+        super().__init__(**kwargs)
 
         # Validation logic
-        if layer_selection_method == LayerSelectionMethod.NONE and n_predictor_layers != 0:
+        if self.layer_selection_method == LayerSelectionMethod.NONE and self.n_predictor_layers != 0:
             raise ValueError("n_predictor_layers must be 0 when layer_selection_method is NONE.")
         if (
-            layer_selection_method in [LayerSelectionMethod.GUMBEL_SOFTMAX, LayerSelectionMethod.STE, LayerSelectionMethod.SOFT_GATING, LayerSelectionMethod.REINFORCE]
-            and n_predictor_layers <= 0
+            self.layer_selection_method
+            in [
+                LayerSelectionMethod.GUMBEL_SOFTMAX,
+                LayerSelectionMethod.STE,
+                LayerSelectionMethod.SOFT_GATING,
+                LayerSelectionMethod.REINFORCE,
+            ]
+            and self.n_predictor_layers <= 0
         ):
             raise ValueError("n_predictor_layers must be > 0 for GUMBEL_SOFTMAX, STE, SOFT_GATING or REINFORCE methods.")
-
-        self.max_hidden_layers = max_hidden_layers
-        self.hidden_size = hidden_size
-        self.gumbel_tau = gumbel_tau
-        self.n_predictor_layers = n_predictor_layers
-        self.feature_scaler = feature_scaler
-        self.gumbel_tau_anneal_rate = gumbel_tau_anneal_rate
-        self.n_predictor_learning_rate = n_predictor_learning_rate
-        self.layer_selection_method = layer_selection_method
 
         strategy_map = {
             LayerSelectionMethod.NONE: NoneStrategy,
@@ -82,7 +80,11 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             LayerSelectionMethod.STE: SteStrategy,
             LayerSelectionMethod.REINFORCE: ReinforceStrategy,
         }
-        self.strategy = strategy_map[layer_selection_method](self)
+        self.strategy = strategy_map[self.layer_selection_method](self)
+
+    def _get_optimization_metric(self) -> Metric:
+        """Gets the optimization metric for the model."""
+        return Metric.RMSE if self.is_regression_model else Metric.ACCURACY
 
     @property
     def name(self) -> str:
@@ -108,10 +110,10 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                 predictor_hidden_size = max(128, self.outer.hidden_size)
                 in_features = self.outer.input_size
                 predictor_layers.append(nn.Linear(in_features, predictor_hidden_size))
-                predictor_layers.append(nn.ReLU())
+                predictor_layers.append(self.outer.activation())
                 for _ in range(self.outer.n_predictor_layers - 1):
                     predictor_layers.append(nn.Linear(predictor_hidden_size, predictor_hidden_size))
-                    predictor_layers.append(nn.ReLU())
+                    predictor_layers.append(self.outer.activation())
                 output_layer_predictor = nn.Linear(predictor_hidden_size, self.outer.max_hidden_layers)
                 nn.init.normal_(output_layer_predictor.bias, mean=0.0, std=0.1)
                 self.n_predictor = nn.Sequential(*predictor_layers, output_layer_predictor)
@@ -125,7 +127,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                 block_layers.append(nn.Linear(in_features, self.outer.hidden_size))
                 if self.outer.use_batch_norm:
                     block_layers.append(nn.BatchNorm1d(self.outer.hidden_size))
-                block_layers.append(nn.ReLU())
+                block_layers.append(self.outer.activation())
                 if self.outer.task_type == TaskType.REGRESSION and self.outer.uncertainty_method == UncertaintyMethod.MC_DROPOUT and self.outer.dropout_rate > 0:
                     block_layers.append(nn.Dropout(self.outer.dropout_rate))
                 self.hidden_layers_blocks.append(nn.Sequential(*block_layers))
@@ -139,6 +141,11 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
 
     def build_model(self) -> None:
         """Builds the internal PyTorch nn.Module for the FlexibleHiddenLayersNN."""
+        activation_function_map = get_activation_function_map()
+        self.activation = activation_function_map.get(self.activation)
+        if self.activation is None:
+            raise ValueError(f"Unsupported activation function: {self.activation}")
+
         self.model = self.FlexibleNNModule(self).to(self.device)
 
         if self.task_type == TaskType.REGRESSION:
@@ -163,13 +170,18 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             raise ValueError("task_type must be 'regression' or 'classification'")
 
     def _fit_single(
-        self, x: np.ndarray, y: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        forced_iterations: int | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
         Args:
-            x (np.ndarray): The training features.
-            y (np.ndarray): The training targets.
+            x_train (np.ndarray): The training features.
+            y_train (np.ndarray): The training targets.
             x_val (np.ndarray | None): The validation features.
             y_val (np.ndarray | None): The validation targets.
             forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
@@ -180,7 +192,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                 - A list of the validation loss values for each epoch.
         """
         if self.input_size is None:
-            self.input_size = 1 if x.ndim == 1 else x.shape[1]
+            self.input_size = 1 if x_train.ndim == 1 else x_train.shape[1]
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -198,8 +210,6 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
 
         self.build_model()
         self._setup_optimizers(self.model)
-
-        x_train, y_train, x_val, y_val = self._prepare_train_val_data(x, y, x_val, y_val)
 
         x_train_tensor = torch.tensor(x_train, dtype=torch.float32).to(self.device)
         y_train_tensor = torch.tensor(y_train, dtype=torch.float32).to(self.device)
@@ -226,7 +236,10 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         best_epoch = 0
         val_loss_history = []
 
-        if self.layer_selection_method not in [LayerSelectionMethod.GUMBEL_SOFTMAX, LayerSelectionMethod.STE]:
+        if self.layer_selection_method not in [
+            LayerSelectionMethod.GUMBEL_SOFTMAX,
+            LayerSelectionMethod.STE,
+        ]:
             logger.info("Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.")
 
         n_epochs = forced_iterations or self.n_epochs
@@ -290,8 +303,8 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             self.model.load_state_dict(best_model_state)
 
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
-            y_pred_train = self.predict(x)
-            self._train_residual_std = np.std(y - y_pred_train)
+            y_pred_train = self.predict(x_train)
+            self._train_residual_std = np.std(y_train - y_pred_train)
             if np.isnan(self._train_residual_std):
                 self._train_residual_std = 0.0
 
@@ -379,61 +392,38 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             {
                 "max_hidden_layers": {"type": "int", "low": 1, "high": 3},
                 "hidden_size": {"type": "int", "low": 32, "high": 128, "step": 32},
+                "activation": {
+                    "type": "categorical",
+                    "choices": [e.value for e in ActivationFunction],
+                },
                 "gumbel_tau": {"type": "float", "low": 1e-8, "high": 1.0, "log": True},
                 "n_predictor_layers": {"type": "int", "low": 0, "high": 2},
-                "n_predictor_learning_rate": {"type": "float", "low": 1e-8, "high": 1e-2, "log": True},
-                "layer_selection_method": {"type": "categorical", "choices": ["gumbel_softmax", "ste", "soft_gating", "reinforce", "none"]},
+                "n_predictor_learning_rate": {
+                    "type": "float",
+                    "low": 1e-8,
+                    "high": 1e-2,
+                    "log": True,
+                },
+                "layer_selection_method": {
+                    "type": "categorical",
+                    "choices": [
+                        LayerSelectionMethod.GUMBEL_SOFTMAX,
+                        LayerSelectionMethod.STE,
+                        LayerSelectionMethod.SOFT_GATING,
+                        LayerSelectionMethod.REINFORCE,
+                        LayerSelectionMethod.NONE,
+                    ],
+                },
             }
         )
 
         if "hidden_layers" in space:
             del space["hidden_layers"]
 
+        if self.search_space_override:
+            space.update(self.search_space_override)
+
         return space
-
-    def evaluate(self, x: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
-        """Evaluates the model on a given dataset and saves the metrics.
-
-        Args:
-            x (np.ndarray): Feature matrix for evaluation.
-            y (np.ndarray): True labels for evaluation.
-            save_path (str): Directory to save the metrics files.
-
-        Returns:
-            np.ndarray: The predictions made by the model.
-        """
-        y_pred = self.predict(x)
-        y_proba = None
-        if self.task_type == TaskType.CLASSIFICATION:
-            y_proba = self.predict_proba(x)
-
-        n_actual, n_logits = None, None
-        if self.layer_selection_method != LayerSelectionMethod.NONE:
-            x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
-            self.model.eval()
-            with torch.no_grad():
-                _, n_actual_tensor, _, n_logits_tensor, _ = self.model(x_tensor)
-                n_actual = n_actual_tensor.cpu().numpy()
-                n_logits = n_logits_tensor.cpu().numpy()
-
-        metrics_calculator = Metrics(
-            self.task_type.value,
-            self.name,
-            x_data=x,
-            y_true=y,
-            y_pred=y_pred,
-            y_proba=y_proba,
-            flexible_nn_n_actual=n_actual,
-            flexible_nn_n_logits=n_logits,
-            flexible_nn_max_hidden_layers=self.max_hidden_layers,
-            flexible_nn_feature_scaler=self.feature_scaler,
-        )
-        metrics_calculator.save_metrics(save_path)
-
-        if self.layer_selection_method != LayerSelectionMethod.NONE:
-            metrics_calculator.plot_flexible_nn_architecture(save_path)
-
-        return y_pred
 
     def _setup_optimizers(self, model: torch.nn.Module) -> None:
         """Sets up the optimizers for FlexibleHiddenLayersNN, handling n_predictor and REINFORCE separately."""
@@ -447,16 +437,6 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
     def get_params(self) -> dict[str, Any]:
         """Gets the parameters of the model."""
         params = super().get_params()
-        params.update(
-            {
-                "max_hidden_layers": self.max_hidden_layers,
-                "hidden_size": self.hidden_size,
-                "gumbel_tau": self.gumbel_tau,
-                "n_predictor_layers": self.n_predictor_layers,
-                "feature_scaler": self.feature_scaler,
-                "gumbel_tau_anneal_rate": self.gumbel_tau_anneal_rate,
-                "n_predictor_learning_rate": self.n_predictor_learning_rate,
-                "layer_selection_method": self.layer_selection_method,
-            }
-        )
+        for key in self._defaults:
+            params[key] = getattr(self, key)
         return params

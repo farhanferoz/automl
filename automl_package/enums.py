@@ -97,3 +97,70 @@ class CategoricalEncodingStrategy(Enum):
 
     ONE_HOT = "one_hot"
     ORDERED_TARGET = "ordered_target"
+
+
+class Metric(Enum):
+    """Enum for different evaluation metrics."""
+
+    RMSE = "rmse"
+    MSE = "mse"
+    ACCURACY = "accuracy"
+    LOG_LOSS = "log_loss"
+
+
+class ActivationFunction(Enum):
+    """Enum for different activation functions."""
+
+    RELU = "relu"
+    TANH = "tanh"
+    SIGMOID = "sigmoid"
+    LEAKY_RELU = "leaky_relu"
+    ELU = "elu"
+    SELU = "selu"
+    SOFTPLUS = "softplus"
+    SWISH = "swish"
+    MISH = "mish"
+    GELU = "gelu"
+    PRELU = "prelu"
+    RRELU = "rrelu"
+    HARDSHRINK = "hardshrink"
+    SOFTSHRINK = "softshrink"
+    TANHSHRINK = "tanhshrink"
+    SOFTMIN = "softmin"
+    SOFTMAX = "softmax"
+    LOG_SOFTMAX = "log_softmax"
+    ADAPTIVE_LOG_SOFTMAX_WITH_LOSS = "adaptive_log_softmax_with_loss"
+    GLU = "glu"
+    LOGSIGMOID = "logsigmoid"
+    HARDTANH = "hardtanh"
+    THRESHOLD = "threshold"
+    RELU6 = "relu6"
+    CELU = "celu"
+    SILU = "silu"
+    HARDSWISH = "hardswish"
+    IDENTITY = "identity"
+    LINEAR = "linear"
+
+
+class Penalty(Enum):
+    """Enum for different regularization penalties."""
+
+    L1 = "l1"
+    L2 = "l2"
+    ELASTICNET = "elasticnet"
+
+
+class FunctionType(Enum):
+    """Enum for different function types."""
+
+    SIN = "sin"
+    POLYNOMIAL = "polynomial"
+    LINEAR = "linear"
+
+
+class DataSplitStrategy(Enum):
+    """Enum for different data split strategies."""
+
+    RANDOM = "random"
+    DISTINCT_DATES = "distinct_dates"
+    TIME_ORDERED = "time_ordered"

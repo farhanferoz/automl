@@ -1,14 +1,13 @@
 """LightGBM model wrapper for AutoML."""
 
 from typing import Any, NoReturn
-
 import lightgbm as lgb
 import numpy as np
 from sklearn.metrics import accuracy_score, mean_squared_error
 
-from automl_package.enums import TaskType
+from automl_package.enums import Metric, TaskType
 from automl_package.models.base import BaseModel
-from automl_package.utils.metrics import Metrics
+from automl_package.models.common.common import get_loss_history
 
 
 class LightGBMModel(BaseModel):
@@ -27,26 +26,30 @@ class LightGBMModel(BaseModel):
         self.params.setdefault("verbose", -1)
         if self.task_type == TaskType.REGRESSION:
             self.objective = "regression"
-            self.metric = "rmse"
+            self.metric = Metric.RMSE.value
         elif self.task_type == TaskType.CLASSIFICATION:
             self.objective = "binary"
-            self.metric = "binary_logloss"
+            self.metric = Metric.LOG_LOSS.value
         else:
-            raise ValueError(f"Unsupported task type: {task_type}")
+            raise ValueError(f"Unsupported task type: {self.task_type}")
 
     @property
     def name(self) -> str:
         """Returns the name of the model."""
         return "LightGBMModel"
 
+    def _get_optimization_metric(self) -> Metric:
+        """Gets the optimization metric for the model."""
+        return Metric.RMSE if self.is_regression_model else Metric.ACCURACY
+
     def _fit_single(
-        self, x: np.ndarray, y: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
         Args:
-            x (np.ndarray): The training features.
-            y (np.ndarray): The training targets.
+            x_train (np.ndarray): The training features.
+            y_train (np.ndarray): The training targets.
             x_val (np.ndarray | None): The validation features.
             y_val (np.ndarray | None): The validation targets.
             forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
@@ -60,16 +63,12 @@ class LightGBMModel(BaseModel):
         callbacks = []
         use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
 
-        x_train, y_train, x_val, y_val = self._prepare_train_val_data(x, y, x_val, y_val)
-
         if use_early_stopping and x_val is not None:
             eval_set = [(x_val, y_val)]
             callbacks.append(lgb.early_stopping(self.early_stopping_rounds, verbose=False))
 
-        if self.task_type == TaskType.CLASSIFICATION:
-            self.model = lgb.LGBMClassifier(objective=self.objective, metric=self.metric, random_state=self.random_seed, **self.params)
-        else:
-            self.model = lgb.LGBMRegressor(objective=self.objective, metric=self.metric, random_state=self.random_seed, **self.params)
+        model_instance = lgb.LGBMClassifier if self.task_type == TaskType.CLASSIFICATION else lgb.LGBMRegressor
+        self.model = model_instance(objective=self.objective, metric=self.metric, random_state=self.random_seed, **self.params)
 
         if forced_iterations is not None:
             self.model.n_estimators = forced_iterations
@@ -77,18 +76,31 @@ class LightGBMModel(BaseModel):
         self.model.fit(x_train, y_train, eval_set=eval_set, callbacks=callbacks)
 
         best_iteration = self.model.best_iteration_ if use_early_stopping and self.model.best_iteration_ is not None else self.model.n_estimators
+        loss_history = get_loss_history(self.model, use_early_stopping)
 
-        return best_iteration, []
+        return best_iteration, loss_history
 
     def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """Evaluates a trial for hyperparameter optimization."""
-        if self.is_regression_model:
+        return self._calculate_metric(y_true, y_pred, Metric.RMSE if self.is_regression_model else Metric.ACCURACY)
+
+    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
+        """Calculates a metric."""
+        if metric == Metric.RMSE:
             return np.sqrt(mean_squared_error(y_true, y_pred))
-        return accuracy_score(y_true, np.round(y_pred))
+        if metric == Metric.ACCURACY:
+            return accuracy_score(y_true, np.round(y_pred))
+        raise ValueError(f"Unknown metric: {metric}")
 
     def _clone(self) -> "LightGBMModel":
         """Creates a new instance of the model with the same parameters."""
         return LightGBMModel(**self.get_params())
+
+    def get_params(self) -> dict[str, Any]:
+        """Gets parameters for this estimator."""
+        params = super().get_params()
+        params.update({"task_type": self.task_type, "random_seed": self.random_seed})
+        return params
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data."""
@@ -134,22 +146,16 @@ class LightGBMModel(BaseModel):
     def get_num_parameters(self) -> int:
         """Returns the number of estimators in the LightGBM model."""
         if self.model is None:
-            return 0
-        return self.model.n_estimators
+            num_parameters = 0
+        elif hasattr(self.model, "best_iteration_") and self.model.best_iteration_ is not None:
+            num_parameters = self.model.best_iteration_
+        else:
+            num_parameters = self.model.n_estimators
+        return num_parameters
 
     def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> NoReturn:
         """Not implemented for LightGBMModel."""
         raise NotImplementedError("LightGBMModel is not a composite model.")
-
-    def evaluate(self, x: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
-        """Evaluates the model on a given dataset and saves the metrics."""
-        y_pred = self.predict(x)
-        y_proba = None
-        if self.task_type == TaskType.CLASSIFICATION:
-            y_proba = self.predict_proba(x)
-        metrics_calculator = Metrics(task_type=self.task_type.value, model_name=self.name, x_data=x, y_true=y, y_pred=y_pred, y_proba=y_proba)
-        metrics_calculator.save_metrics(save_path)
-        return y_pred
 
     def cross_validate(self, x: np.ndarray, y: np.ndarray, cv: int) -> dict[str, Any]:
         """Performs cross-validation."""

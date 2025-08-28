@@ -1,57 +1,72 @@
 """Cross-validation utilities."""
 
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Generator
 
 import numpy as np
-from sklearn.model_selection import KFold
-
-from automl_package.logger import logger
+from sklearn.model_selection._split import BaseCrossValidator
 
 
-def cross_validate(
-    model_class: type,
-    model_params: dict[str, Any],
-    x: np.ndarray,
-    y: np.ndarray,
-    cv: int,
-    metric_func: Callable[[np.ndarray, np.ndarray], float],
-    random_seed: int | None = None,
-) -> dict[str, Any]:
-    """Performs cross-validation for a given model.
+class TimeSeriesSplit(BaseCrossValidator):
+    """Time series cross-validator."""
 
-    Args:
-        model_class (type): The model class to instantiate.
-        model_params (dict): The parameters to initialize the model with.
-        x (np.ndarray): Feature matrix.
-        y (np.ndarray): Target vector.
-        cv (int): Number of folds for cross-validation.
-        metric_func (Callable[[np.ndarray, np.ndarray], float]): The metric function to use for evaluation.
-        random_seed (int, optional): Random seed for reproducibility. Defaults to None.
+    def __init__(self, n_splits: int = 5) -> None:
+        """Initialize the TimeSeriesSplit.
 
-    Returns:
-        Dict[str, Any]: A dictionary containing the cross-validation scores.
-    """
-    kf = KFold(n_splits=cv, shuffle=True, random_state=random_seed)
-    scores = []
+        Parameters
+        ----------
+        n_splits : int, default=5
+            Number of splits. Must be at least 2.
+        """
+        if n_splits < 2:
+            raise ValueError(f"n_splits={n_splits} cannot be smaller than 2.")
+        self.n_splits = n_splits
 
-    logger.info(f"Starting cross-validation with {cv} folds.")
+    def get_n_splits(self, x: np.ndarray = None, _y: np.ndarray = None, _groups: np.ndarray = None) -> int:  # noqa: ARG002
+        """Returns the number of splitting iterations in the cross-validator.
 
-    for fold, (train_index, test_index) in enumerate(kf.split(x, y)):
-        logger.info(f"--- Fold {fold + 1}/{cv} ---")
-        x_train, x_test = x[train_index], x[test_index]
-        y_train, y_test = y[train_index], y[test_index]
+        Parameters
+        ----------
+        x : object
+            Always ignored, exists for compatibility.
+        y : object
+            Always ignored, exists for compatibility.
+        groups : object
+            Always ignored, exists for compatibility.
 
-        model = model_class(**model_params)
+        Returns:
+        -------
+        n_splits : int
+            Returns the number of splitting iterations in the cross-validator.
+        """
+        return self.n_splits
 
-        model.fit(x_train, y_train)
-        preds = model.predict(x_test)
-        score = metric_func(y_test, preds)
-        scores.append(score)
-        logger.info(f"Fold {fold + 1} score: {score:.4f}")
+    def split(self, x: np.ndarray, _y: np.ndarray = None, _groups: np.ndarray = None) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
+        """Generate indices to split data into training and test set.
 
-    mean_score = np.mean(scores)
-    std_score = np.std(scores)
-    logger.info(f"Cross-validation finished. Mean score: {mean_score:.4f} (+/- {std_score:.4f})")
+        Parameters
+        ----------
+        x : array-like of shape (n_samples, n_features)
+            Training data, where n_samples is the number of samples
+            and n_features is the number of features.
+        y : array-like of shape (n_samples,), default=None
+            Always ignored, exists for compatibility.
+        groups : array-like of shape (n_samples,), default=None
+            Always ignored, exists for compatibility.
 
-    return {"test_score": scores, "mean_test_score": mean_score, "std_test_score": std_score}
+        Yields:
+        ------
+        train : ndarray
+            The training set indices for that split.
+        test : ndarray
+            The testing set indices for that split.
+        """
+        n_samples = len(x)
+        k_fold_size = n_samples // self.n_splits
+        indices = np.arange(n_samples)
+
+        margin = 0
+        for i in range(self.n_splits):
+            start = i * k_fold_size
+            stop = start + k_fold_size
+            mid = int(0.8 * (stop - start)) + start
+            yield indices[start:mid], indices[mid + margin : stop]

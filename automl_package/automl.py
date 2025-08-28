@@ -15,24 +15,34 @@ import seaborn as sns
 import torch.nn as nn
 import wandb
 from sklearn.base import TransformerMixin, clone
-from sklearn.metrics import accuracy_score, log_loss, mean_squared_error
 
-from .enums import CategoricalEncodingStrategy, MapperType, ModelName, RegressionStrategy, TaskType, UncertaintyMethod
-from .explainers.feature_explainer import FeatureExplainer
-from .logger import logger
-from .models.base import BaseModel
-from .models.catboost_model import CatBoostModel
-from .models.classifier_regression import ClassifierRegressionModel
-from .models.flexible_neural_network import FlexibleHiddenLayersNN
-from .models.lightgbm_model import LightGBMModel
-from .models.linear_regression import JAXLinearRegression
-from .models.neural_network import PyTorchNeuralNetwork
-from .models.normal_equation_linear_regression import NormalEquationLinearRegression
-from .models.probabilistic_regression import ProbabilisticRegressionModel
-from .models.sklearn_logistic_regression import SKLearnLogisticRegression
-from .models.xgboost_model import XGBoostModel
-from .optimizers.optuna_optimizer import OptunaOptimizer
-from .preprocessing import OneHotEncoder, OrderedTargetEncoder
+from automl_package.enums import (
+    ActivationFunction,
+    CategoricalEncodingStrategy,
+    MapperType,
+    Metric,
+    ModelName,
+    Penalty,
+    RegressionStrategy,
+    TaskType,
+    UncertaintyMethod,
+)
+from automl_package.explainers.feature_explainer import FeatureExplainer
+from automl_package.logger import logger
+from automl_package.models.base import BaseModel
+from automl_package.models.catboost_model import CatBoostModel
+from automl_package.models.classifier_regression import ClassifierRegressionModel
+from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
+from automl_package.models.lightgbm_model import LightGBMModel
+from automl_package.models.linear_regression import JAXLinearRegression
+from automl_package.models.neural_network import PyTorchNeuralNetwork
+from automl_package.models.normal_equation_linear_regression import NormalEquationLinearRegression
+from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+from automl_package.models.sklearn_logistic_regression import SKLearnLogisticRegression
+from automl_package.models.xgboost_model import XGBoostModel
+from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
+from automl_package.preprocessing import OneHotEncoder, OrderedTargetEncoder
+from automl_package.utils.metrics_utils import calculate_metric
 
 
 class AutoML:
@@ -44,7 +54,7 @@ class AutoML:
     def __init__(
         self,
         task_type: TaskType = TaskType.REGRESSION,  # Use enum
-        metric: str = "rmse",  # e.g., 'rmse', 'accuracy', 'log_loss'
+        metric: Metric = Metric.RMSE,  # e.g., 'rmse', 'accuracy', 'log_loss'
         n_trials: int = 20,
         n_splits: int = 5,
         random_state: int | None = None,
@@ -117,7 +127,11 @@ class AutoML:
         self.best_model_name: ModelName | None = None
         self.best_overall_metric: float = float("inf") if self._is_minimize_metric() else -float("inf")
 
-        self.optuna_optimizer = OptunaOptimizer(direction="minimize" if self._is_minimize_metric() else "maximize", n_trials=n_trials, seed=random_state)
+        self.optuna_optimizer = OptunaOptimizer(
+            direction="minimize" if self._is_minimize_metric() else "maximize",
+            n_trials=n_trials,
+            seed=random_state,
+        )
 
         # Ensure regression-only models are only used for regression tasks
         if self.task_type == TaskType.CLASSIFICATION:
@@ -195,32 +209,19 @@ class AutoML:
 
     def _is_minimize_metric(self) -> bool:
         """Determines if the metric should be minimized."""
-        return self.metric in ["rmse", "mse", "log_loss"]
+        return self.metric in [Metric.RMSE, Metric.MSE, Metric.LOG_LOSS]
 
     def _evaluate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray | None = None) -> float:
         """Evaluates the chosen metric."""
-        if self.task_type == TaskType.REGRESSION:
-            if self.metric == "rmse":
-                return np.sqrt(mean_squared_error(y_true, y_pred))
-            if self.metric == "mse":
-                return mean_squared_error(y_true, y_pred)
-            raise ValueError(f"Unsupported regression metric: {self.metric}")
-        if self.task_type == TaskType.CLASSIFICATION:
-            if self.metric == "accuracy":
-                # y_pred for accuracy should be class labels (0 or 1)
-                return accuracy_score(y_true, y_pred)
-            if self.metric == "log_loss":
-                # y_proba for log_loss should be probabilities for the positive class (binary) or (N, num_classes) for multi-class
-                if y_proba is None:
-                    raise ValueError("y_proba is required for 'log_loss' metric.")
+        return calculate_metric(y_true, y_pred, self.metric, self.task_type, y_proba)
 
-                y_proba_for_logloss = np.vstack((1 - y_proba, y_proba)).T if y_proba.ndim == 1 else y_proba
-
-                return log_loss(y_true, y_proba_for_logloss)
-            raise ValueError(f"Unsupported classification metric: {self.metric}")
-        raise ValueError("Task type must be 'regression' or 'classification'.")
-
-    def _instantiate_model(self, model_name: ModelName, params: dict[str, Any], input_features: int, num_classes: int | None = None) -> BaseModel:
+    def _instantiate_model(
+        self,
+        model_name: ModelName,
+        params: dict[str, Any],
+        input_features: int,
+        num_classes: int | None = None,
+    ) -> BaseModel:
         """Instantiates a model from the registry with given parameters."""
         if model_name == ModelName.CLASSIFIER_REGRESSION:
             # ClassifierRegressionModel needs special handling for its nested parameters
@@ -241,7 +242,7 @@ class AutoML:
             if "uncertainty_method" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["uncertainty_method"], str):
                 base_classifier_params_reconstructed["uncertainty_method"] = UncertaintyMethod(base_classifier_params_reconstructed["uncertainty_method"])
             if "activation" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["activation"], str):
-                base_classifier_params_reconstructed["activation"] = nn.ReLU if base_classifier_params_reconstructed["activation"] == "ReLU" else nn.Tanh
+                base_classifier_params_reconstructed["activation"] = ActivationFunction(base_classifier_params_reconstructed["activation"])
 
             # Reconstruct mapper_params
             mapper_params_reconstructed = {}
@@ -262,7 +263,7 @@ class AutoML:
                 base_classifier_params_reconstructed["task_type"] = TaskType.CLASSIFICATION
                 # Convert string activation to Type[nn.Module]
                 if "activation" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["activation"], str):
-                    base_classifier_params_reconstructed["activation"] = nn.ReLU if base_classifier_params_reconstructed["activation"] == "ReLU" else nn.Tanh
+                    base_classifier_params_reconstructed["activation"] = ActivationFunction(base_classifier_params_reconstructed["activation"])
                 # Ensure dropout_rate and n_mc_dropout_samples are set if uncertainty_method is MC_DROPOUT
                 if base_classifier_params_reconstructed.get("uncertainty_method") == UncertaintyMethod.MC_DROPOUT.value:
                     base_classifier_params_reconstructed.setdefault("dropout_rate", 0.1)
@@ -274,7 +275,8 @@ class AutoML:
                 base_classifier_params_reconstructed["output_size"] = 1 if n_classes == 2 else n_classes
                 base_classifier_params_reconstructed["task_type"] = TaskType.CLASSIFICATION
                 if "activation" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["activation"], str):
-                    base_classifier_params_reconstructed["activation"] = nn.ReLU if base_classifier_params_reconstructed["activation"] == "ReLU" else nn.Tanh
+                    activation_enum = ActivationFunction(base_classifier_params_reconstructed["activation"])
+                    base_classifier_params_reconstructed["activation"] = getattr(nn, activation_enum.name)
                 if base_classifier_params_reconstructed.get("uncertainty_method") == UncertaintyMethod.MC_DROPOUT.value:
                     base_classifier_params_reconstructed.setdefault("dropout_rate", 0.1)
                     base_classifier_params_reconstructed.setdefault("n_mc_dropout_samples", 100)
@@ -282,13 +284,13 @@ class AutoML:
                     base_classifier_params_reconstructed["dropout_rate"] = 0.0
             elif base_model_enum == ModelName.XGBOOST:
                 base_classifier_params_reconstructed["objective"] = "binary:logistic" if n_classes == 2 else "multi:softmax"
-                base_classifier_params_reconstructed["eval_metric"] = "logloss"
+                base_classifier_params_reconstructed["eval_metric"] = Metric.LOG_LOSS.value
             elif base_model_enum == ModelName.LIGHTGBM:
                 base_classifier_params_reconstructed["objective"] = "binary" if n_classes == 2 else "multiclass"
-                base_classifier_params_reconstructed["metric"] = "binary_logloss"
+                base_classifier_params_reconstructed["metric"] = Metric.LOG_LOSS.value
             elif base_model_enum == ModelName.CATBOOST:
                 base_classifier_params_reconstructed["task_type"] = TaskType.CLASSIFICATION
-                base_classifier_params_reconstructed["loss_function"] = "Logloss" if n_classes == 2 else "MultiClass"
+                base_classifier_params_reconstructed["loss_function"] = Metric.LOG_LOSS.value if n_classes == 2 else Metric.MULTI_CLASS.value
 
             return ClassifierRegressionModel(
                 n_classes=n_classes,
@@ -301,54 +303,19 @@ class AutoML:
             )
         if model_name == ModelName.PYTORCH_NEURAL_NETWORK:
             # PyTorchNeuralNetwork parameters
-            hidden_sizes_list = [params.pop("hidden_size")] * params.pop("hidden_layers")
-            activation_str = params.pop("activation", "ReLU")
-            activation_fn = nn.ReLU if activation_str == "ReLU" else nn.Tanh
-            uncertainty_method_enum = UncertaintyMethod(params.pop("uncertainty_method"))
-
             return self.models_registry[model_name](
                 input_size=input_features,
-                hidden_sizes=hidden_sizes_list,
-                output_size=1 if self.task_type == TaskType.REGRESSION else (1 if num_classes == 2 else num_classes),
-                learning_rate=params.pop("learning_rate"),
-                n_epochs=params.pop("n_epochs"),
-                batch_size=params.pop("batch_size"),
+                output_size=(1 if self.task_type == TaskType.REGRESSION else (1 if num_classes == 2 else num_classes)),
                 task_type=self.task_type,
-                use_batch_norm=params.pop("use_batch_norm"),
-                uncertainty_method=uncertainty_method_enum,
-                n_mc_dropout_samples=params.pop("n_mc_dropout_samples", 100),
-                dropout_rate=params.pop("dropout_rate", 0.1),
-                l1_lambda=params.pop("l1_lambda", 0.0),
-                l2_lambda=params.pop("l2_lambda", 0.0),
-                activation=activation_fn,
                 **params,  # Pass any remaining
             )
         # --- INSTANTIATE THE NEW FLEXIBLE_NEURAL_NETWORK MODEL HERE ---
         if model_name == ModelName.FLEXIBLE_NEURAL_NETWORK:
-            activation_str = params.pop("activation", "ReLU")
-            activation_fn = nn.ReLU if activation_str == "ReLU" else nn.Tanh
-            uncertainty_method_enum = UncertaintyMethod(params.pop("uncertainty_method"))
-
             return self.models_registry[model_name](
                 input_size=input_features,
-                max_hidden_layers=params.pop("max_hidden_layers"),
-                hidden_size=params.pop("hidden_size"),
-                output_size=1 if self.task_type == TaskType.REGRESSION else (1 if num_classes == 2 else num_classes),
-                learning_rate=params.pop("learning_rate"),
-                n_epochs=params.pop("n_epochs"),
-                batch_size=params.pop("batch_size"),
+                output_size=(1 if self.task_type == TaskType.REGRESSION else (1 if num_classes == 2 else num_classes)),
                 task_type=self.task_type,
-                use_batch_norm=params.pop("use_batch_norm"),
-                uncertainty_method=uncertainty_method_enum,
-                n_mc_dropout_samples=params.pop("n_mc_dropout_samples", 100),
-                dropout_rate=params.pop("dropout_rate", 0.1),
-                l1_lambda=params.pop("l1_lambda", 0.0),
-                l2_lambda=params.pop("l2_lambda", 0.0),
-                activation=activation_fn,
                 feature_scaler=self.feature_scaler,  # Pass the feature scaler
-                gumbel_tau=params.pop("gumbel_tau"),
-                gumbel_tau_anneal_rate=params.pop("gumbel_tau_anneal_rate"),
-                n_predictor_learning_rate=params.pop("n_predictor_learning_rate"),
                 **params,
             )
         # -----------------------------------------------------------
@@ -363,7 +330,7 @@ class AutoML:
                 if k.startswith("base_classifier_params__"):
                     del params[k]
             if "activation" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["activation"], str):
-                base_classifier_params_reconstructed["activation"] = nn.ReLU if base_classifier_params_reconstructed["activation"] == "ReLU" else nn.Tanh
+                base_classifier_params_reconstructed["activation"] = ActivationFunction(base_classifier_params_reconstructed["activation"])
 
             # Reconstruct regression_head_params
             regression_head_params_reconstructed = {k.replace("regression_head_params__", ""): v for k, v in params.items() if k.startswith("regression_head_params__")}
@@ -371,7 +338,7 @@ class AutoML:
                 if k.startswith("regression_head_params__"):
                     del params[k]
             if "activation" in regression_head_params_reconstructed and isinstance(regression_head_params_reconstructed["activation"], str):
-                regression_head_params_reconstructed["activation"] = nn.ReLU if regression_head_params_reconstructed["activation"] == "ReLU" else nn.Tanh
+                regression_head_params_reconstructed["activation"] = ActivationFunction(regression_head_params_reconstructed["activation"])
 
             return self.models_registry[model_name](
                 input_size=input_features,
@@ -390,19 +357,19 @@ class AutoML:
         if model_name == ModelName.XGBOOST:
             if self.task_type == TaskType.CLASSIFICATION:
                 objective = "binary:logistic" if num_classes == 2 else "multi:softmax"
-                eval_metric = "logloss" if num_classes == 2 else "multi:mlogloss"
+                eval_metric = Metric.LOG_LOSS.value if num_classes == 2 else Metric.MULTI_CLASS_LOG_LOSS.value
                 return self.models_registry[model_name](objective=objective, eval_metric=eval_metric, **params)
-            return self.models_registry[model_name](objective="reg:squarederror", eval_metric="rmse", **params)
+            return self.models_registry[model_name](objective="reg:squarederror", eval_metric=Metric.RMSE.value, **params)
         if model_name == ModelName.LIGHTGBM:
             if self.task_type == TaskType.CLASSIFICATION:
                 objective = "binary" if num_classes == 2 else "multiclass"
-                metric = "binary_logloss" if num_classes == 2 else "multi_logloss"
+                metric = Metric.LOG_LOSS.value if num_classes == 2 else Metric.MULTI_CLASS_LOG_LOSS.value
                 return self.models_registry[model_name](objective=objective, metric=metric, **params)
-            return self.models_registry[model_name](objective="regression", metric="rmse", **params)
+            return self.models_registry[model_name](objective="regression", metric=Metric.RMSE.value, **params)
         if model_name == ModelName.CATBOOST:
             return self.models_registry[model_name](task_type=self.task_type, **params)
         if model_name == ModelName.SKLEARN_LOGISTIC_REGRESSION:
-            if params.get("penalty") == "elasticnet" and "l1_ratio" in params:  # Ensure l1_ratio only if elasticnet
+            if params.get("penalty") == Penalty.ELASTICNET.value and "l1_ratio" in params:  # Ensure l1_ratio only if elasticnet
                 return self.models_registry[model_name](**params)
             params_copy = params.copy()
             if "l1_ratio" in params_copy:
@@ -444,7 +411,11 @@ class AutoML:
                 temp_model_instance = base_classifier_class(task_type=TaskType.CLASSIFICATION, input_size=10, output_size=1)
             elif ModelName(base_classifier_name_str) == ModelName.CATBOOST:
                 temp_model_instance = base_classifier_class(task_type=TaskType.CLASSIFICATION)
-            elif ModelName(base_classifier_name_str) in [ModelName.XGBOOST, ModelName.LIGHTGBM, ModelName.SKLEARN_LOGISTIC_REGRESSION]:
+            elif ModelName(base_classifier_name_str) in [
+                ModelName.XGBOOST,
+                ModelName.LIGHTGBM,
+                ModelName.SKLEARN_LOGISTIC_REGRESSION,
+            ]:
                 temp_model_instance = base_classifier_class(is_classification=True)
             else:
                 temp_model_instance = base_classifier_class()  # Fallback for other models
@@ -454,7 +425,10 @@ class AutoML:
             for param_name, config in base_search_space.items():
                 param_key = f"base__{param_name}"
                 # Conditional sampling for PyTorchNN uncertainty methods within base classifier params
-                if param_name == "uncertainty_method" and ModelName(base_classifier_name_str) in [ModelName.PYTORCH_NEURAL_NETWORK, ModelName.FLEXIBLE_NEURAL_NETWORK]:
+                if param_name == "uncertainty_method" and ModelName(base_classifier_name_str) in [
+                    ModelName.PYTORCH_NEURAL_NETWORK,
+                    ModelName.FLEXIBLE_NEURAL_NETWORK,
+                ]:
                     sampled_uncertainty_method_val = trial.suggest_categorical(param_key, [e.value for e in UncertaintyMethod])
                     params[param_key] = sampled_uncertainty_method_val
                     if sampled_uncertainty_method_val == UncertaintyMethod.MC_DROPOUT.value:
@@ -464,13 +438,28 @@ class AutoML:
                 # Handle l1_ratio for SKLearnLogisticRegression
                 if param_name == "l1_ratio" and ModelName(base_classifier_name_str) == ModelName.SKLEARN_LOGISTIC_REGRESSION:
                     if params.get(f"{param_key_prefix}penalty") == "elasticnet":  # Check if penalty is elasticnet (should be sampled already)
-                        params[param_key] = trial.suggest_float(param_key, config["low"], config["high"], step=config["step"])
+                        params[param_key] = trial.suggest_float(
+                            param_key,
+                            config["low"],
+                            config["high"],
+                            step=config["step"],
+                        )
                     continue
 
                 if config["type"] == "int":
-                    params[param_key] = trial.suggest_int(param_key, config["low"], config["high"], step=config.get("step", 1))
+                    params[param_key] = trial.suggest_int(
+                        param_key,
+                        config["low"],
+                        config["high"],
+                        step=config.get("step", 1),
+                    )
                 elif config["type"] == "float":
-                    params[param_key] = trial.suggest_float(param_key, config["low"], config["high"], log=config.get("log", False))
+                    params[param_key] = trial.suggest_float(
+                        param_key,
+                        config["low"],
+                        config["high"],
+                        log=config.get("log", False),
+                    )
                 elif config["type"] == "categorical":
                     params[param_key] = trial.suggest_categorical(param_key, config["choices"])
 
@@ -479,7 +468,10 @@ class AutoML:
             params["mapper_type"] = mapper_type_val
 
             # Conditional mapper params
-            if MapperType(mapper_type_val) in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
+            if MapperType(mapper_type_val) in [
+                MapperType.LOOKUP_MEAN,
+                MapperType.LOOKUP_MEDIAN,
+            ]:
                 params["n_partitions_min_lookup"] = trial.suggest_int("n_partitions_min_lookup", 5, 10)
                 params["n_partitions_max_lookup"] = trial.suggest_int("n_partitions_max_lookup", 10, 50)
             elif MapperType(mapper_type_val) == MapperType.SPLINE:
@@ -523,23 +515,43 @@ class AutoML:
                 # Only suggest these if 'uncertainty_method' is MC_DROPOUT
                 if params.get("uncertainty_method") == UncertaintyMethod.MC_DROPOUT.value:
                     if config["type"] == "int":
-                        params[param_name] = trial.suggest_int(param_name, config["low"], config["high"], step=config["step"])
+                        params[param_name] = trial.suggest_int(
+                            param_name,
+                            config["low"],
+                            config["high"],
+                            step=config["step"],
+                        )
                     elif config["type"] == "float":
-                        params[param_name] = trial.suggest_float(param_name, config["low"], config["high"], step=config["step"])
+                        params[param_name] = trial.suggest_float(
+                            param_name,
+                            config["low"],
+                            config["high"],
+                            step=config["step"],
+                        )
                 elif param_name == "dropout_rate":  # If not MC_DROPOUT, set dropout rate to 0.0
                     params[param_name] = 0.0
                 continue  # Skip to next param after handling
 
             # Handle l1_ratio for SKLearnLogisticRegression's elasticnet
             if param_name == "l1_ratio" and model_name == ModelName.SKLEARN_LOGISTIC_REGRESSION:
-                if params.get("penalty") == "elasticnet":
+                if params.get("penalty") == Penalty.ELASTICNET.value:
                     params[param_name] = trial.suggest_float(param_name, config["low"], config["high"], step=config["step"])
                 continue  # Skip to next param
 
             if config["type"] == "int":
-                params[param_name] = trial.suggest_int(param_name, config["low"], config["high"], step=config.get("step", 1))
+                params[param_name] = trial.suggest_int(
+                    param_name,
+                    config["low"],
+                    config["high"],
+                    step=config.get("step", 1),
+                )
             elif config["type"] == "float":
-                params[param_name] = trial.suggest_float(param_name, config["low"], config["high"], log=config.get("log", False))
+                params[param_name] = trial.suggest_float(
+                    param_name,
+                    config["low"],
+                    config["high"],
+                    log=config.get("log", False),
+                )
             elif config["type"] == "categorical":
                 params[param_name] = trial.suggest_categorical(param_name, config["choices"])
 
@@ -563,7 +575,12 @@ class AutoML:
             current_model_params, _ = self._sample_params_for_trial(trial, model_name)
 
             try:
-                model_instance = self._instantiate_model(model_name, current_model_params.copy(), x_processed.shape[1], num_classes=num_classes_for_instantiation)
+                model_instance = self._instantiate_model(
+                    model_name,
+                    current_model_params.copy(),
+                    x_processed.shape[1],
+                    num_classes=num_classes_for_instantiation,
+                )
 
                 cv_results = model_instance.cross_validate(x_processed, y_for_training, cv=self.n_splits)
 
@@ -584,7 +601,12 @@ class AutoML:
 
         return objective
 
-    def train(self, x: np.ndarray, y: np.ndarray, models_to_consider: list[ModelName] | None = None) -> None:
+    def train(
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        models_to_consider: list[ModelName] | None = None,
+    ) -> None:
         """Trains and optimizes selected models using cross-validation and Optuna.
 
         Args:
@@ -598,18 +620,18 @@ class AutoML:
                 project="automl_experiment",
                 config={
                     "task_type": self.task_type.value,
-                    "metric": self.metric,
+                    "metric": self.metric.value,
                     "n_trials": self.n_trials,
                     "n_splits": self.n_splits,
                     "random_state": self.random_state,
-                    "feature_scaler": str(type(self.feature_scaler)) if self.feature_scaler else "None",
-                    "target_scaler": str(type(self.target_scaler)) if self.target_scaler else "None",
+                    "feature_scaler": (str(type(self.feature_scaler)) if self.feature_scaler else "None"),
+                    "target_scaler": (str(type(self.target_scaler)) if self.target_scaler else "None"),
                 },
             )
             wandb.log_artifact("requirements.txt", type="env")
             logger.info("Weights & Biases run initialized.")
 
-        logger.info(f"Starting AutoML training for {self.task_type.value} task with metric '{self.metric}'.")
+        logger.info(f"Starting AutoML training for {self.task_type.value} task with metric '{self.metric.value}'.")
         logger.info(
             f"Feature scaling: {'Enabled' if self.feature_scaler else 'Disabled'}, "
             f"Target scaling (regression): {'Enabled' if self.target_scaler and self.task_type == TaskType.REGRESSION else 'Disabled'}"
@@ -687,7 +709,13 @@ class AutoML:
 
             logger.info(f"\n--- Optimizing {model_name.value} ---")
 
-            objective = self._create_objective(model_name, x_processed, y, y_for_training, num_classes_for_instantiation)
+            objective = self._create_objective(
+                model_name,
+                x_processed,
+                y,
+                y_for_training,
+                num_classes_for_instantiation,
+            )
 
             # Run optimization for the current model
             study = self.optuna_optimizer.optimize(objective, callbacks=None)
@@ -702,27 +730,42 @@ class AutoML:
 
             # Instantiate and train the best model on the full dataset
             logger.info(f"Training final {model_name.value} model with best parameters on full dataset...")
-            final_model_instance = self._instantiate_model(model_name, best_params.copy(), x_scaled.shape[1], num_classes=num_classes_for_instantiation)
+            final_model_instance = self._instantiate_model(
+                model_name,
+                best_params.copy(),
+                x_scaled.shape[1],
+                num_classes=num_classes_for_instantiation,
+            )
             final_model_instance.fit(x_scaled, y_for_training)
 
-            self.trained_models[model_name] = (final_model_instance, best_params, best_score)
+            self.trained_models[model_name] = (
+                final_model_instance,
+                best_params,
+                best_score,
+            )
 
             # Update overall best model
             if (self._is_minimize_metric() and best_score < self.best_overall_metric) or (not self._is_minimize_metric() and best_score > self.best_overall_metric):
                 self.best_overall_metric = best_score
                 self.best_model_name = model_name
-                logger.info(f"New best overall model: {self.best_model_name.value} with {self.metric}: {self.best_overall_metric:.4f}")
+                logger.info(f"New best overall model: {self.best_model_name.value} with {self.metric.value}: {self.best_overall_metric:.4f}")
 
             # Add to leaderboard
             self.leaderboard.append(
-                {"model_name": model_name, "hyperparameters": best_params, "metric_value": best_score, "metric_name": self.metric, "timestamp": datetime.now(UTC).isoformat()}
+                {
+                    "model_name": model_name,
+                    "hyperparameters": best_params,
+                    "metric_value": best_score,
+                    "metric_name": self.metric,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
             )
             if self.use_wandb:
                 self._log_model_artifact(final_model_instance, model_name.value, best_params)
 
         logger.info("\nAutoML training complete.")
         if self.best_model_name:
-            logger.info(f"Best overall model: {self.best_model_name.value} with {self.metric}: {self.best_overall_metric:.4f}")
+            logger.info(f"Best overall model: {self.best_model_name.value} with {self.metric.value}: {self.best_overall_metric:.4f}")
         else:
             logger.warning("No models were successfully trained.")
 
@@ -759,7 +802,12 @@ class AutoML:
             return self._fitted_target_scaler.inverse_transform(predictions_reshaped).flatten()
         return predictions_scaled  # Return as is for classification or no target scaler
 
-    def _log_model_artifact(self, model_instance: BaseModel, model_name: str, hyperparameters: dict[str, Any]) -> None:
+    def _log_model_artifact(
+        self,
+        model_instance: BaseModel,
+        model_name: str,
+        hyperparameters: dict[str, Any],
+    ) -> None:
         """Logs the trained model as a W&B artifact.
 
         Args:
@@ -848,7 +896,12 @@ class AutoML:
         try:
             # Pass the device to FeatureExplainer if the model has one (e.g., PyTorch models)
             explainer_device = getattr(best_model_instance, "device", None)
-            explainer = FeatureExplainer(model_instance=best_model_instance, X_background=x_background_scaled, feature_names=feature_names, device=explainer_device)
+            explainer = FeatureExplainer(
+                model_instance=best_model_instance,
+                X_background=x_background_scaled,
+                feature_names=feature_names,
+                device=explainer_device,
+            )
 
             shap_values = explainer.explain(x_test_scaled)
             feature_importance_summary = explainer.get_feature_importance_summary(shap_values)
@@ -862,7 +915,13 @@ class AutoML:
                 normalized_importance = {k: v / total_importance for k, v in feature_importance_summary.items()}
 
             # Sort in decreasing order
-            sorted_normalized_importance = dict(sorted(normalized_importance.items(), key=lambda item: item[1], reverse=True))
+            sorted_normalized_importance = dict(
+                sorted(
+                    normalized_importance.items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )
+            )
 
             logger.info(f"\nFeature Importances (SHAP) for {self.best_model_name.value} (Normalized and Sorted):")
             for feature, importance in sorted_normalized_importance.items():
@@ -874,7 +933,11 @@ class AutoML:
             logger.error(f"Error calculating SHAP feature importance for {self.best_model_name.value}: {e}")
             return {"error": f"Failed to calculate SHAP: {e}"}
 
-    def save_feature_importance_to_csv(self, feature_importances: dict[str, float], file_path: str = "feature_importance.csv") -> None:
+    def save_feature_importance_to_csv(
+        self,
+        feature_importances: dict[str, float],
+        file_path: str = "feature_importance.csv",
+    ) -> None:
         """Saves the normalized and sorted feature importances to a CSV file.
 
         Args:
@@ -884,13 +947,21 @@ class AutoML:
         """
         logger.info(f"\n--- Saving Feature Importances to {file_path} ---")
         try:
-            df_importance = pd.DataFrame(list(feature_importances.items()), columns=pd.Index(["Feature", "Importance"]))
+            df_importance = pd.DataFrame(
+                list(feature_importances.items()),
+                columns=pd.Index(["Feature", "Importance"]),
+            )
             df_importance.to_csv(file_path, index=False)
             logger.info("Feature importances saved successfully to CSV.")
         except Exception as e:
             logger.error(f"Failed to save feature importances to CSV: {e}")
 
-    def plot_feature_importance(self, feature_importances: dict[str, float], plot_path: str = "feature_importance.png", wandb_log: bool = False) -> None:
+    def plot_feature_importance(
+        self,
+        feature_importances: dict[str, float],
+        plot_path: str = "feature_importance.png",
+        wandb_log: bool = False,
+    ) -> None:
         """Generates and saves a horizontal bar plot of the normalized and sorted feature importances.
 
         Args:
@@ -901,7 +972,10 @@ class AutoML:
         """
         logger.info(f"--- Plotting Feature Importances to {plot_path} ---")
         try:
-            df_importance = pd.DataFrame(list(feature_importances.items()), columns=pd.Index(["Feature", "Importance"]))
+            df_importance = pd.DataFrame(
+                list(feature_importances.items()),
+                columns=pd.Index(["Feature", "Importance"]),
+            )
 
             plt.figure(figsize=(10, max(6, int(len(df_importance) * 0.4))))  # Adjust figure size dynamically
             sns.barplot(x="Importance", y="Feature", data=df_importance, palette="viridis")
@@ -917,7 +991,12 @@ class AutoML:
         except Exception as e:
             logger.error(f"Failed to plot feature importances: {e}")
 
-    def select_features_by_cumulative_importance(self, x_test: np.ndarray, threshold: float = 0.9, feature_names: list[str] | None = None) -> list[str]:
+    def select_features_by_cumulative_importance(
+        self,
+        x_test: np.ndarray,
+        threshold: float = 0.9,
+        feature_names: list[str] | None = None,
+    ) -> list[str]:
         """Selects top features based on their cumulative normalized SHAP importance.
 
         Args:
@@ -1110,18 +1189,18 @@ class AutoML:
                 final_base_classifier_params["output_size"] = 1 if final_n_classes == 2 else final_n_classes
                 final_base_classifier_params["task_type"] = TaskType.CLASSIFICATION
                 if "activation" in final_base_classifier_params and isinstance(final_base_classifier_params["activation"], str):
-                    final_base_classifier_params["activation"] = nn.ReLU if final_base_classifier_params["activation"] == "ReLU" else nn.Tanh
+                    final_base_classifier_params["activation"] = ActivationFunction(final_base_classifier_params["activation"])
 
             # Adjust parameters for internal boosting classifiers if it's the base
             elif ModelName(final_base_classifier_name) == ModelName.XGBOOST:
                 final_base_classifier_params["objective"] = "binary:logistic" if final_n_classes == 2 else "multi:softmax"
-                final_base_classifier_params["eval_metric"] = "logloss"
+                final_base_classifier_params["eval_metric"] = Metric.LOG_LOSS.value
             elif ModelName(final_base_classifier_name) == ModelName.LIGHTGBM:
                 final_base_classifier_params["objective"] = "binary" if final_n_classes == 2 else "multiclass"
-                final_base_classifier_params["metric"] = "binary_logloss"
+                final_base_classifier_params["metric"] = Metric.LOG_LOSS.value
             elif ModelName(final_base_classifier_name) == ModelName.CATBOOST:
                 final_base_classifier_params["task_type"] = TaskType.CLASSIFICATION
-                final_base_classifier_params["loss_function"] = "Logloss" if final_n_classes == 2 else "MultiClass"
+                final_base_classifier_params["loss_function"] = Metric.LOG_LOSS.value if final_n_classes == 2 else Metric.MULTI_CLASS.value
 
             final_model_instance = best_model_class_type(
                 n_classes=final_n_classes,
@@ -1140,12 +1219,12 @@ class AutoML:
             # Reconstruct nested base_classifier_params
             final_base_classifier_params = {k.replace("base_classifier_params__", ""): v for k, v in best_hyperparameters.items() if k.startswith("base_classifier_params__")}
             if "activation" in final_base_classifier_params and isinstance(final_base_classifier_params["activation"], str):
-                final_base_classifier_params["activation"] = nn.ReLU if final_base_classifier_params["activation"] == "ReLU" else nn.Tanh
+                final_base_classifier_params["activation"] = ActivationFunction(final_base_classifier_params["activation"])
 
             # Reconstruct nested regression_head_params
             final_regression_head_params = {k.replace("regression_head_params__", ""): v for k, v in best_hyperparameters.items() if k.startswith("regression_head_params__")}
             if "activation" in final_regression_head_params and isinstance(final_regression_head_params["activation"], str):
-                final_regression_head_params["activation"] = nn.ReLU if final_regression_head_params["activation"] == "ReLU" else nn.Tanh
+                final_regression_head_params["activation"] = ActivationFunction(final_regression_head_params["activation"])
 
             final_model_instance = best_model_class_type(
                 input_size=x_train_filtered.shape[1],  # Adjust input_size
@@ -1164,40 +1243,52 @@ class AutoML:
         elif self.best_model_name == ModelName.PYTORCH_NEURAL_NETWORK:
             # Reconstruct activation and uncertainty enum values from strings
             if "activation" in best_hyperparameters:
-                best_hyperparameters["activation"] = nn.ReLU if best_hyperparameters["activation"] == "ReLU" else nn.Tanh
-            else:
-                best_hyperparameters["activation"] = nn.ReLU  # Default activation if not in hyperparameters
+                best_hyperparameters["activation"] = ActivationFunction[best_hyperparameters["activation"]]
             best_hyperparameters["uncertainty_method"] = UncertaintyMethod(best_hyperparameters["uncertainty_method"])
             final_model_instance = best_model_class_type(
-                input_size=x_train_filtered.shape[1], task_type=self.task_type, num_classes=num_classes_for_instantiation, **best_hyperparameters
+                input_size=x_train_filtered.shape[1],
+                task_type=self.task_type,
+                num_classes=num_classes_for_instantiation,
+                **best_hyperparameters,
             )
         elif self.best_model_name == ModelName.FLEXIBLE_NEURAL_NETWORK:
             if "activation" in best_hyperparameters:
-                best_hyperparameters["activation"] = nn.ReLU if best_hyperparameters["activation"] == "ReLU" else nn.Tanh
-            else:
-                best_hyperparameters["activation"] = nn.ReLU  # Default activation if not in hyperparameters
+                best_hyperparameters["activation"] = ActivationFunction[best_hyperparameters["activation"]]
             best_hyperparameters["uncertainty_method"] = UncertaintyMethod(best_hyperparameters["uncertainty_method"])
             final_model_instance = best_model_class_type(
-                input_size=x_train_filtered.shape[1], task_type=self.task_type, num_classes=num_classes_for_instantiation, **best_hyperparameters
+                input_size=x_train_filtered.shape[1],
+                task_type=self.task_type,
+                num_classes=num_classes_for_instantiation,
+                **best_hyperparameters,
             )
         elif self.best_model_name == ModelName.XGBOOST:
             objective_str = "reg:squarederror"
-            eval_metric_str = "rmse"
+            eval_metric_str = Metric.RMSE.value
             if self.task_type == TaskType.CLASSIFICATION:
                 objective_str = "binary:logistic" if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2 else "multi:softmax"
-                eval_metric_str = "logloss"
-            final_model_instance = best_model_class_type(objective=objective_str, eval_metric=eval_metric_str, num_classes=num_classes_for_instantiation, **best_hyperparameters)
+                eval_metric_str = Metric.LOG_LOSS.value
+            final_model_instance = best_model_class_type(
+                objective=objective_str,
+                eval_metric=eval_metric_str,
+                num_classes=num_classes_for_instantiation,
+                **best_hyperparameters,
+            )
         elif self.best_model_name == ModelName.LIGHTGBM:
             objective_str = "regression"
-            eval_metric_str = "rmse"
+            eval_metric_str = Metric.RMSE.value
             if self.task_type == TaskType.CLASSIFICATION:
                 objective_str = "binary" if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2 else "multiclass"
-                eval_metric_str = "binary_logloss" if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2 else "multi_logloss"
-            final_model_instance = best_model_class_type(objective=objective_str, eval_metric=eval_metric_str, num_classes=num_classes_for_instantiation, **best_hyperparameters)
+                eval_metric_str = Metric.LOG_LOSS.value if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2 else Metric.MULTI_CLASS_LOG_LOSS.value
+            final_model_instance = best_model_class_type(
+                objective=objective_str,
+                eval_metric=eval_metric_str,
+                num_classes=num_classes_for_instantiation,
+                **best_hyperparameters,
+            )
         elif self.best_model_name == ModelName.CATBOOST:
             final_model_instance = best_model_class_type(task_type=self.task_type, **best_hyperparameters)
         elif self.best_model_name == ModelName.SKLEARN_LOGISTIC_REGRESSION:
-            if best_hyperparameters.get("penalty") == "elasticnet" and "l1_ratio" in best_hyperparameters:
+            if best_hyperparameters.get("penalty") == Penalty.ELASTICNET.value and "l1_ratio" in best_hyperparameters:
                 final_model_instance = best_model_class_type(num_classes=num_classes_for_instantiation, **best_hyperparameters)
             else:  # Remove l1_ratio if not elasticnet to avoid warnings
                 params_copy = best_hyperparameters.copy()
@@ -1228,15 +1319,22 @@ class AutoML:
         retrained_metric_value = self._evaluate_metric(y_full_test, y_pred_retrained)
 
         logger.info(f"Retraining complete for {self.best_model_name.value} with selected features.")
-        logger.info(f"New test {self.metric}: {retrained_metric_value:.4f}")
+        logger.info(f"New test {self.metric.value}: {retrained_metric_value:.4f}")
 
         if save_feature_importance_metrics:
             logger.info("Saving and plotting feature importances for the retrained model.")
             # Recalculate feature importance for the retrained model
             retrained_feature_importances = self.get_feature_importance(x_full_test[:, selected_indices], feature_names=filtered_feature_names)
             if "error" not in retrained_feature_importances:
-                self.save_feature_importance_to_csv(retrained_feature_importances, file_path=f"{self.best_model_name.value}_retrained_feature_importance.csv")
-                self.plot_feature_importance(retrained_feature_importances, plot_path=f"{self.best_model_name.value}_retrained_feature_importance.png", wandb_log=True)
+                self.save_feature_importance_to_csv(
+                    retrained_feature_importances,
+                    file_path=f"{self.best_model_name.value}_retrained_feature_importance.csv",
+                )
+                self.plot_feature_importance(
+                    retrained_feature_importances,
+                    plot_path=f"{self.best_model_name.value}_retrained_feature_importance.png",
+                    wandb_log=True,
+                )
             else:
                 logger.error(f"Could not save/plot feature importances for retrained model due to: {retrained_feature_importances['error']}")
 
@@ -1259,7 +1357,13 @@ class AutoML:
             return {"message": "No model has been trained yet."}
 
         model_instance, params, metric = self.trained_models[self.best_model_name]
-        return {"name": self.best_model_name.value, "instance": model_instance, "hyperparameters": params, "metric_score": metric, "metric_name": self.metric}
+        return {
+            "name": self.best_model_name.value,
+            "instance": model_instance,
+            "hyperparameters": params,
+            "metric_score": metric,
+            "metric_name": self.metric.value,
+        }
 
     def save_leaderboard(self, file_path: str = "automl_leaderboard.json") -> None:
         """Saves the AutoML leaderboard to a JSON file.

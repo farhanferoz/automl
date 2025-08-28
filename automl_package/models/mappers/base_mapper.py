@@ -22,7 +22,7 @@ class BaseMapper(ABC):
             raise ValueError("Lengths of probabilities and original y must match.")
 
         if len(probas) == 0:
-            self._fit_empty(probas, y_original)
+            self._fit_empty()
             return
 
         sort_indices = np.argsort(probas)
@@ -36,7 +36,7 @@ class BaseMapper(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _fit_empty(self, probas: np.ndarray, y_original: np.ndarray) -> None:
+    def _fit_empty(self) -> None:
         raise NotImplementedError
 
     @abstractmethod

@@ -3,7 +3,8 @@
 import torch
 import torch.nn as nn
 
-from automl_package.enums import UncertaintyMethod
+from automl_package.enums import ActivationFunction, UncertaintyMethod
+from automl_package.utils.pytorch_utils import get_activation_function_map
 
 
 class BaseRegressionHead(nn.Module):
@@ -13,7 +14,15 @@ class BaseRegressionHead(nn.Module):
     """
 
     def __init__(
-        self, input_size: int, output_size: int, hidden_layers: int, hidden_size: int, use_batch_norm: bool, dropout_rate: float, uncertainty_method: UncertaintyMethod
+        self,
+        input_size: int,
+        output_size: int,
+        hidden_layers: int,
+        hidden_size: int,
+        use_batch_norm: bool,
+        dropout_rate: float,
+        uncertainty_method: UncertaintyMethod,
+        activation: nn.Module,
     ) -> None:
         """Initializes the BaseRegressionHead.
 
@@ -25,21 +34,27 @@ class BaseRegressionHead(nn.Module):
             use_batch_norm: Whether to use batch normalization.
             dropout_rate: The dropout rate.
             uncertainty_method: The uncertainty estimation method.
+            activation: The activation function to use.
         """
         super().__init__()
         self.uncertainty_method = uncertainty_method
         self.output_size = output_size
 
+        activation_map = get_activation_function_map()
+        activation_module = activation_map.get(activation)
+        if activation_module is None:
+            raise ValueError(f"Unsupported activation function: {activation}")
+
         layers = [nn.Linear(input_size, hidden_size)]
         if use_batch_norm:
             layers.append(nn.BatchNorm1d(hidden_size))
-        layers.append(nn.ReLU())
+        layers.append(activation_module())
 
         for _ in range(hidden_layers - 1):
             layers.append(nn.Linear(hidden_size, hidden_size))
             if use_batch_norm:
                 layers.append(nn.BatchNorm1d(hidden_size))
-            layers.append(nn.ReLU())
+            layers.append(activation())
             if dropout_rate > 0 and self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
                 layers.append(nn.Dropout(dropout_rate))
 
@@ -80,7 +95,14 @@ class BaseRegressionHead(nn.Module):
 class SeparateHeadsRegressionModule(nn.Module):
     """Manages multiple BaseRegressionHead instances for the SEPARATE_HEADS strategy."""
 
-    def __init__(self, n_classes: int, regression_head_params: dict, uncertainty_method: UncertaintyMethod, regression_output_size: int) -> None:
+    def __init__(
+        self,
+        n_classes: int,
+        regression_head_params: dict,
+        uncertainty_method: UncertaintyMethod,
+        regression_output_size: int,
+        activation: ActivationFunction = ActivationFunction.RELU,
+    ) -> None:
         """Initializes the SeparateHeadsRegressionModule.
 
         Args:
@@ -88,6 +110,7 @@ class SeparateHeadsRegressionModule(nn.Module):
             regression_head_params: Parameters for the regression heads.
             uncertainty_method: The uncertainty estimation method.
             regression_output_size: The output size for each regression head.
+            activation: The activation function to use.
         """
         super().__init__()
         self.heads = nn.ModuleList()
@@ -101,6 +124,7 @@ class SeparateHeadsRegressionModule(nn.Module):
                     use_batch_norm=regression_head_params.get("use_batch_norm", True),
                     dropout_rate=regression_head_params.get("dropout_rate", 0.0),
                     uncertainty_method=uncertainty_method,
+                    activation=activation,
                 )
             )
 
@@ -124,7 +148,15 @@ class SeparateHeadsRegressionModule(nn.Module):
 class SingleHeadNOutputsRegressionModule(nn.Module):
     """Manages a single BaseRegressionHead instance for the SINGLE_HEAD_N_OUTPUTS strategy."""
 
-    def __init__(self, input_size: int, n_classes: int, regression_head_params: dict, uncertainty_method: UncertaintyMethod, regression_output_size: int) -> None:
+    def __init__(
+        self,
+        input_size: int,
+        n_classes: int,
+        regression_head_params: dict,
+        uncertainty_method: UncertaintyMethod,
+        regression_output_size: int,
+        activation: ActivationFunction = ActivationFunction.RELU,
+    ) -> None:
         """Initializes the SingleHeadNOutputsRegressionModule.
 
         Args:
@@ -133,6 +165,7 @@ class SingleHeadNOutputsRegressionModule(nn.Module):
             regression_head_params: Parameters for the regression head.
             uncertainty_method: The uncertainty estimation method.
             regression_output_size: The output size for each class.
+            activation: The activation function to use.
         """
         super().__init__()
         self.n_classes = n_classes
@@ -145,6 +178,7 @@ class SingleHeadNOutputsRegressionModule(nn.Module):
             use_batch_norm=regression_head_params.get("use_batch_norm", True),
             dropout_rate=regression_head_params.get("dropout_rate", 0.0),
             uncertainty_method=uncertainty_method,
+            activation=activation,
         )
 
     def forward(self, probabilities: torch.Tensor) -> torch.Tensor:
@@ -164,7 +198,13 @@ class SingleHeadNOutputsRegressionModule(nn.Module):
 class SingleHeadFinalOutputRegressionModule(nn.Module):
     """Manages a single BaseRegressionHead instance for the SINGLE_HEAD_FINAL_OUTPUT strategy."""
 
-    def __init__(self, input_size: int, regression_head_params: dict, uncertainty_method: UncertaintyMethod, regression_output_size: int) -> None:
+    def __init__(
+        self,
+        input_size: int,
+        regression_head_params: dict,
+        uncertainty_method: UncertaintyMethod,
+        regression_output_size: int,
+    ) -> None:
         """Initializes the SingleHeadFinalOutputRegressionModule.
 
         Args:
@@ -182,6 +222,7 @@ class SingleHeadFinalOutputRegressionModule(nn.Module):
             use_batch_norm=regression_head_params.get("use_batch_norm", True),
             dropout_rate=regression_head_params.get("dropout_rate", 0.0),
             uncertainty_method=uncertainty_method,
+            activation=regression_head_params.get("activation", ActivationFunction.RELU),
         )
 
     def forward(self, head_input_probas: torch.Tensor) -> torch.Tensor:

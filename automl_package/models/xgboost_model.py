@@ -1,14 +1,13 @@
 """XGBoost model wrapper for AutoML."""
 
 from typing import Any, Never
-
 import numpy as np
 import xgboost as xgb
 from sklearn.metrics import accuracy_score, mean_squared_error
 
-from automl_package.enums import TaskType
+from automl_package.enums import Metric, TaskType
 from automl_package.models.base import BaseModel
-from automl_package.utils.metrics import Metrics
+from automl_package.models.common.common import get_loss_history
 
 
 class XGBoostModel(BaseModel):
@@ -18,26 +17,15 @@ class XGBoostModel(BaseModel):
     as they implement the BaseModel interface. This is not a redeclaration error.
     """
 
-    def __init__(
-        self,
-        objective: str = "reg:squarederror",
-        eval_metric: str = "rmse",
-        random_seed: int | None = None,
-        task_type: TaskType = TaskType.REGRESSION,
-        **kwargs: Any,
-    ) -> None:
+    def __init__(self, random_seed: int | None = None, task_type: TaskType = TaskType.REGRESSION, **kwargs: Any) -> None:
         """Initializes the XGBoostModel.
 
         Args:
-            objective (str): The learning objective function.
-            eval_metric (str): The evaluation metric.
             random_seed (int, optional): Random seed for reproducibility.
             task_type (TaskType): The type of task (regression or classification).
             **kwargs: Additional keyword arguments for the BaseModel.
         """
         super().__init__(**kwargs)
-        self.objective = objective
-        self.eval_metric = eval_metric
         self.random_seed = random_seed
         self.task_type = task_type
         self.model: xgb.XGBRegressor | xgb.XGBClassifier | None = None
@@ -46,19 +34,30 @@ class XGBoostModel(BaseModel):
         self.num_iterations_used = 0
         self.params.setdefault("verbosity", 0)
 
+        if self.task_type == TaskType.REGRESSION:
+            self.objective = "reg:squarederror"
+            self.eval_metric = Metric.RMSE.value
+        elif self.task_type == TaskType.CLASSIFICATION:
+            self.objective = "binary:logistic"
+            self.eval_metric = Metric.LOG_LOSS.value
+
     @property
     def name(self) -> str:
         """Returns the name of the model."""
         return "XGBoostModel"
 
+    def _get_optimization_metric(self) -> Metric:
+        """Gets the optimization metric for the model."""
+        return Metric.RMSE if self.is_regression_model else Metric.ACCURACY
+
     def _fit_single(
-        self, x: np.ndarray, y: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
         Args:
-            x (np.ndarray): The training features.
-            y (np.ndarray): The training targets.
+            x_train (np.ndarray): The training features.
+            y_train (np.ndarray): The training targets.
             x_val (np.ndarray | None): The validation features.
             y_val (np.ndarray | None): The validation targets.
             forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
@@ -71,19 +70,18 @@ class XGBoostModel(BaseModel):
         eval_set = None
         use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
 
-        x_train, y_train, x_val, y_val = self._prepare_train_val_data(x, y, x_val, y_val)
-
+        params = self.params.copy()
         if use_early_stopping and x_val is not None:
             eval_set = [(x_val, y_val)]
-            self.params["early_stopping_rounds"] = self.early_stopping_rounds
+            params["early_stopping_rounds"] = self.early_stopping_rounds
         else:
-            self.train_indices = np.arange(x.shape[0])
+            if "early_stopping_rounds" in params:
+                del params["early_stopping_rounds"]
+            self.train_indices = np.arange(x_train.shape[0])
             self.val_indices = None
 
-        if self.task_type == TaskType.CLASSIFICATION:
-            self.model = xgb.XGBClassifier(objective=self.objective, eval_metric=self.eval_metric, random_state=self.random_seed, **self.params)
-        else:
-            self.model = xgb.XGBRegressor(objective=self.objective, eval_metric=self.eval_metric, random_state=self.random_seed, **self.params)
+        model_instance = xgb.XGBClassifier if self.task_type == TaskType.CLASSIFICATION else xgb.XGBRegressor
+        self.model = model_instance(objective=self.objective, eval_metric=self.eval_metric, random_state=self.random_seed, **params)
 
         if forced_iterations is not None:
             self.model.n_estimators = forced_iterations
@@ -96,21 +94,28 @@ class XGBoostModel(BaseModel):
         self.model.fit(x_train, y_train, **fit_params)
 
         if self.is_regression_model:
-            y_pred_train = self.predict(x)
-            self._train_residual_std = np.std(y - y_pred_train)
+            y_pred_train = self.predict(x_train)
+            self._train_residual_std = np.std(y_train - y_pred_train)
             if np.isnan(self._train_residual_std):
                 self._train_residual_std = 0.0
 
         best_iteration = self.model.best_iteration if use_early_stopping and self.model.best_iteration is not None else self.model.n_estimators
-        return best_iteration, []
+        loss_history = get_loss_history(self.model, use_early_stopping)
+
+        return best_iteration, loss_history
 
     def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """Evaluates a trial for hyperparameter optimization."""
-        if self.is_regression_model:
-            return np.sqrt(mean_squared_error(y_true, y_pred))
+        return self._calculate_metric(y_true, y_pred, Metric.RMSE if self.is_regression_model else Metric.ACCURACY)
 
-        y_pred_labels = np.argmax(y_pred, axis=1) if y_pred.ndim == 2 else np.round(y_pred)
-        return accuracy_score(y_true, y_pred_labels)
+    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
+        """Calculates a metric."""
+        if metric == Metric.RMSE:
+            return np.sqrt(mean_squared_error(y_true, y_pred))
+        if metric == Metric.ACCURACY:
+            y_pred_labels = np.argmax(y_pred, axis=1) if y_pred.ndim == 2 else np.round(y_pred)
+            return accuracy_score(y_true, y_pred_labels)
+        raise ValueError(f"Unknown metric: {metric}")
 
     def _clone(self) -> "XGBoostModel":
         """Creates a new instance of the model with the same parameters."""
@@ -122,13 +127,9 @@ class XGBoostModel(BaseModel):
         Returns:
             dict: Parameter names mapped to their values.
         """
-        return {
-            "objective": self.objective,
-            "eval_metric": self.eval_metric,
-            "random_seed": self.random_seed,
-            "task_type": self.task_type,
-            **self.params,
-        }
+        params = super().get_params()
+        params.update({"random_seed": self.random_seed, "task_type": self.task_type})
+        return params
 
     def cross_validate(self, x: np.ndarray, y: np.ndarray, cv: int) -> dict[str, Any]:
         """Performs cross-validation and returns the scores."""
@@ -151,13 +152,16 @@ class XGBoostModel(BaseModel):
             # For binary classification, predict_proba returns probabilities [:, 1] for positive class
             # For multi-class, predict_proba returns (N, num_classes) array of probabilities
             if self.objective == "binary:logistic":
-                return self.model.predict_proba(x)[:, 1]
+                predictions = self.model.predict_proba(x)[:, 1]
             # For 'multi:softmax' or 'multi:softprob'
             # .predict() for multi:softmax returns class labels, predict_proba gives probabilities
-            if self.objective == "multi:softmax":
-                return self.model.predict(x)
-            return self.model.predict_proba(x)
-        return self.model.predict(x)
+            elif self.objective == "multi:softmax":
+                predictions = self.model.predict(x)
+            else:
+                predictions = self.model.predict_proba(x)
+        else:
+            predictions = self.model.predict(x)
+        return predictions
 
     def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
         """Estimates uncertainty for predictions.
@@ -196,7 +200,7 @@ class XGBoostModel(BaseModel):
         Returns:
             Dict[str, Any]: A dictionary defining the hyperparameter search space.
         """
-        return {
+        space = {
             "n_estimators": {"type": "int", "low": 50, "high": 200, "step": 50},
             "learning_rate": {"type": "float", "low": 0.01, "high": 0.3, "log": True},
             "max_depth": {"type": "int", "low": 3, "high": 9, "step": 2},
@@ -206,6 +210,9 @@ class XGBoostModel(BaseModel):
             "reg_alpha": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L1 regularization
             "reg_lambda": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L2 regularization
         }
+        if self.search_space_override:
+            space.update(self.search_space_override)
+        return space
 
     def get_internal_model(self) -> xgb.XGBRegressor | xgb.XGBClassifier | None:
         """Returns the raw underlying XGBoost model."""
@@ -219,8 +226,9 @@ class XGBoostModel(BaseModel):
         """
         if self.model is None:
             return 0
-        # For tree-based models, n_estimators (number of trees) is a reasonable proxy for complexity.
-        return self.num_iterations_used + 1
+        if hasattr(self.model, "best_iteration") and self.model.best_iteration is not None:
+            return self.model.best_iteration
+        return self.model.n_estimators
 
     def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> Never:
         """Not implemented for XGBoostModel.
@@ -229,21 +237,3 @@ class XGBoostModel(BaseModel):
             NotImplementedError: XGBoostModel is not a composite model.
         """
         raise NotImplementedError("XGBoostModel is not a composite model and does not have an internal classifier for separate prediction.")
-
-    def evaluate(self, x: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
-        """Evaluates the model on a given dataset and saves the metrics.
-
-        Args:
-            x (np.ndarray): Feature matrix for evaluation.
-            y (np.ndarray): True labels for evaluation.
-            save_path (str): Directory to save the metrics files.
-
-        Returns:
-            np.ndarray: The predictions made by the model.
-        """
-        y_pred = self.predict(x)
-        task_type = "regression" if self.is_regression_model else "classification"
-        y_proba = self.predict_proba(x) if task_type == "classification" else None
-        metrics_calculator = Metrics(task_type=task_type, model_name=self.name, x_data=x, y_true=y, y_pred=y_pred, y_proba=y_proba)
-        metrics_calculator.save_metrics(save_path)
-        return y_pred

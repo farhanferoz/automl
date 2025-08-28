@@ -41,7 +41,7 @@ class SplineMapper(BaseMapper):
         _spline_residual_variance = np.var(y_original - y_pred_train)
         self._spline_residual_variance = 0.0 if np.isnan(_spline_residual_variance) else _spline_residual_variance
 
-    def _fit_empty(self, probas: np.ndarray, y_original: np.ndarray) -> None:  # noqa: ARG002
+    def _fit_empty(self) -> None:
         self.model = UnivariateSpline(x=[0, 1], y=[0, 0], k=1, s=0)
         self._spline_residual_variance = 0.0
 

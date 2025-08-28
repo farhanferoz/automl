@@ -38,7 +38,11 @@ class OptunaOptimizer:
         if self.seed is not None:
             sampler = optuna.samplers.TPESampler(seed=self.seed)
 
-        self.study = optuna.create_study(direction=self.direction, sampler=sampler, pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=30))
+        self.study = optuna.create_study(
+            direction=self.direction,
+            sampler=sampler,
+            pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=30),
+        )
 
         # The objective_fn directly takes the trial object now.
         # `show_progress_bar=True` is useful for interactive sessions.

@@ -8,8 +8,12 @@ from sklearn.pipeline import Pipeline  # Import Pipeline for type hinting
 from automl_package.enums import ModelName, TaskType
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
-from automl_package.models.neural_network import PyTorchNeuralNetwork  # Specific import for PyTorchNN DeepExplainer setup
-from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel  # Specific import for its internal model
+from automl_package.models.neural_network import (
+    PyTorchNeuralNetwork,
+)  # Specific import for PyTorchNN DeepExplainer setup
+from automl_package.models.probabilistic_regression import (
+    ProbabilisticRegressionModel,
+)  # Specific import for its internal model
 
 
 class FeatureExplainer:
@@ -83,12 +87,19 @@ class FeatureExplainer:
             model_name_str = type(self.original_model).__name__
 
         # Initialize the specific SHAP explainer based on model type
-        if model_name_str in [ModelName.XGBOOST.value, ModelName.LIGHTGBM.value, ModelName.CATBOOST.value]:
+        if model_name_str in [
+            ModelName.XGBOOST.value,
+            ModelName.LIGHTGBM.value,
+            ModelName.CATBOOST.value,
+        ]:
             logger.info(f"Using shap.TreeExplainer for {model_name_str} model.")
             # SHAP TreeExplainer handles CatBoost, XGBoost, LightGBM directly
             self.explainer = shap.TreeExplainer(self.model_to_explain_directly.get_internal_model())
 
-        elif model_name_str in [ModelName.PYTORCH_NEURAL_NETWORK.value, ModelName.FLEXIBLE_NEURAL_NETWORK.value]:
+        elif model_name_str in [
+            ModelName.PYTORCH_NEURAL_NETWORK.value,
+            ModelName.FLEXIBLE_NEURAL_NETWORK.value,
+        ]:
             logger.info(f"Using shap.DeepExplainer for {model_name_str} model.")
             # For DeepExplainer, we need the raw PyTorch nn.Module and a background dataset
             background_tensor = torch.tensor(self.x_background, dtype=torch.float32).to(self.device)
@@ -144,7 +155,10 @@ class FeatureExplainer:
 
         # Ensure data is in the correct format for the explainer (e.g., PyTorch tensor for DeepExplainer)
         data_for_shap = x_to_explain
-        if isinstance(self.model_to_explain_directly, PyTorchNeuralNetwork | ProbabilisticRegressionModel):
+        if isinstance(
+            self.model_to_explain_directly,
+            PyTorchNeuralNetwork | ProbabilisticRegressionModel,
+        ):
             data_for_shap = torch.tensor(x_to_explain, dtype=torch.float32).to(self.model_to_explain_directly.device)
 
         shap_values_obj = self.explainer.shap_values(data_for_shap)

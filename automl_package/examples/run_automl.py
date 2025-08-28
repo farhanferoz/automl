@@ -9,13 +9,16 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from automl_package.automl import AutoML
-from automl_package.enums import ModelName, TaskType
+from automl_package.enums import Metric, ModelName, TaskType
 from automl_package.logger import logger
 
 if __name__ == "__main__":
 
     # Configure the root logger for example output
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
 
     # Ensure you have the required libraries installed:
     # pip install numpy scikit-learn jax jaxlib optuna torch xgboost lightgbm catboost flax optax scipy shap
@@ -29,7 +32,10 @@ if __name__ == "__main__":
     # Split data once for initial training and final retraining
     X_full, X_test_full, y_full, y_test_full = train_test_split(X_reg, y_reg, test_size=0.2, random_state=random_seed)
     # For initial AutoML training (cross-validation on X_full, y_full)
-    x_train_initial, y_train_initial = X_full, y_full  # Use full training data for main train() call
+    x_train_initial, y_train_initial = (
+        X_full,
+        y_full,
+    )  # Use full training data for main train() call
 
     # Generate feature names for better SHAP output
     feature_names_reg = [f"feature_{i}" for i in range(X_reg.shape[1])]
@@ -39,7 +45,13 @@ if __name__ == "__main__":
     y_scaler_reg = StandardScaler()
 
     automl_reg = AutoML(
-        task_type=TaskType.REGRESSION, metric="rmse", n_trials=3, n_splits=2, random_state=random_seed, feature_scaler=x_scaler_reg, target_scaler=y_scaler_reg
+        task_type=TaskType.REGRESSION,
+        metric=Metric.RMSE,
+        n_trials=3,
+        n_splits=2,
+        random_state=random_seed,
+        feature_scaler=x_scaler_reg,
+        target_scaler=y_scaler_reg,
     )  # Pass scalers
 
     # Specify which models to consider for this run
@@ -134,14 +146,24 @@ if __name__ == "__main__":
 
     # Split data once for initial training and final retraining
     X_full_clf, X_test_full_clf, y_full_clf, y_test_full_clf = train_test_split(X_clf, y_clf, test_size=0.2, random_state=random_seed)
-    x_train_initial_clf, y_train_initial_clf = X_full_clf, y_full_clf  # Use full training data for main train() call
+    x_train_initial_clf, y_train_initial_clf = (
+        X_full_clf,
+        y_full_clf,
+    )  # Use full training data for main train() call
 
     feature_names_clf = [f"feature_{i}" for i in range(X_clf.shape[1])]
 
     # Instantiate scaler for classification features
     x_scaler_clf = StandardScaler()
 
-    automl_clf = AutoML(task_type=TaskType.CLASSIFICATION, metric="accuracy", n_trials=3, n_splits=2, random_state=random_seed, feature_scaler=x_scaler_clf)  # Pass feature scaler
+    automl_clf = AutoML(
+        task_type=TaskType.CLASSIFICATION,
+        metric=Metric.ACCURACY,
+        n_trials=3,
+        n_splits=2,
+        random_state=random_seed,
+        feature_scaler=x_scaler_clf,
+    )
 
     # Specify which models to consider for classification
     models_for_clf = [
@@ -181,7 +203,12 @@ if __name__ == "__main__":
 
         # Perform feature selection and retrain
         retrained_results_clf = automl_clf.retrain_with_selected_features(
-            x_full_train=X_full_clf, y_full_train=y_full_clf, x_full_test=X_test_full_clf, y_full_test=y_test_full_clf, feature_names=feature_names_clf, shap_threshold=0.95
+            x_full_train=X_full_clf,
+            y_full_train=y_full_clf,
+            x_full_test=X_test_full_clf,
+            y_full_test=y_test_full_clf,
+            feature_names=feature_names_clf,
+            shap_threshold=0.95,
         )
         logger.info(f"Selected features for classification: {retrained_results_clf['selected_feature_names']}")
         logger.info(f"Retrained model test accuracy (with selected features): {retrained_results_clf['retrained_metric_value']:.4f}")

@@ -5,7 +5,7 @@ from typing import Any
 import torch
 import torch.nn.functional as f
 
-from .base_selection_strategy import BaseSelectionStrategy
+from automl_package.models.selection_strategies.base_selection_strategy import BaseSelectionStrategy
 
 
 class NoneStrategy(BaseSelectionStrategy):

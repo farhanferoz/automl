@@ -33,7 +33,6 @@ class IndependentWeightsGumbelSoftmaxStrategy(BaseSelectionStrategy):
     def select_n(self, x_input: torch.Tensor, n_logits: torch.Tensor) -> SelectionOutput:  # noqa: ARG002
         """Selects the number of layers 'n' using Gumbel-Softmax.
 
-        Does not apply any layers.
         :param x_input: The input tensor.
         :param n_logits: The logits for the number of layers.
         :return: A tuple containing the actual number of layers, the probabilities

@@ -1,25 +1,30 @@
 """Linear Regression model using the Normal Equation."""
 
-from typing import Any, Never
+from typing import Any, ClassVar, Never
 
 import numpy as np
 from sklearn.metrics import mean_squared_error
 
+from automl_package.enums import Metric, TaskType
 from automl_package.models.base import BaseModel
-from automl_package.utils.metrics import Metrics
 
 
 class NormalEquationLinearRegression(BaseModel):
     """Linear Regression model implemented using the Normal Equation (Ridge Regression)."""
 
-    def __init__(self, l2_lambda: float = 0.0, **kwargs: Any) -> None:
-        """Initializes the NormalEquationLinearRegression model.
+    _defaults: ClassVar[dict[str, Any]] = {
+        "l2_lambda": 0.0,
+    }
 
-        Args:
-            l2_lambda (float): L2 regularization strength.
-            **kwargs: Additional keyword arguments for the BaseModel.
-        """
+    def __init__(self, **kwargs: Any) -> None:
+        """Initializes the NormalEquationLinearRegression model."""
+        for key, value in self._defaults.items():
+            kwargs.setdefault(key, value)
+
         super().__init__(**kwargs)
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
         if self.early_stopping_rounds is not None:
             raise ValueError("Early stopping is not applicable to NormalEquationLinearRegression as it is a direct solution method.")
         if "l1_lambda" in kwargs and kwargs["l1_lambda"] > 0:
@@ -27,40 +32,54 @@ class NormalEquationLinearRegression(BaseModel):
                 "L1 regularization (Lasso) is not supported by NormalEquationLinearRegression due to non-differentiability at zero. "
                 "Use iterative solvers for L1 e.g. JAXLinearRegression."
             )
-        self.l2_lambda = l2_lambda
+
         self.weights: np.ndarray | None = None
         self.bias: np.ndarray | None = None
         self.is_regression_model = True
         self._train_residual_std = 0.0
+        self.task_type = TaskType.REGRESSION
 
     @property
     def name(self) -> str:
         """Returns the name of the model."""
         return "NormalEquationLinearRegression"
 
-    def _fit_single(self, x: np.ndarray, y: np.ndarray, forced_iterations: int | None = None) -> tuple[int, list[float]]:
+    def _get_optimization_metric(self) -> Metric:
+        """Gets the optimization metric for the model."""
+        return Metric.RMSE
+
+    def _fit_single(
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray | None = None,  # noqa: ARG002
+        y_val: np.ndarray | None = None,  # noqa: ARG002
+        forced_iterations: int | None = None,  # noqa: ARG002
+    ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
         Args:
-            x (np.ndarray): The training features.
-            y (np.ndarray): The training targets.
-            forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
+            x_train (np.ndarray): The training features.
+            y_train (np.ndarray): The training targets.
+            x_val (np.ndarray | None): The validation features (unused).
+            y_val (np.ndarray | None): The validation targets (unused).
+            forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping (unused).
 
         Returns:
             tuple[int, list[float]]: A tuple containing:
                 - The number of iterations the model was trained for.
                 - A list of the validation loss values for each epoch.
         """
-        identity_matrix = np.identity(x.shape[1])
-        a = x.T @ x + self.l2_lambda * identity_matrix
-        b = x.T @ y
+        identity_matrix = np.identity(x_train.shape[1])
+        a = x_train.T @ x_train + self.l2_lambda * identity_matrix
+        b = x_train.T @ y_train
 
         self.weights = np.linalg.solve(a, b)
 
-        self.bias = np.mean(y)
+        self.bias = np.mean(y_train)
 
-        y_pred_train = self.predict(x)
-        self._train_residual_std = np.std(y - y_pred_train)
+        y_pred_train = self.predict(x_train)
+        self._train_residual_std = np.std(y_train - y_pred_train)
         if np.isnan(self._train_residual_std):
             self._train_residual_std = 0.0
 
@@ -68,7 +87,13 @@ class NormalEquationLinearRegression(BaseModel):
 
     def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """Evaluates a trial for hyperparameter optimization."""
-        return np.sqrt(mean_squared_error(y_true, y_pred))
+        return self._calculate_metric(y_true, y_pred, Metric.RMSE)
+
+    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
+        """Calculates a metric."""
+        if metric == Metric.RMSE:
+            return np.sqrt(mean_squared_error(y_true, y_pred))
+        raise ValueError(f"Unknown metric: {metric}")
 
     def _clone(self) -> "NormalEquationLinearRegression":
         """Creates a new instance of the model with the same parameters."""
@@ -80,10 +105,13 @@ class NormalEquationLinearRegression(BaseModel):
         Returns:
             dict: Parameter names mapped to their values.
         """
-        return {
-            "l2_lambda": self.l2_lambda,
-            **self.params,
-        }
+        params = super().get_params()
+        params.update(
+            {
+                "l2_lambda": self.l2_lambda,
+            }
+        )
+        return params
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.
@@ -127,9 +155,17 @@ class NormalEquationLinearRegression(BaseModel):
         Returns:
             Dict[str, Any]: A dictionary defining the hyperparameter search space.
         """
-        return {
-            "l2_lambda": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L2 regularization
+        space = {
+            "l2_lambda": {
+                "type": "float",
+                "low": 1e-6,
+                "high": 1.0,
+                "log": True,
+            },  # L2 regularization
         }
+        if self.search_space_override:
+            space.update(self.search_space_override)
+        return space
 
     def get_num_parameters(self) -> int:
         """Returns the total number of trainable parameters in the model.
@@ -148,22 +184,6 @@ class NormalEquationLinearRegression(BaseModel):
             NotImplementedError: NormalEquationLinearRegression is not a composite model.
         """
         raise NotImplementedError("NormalEquationLinearRegression is not a composite model and does not have an internal classifier for separate prediction.")
-
-    def evaluate(self, x: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
-        """Evaluates the model on a given dataset and saves the metrics.
-
-        Args:
-            x (np.ndarray): Feature matrix for evaluation.
-            y (np.ndarray): True labels for evaluation.
-            save_path (str): Directory to save the metrics files.
-
-        Returns:
-            np.ndarray: The predictions made by the model.
-        """
-        y_pred = self.predict(x)
-        metrics_calculator = Metrics(task_type="regression", model_name=self.name, x_data=x, y_true=y, y_pred=y_pred)
-        metrics_calculator.save_metrics(save_path)
-        return y_pred
 
     def cross_validate(self, x: np.ndarray, y: np.ndarray, cv: int) -> dict[str, Any]:
         """Performs cross-validation and returns the scores."""

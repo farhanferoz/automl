@@ -1,7 +1,7 @@
 """Base classes for PyTorch models."""
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import torch
@@ -9,61 +9,55 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.metrics import accuracy_score, mean_squared_error
 
-from automl_package.enums import LearnedRegularizationType, TaskType, UncertaintyMethod
+from automl_package.enums import LearnedRegularizationType, Metric, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
-from automl_package.utils.metrics import Metrics
 from automl_package.utils.numerics import aggregate_stats, log_erfc
 
 
 class PyTorchModelBase(BaseModel, ABC):
     """Base class for PyTorch-based neural network models."""
 
-    def __init__(
-        self,
-        input_size: int | None = None,
-        output_size: int = 1,
-        learning_rate: float = 0.001,
-        n_epochs: int = 10,
-        batch_size: int = 32,
-        task_type: TaskType = TaskType.REGRESSION,
-        use_batch_norm: bool = False,
-        uncertainty_method: UncertaintyMethod = UncertaintyMethod.CONSTANT,
-        n_mc_dropout_samples: int = 100,
-        dropout_rate: float = 0.1,
-        learn_regularization_lambdas: bool = False,
-        learned_regularization_type: LearnedRegularizationType = LearnedRegularizationType.L1_L2,
-        l1_lambda: float = 0.0,
-        l2_lambda: float = 0.0,
-        lambda_learning_rate: float = 1e-5,
-        random_seed: int | None = None,
-        **kwargs: Any,
-    ) -> None:
+    _defaults: ClassVar[dict[str, Any]] = {
+        "input_size": None,
+        "output_size": 1,
+        "learning_rate": 0.001,
+        "n_epochs": 10,
+        "batch_size": 32,
+        "task_type": TaskType.REGRESSION,
+        "use_batch_norm": False,
+        "uncertainty_method": UncertaintyMethod.CONSTANT,
+        "n_mc_dropout_samples": 100,
+        "dropout_rate": 0.1,
+        "learn_regularization_lambdas": False,
+        "learned_regularization_type": LearnedRegularizationType.L1_L2,
+        "l1_lambda": 0.0,
+        "l2_lambda": 0.0,
+        "lambda_learning_rate": 1e-5,
+        "random_seed": None,
+    }
+
+    def __init__(self, **kwargs: Any) -> None:
         """Initializes the PyTorchModelBase."""
-        super().__init__(early_stopping_rounds=kwargs.get("early_stopping_rounds"), cv_folds=kwargs.get("cv_folds"), **kwargs)
-        self.input_size = input_size
-        self.output_size = output_size
-        self.learning_rate = learning_rate
-        self.n_epochs = n_epochs
-        self.batch_size = batch_size
-        self.task_type = task_type
-        self.use_batch_norm = use_batch_norm
-        self.uncertainty_method = uncertainty_method
-        self.n_mc_dropout_samples = n_mc_dropout_samples
-        self.dropout_rate = dropout_rate
-        self.random_seed = random_seed
-        self.is_regression_model = task_type == TaskType.REGRESSION
-        self.learn_regularization_lambdas = learn_regularization_lambdas
-        self.learned_regularization_type = learned_regularization_type
-        self.l1_lambda = l1_lambda
-        self.l2_lambda = l2_lambda
-        self.lambda_learning_rate = lambda_learning_rate
+        # Apply defaults from this class specifically
+        for key, value in PyTorchModelBase._defaults.items():
+            kwargs.setdefault(key, value)
+
+        # Set all attributes on the instance
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+        # Call the parent constructor
+        super().__init__(**kwargs)
+
+        # Now, override any attributes set by the parent's constructor if necessary
+        self.is_regression_model = self.task_type == TaskType.REGRESSION
         self.l1_log_lambda, self.l2_log_lambda = None, None
         self.using_l1_regularization = (
-            self.learned_regularization_type in [LearnedRegularizationType.L1_ONLY, LearnedRegularizationType.L1_L2] if self.learn_regularization_lambdas else l1_lambda > 0
+            self.learned_regularization_type in [LearnedRegularizationType.L1_ONLY, LearnedRegularizationType.L1_L2] if self.learn_regularization_lambdas else self.l1_lambda > 0
         )
         self.using_l2_regularization = (
-            self.learned_regularization_type in [LearnedRegularizationType.L2_ONLY, LearnedRegularizationType.L1_L2] if self.learn_regularization_lambdas else l2_lambda > 0
+            self.learned_regularization_type in [LearnedRegularizationType.L2_ONLY, LearnedRegularizationType.L1_L2] if self.learn_regularization_lambdas else self.l2_lambda > 0
         )
         self.model: nn.Module | None = None
         self.criterion: nn.Module | None = None
@@ -116,13 +110,18 @@ class PyTorchModelBase(BaseModel, ABC):
         return loss
 
     def _fit_single(
-        self, x: np.ndarray, y: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        forced_iterations: int | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
         Args:
-            x (np.ndarray): The training features.
-            y (np.ndarray): The training targets.
+            x_train (np.ndarray): The training features.
+            y_train (np.ndarray): The training targets.
             x_val (np.ndarray | None): The validation features.
             y_val (np.ndarray | None): The validation targets.
             forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
@@ -133,7 +132,7 @@ class PyTorchModelBase(BaseModel, ABC):
                 - A list of the validation loss values for each epoch.
         """
         if self.input_size is None:
-            self.input_size = 1 if x.ndim == 1 else x.shape[1]
+            self.input_size = 1 if x_train.ndim == 1 else x_train.shape[1]
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if self.random_seed is not None:
             torch.manual_seed(self.random_seed)
@@ -147,7 +146,14 @@ class PyTorchModelBase(BaseModel, ABC):
         self._setup_optimizers(self.model)
 
         use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
-        x_train, y_train, x_val, y_val = self._prepare_train_val_data(x, y, x_val, y_val)
+
+        # Convert to numpy arrays
+        x_train = np.array(x_train, dtype=np.float32)
+        y_train = np.array(y_train, dtype=np.float32 if self.is_regression_model else np.int64)
+        if x_val is not None:
+            x_val = np.array(x_val, dtype=np.float32)
+        if y_val is not None:
+            y_val = np.array(y_val, dtype=np.float32 if self.is_regression_model else np.int64)
 
         x_train_tensor = torch.tensor(x_train, dtype=torch.float32).to(self.device)
         y_train_tensor = torch.tensor(y_train, dtype=torch.float32 if self.is_regression_model else torch.long).to(self.device)
@@ -175,7 +181,7 @@ class PyTorchModelBase(BaseModel, ABC):
                 if self.lambda_optimizer:
                     self.lambda_optimizer.zero_grad()
                 outputs = self.model(batch_x)
-                loss = self.criterion(outputs[0] if isinstance(outputs, tuple) else outputs, batch_y)
+                loss = self.criterion(outputs, batch_y)
                 loss = self._calculate_regularization_loss(loss, self.model)
                 loss.backward()
                 self.optimizer.step()
@@ -186,7 +192,7 @@ class PyTorchModelBase(BaseModel, ABC):
                 self.model.eval()
                 with torch.no_grad():
                     val_outputs = self.model(x_val_tensor)
-                    val_loss = self.criterion(val_outputs[0] if isinstance(val_outputs, tuple) else val_outputs, y_val_tensor).item()
+                    val_loss = self.criterion(val_outputs, y_val_tensor).item()
                 val_loss_history.append(val_loss)
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
@@ -204,15 +210,25 @@ class PyTorchModelBase(BaseModel, ABC):
         if best_model_state and use_early_stopping:
             self.model.load_state_dict(best_model_state)
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
-            y_pred_train = self.predict(x)
-            self._train_residual_std = np.std(y - y_pred_train)
+            y_pred_train = self.predict(x_train)
+            self._train_residual_std = np.std(y_train - y_pred_train)
         return best_epoch + 1, val_loss_history
+
+    def _get_optimization_metric(self) -> Metric:
+        """Gets the optimization metric for the model."""
+        return Metric.RMSE if self.is_regression_model else Metric.ACCURACY
 
     def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """Evaluates a trial for hyperparameter optimization."""
-        if self.is_regression_model:
+        return self._calculate_metric(y_true, y_pred, metric=Metric.RMSE if self.is_regression_model else Metric.ACCURACY)
+
+    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
+        """Calculates a metric."""
+        if metric == Metric.RMSE:
             return np.sqrt(mean_squared_error(y_true, y_pred))
-        return accuracy_score(y_true, np.round(y_pred))
+        if metric == Metric.ACCURACY:
+            return accuracy_score(y_true, np.round(y_pred))
+        raise ValueError(f"Unknown metric: {metric}")
 
     def _clone(self) -> "PyTorchModelBase":
         """Creates a new instance of the model with the same parameters."""
@@ -266,10 +282,12 @@ class PyTorchModelBase(BaseModel, ABC):
         self.model.eval()
         with torch.no_grad():
             outputs = self.model(x_tensor)
+            model_output = outputs[0] if isinstance(outputs, tuple) else outputs
+
             if self.task_type == TaskType.CLASSIFICATION:
-                predictions = (torch.sigmoid(outputs) > 0.5).cpu().numpy().astype(int) if self.output_size == 1 else torch.argmax(outputs, dim=1).cpu().numpy()
+                predictions = (torch.sigmoid(model_output) > 0.5).cpu().numpy().astype(int) if self.output_size == 1 else torch.argmax(model_output, dim=1).cpu().numpy()
             else:
-                predictions = outputs.cpu().numpy()
+                predictions = model_output.cpu().numpy()
         return predictions
 
     def predict_proba(self, x: np.ndarray) -> np.ndarray:
@@ -282,10 +300,12 @@ class PyTorchModelBase(BaseModel, ABC):
         x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
         with torch.no_grad():
             outputs = self.model(x_tensor)
+            model_output = outputs[0] if isinstance(outputs, tuple) else outputs
+
             if self.output_size == 1:
-                proba = torch.sigmoid(outputs).cpu().numpy().flatten()
+                proba = torch.sigmoid(model_output).cpu().numpy().flatten()
                 return np.vstack((1 - proba, proba)).T
-            return torch.softmax(outputs, dim=1).cpu().numpy()
+            return torch.softmax(model_output, dim=1).cpu().numpy()
 
     def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
         """Estimates the uncertainty of predictions."""
@@ -296,14 +316,6 @@ class PyTorchModelBase(BaseModel, ABC):
         if self.uncertainty_method == UncertaintyMethod.CONSTANT:
             return np.full(x.shape[0], self._train_residual_std)
         raise ValueError(f"Unknown uncertainty_method: {self.uncertainty_method.value}")
-
-    def evaluate(self, x: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
-        """Evaluates the model and saves metrics."""
-        y_pred = self.predict(x)
-        y_proba = self.predict_proba(x) if self.task_type == TaskType.CLASSIFICATION else None
-        metrics_calculator = Metrics(task_type=self.task_type.value, model_name=self.name, x_data=x, y_true=y, y_pred=y_pred.flatten(), y_proba=y_proba)
-        metrics_calculator.save_metrics(save_path)
-        return y_pred
 
     def get_num_parameters(self) -> int:
         """Returns the number of trainable parameters in the model."""

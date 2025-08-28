@@ -13,7 +13,9 @@ from bokeh.plotting import figure
 
 from automl_package.enums import LayerSelectionMethod, UncertaintyMethod
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
-from automl_package.models.independent_weights_flexible_neural_network import IndependentWeightsFlexibleNN
+from automl_package.models.independent_weights_flexible_neural_network import (
+    IndependentWeightsFlexibleNN,
+)
 from automl_package.models.neural_network import PyTorchNeuralNetwork
 
 
@@ -46,7 +48,14 @@ def create_synthetic_data(n_samples: int = 1000, random_seed: int | None = None)
     return x_sorted.reshape(-1, 1), y_noisy_sorted, y_true_sorted
 
 
-def plot_results_bokeh(x_data: np.ndarray, y_data: np.ndarray, y_true: np.ndarray, predictions: dict[str, np.ndarray], results: dict[str, float], output_path: str) -> None:
+def plot_results_bokeh(
+    x_data: np.ndarray,
+    y_data: np.ndarray,
+    y_true: np.ndarray,
+    predictions: dict[str, np.ndarray],
+    results: dict[str, float],
+    output_path: str,
+) -> None:
     """Generates an interactive Bokeh plot for model comparison."""
     p = figure(
         width=1200,
@@ -79,7 +88,12 @@ def plot_results_bokeh(x_data: np.ndarray, y_data: np.ndarray, y_true: np.ndarra
         )
         legend_items.append(LegendItem(label=f"{name} (MSE: {results[name]:.4f})", renderers=[line_glyph]))
 
-    legend = Legend(items=legend_items, location="top_left", click_policy="hide", background_fill_alpha=0.6)
+    legend = Legend(
+        items=legend_items,
+        location="top_left",
+        click_policy="hide",
+        background_fill_alpha=0.6,
+    )
     p.add_layout(legend)
 
     output_file(output_path)
@@ -94,7 +108,12 @@ def run_showcase() -> None:
 
     models_to_test = {
         "Static NN (5 Layers)": PyTorchNeuralNetwork(
-            hidden_layers=5, hidden_size=128, n_epochs=200, learning_rate=0.005, uncertainty_method=UncertaintyMethod.CONSTANT, early_stopping_rounds=20
+            hidden_layers=5,
+            hidden_size=128,
+            n_epochs=200,
+            learning_rate=0.005,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
+            early_stopping_rounds=20,
         ),
         # Flexible NN (Shared Weights) with all layer selection methods
         "Flexible NN (Shared Weights - NONE)": FlexibleHiddenLayersNN(
@@ -229,7 +248,10 @@ def run_showcase() -> None:
             torch.manual_seed(random_seed)
 
         model.fit(x, y)
-        save_path = os.path.join(output_dir, name.replace(" ", "_").replace("-", "_").replace("(", "").replace(")", ""))
+        save_path = os.path.join(
+            output_dir,
+            name.replace(" ", "_").replace("-", "_").replace("(", "").replace(")", ""),
+        )
         y_pred = model.evaluate(x, y, save_path=save_path)
         predictions[name] = y_pred
         mse = np.mean((y - y_pred) ** 2)

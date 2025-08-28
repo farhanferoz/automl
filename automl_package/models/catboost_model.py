@@ -6,9 +6,9 @@ import numpy as np
 from catboost import CatBoostClassifier, CatBoostRegressor, Pool
 from sklearn.metrics import accuracy_score, mean_squared_error
 
-from automl_package.enums import TaskType
+from automl_package.enums import Metric, TaskType
 from automl_package.models.base import BaseModel
-from automl_package.utils.metrics import Metrics
+from automl_package.models.common.common import get_loss_history
 
 
 class CatBoostModel(BaseModel):
@@ -37,22 +37,26 @@ class CatBoostModel(BaseModel):
             self.params.setdefault("loss_function", "RMSE")
             self.params.setdefault("eval_metric", "RMSE")
         elif self.task_type == TaskType.CLASSIFICATION:
-            self.params.setdefault("loss_function", "Logloss")
-            self.params.setdefault("eval_metric", "Logloss")
+            self.params.setdefault("loss_function", Metric.LOG_LOSS.value)
+            self.params.setdefault("eval_metric", Metric.LOG_LOSS.value)
 
     @property
     def name(self) -> str:
         """Returns the name of the model."""
         return "CatBoostModel"
 
+    def _get_optimization_metric(self) -> Metric:
+        """Gets the optimization metric for the model."""
+        return Metric.RMSE if self.is_regression_model else Metric.ACCURACY
+
     def _fit_single(
-        self, x: np.ndarray, y: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
         Args:
-            x (np.ndarray): The training features.
-            y (np.ndarray): The training targets.
+            x_train (np.ndarray): The training features.
+            y_train (np.ndarray): The training targets.
             x_val (np.ndarray | None): The validation features.
             y_val (np.ndarray | None): The validation targets.
             forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
@@ -65,18 +69,26 @@ class CatBoostModel(BaseModel):
         eval_set = None
         use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
 
-        x_train, y_train, x_val, y_val = self._prepare_train_val_data(x, y, x_val, y_val)
-
         if use_early_stopping and x_val is not None:
             eval_set = Pool(x_val, y_val)
 
-        if self.task_type == TaskType.REGRESSION:
-            self.model = CatBoostRegressor(**self.params)
-        else:
-            self.model = CatBoostClassifier(**self.params)
+        params = self.params.copy()
+        iteration_synonyms = ["iterations", "n_estimators", "num_boost_round", "num_trees"]
+        for synonym in iteration_synonyms:
+            params.pop(synonym, None)
 
         if forced_iterations is not None:
-            self.model.set_params(iterations=forced_iterations)
+            params["iterations"] = forced_iterations
+        else:
+            # Use original iterations if provided, otherwise default to 1000
+            iterations = self.params.get("iterations")
+            if iterations is None:
+                iterations = self.params.get("n_estimators")
+            if iterations is None:
+                iterations = 1000
+            params["iterations"] = iterations
+
+        self.model = CatBoostRegressor(**params) if self.task_type == TaskType.REGRESSION else CatBoostClassifier(**params)
 
         fit_params: dict[str, Any] = {}
         if eval_set is not None:
@@ -85,8 +97,10 @@ class CatBoostModel(BaseModel):
 
         self.model.fit(x_train, y_train, **fit_params)
 
-        best_iteration = self.model.tree_count_ if use_early_stopping and self.model.tree_count_ is not None else self.params.get("iterations", 100)
-        return best_iteration, []
+        best_iteration = self.model.tree_count_ if (use_early_stopping and (self.model.tree_count_ is not None)) else params["iterations"]
+        loss_history = get_loss_history(self.model, use_early_stopping)
+
+        return best_iteration, loss_history
 
     def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """Evaluates a trial for hyperparameter optimization.
@@ -98,13 +112,25 @@ class CatBoostModel(BaseModel):
         Returns:
             float: The evaluation score.
         """
-        if self.is_regression_model:
+        return self._calculate_metric(y_true, y_pred, Metric.RMSE if self.is_regression_model else Metric.ACCURACY)
+
+    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
+        """Calculates a metric."""
+        if metric == Metric.RMSE:
             return np.sqrt(mean_squared_error(y_true, y_pred))
-        return accuracy_score(y_true, np.round(y_pred))
+        if metric == Metric.ACCURACY:
+            return accuracy_score(y_true, np.round(y_pred))
+        raise ValueError(f"Unknown metric: {metric}")
 
     def _clone(self) -> "CatBoostModel":
         """Creates a new instance of the model with the same parameters."""
         return CatBoostModel(**self.get_params())
+
+    def get_params(self) -> dict[str, Any]:
+        """Gets parameters for this estimator."""
+        params = super().get_params()
+        params.update({"task_type": self.task_type, "random_seed": self.random_seed})
+        return params
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """Makes predictions on new data.
@@ -173,9 +199,7 @@ class CatBoostModel(BaseModel):
         Returns:
             int: The number of trees.
         """
-        if self.model is None:
-            return 0
-        return self.model.tree_count_
+        return 0 if self.model is None else self.model.tree_count_
 
     def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> Never:
         """Not implemented for CatBoostModel.
@@ -184,25 +208,6 @@ class CatBoostModel(BaseModel):
             NotImplementedError: CatBoostModel is not a composite model.
         """
         raise NotImplementedError("CatBoostModel is not a composite model.")
-
-    def evaluate(self, x: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
-        """Evaluates the model on a given dataset and saves the metrics.
-
-        Args:
-            x (np.ndarray): Feature matrix for evaluation.
-            y (np.ndarray): True labels for evaluation.
-            save_path (str): Directory to save the metrics files.
-
-        Returns:
-            np.ndarray: The predictions made by the model.
-        """
-        y_pred = self.predict(x)
-        y_proba = None
-        if self.task_type == TaskType.CLASSIFICATION:
-            y_proba = self.predict_proba(x)
-        metrics_calculator = Metrics(task_type=self.task_type.value, model_name=self.name, x_data=x, y_true=y, y_pred=y_pred, y_proba=y_proba)
-        metrics_calculator.save_metrics(save_path)
-        return y_pred
 
     def cross_validate(self, x: np.ndarray, y: np.ndarray, cv: int) -> dict[str, Any]:
         """Performs cross-validation.

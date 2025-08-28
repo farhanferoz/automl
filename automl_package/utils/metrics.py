@@ -22,7 +22,7 @@ from sklearn.metrics import (
     roc_curve,
 )
 
-from automl_package.enums import RegressionStrategy
+from automl_package.enums import RegressionStrategy, TaskType
 from automl_package.logger import logger
 from automl_package.utils.numerics import create_bins
 
@@ -32,7 +32,7 @@ class Metrics:
 
     def __init__(
         self,
-        task_type: str,
+        task_type: TaskType,
         model_name: str,
         x_data: np.ndarray,
         y_true: np.ndarray,
@@ -57,8 +57,9 @@ class Metrics:
         self.y_true = y_true
         self.y_pred = y_pred
         self.y_proba = y_proba
+        self.partition_name = kwargs.get("partition_name")
 
-        if self.task_type == "regression" and self.y_pred.ndim > 1 and self.y_pred.shape[1] > 1:
+        if self.task_type == TaskType.REGRESSION and self.y_pred.ndim > 1 and self.y_pred.shape[1] > 1:
             self.y_pred = self.y_pred[:, 0]
 
         # For Flexible NN architecture plots
@@ -87,7 +88,7 @@ class Metrics:
         Returns:
             dict: A dictionary of calculated metrics.
         """
-        if self.task_type == "regression":
+        if self.task_type == TaskType.REGRESSION:
             return self.calculate_regression_metrics()
         return self.calculate_classification_metrics()
 
@@ -150,8 +151,8 @@ class Metrics:
         plt.plot([y_true_flat.min(), y_true_flat.max()], [y_true_flat.min(), y_true_flat.max()], "--r", linewidth=2)
         plt.xlabel("Actual Values")
         plt.ylabel("Predicted Values")
-        plt.title(f"Predicted vs. Actual Values for {self.model_name}")
-        plt.savefig(f"{save_path}/predicted_vs_actual.png")
+        plt.title(f"Predicted vs. Actual Values for {self.model_name} ({self.partition_name})")
+        plt.savefig(f"{save_path}/{self.partition_name}_predicted_vs_actual.png")
         plt.close()
 
         # Residuals vs. Predicted Plot
@@ -161,8 +162,8 @@ class Metrics:
         plt.axhline(y=0, color="r", linestyle="--")
         plt.xlabel("Predicted Values")
         plt.ylabel("Residuals")
-        plt.title(f"Residuals vs. Predicted Values for {self.model_name}")
-        plt.savefig(f"{save_path}/residuals_vs_predicted.png")
+        plt.title(f"Residuals vs. Predicted Values for {self.model_name} ({self.partition_name})")
+        plt.savefig(f"{save_path}/{self.partition_name}_residuals_vs_predicted.png")
         plt.close()
 
     def plot_classification_charts(self, save_path: str) -> None:
@@ -177,14 +178,14 @@ class Metrics:
         cm = confusion_matrix(self.y_true, self.y_pred)
         plt.figure(figsize=(8, 6))
         plt.imshow(cm, interpolation="nearest", cmap=plt.cm.Blues)
-        plt.title(f"Confusion Matrix for {self.model_name}")
+        plt.title(f"Confusion Matrix for {self.model_name} ({self.partition_name})")
         plt.colorbar()
         tick_marks = np.arange(len(np.unique(self.y_true)))
         plt.xticks(tick_marks, np.unique(self.y_true), rotation=45)
         plt.yticks(tick_marks, np.unique(self.y_true))
         plt.ylabel("True label")
         plt.xlabel("Predicted label")
-        plt.savefig(f"{save_path}/confusion_matrix.png")
+        plt.savefig(f"{save_path}/{self.partition_name}_confusion_matrix.png")
         plt.close()
 
         if self.y_proba is not None:
@@ -198,9 +199,9 @@ class Metrics:
                 plt.plot([0, 1], [0, 1], "k--")
                 plt.xlabel("False Positive Rate")
                 plt.ylabel("True Positive Rate")
-                plt.title(f"ROC Curve for {self.model_name}")
+                plt.title(f"ROC Curve for {self.model_name} ({self.partition_name})")
                 plt.legend(loc="lower right")
-                plt.savefig(f"{save_path}/roc_curve.png")
+                plt.savefig(f"{save_path}/{self.partition_name}_roc_curve.png")
                 plt.close()
 
                 # Binary Precision-Recall Curve
@@ -209,9 +210,9 @@ class Metrics:
                 plt.plot(recall, precision, label="Precision-Recall Curve")
                 plt.xlabel("Recall")
                 plt.ylabel("Precision")
-                plt.title(f"Precision-Recall Curve for {self.model_name}")
+                plt.title(f"Precision-Recall Curve for {self.model_name} ({self.partition_name})")
                 plt.legend(loc="lower left")
-                plt.savefig(f"{save_path}/precision_recall_curve.png")
+                plt.savefig(f"{save_path}/{self.partition_name}_precision_recall_curve.png")
                 plt.close()
             else:
                 # Multi-class ROC Curve (One-vs-Rest)
@@ -227,9 +228,9 @@ class Metrics:
                 plt.plot([0, 1], [0, 1], "k--")
                 plt.xlabel("False Positive Rate")
                 plt.ylabel("True Positive Rate")
-                plt.title(f"Multi-class ROC Curve for {self.model_name} (One-vs-Rest)")
+                plt.title(f"Multi-class ROC Curve for {self.model_name} ({self.partition_name}) (One-vs-Rest)")
                 plt.legend(loc="lower right")
-                plt.savefig(f"{save_path}/multiclass_roc_curve.png")
+                plt.savefig(f"{save_path}/{self.partition_name}_multiclass_roc_curve.png")
                 plt.close()
 
                 # Multi-class Precision-Recall Curve (One-vs-Rest)
@@ -241,9 +242,9 @@ class Metrics:
                     plt.plot(recall, precision, label=f"PR Curve (Class {class_label})")
                 plt.xlabel("Recall")
                 plt.ylabel("Precision")
-                plt.title(f"Multi-class Precision-Recall Curve for {self.model_name} (One-vs-Rest)")
+                plt.title(f"Multi-class Precision-Recall Curve for {self.model_name} ({self.partition_name}) (One-vs-Rest)")
                 plt.legend(loc="lower left")
-                plt.savefig(f"{save_path}/multiclass_precision_recall_curve.png")
+                plt.savefig(f"{save_path}/{self.partition_name}_multiclass_precision_recall_curve.png")
                 plt.close()
 
             self.plot_predicted_vs_true_classification_rate(save_path)
@@ -288,11 +289,11 @@ class Metrics:
         plt.plot(bin_midpoints, inverse_cumulative_means, "^-.", label="Inverse Cumulative Mean Rate")
         plt.xlabel("Bin Midpoint of Maximum Classification Probability")
         plt.ylabel("Classification Rate")
-        plt.title(f"Predicted vs. True Classification Rate for {self.model_name}")
+        plt.title(f"Predicted vs. True Classification Rate for {self.model_name} ({self.partition_name})")
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
-        plt.savefig(f"{save_path}/predicted_vs_true_classification_rate.png")
+        plt.savefig(f"{save_path}/{self.partition_name}_predicted_vs_true_classification_rate.png")
         plt.close()
 
     def plot_completeness_vs_purity(self, save_path: str) -> None:
@@ -325,11 +326,11 @@ class Metrics:
         plt.plot(thresholds, purity, "s--", label="Purity")
         plt.xlabel("Threshold Probability")
         plt.ylabel("Rate")
-        plt.title(f"Completeness vs. Purity for {self.model_name}")
+        plt.title(f"Completeness vs. Purity for {self.model_name} ({self.partition_name})")
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
-        plt.savefig(f"{save_path}/completeness_vs_purity.png")
+        plt.savefig(f"{save_path}/{self.partition_name}_completeness_vs_purity.png")
         plt.close()
 
     def plot_flexible_nn_architecture(self, save_path: str) -> None:
@@ -482,10 +483,10 @@ class Metrics:
         """
         Path(save_path).mkdir(parents=True, exist_ok=True)
         metrics = self.calculate_all_metrics()
-        with open(f"{save_path}/metrics.json", "w") as f:
+        with open(f"{save_path}/{self.partition_name}_metrics.json", "w") as f:
             json.dump(metrics, f, indent=4)
 
-        if self.task_type == "regression":
+        if self.task_type == TaskType.REGRESSION:
             self.plot_regression_charts(save_path)
         else:
             self.plot_classification_charts(save_path)

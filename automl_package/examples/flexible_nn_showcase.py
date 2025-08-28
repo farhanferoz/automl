@@ -38,7 +38,9 @@ from bokeh.plotting import figure
 from automl_package.enums import LayerSelectionMethod, UncertaintyMethod
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
 from automl_package.models.neural_network import PyTorchNeuralNetwork
-from automl_package.models.normal_equation_linear_regression import NormalEquationLinearRegression
+from automl_package.models.normal_equation_linear_regression import (
+    NormalEquationLinearRegression,
+)
 
 
 def create_synthetic_data(n_samples: int = 1000, random_seed: int | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -70,7 +72,14 @@ def create_synthetic_data(n_samples: int = 1000, random_seed: int | None = None)
     return x_sorted.reshape(-1, 1), y_noisy_sorted, y_true_sorted
 
 
-def plot_results_bokeh(x_data: np.ndarray, y_data: np.ndarray, y_true: np.ndarray, predictions: dict[str, np.ndarray], results: dict[str, float], output_path: str) -> None:
+def plot_results_bokeh(
+    x_data: np.ndarray,
+    y_data: np.ndarray,
+    y_true: np.ndarray,
+    predictions: dict[str, np.ndarray],
+    results: dict[str, float],
+    output_path: str,
+) -> None:
     """Generates an interactive Bokeh plot for model comparison."""
     p = figure(
         width=1200,
@@ -103,7 +112,12 @@ def plot_results_bokeh(x_data: np.ndarray, y_data: np.ndarray, y_true: np.ndarra
         )
         legend_items.append(LegendItem(label=f"{name} (MSE: {results[name]:.4f})", renderers=[line_glyph]))
 
-    legend = Legend(items=legend_items, location="top_left", click_policy="hide", background_fill_alpha=0.6)
+    legend = Legend(
+        items=legend_items,
+        location="top_left",
+        click_policy="hide",
+        background_fill_alpha=0.6,
+    )
     p.add_layout(legend)
 
     output_file(output_path)
@@ -118,7 +132,13 @@ def run_showcase() -> None:
 
     models_to_test = {
         "Linear Regression": NormalEquationLinearRegression(),
-        "Static NN (3 Layers)": PyTorchNeuralNetwork(hidden_layers=3, hidden_size=64, n_epochs=100, learning_rate=0.01, uncertainty_method=UncertaintyMethod.CONSTANT),
+        "Static NN (3 Layers)": PyTorchNeuralNetwork(
+            hidden_layers=3,
+            hidden_size=64,
+            n_epochs=100,
+            learning_rate=0.01,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
+        ),
         "Flexible NN (None)": FlexibleHiddenLayersNN(
             layer_selection_method=LayerSelectionMethod.NONE,
             max_hidden_layers=5,

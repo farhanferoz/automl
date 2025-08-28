@@ -58,13 +58,25 @@ def plot_nn_probability_mappers(
                         input_probas[:, j] = remaining_p
 
                 y_output_all_classes = mapper_model.head(input_probas)
-                all_mapped_values = y_output_all_classes.reshape(input_probas.shape[0], mapper_model.n_classes, mapper_model.regression_output_size).cpu().numpy()
+                all_mapped_values = (
+                    y_output_all_classes.reshape(
+                        input_probas.shape[0],
+                        mapper_model.n_classes,
+                        mapper_model.regression_output_size,
+                    )
+                    .cpu()
+                    .numpy()
+                )
                 mapped_values_for_class_i = all_mapped_values[:, i, 0]
 
                 lower_bound_str = f"{class_boundaries[i]:.2f}"
                 upper_bound_str = f"{class_boundaries[i+1]:.2f}"
                 label_text = f"Class {i} (Range: {lower_bound_str}-{upper_bound_str})"
-                plt.plot(probas_range.cpu().numpy(), mapped_values_for_class_i, label=label_text)
+                plt.plot(
+                    probas_range.cpu().numpy(),
+                    mapped_values_for_class_i,
+                    label=label_text,
+                )
 
     plt.title(f"Probability Mappers for {model_name}")
     plt.xlabel("Class Probability")

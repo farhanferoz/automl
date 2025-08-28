@@ -8,7 +8,11 @@ import torch.nn as nn
 
 
 def create_bins(
-    data: np.ndarray, n_bins: int | None = None, unique_bin_edges: np.ndarray | None = None, min_value: float | None = None, max_value: float | None = None
+    data: np.ndarray,
+    n_bins: int | None = None,
+    unique_bin_edges: np.ndarray | None = None,
+    min_value: float | None = None,
+    max_value: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Creates bins for a given dataset and returns the bin edges and the bin index for each data point.
 
@@ -52,7 +56,11 @@ def create_bins(
     return unique_bin_edges, bin_indices
 
 
-def aggregate_stats(model: nn.Sequential, include_bias: bool = True, exclude_names_pattern: str | None = None) -> tuple[int, float, float]:
+def aggregate_stats(
+    model: nn.Sequential,
+    include_bias: bool = True,
+    exclude_names_pattern: str | None = None,
+) -> tuple[int, float, float]:
     """Return (d, sum|w|, sum w²) across selected parameters."""
     d = 0  # total #elements
     l1_sum = 0.0
@@ -77,3 +85,28 @@ def log_erfc(x: torch.Tensor) -> torch.Tensor:
     out[~mask] = torch.log(torch.special.erfc(x64[~mask]))
     out[mask] = torch.log(torch.special.erfcx(x64[mask])) - x64[mask] ** 2
     return out.to(dtype=x.dtype)
+
+
+def find_optimal_iterations(fold_results: list[dict]) -> int:
+    """Finds the optimal number of iterations from a list of fold results."""
+    best_iter_label = "best_iter"
+    loss_history_label = "loss_history"
+
+    max_best_iter = int(np.max([res[best_iter_label] for res in fold_results]))
+    min_best_iter = int(np.min([res[best_iter_label] for res in fold_results]))
+    if max_best_iter == min_best_iter:
+        optimal_iterations = max_best_iter
+    else:
+        max_valid_len = min(len(res[loss_history_label]) for res in fold_results if res[loss_history_label])
+        optimal_iterations = 0
+        if (max_valid_len == 0) or (max_best_iter > max_valid_len):
+            optimal_iterations = int(np.mean([res[best_iter_label] for res in fold_results]))
+        if (max_valid_len > 0) and (optimal_iterations < max_valid_len):
+            avg_loss_curve = np.full(max_valid_len, np.nan)
+            for i in range(max_valid_len):
+                epoch_losses = [res[loss_history_label][i] for res in fold_results if i < len(res[loss_history_label])]
+                if epoch_losses:
+                    avg_loss_curve[i] = np.mean(epoch_losses)
+            optimal_iterations = np.nanargmin(avg_loss_curve) + 1
+
+    return optimal_iterations

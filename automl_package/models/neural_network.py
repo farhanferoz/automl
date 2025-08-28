@@ -1,14 +1,14 @@
 """Neural Network model implemented in PyTorch."""
 
 import math
-from typing import Any
+from typing import Any, ClassVar
 
 import torch
 import torch.nn as nn
 
-from automl_package.enums import TaskType, UncertaintyMethod
-
-from .base_pytorch import PyTorchModelBase
+from automl_package.enums import ActivationFunction, Metric, TaskType, UncertaintyMethod
+from automl_package.models.base_pytorch import PyTorchModelBase
+from automl_package.utils.pytorch_utils import get_activation_function_map
 
 
 class _PyTorchNNModule(nn.Module):
@@ -22,6 +22,7 @@ class _PyTorchNNModule(nn.Module):
         dropout_rate: float,
         is_regression: bool,
         uncertainty_method: UncertaintyMethod,
+        activation: nn.Module,
     ) -> None:
         super().__init__()
         self.is_regression = is_regression
@@ -35,13 +36,13 @@ class _PyTorchNNModule(nn.Module):
         layers.append(nn.Linear(input_size, hidden_size))
         if use_batch_norm:
             layers.append(nn.BatchNorm1d(hidden_size))
-        layers.append(nn.ReLU())
+        layers.append(activation())
 
         for _ in range(hidden_layers - 1):
             layers.append(nn.Linear(hidden_size, hidden_size))
             if use_batch_norm:
                 layers.append(nn.BatchNorm1d(hidden_size))
-            layers.append(nn.ReLU())
+            layers.append(activation())
             if is_regression and uncertainty_method == UncertaintyMethod.MC_DROPOUT and dropout_rate > 0:
                 layers.append(nn.Dropout(dropout_rate))
 
@@ -61,34 +62,38 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
     Includes L1 and L2 regularization.
     """
 
+    _defaults: ClassVar[dict[str, Any]] = {
+        "hidden_layers": 1,
+        "hidden_size": 64,
+        "activation": ActivationFunction.RELU,
+    }
+
     def __init__(
         self,
-        hidden_layers: int = 1,
-        hidden_size: int = 64,
-        activation: Any = nn.ReLU,
         **kwargs: Any,
     ) -> None:
-        """Initializes the PyTorchNeuralNetwork.
-
-        Args:
-            hidden_layers (int): Number of hidden layers.
-            hidden_size (int): Number of neurons in each hidden layer.
-            activation (Any): Activation function to use.
-            device (torch.device, optional): The device to run the model on.
-            **kwargs: Additional keyword arguments for PyTorchModelBase.
-        """
+        """Initializes the PyTorchNeuralNetwork."""
+        # Apply this class's defaults and then pass to the parent constructor
+        for key, value in PyTorchNeuralNetwork._defaults.items():
+            kwargs.setdefault(key, value)
         super().__init__(**kwargs)
-        self.hidden_layers = hidden_layers
-        self.hidden_size = hidden_size
-        self.activation = activation
 
     @property
     def name(self) -> str:
         """Returns the name of the model."""
         return "PyTorchNeuralNetwork"
 
+    def _get_optimization_metric(self) -> Metric:
+        """Gets the optimization metric for the model."""
+        return Metric.RMSE if self.is_regression_model else Metric.ACCURACY
+
     def build_model(self) -> None:
         """Dynamically builds the neural network architecture."""
+        activation_function_map = get_activation_function_map()
+        activation_module = activation_function_map.get(self.activation)
+        if activation_module is None:
+            raise ValueError(f"Unsupported activation function: {self.activation}")
+
         self.model = _PyTorchNNModule(
             input_size=self.input_size,
             output_size=self.output_size,
@@ -98,6 +103,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
             dropout_rate=self.dropout_rate,
             is_regression=self.is_regression_model,
             uncertainty_method=self.uncertainty_method,
+            activation=activation_module,
         ).to(self.device)
 
         # Define criterion based on task type and uncertainty method
@@ -132,19 +138,19 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
             {
                 "hidden_layers": {"type": "int", "low": 1, "high": 3},
                 "hidden_size": {"type": "int", "low": 32, "high": 128, "step": 32},
-                "activation": {"type": "categorical", "choices": ["ReLU", "Tanh"]},
+                "activation": {
+                    "type": "categorical",
+                    "choices": [e.value for e in ActivationFunction],
+                },
             }
         )
+        if self.search_space_override:
+            space.update(self.search_space_override)
         return space
 
     def get_params(self) -> dict[str, Any]:
         """Gets the parameters of the model."""
         params = super().get_params()
-        params.update(
-            {
-                "hidden_layers": self.hidden_layers,
-                "hidden_size": self.hidden_size,
-                "activation": self.activation,
-            }
-        )
+        for key in self._defaults:
+            params[key] = getattr(self, key)
         return params

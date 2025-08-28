@@ -6,20 +6,22 @@ import numpy as np
 from bokeh.models import Legend, LegendItem
 from bokeh.palettes import Category10
 from bokeh.plotting import figure, show
-from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-from automl_package.enums import LearnedRegularizationType, TaskType
+from automl_package.enums import LearnedRegularizationType, Metric, TaskType
 from automl_package.models.catboost_model import CatBoostModel
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
 from automl_package.models.lightgbm_model import LightGBMModel
 from automl_package.models.linear_regression import JAXLinearRegression
 from automl_package.models.neural_network import PyTorchNeuralNetwork
-from automl_package.models.normal_equation_linear_regression import NormalEquationLinearRegression
+from automl_package.models.normal_equation_linear_regression import (
+    NormalEquationLinearRegression,
+)
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
 from automl_package.models.pytorch_linear_regression import PyTorchLinearRegression
 from automl_package.models.xgboost_model import XGBoostModel
+from automl_package.utils.metrics_utils import calculate_metric
 
 
 def generate_noisy_data(n_samples: int = 1000, noise_level: float = 0.5, random_seed: int | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -35,7 +37,14 @@ def generate_noisy_data(n_samples: int = 1000, noise_level: float = 0.5, random_
     return x, y, y_true
 
 
-def plot_results_bokeh(x_train: np.ndarray, y_train: np.ndarray, x_test: np.ndarray, y_test: np.ndarray, y_true_test: np.ndarray, results: dict[str, dict[str, Any]]) -> None:
+def plot_results_bokeh(
+    x_train: np.ndarray,
+    y_train: np.ndarray,
+    x_test: np.ndarray,
+    y_test: np.ndarray,
+    y_true_test: np.ndarray,
+    results: dict[str, dict[str, Any]],
+) -> None:
     """Generates an interactive Bokeh plot for model comparison."""
     p = figure(
         width=900,
@@ -231,7 +240,7 @@ def run_experiment() -> None:
         y_pred_scaled = model.evaluate(x_test_scaled, y_test_scaled, save_path=f"{name}_metrics")
         y_pred = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
 
-        mse = mean_squared_error(y_test, y_pred)
+        mse = calculate_metric(y_test, y_pred, Metric.MSE, TaskType.REGRESSION)
         results[name] = {"mse": mse, "predictions": y_pred}
         print(f"{name} MSE: {mse:.4f}")
         print(f"{name} Number of Parameters: {model.get_num_parameters()}")

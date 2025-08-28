@@ -1,25 +1,18 @@
 """Composite model for regression using classification and probability mapping."""
 
 import os
-from typing import Any
-
+from typing import Any, ClassVar
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.metrics import mean_squared_error
-from torch.nn import ReLU, Tanh
+from sklearn.metrics import log_loss, mean_squared_error
+from sklearn.model_selection import KFold
 
-from automl_package.enums import (
-    MapperType,
-    ModelName,
-    RegressionStrategy,
-    TaskType,
-    UncertaintyMethod,
-)
+from automl_package.enums import MapperType, Metric, ModelName, RegressionStrategy, TaskType
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
+from automl_package.models.mappers.base_mapper import BaseMapper
 from automl_package.models.mappers.nn_mapper import NeuralNetworkMapper
 from automl_package.models.probability_mapper import ClassProbabilityMapper
-from automl_package.utils.metrics import Metrics
 from automl_package.utils.numerics import create_bins
 from automl_package.utils.plotting import plot_nn_probability_mappers
 
@@ -32,61 +25,62 @@ class ClassifierRegressionModel(BaseModel):
     back to continuous regression output using various mapping strategies.
     """
 
-    def __init__(
-        self,
-        n_classes: int = 3,
-        base_classifier_class: type[BaseModel] | None = None,  # The class of the internal classifier (e.g., PyTorchNeuralNetwork, XGBoostModel)
-        base_classifier_params: dict[str, Any] | None = None,  # Parameters for the base classifier
-        mapper_type: MapperType = MapperType.SPLINE,  # Use enum for mapper type
-        mapper_params: dict[str, Any] | None = None,  # Parameters for the ClassProbabilityMapper
-        nn_mapper_params: dict[str, Any] | None = None,  # Parameters for the NeuralNetworkMapper
-        auto_include_nn_mappers: bool = True,  # Whether to include NN mappers in AUTO mode
-        **kwargs: Any,
-    ) -> None:
-        """Initializes the ClassifierRegressionModel.
+    _defaults: ClassVar[dict[str, Any]] = {
+        "n_classes": 3,
+        "base_classifier_class": None,
+        "base_classifier_params": None,
+        "mapper_type": MapperType.SPLINE,
+        "mapper_params": None,
+        "nn_mapper_params": None,
+        "auto_include_nn_mappers": True,
+    }
 
-        Args:
-            n_classes (int): The number of classes to discretize the target into.
-            base_classifier_class (type[BaseModel]): The class of the internal classifier.
-            base_classifier_params (dict[str, Any]): Parameters for the base classifier.
-            mapper_type (MapperType): The type of probability mapping strategy.
-            mapper_params (dict[str, Any] | None): Parameters for the ClassProbabilityMapper.
-            nn_mapper_params (dict[str, Any] | None): Parameters for the NeuralNetworkMapper.
-            auto_include_nn_mappers (bool): Whether to include NN mappers in AUTO mode.
-            **kwargs: Additional keyword arguments for the BaseModel.
-        """
+    def __init__(self, **kwargs: Any) -> None:
+        """Initializes the ClassifierRegressionModel."""
+        self.base_classifier_class: type[BaseModel] | None = None
+        self.n_classes: int = 0
+        self.auto_include_nn_mappers: bool = True
+        self.mapper_type: MapperType = MapperType.SPLINE
+        self.base_classifier_params: dict | None = None
+        self.mapper_params: dict | None = None
+        self.nn_mapper_params: dict | None = None
+
+        for key, value in self._defaults.items():
+            kwargs.setdefault(key, value)
+
         super().__init__(**kwargs)
-        if base_classifier_class is None:
-            raise ValueError("base_classifier_class must be provided.")
-        self.n_classes = n_classes
-        self.base_classifier_class = base_classifier_class
-        self.base_classifier_params = base_classifier_params if base_classifier_params is not None else {}
-        self.mapper_type = mapper_type
-        self.mapper_params = mapper_params if mapper_params is not None else {}
-        self.nn_mapper_params = nn_mapper_params if nn_mapper_params is not None else {}
-        self.auto_include_nn_mappers = auto_include_nn_mappers
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
-        self.base_classifier: BaseModel | None = None  # The instantiated base classifier model
-        self.class_boundaries: np.ndarray | None = None  # Stores percentile values for discretization
-        self.class_mappers: list[ClassProbabilityMapper | NeuralNetworkMapper | None] = []  # Stores a mapper for each class or a single NN mapper
-        self.is_regression_model = True  # This composite model is for regression
-        self.is_composite_regression_model = True  # Flag for AutoML to identify composite models
+        if self.base_classifier_class is None:
+            raise ValueError("base_classifier_class must be provided.")
+
+        self.base_classifier_params = self.base_classifier_params if self.base_classifier_params is not None else {}
+        self.mapper_params = self.mapper_params if self.mapper_params is not None else {}
+        self.nn_mapper_params = self.nn_mapper_params if self.nn_mapper_params is not None else {}
+
+        self.base_classifier: BaseModel | None = None
+        self.class_boundaries: np.ndarray | None = None
+        self.class_mappers: list[ClassProbabilityMapper | NeuralNetworkMapper | None] = []
+        self.is_regression_model = True
+        self.is_composite_regression_model = True
+        self.optimal_mapper_params_ = {}
+        self.task_type = TaskType.REGRESSION
 
         if self.n_classes < 2:
             raise ValueError("n_classes must be at least 2 for classification-regression strategy.")
 
+    def _get_optimization_metric(self) -> Metric:
+        """Gets the optimization metric for the model."""
+        return Metric.RMSE
+
     @property
     def name(self) -> str:
         """Returns the name of the model."""
-        # Include base model name and mapper type for unique identification
-        # Dynamically get the name of the base classifier
         try:
-            # Instantiate a dummy base_classifier_class to get its name property
-            # Pass a default is_classification=True for models that require it in init
             if self.base_classifier_class.__name__ in [ModelName.XGBOOST.value, ModelName.LIGHTGBM.value, ModelName.CATBOOST.value, ModelName.SKLEARN_LOGISTIC_REGRESSION.value]:
                 base_name = self.base_classifier_class(is_classification=True).name
             elif self.base_classifier_class.__name__ == ModelName.PYTORCH_NEURAL_NETWORK.value:
-                # PyTorchNeuralNetwork needs input_size, output_size, task_type
                 base_name = self.base_classifier_class(input_size=10, output_size=1, task_type=TaskType.CLASSIFICATION).name
             else:
                 base_name = self.base_classifier_class().name
@@ -94,29 +88,22 @@ class ClassifierRegressionModel(BaseModel):
             logger.warning(f"Could not instantiate base_classifier_class to get name: {e}. Using 'UnknownBase'.")
             base_name = "UnknownBase"
 
-        return f"{base_name}_to_Reg_{self.mapper_type.label}"  # Dynamically append base name and mapper type
+        return f"{base_name}_to_Reg_{self.mapper_type.label}"
 
-    def _fit_mappers(self, y_proba_all: np.ndarray, y_flat: np.ndarray, mapper_type: MapperType) -> list[ClassProbabilityMapper]:
-        class_mappers = [None] * self.n_classes
-        for c in range(self.n_classes):
-            # Define the range for the current class in terms of original y values
-            # (used to select original y values belonging to this class)
-            mapper = ClassProbabilityMapper(mapper_type, **self.mapper_params)
-            mapper.fit(y_proba_all[:, c].reshape(-1, 1), y_flat)
-            class_mappers[c] = mapper
-        return class_mappers
-
-    def _fit_and_predict_mapper(
+    def _fit_single_mapper(
         self,
         mapper_type: MapperType,
-        y_proba_all: np.ndarray,
-        y_flat: np.ndarray,
-        train_indices: np.ndarray | None,
-        val_indices: np.ndarray | None,
-    ) -> tuple[list, np.ndarray]:
-        """Fits a given mapper type and returns the fitted mappers and predictions."""
-        fitted_mappers = []
-        predictions = np.zeros(y_proba_all.shape[0])
+        probas: np.ndarray,
+        y: np.ndarray,
+        val_probas: np.ndarray | None = None,
+        val_y: np.ndarray | None = None,
+        forced_mapper_params: dict | None = None,
+    ) -> tuple[list, dict]:
+        """Fits a single mapper type and returns the fitted mapper and any learned parameters."""
+        learned_params = {}
+        current_nn_params = self.nn_mapper_params.copy()
+        if forced_mapper_params:
+            current_nn_params.update(forced_mapper_params)
 
         if mapper_type.is_nn:
             mapper_to_strategy_map = {
@@ -125,164 +112,272 @@ class ClassifierRegressionModel(BaseModel):
                 MapperType.NN_SINGLE_HEAD_FINAL_OUTPUT: RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT,
             }
             strategy = mapper_to_strategy_map[mapper_type]
-
             nn_mapper = NeuralNetworkMapper(
                 n_classes=self.n_classes,
                 regression_strategy=strategy,
-                mapper_params=self.nn_mapper_params,
+                mapper_params=current_nn_params,
                 early_stopping_rounds=self.early_stopping_rounds,
                 validation_fraction=self.validation_fraction,
             )
-            nn_mapper.fit(y_proba_all, y_flat, train_indices, val_indices)
-            predictions = nn_mapper.predict(y_proba_all)
+
+            # The NN mapper handles the train/val split internally if val_probas is provided
+            train_indices = np.arange(probas.shape[0])
+            val_indices = np.arange(val_probas.shape[0]) if val_probas is not None else None
+            combined_probas = np.vstack((probas, val_probas)) if val_probas is not None else probas
+            combined_y = np.concatenate((y, val_y)) if val_y is not None else y
+
+            learned_params = nn_mapper.fit(combined_probas, combined_y, train_indices, val_indices)
             fitted_mappers = [nn_mapper]
         else:
-            fitted_mappers = self._fit_mappers(y_proba_all=y_proba_all, y_flat=y_flat, mapper_type=mapper_type)
+            # Non-NN mappers are simpler and fit only on the training data provided.
+            fitted_mappers = []
             for c in range(self.n_classes):
-                proba_for_current_class = y_proba_all[:, c].reshape(-1, 1)
-                expected_y_from_mapper = fitted_mappers[c].predict(proba_for_current_class)
-                predictions += proba_for_current_class.flatten() * expected_y_from_mapper
-
-        return fitted_mappers, predictions
+                mapper = ClassProbabilityMapper(mapper_type, **self.mapper_params)
+                mapper.fit(probas[:, c].reshape(-1, 1), y)
+                fitted_mappers.append(mapper)
+        return fitted_mappers, learned_params
 
     def _fit_single(
-        self, x: np.ndarray, y: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        forced_iterations: int | None = None,
+        fit_mappers: bool = True,
+        forced_mapper_params: dict | None = None,
     ) -> tuple[int, list[float]]:
-        """Fits a single model instance.
-
-        Args:
-            x (np.ndarray): The training features.
-            y (np.ndarray): The training targets.
-            x_val (np.ndarray | None): The validation features.
-            y_val (np.ndarray | None): The validation targets.
-            forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
-
-        Returns:
-            tuple[int, list[float]]: A tuple containing:
-                - The number of iterations the model was trained for.
-                - A list of the validation loss values for each epoch.
-        """
+        """Fits a single model instance."""
         if not self.is_regression_model:
             raise ValueError("This model is designed for regression tasks.")
 
-        y_flat = y.flatten() if y.ndim > 1 else y
+        y_flat = y_train.flatten() if y_train.ndim > 1 else y_train
         self.class_boundaries, y_clf = create_bins(data=y_flat, n_bins=self.n_classes, min_value=-np.inf, max_value=np.inf)
 
         y_val_clf = None
         if y_val is not None:
             _, y_val_clf = create_bins(data=y_val.flatten() if y_val.ndim > 1 else y_val, unique_bin_edges=self.class_boundaries)
 
-        classifier_output_size = 1 if self.n_classes == 2 else self.n_classes
-        base_classifier_init_params = self.base_classifier_params.copy()
-        base_classifier_init_params["task_type"] = TaskType.CLASSIFICATION
-        base_classifier_init_params["early_stopping_rounds"] = self.early_stopping_rounds
-        base_classifier_init_params["validation_fraction"] = self.validation_fraction
-
-        if self.base_classifier_class.__name__ == ModelName.PYTORCH_NEURAL_NETWORK.value:
-            base_classifier_init_params["input_size"] = x.shape[1]
-            base_classifier_init_params["output_size"] = classifier_output_size
-            if "activation" in base_classifier_init_params and isinstance(base_classifier_init_params["activation"], str):
-                base_classifier_init_params["activation"] = ReLU if base_classifier_init_params["activation"] == "ReLU" else Tanh
-            if base_classifier_init_params.get("uncertainty_method") == UncertaintyMethod.MC_DROPOUT.value:
-                base_classifier_init_params.setdefault("dropout_rate", 0.1)
-                base_classifier_init_params.setdefault("n_mc_dropout_samples", 100)
-            else:
-                base_classifier_init_params["dropout_rate"] = 0.0
-        elif self.base_classifier_class.__name__ == ModelName.XGBOOST.value:
-            base_classifier_init_params.setdefault("objective", "binary:logistic" if self.n_classes == 2 else "multi:softmax")
-            base_classifier_init_params.setdefault("eval_metric", "logloss" if self.n_classes == 2 else "mlogloss")
-        elif self.base_classifier_class.__name__ == ModelName.LIGHTGBM.value:
-            base_classifier_init_params.setdefault("objective", "binary" if self.n_classes == 2 else "multiclass")
-            base_classifier_init_params.setdefault("metric", "binary_logloss" if self.n_classes == 2 else "multi_logloss")
-        elif self.base_classifier_class.__name__ == ModelName.CATBOOST.value:
-            base_classifier_init_params.setdefault("task_type", TaskType.CLASSIFICATION)
-            base_classifier_init_params.setdefault("loss_function", "Logloss" if self.n_classes == 2 else "MultiClass")
-            base_classifier_init_params.setdefault("eval_metric", "Logloss" if self.n_classes == 2 else "MultiClass")
+        base_classifier_init_params = self._get_base_classifier_params(x_train.shape[1])
+        if forced_iterations:
+            base_classifier_init_params["early_stopping_rounds"] = None
+            base_classifier_init_params["validation_fraction"] = None
+            if self.base_classifier_class.__name__ in [ModelName.XGBOOST.value, ModelName.LIGHTGBM.value, ModelName.CATBOOST.value]:
+                base_classifier_init_params["n_estimators"] = forced_iterations
 
         self.base_classifier = self.base_classifier_class(**base_classifier_init_params)
-        self.base_classifier._fit_single(x, y_clf.astype(np.int64), x_val, y_val_clf.astype(np.int64) if y_val_clf is not None else None, forced_iterations=forced_iterations)
-        self.num_iterations_used = self.base_classifier.num_iterations_used
+        best_iter, _ = self.base_classifier._fit_single(
+            x_train, y_clf.astype(np.int64), x_val, y_val_clf.astype(np.int64) if y_val_clf is not None else None, forced_iterations=forced_iterations,
+        )
+        self.num_iterations_used = best_iter
         self.train_indices = self.base_classifier.train_indices
         self.val_indices = self.base_classifier.val_indices
 
-        y_proba_all = self.base_classifier.predict_proba(x)
+        if fit_mappers:
+            y_proba_all = self.base_classifier.predict_proba(x_train)
+            if y_proba_all.shape[1] != self.n_classes:
+                if self.n_classes == 2 and y_proba_all.ndim == 1:
+                    y_proba_all = np.vstack((1 - y_proba_all, y_proba_all)).T
+                elif self.n_classes == 2 and y_proba_all.shape[1] == 1:
+                    y_proba_all = np.hstack((1 - y_proba_all, y_proba_all))
+                else:
+                    raise ValueError(f"Classifier predict_proba output shape {y_proba_all.shape} does not match n_classes {self.n_classes}.")
 
-        if y_proba_all.shape[1] != self.n_classes:
-            if self.n_classes == 2 and y_proba_all.ndim == 1:
-                y_proba_all = np.vstack((1 - y_proba_all, y_proba_all)).T
-            elif self.n_classes == 2 and y_proba_all.shape[1] == 1:
-                y_proba_all = np.hstack((1 - y_proba_all, y_proba_all))
-            else:
-                raise ValueError(f"Classifier predict_proba output shape {y_proba_all.shape} does not match n_classes {self.n_classes}.")
+            self.class_mappers, _ = self._fit_single_mapper(self.mapper_type, y_proba_all, y_flat, forced_mapper_params=forced_mapper_params)
 
-        if self.mapper_type == MapperType.AUTO:
-            best_mapper_type = None
-            min_loss = float("inf")
-
-            for mapper_type_to_test in MapperType:
-                if mapper_type_to_test in [MapperType.AUTO, MapperType.LINEAR] or ((not self.auto_include_nn_mappers) and mapper_type_to_test.is_nn):
-                    continue
-                logger.info(f"Auto-testing mapper type: {mapper_type_to_test.label}")
-                temp_mappers, final_predictions = self._fit_and_predict_mapper(mapper_type_to_test, y_proba_all, y_flat, self.train_indices, self.val_indices)
-                loss = np.mean((y_flat - final_predictions) ** 2)
-                logger.info(f"  - Mapper Loss (MSE): {loss}")
-
-                if loss < min_loss:
-                    min_loss = loss
-                    best_mapper_type = mapper_type_to_test
-                    self.class_mappers = temp_mappers
-
-            self.mapper_type = best_mapper_type
-            logger.info(f"Auto-selected mapper type: {self.mapper_type.label}")
-        else:
-            self.class_mappers, _ = self._fit_and_predict_mapper(self.mapper_type, y_proba_all, y_flat, self.train_indices, self.val_indices)
-        return 0, []
+        return self.num_iterations_used, []
 
     def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """Evaluates a trial for hyperparameter optimization."""
         return np.sqrt(mean_squared_error(y_true, y_pred))
 
+    def _find_optimal_iterations_with_cv(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> tuple[int, np.ndarray, np.ndarray]:
+        """Uses cross-validation to find the optimal number of iterations for the base classifier."""
+        y_flat = y.flatten() if y.ndim > 1 else y
+        self.class_boundaries, y_clf = create_bins(data=y_flat, n_bins=self.n_classes, min_value=-np.inf, max_value=np.inf)
+        kf = KFold(n_splits=self.cv_folds, shuffle=True, random_state=getattr(self, "random_seed", None))
+        oof_probas = np.zeros((x.shape[0], self.n_classes))
+        oof_true_y = np.zeros(x.shape[0])
+        fold_results = []
+
+        for i, (train_idx, val_idx) in enumerate(kf.split(x)):
+            logger.info(f"--- Training CV fold {i+1}/{self.cv_folds} ---")
+            x_train_fold, x_val_fold = x[train_idx], x[val_idx]
+            y_clf_train_fold, y_clf_val_fold = y_clf[train_idx], y_clf[val_idx]
+            classifier_instance = self.base_classifier_class(**self._get_base_classifier_params(x.shape[1]))
+            best_iter, loss_history = classifier_instance._fit_single(x_train_fold, y_clf_train_fold, x_val_fold, y_clf_val_fold)
+            probas = classifier_instance.predict_proba(x_val_fold)
+            oof_probas[val_idx] = probas
+            oof_true_y[val_idx] = y[val_idx]
+            score = log_loss(y_clf_val_fold, probas)
+            fold_results.append({"best_iter": best_iter, "loss_history": loss_history, "score": score})
+
+        max_len = max(len(res["loss_history"]) for res in fold_results if res["loss_history"])
+        if max_len == 0:
+            optimal_iterations = int(np.mean([res["best_iter"] for res in fold_results]))
+        else:
+            avg_loss_curve = np.full(max_len, np.nan)
+            for i in range(max_len):
+                epoch_losses = [res["loss_history"][i] for res in fold_results if i < len(res["loss_history"])]
+                if epoch_losses:
+                    avg_loss_curve[i] = np.mean(epoch_losses)
+            optimal_iterations = np.nanargmin(avg_loss_curve) + 1
+            min_best_iter = min(res["best_iter"] for res in fold_results)
+            if optimal_iterations >= min_best_iter:
+                optimal_iterations = int(np.mean([res["best_iter"] for res in fold_results]))
+
+        self.cv_score_mean_ = np.mean([res["score"] for res in fold_results])
+        self.cv_score_std_ = np.std([res["score"] for res in fold_results])
+        return optimal_iterations, oof_probas, oof_true_y
+
+    def _mapper_predict(self, probas: np.ndarray, mapper_type_to_test: MapperType, fitted_mappers: list[BaseMapper]) -> np.ndarray:
+        if mapper_type_to_test.is_nn:
+            predictions = fitted_mappers[0].predict(probas)
+        else:
+            predictions = np.zeros(probas.shape[0])
+            for c in range(self.n_classes):
+                proba_for_current_class = probas[:, c].reshape(-1, 1)
+                expected_y_from_mapper = fitted_mappers[c].predict(proba_for_current_class)
+                predictions += proba_for_current_class.flatten() * expected_y_from_mapper
+        return predictions
+
+    def _find_best_mapper(self, probas_train: np.ndarray, y_train: np.ndarray, probas_val: np.ndarray, y_val: np.ndarray) -> tuple[MapperType, dict]:
+        """Finds the best mapper type by fitting on training data and evaluating on validation data."""
+        best_mapper_type = None
+        min_loss = float("inf")
+        best_params = {}
+
+        for mapper_type_to_test in MapperType:
+            if mapper_type_to_test == MapperType.AUTO or ((not self.auto_include_nn_mappers) and mapper_type_to_test.is_nn):
+                continue
+
+            logger.info(f"Auto-testing mapper type: {mapper_type_to_test.label}")
+            fitted_mappers, learned_params = self._fit_single_mapper(mapper_type_to_test, probas_train, y_train, probas_val, y_val)
+
+            predictions = self._mapper_predict(probas=probas_val, mapper_type_to_test=mapper_type_to_test, fitted_mappers=fitted_mappers)
+
+            loss = mean_squared_error(y_val, predictions)
+            logger.info(f"  - Mapper Loss on validation (MSE): {loss}")
+
+            if loss < min_loss:
+                min_loss = loss
+                best_mapper_type = mapper_type_to_test
+                best_params = learned_params
+
+        return best_mapper_type, best_params
+
+    def _get_base_classifier_params(self, input_size: int) -> dict[str, Any]:
+        """Helper to construct the parameter dictionary for the base classifier."""
+        classifier_output_size = 1 if self.n_classes == 2 else self.n_classes
+        params = self.base_classifier_params.copy()
+        params.update(
+            {
+                "task_type": TaskType.CLASSIFICATION,
+                "early_stopping_rounds": self.early_stopping_rounds,
+                "validation_fraction": self.validation_fraction,
+                "split_strategy": self.split_strategy,
+                "cv_folds": None,
+            }
+        )
+        if self.base_classifier_class.__name__ == ModelName.PYTORCH_NEURAL_NETWORK.value:
+            params["input_size"] = input_size
+            params["output_size"] = classifier_output_size
+        return params
+
+    def fit(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> None:
+        """Custom fit method for ClassifierRegressionModel to decouple classifier tuning from mapper selection."""
+        logger.info(f"--- Starting training for {self.name} ---")
+        x_train, y_train, x_val, y_val, x_test, y_test, _, _, _, x_train_val, y_train_val, timestamps_train_val = self._prepare_data_partitions(x, y, timestamps)
+
+        if self.optimize_hyperparameters:
+            if not self.cv_folds:
+                raise ValueError("cv_folds must be set to perform hyperparameter optimization.")
+            logger.info("--- Starting hyperparameter optimization ---")
+            self.best_params_ = self._find_best_hyperparameters(x_train_val, y_train_val)
+            self.params.update(self.best_params_)
+            logger.info(f"--- Hyperparameter optimization finished. Best params: {self.best_params_} ---")
+
+        if self.cv_folds:
+            logger.info("--- Finding optimal iterations with cross-validation ---")
+            optimal_iterations, oof_probas, oof_true_y = self._find_optimal_iterations_with_cv(x_train_val, y_train_val, timestamps_train_val)
+            self.optimal_iterations_ = optimal_iterations
+            logger.info(f"--- Optimal iterations found: {self.optimal_iterations_} ---")
+
+            if self.mapper_type == MapperType.AUTO:
+                logger.info("--- Finding best mapper type ---")
+                best_mapper_type, best_mapper_params = self._find_best_mapper(oof_probas, oof_true_y, oof_probas, oof_true_y)
+                self.mapper_type = best_mapper_type
+                self.optimal_mapper_params_ = best_mapper_params
+                logger.info(f"Auto-selected mapper type '{self.mapper_type.label}' with params {self.optimal_mapper_params_}")
+
+            logger.info("--- Training final model with optimal parameters ---")
+            self._fit_single(x_train_val, y_train_val, forced_iterations=self.optimal_iterations_, fit_mappers=True, forced_mapper_params=self.optimal_mapper_params_)
+            logger.info("--- Final model training finished ---")
+
+        else:  # No CV
+            # 1. Find optimal classifier iterations using a validation set
+            logger.info("--- Finding optimal classifier iterations with train/validation split ---")
+            self.num_iterations_used, _ = self._fit_single(x_train, y_train, x_val, y_val, fit_mappers=False)
+            self.optimal_iterations_ = self.num_iterations_used
+            logger.info(f"--- Optimal classifier iterations found: {self.optimal_iterations_} ---")
+
+            # 2. Find best mapper type and its optimal params using the validation set
+            y_proba_train = self.base_classifier.predict_proba(x_train)
+            y_proba_val = self.base_classifier.predict_proba(x_val)
+
+            if self.mapper_type == MapperType.AUTO:
+                logger.info("--- Finding best mapper type ---")
+                best_mapper_type, self.optimal_mapper_params_ = self._find_best_mapper(y_proba_train, y_train, y_proba_val, y_val)
+                self.mapper_type = best_mapper_type
+                logger.info(f"Auto-selected mapper type '{self.mapper_type.label}' with params {self.optimal_mapper_params_}")
+            elif self.mapper_type.is_nn:
+                logger.info(f"Finding optimal epochs for specified NN mapper: {self.mapper_type.label}")
+                _, self.optimal_mapper_params_ = self._fit_single_mapper(self.mapper_type, y_proba_train, y_train, y_proba_val, y_val)
+                logger.info(f"Found optimal mapper params: {self.optimal_mapper_params_}")
+
+            # 3. Train the final model on all data with optimal parameters
+            logger.info("--- Training final model with optimal parameters ---")
+            self._fit_single(x_train_val, y_train_val, forced_iterations=self.optimal_iterations_, fit_mappers=True, forced_mapper_params=self.optimal_mapper_params_)
+            logger.info("--- Final model training finished ---")
+
+        # Step 3: Automatic Final Evaluation
+        if self.output_dir:
+            logger.info("--- Starting final evaluation ---")
+            if self.cv_folds:
+                self.evaluate(x_train_val, y_train_val, "train_after_cv", self.output_dir)
+            else:
+                if x_train_val is not None:
+                    self.evaluate(x_train_val, y_train_val, "train_val", self.output_dir)
+            if x_test is not None:
+                self.evaluate(x_test, y_test, "test", self.output_dir)
+            logger.info("--- Final evaluation finished ---")
+
     def _clone(self) -> "ClassifierRegressionModel":
         """Creates a new instance of the model with the same parameters."""
         return ClassifierRegressionModel(**self.get_params())
 
+    def get_params(self) -> dict[str, Any]:
+        """Gets parameters for this estimator."""
+        params = super().get_params()
+        params.update(
+            {
+                "n_classes": self.n_classes,
+                "base_classifier_class": self.base_classifier_class,
+                "base_classifier_params": self.base_classifier_params,
+                "mapper_type": self.mapper_type,
+                "mapper_params": self.mapper_params,
+                "nn_mapper_params": self.nn_mapper_params,
+                "auto_include_nn_mappers": self.auto_include_nn_mappers,
+            }
+        )
+        return params
+
     def predict(self, x: np.ndarray) -> np.ndarray:
-        """Makes predictions (expected regression output) using the composite model.
-
-        Args:
-            x (np.ndarray): Features for prediction.
-
-        Returns:
-            np.ndarray: Predicted regression values.
-        """
+        """Makes predictions (expected regression output) using the composite model."""
         if self.base_classifier is None or not self.class_mappers:
             raise RuntimeError("Model has not been fitted yet. Call fit() first.")
 
-        # Get classification probabilities from the base classifier for all classes
-        y_proba_all = self.base_classifier.predict_proba(x)
-
-        if self.mapper_type.is_nn:
-            return self.class_mappers[0].predict(y_proba_all)
-
-        # Initialize final predictions array
-        final_predictions = np.zeros(x.shape[0])
-
-        # Sum the product of classification probability and expected regression output for each class
-        for c in range(self.n_classes):
-            if self.class_mappers[c] is None:
-                logger.warning(f"Mapper for class {c} is None. Skipping its contribution.")
-                continue
-
-            # Probability of current class `c` for each sample
-            proba_for_current_class = y_proba_all[:, c].reshape(-1, 1)
-
-            # Expected regression value mapped from this probability for class `c`
-            expected_y_from_mapper = self.class_mappers[c].predict(proba_for_current_class)
-
-            # Add this class's weighted contribution to the final prediction
-            final_predictions += proba_for_current_class.flatten() * expected_y_from_mapper
-
-        return final_predictions
+        return self._mapper_predict(probas=self.base_classifier.predict_proba(x), mapper_type_to_test=self.mapper_type, fitted_mappers=self.class_mappers)
 
     def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
         """Estimates uncertainty for regression predictions using this composite model.
@@ -451,7 +546,7 @@ class ClassifierRegressionModel(BaseModel):
 
         Useful for explainability libraries like SHAP.
         """
-        return self.model
+        return self.base_classifier.get_internal_model()
 
     def get_num_parameters(self) -> int:
         """Returns the total number of trainable parameters in the model.
@@ -470,37 +565,6 @@ class ClassifierRegressionModel(BaseModel):
             total_params += self.n_classes * 2  # n_classes * (slope + intercept)
 
         return total_params
-
-    def evaluate(self, x: np.ndarray, y: np.ndarray, save_path: str = "metrics") -> np.ndarray:
-        """Evaluates the model on a given dataset and saves the metrics.
-
-        Args:
-            x (np.ndarray): Feature matrix for evaluation.
-            y (np.ndarray): True labels for evaluation.
-            save_path (str): Directory to save the metrics files.
-
-        Returns:
-            np.ndarray: The predictions made by the model.
-        """
-        y_pred = self.predict(x)
-        metrics_calculator = Metrics(task_type="regression", model_name=self.name, x_data=x, y_true=y, y_pred=y_pred)
-        metrics_calculator.save_metrics(save_path)
-
-        y_pred_internal_clf, y_proba_internal_clf, y_true_discretized = self.get_classifier_predictions(x, y)
-
-        logger.info(f"Evaluating internal classifier of {self.name} for classification metrics.")
-        internal_metrics_calculator = Metrics(
-            task_type=TaskType.CLASSIFICATION.value,
-            model_name=f"{self.name}_InternalClassifier",
-            x_data=x,
-            y_true=y_true_discretized,
-            y_pred=y_pred_internal_clf,
-            y_proba=y_proba_internal_clf,
-        )
-        internal_metrics_calculator.save_metrics(save_path)
-
-        self.plot_probability_mappers(plot_path=os.path.join(save_path, "probability_mappers.png"))
-        return y_pred
 
     def cross_validate(self, x: np.ndarray, y: np.ndarray, cv: int) -> dict[str, Any]:
         """Performs cross-validation."""

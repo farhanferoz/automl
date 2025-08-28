@@ -24,7 +24,7 @@ class LinearMapper(BaseMapper):
         else:
             self._linear_mapper_residual_variance = _linear_mapper_residual_variance
 
-    def _fit_empty(self, probas: np.ndarray, y_original: np.ndarray) -> None:  # noqa: ARG002
+    def _fit_empty(self) -> None:
         self.model = LinearRegression()
         self.model.fit(np.array([[0], [1]]), np.array([0, 0]))
         self._linear_mapper_residual_variance = 0.0

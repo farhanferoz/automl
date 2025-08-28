@@ -1,5 +1,7 @@
 """A mapper that uses a neural network to map class probabilities to a regression value."""
 
+from typing import Any
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -7,11 +9,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from automl_package.enums import RegressionStrategy, UncertaintyMethod
 from automl_package.logger import logger
-from automl_package.models.common.regression_heads import (
-    SeparateHeadsRegressionModule,
-    SingleHeadFinalOutputRegressionModule,
-    SingleHeadNOutputsRegressionModule,
-)
+from automl_package.models.common.regression_heads import SeparateHeadsRegressionModule, SingleHeadFinalOutputRegressionModule, SingleHeadNOutputsRegressionModule
 from automl_package.models.mappers.base_mapper import BaseMapper
 
 
@@ -88,10 +86,11 @@ class NeuralNetworkMapper(BaseMapper):
             probas = np.hstack((1 - probas, probas))
         return probas
 
-    def fit(self, probas: np.ndarray, y_original: np.ndarray, train_indices: np.ndarray | None = None, val_indices: np.ndarray | None = None) -> None:
+    def fit(self, probas: np.ndarray, y_original: np.ndarray, train_indices: np.ndarray | None = None, val_indices: np.ndarray | None = None) -> dict[str, Any]:
         """Overrides the BaseMapper.fit to handle 2D probability arrays directly.
 
         This bypasses the sorting logic in the parent class, which is not applicable here.
+        Returns a dictionary of learned parameters, e.g., optimal epochs.
         """
         if probas.shape[0] != y_original.shape[0]:
             raise ValueError(f"Shape mismatch between probas ({probas.shape[0]}) and y_original ({y_original.shape[0]})")
@@ -99,27 +98,26 @@ class NeuralNetworkMapper(BaseMapper):
         probas = self._format_probas(probas=probas)
 
         # Call _fit directly, bypassing the sorting in BaseMapper
-        self._fit(probas, y_original, train_indices, val_indices)
+        return self._fit(probas, y_original, train_indices, val_indices)
 
-    def _fit(self, probas: np.ndarray, y_original: np.ndarray, train_indices: np.ndarray | None = None, val_indices: np.ndarray | None = None) -> None:
+    def _fit(self, probas: np.ndarray, y_original: np.ndarray, train_indices: np.ndarray | None = None, val_indices: np.ndarray | None = None) -> dict[str, Any]:
         """Fits the neural network mapper. This involves a full training loop."""
         self.model.train()
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
         loss_fn = nn.MSELoss()
 
-        if self.early_stopping_rounds and train_indices is not None and val_indices is not None:
-            logger.info("NNMapper: Using provided train and validation indices.")
-            logger.info(f"NNMapper: Number of train indices: {len(train_indices)}")
-            logger.info(f"NNMapper: Number of val indices: {len(val_indices)}")
+        use_early_stopping = self.early_stopping_rounds and self.early_stopping_rounds > 0 and train_indices is not None and val_indices is not None
+
+        if use_early_stopping:
+            logger.info("NNMapper: Using provided train and validation indices for early stopping.")
             probas_train, y_train = probas[train_indices], y_original[train_indices]
             probas_val, y_val = probas[val_indices], y_original[val_indices]
 
             probas_val_tensor = torch.tensor(probas_val, dtype=torch.float32).to(self.device)
             y_val_tensor = torch.tensor(y_val, dtype=torch.float32).reshape(-1, 1).to(self.device)
         else:
-            logger.info("NNMapper: Not using provided train and validation indices.")
+            logger.info("NNMapper: Not using early stopping. Training on all provided data.")
             probas_train, y_train = probas, y_original
-            probas_val_tensor, y_val_tensor = None, None
 
         # Create DataLoader
         probas_tensor = torch.tensor(probas_train, dtype=torch.float32)
@@ -130,8 +128,9 @@ class NeuralNetworkMapper(BaseMapper):
         best_val_loss = float("inf")
         epochs_no_improve = 0
         best_model_state = None
+        best_epoch = self.epochs
 
-        for _epoch in range(self.epochs):
+        for epoch in range(self.epochs):
             self.model.train()
             for probas_batch_cpu, y_batch_cpu in loader:
                 probas_batch = probas_batch_cpu.to(self.device)
@@ -143,7 +142,7 @@ class NeuralNetworkMapper(BaseMapper):
                 loss.backward()
                 optimizer.step()
 
-            if probas_val_tensor is not None:
+            if use_early_stopping:
                 self.model.eval()
                 with torch.no_grad():
                     val_preds = self.model(probas_val_tensor)
@@ -153,18 +152,20 @@ class NeuralNetworkMapper(BaseMapper):
                     best_val_loss = val_loss
                     epochs_no_improve = 0
                     best_model_state = self.model.state_dict()
+                    best_epoch = epoch + 1
                 else:
                     epochs_no_improve += 1
 
-                if self.early_stopping_rounds and epochs_no_improve >= self.early_stopping_rounds:
-                    logger.info(f"NNMapper: Early stopping at epoch {_epoch + 1}")
-                    if best_model_state:
-                        self.model.load_state_dict(best_model_state)
+                if epochs_no_improve >= self.early_stopping_rounds:
+                    logger.info(f"NNMapper: Early stopping at epoch {epoch + 1}, best epoch was {best_epoch}")
                     break
-        if self.early_stopping_rounds and best_model_state:
+
+        if use_early_stopping and best_model_state:
             self.model.load_state_dict(best_model_state)
 
-    def _fit_empty(self, probas: np.ndarray, y_original: np.ndarray) -> None:
+        return {"epochs": best_epoch}
+
+    def _fit_empty(self) -> None:
         """Handles fitting on empty data."""
 
     def predict(self, probas_new: np.ndarray) -> np.ndarray:

@@ -3,10 +3,9 @@
 from typing import Any
 
 import torch.nn as nn
+from models.base_pytorch import PyTorchModelBase
 
 from automl_package.enums import TaskType
-
-from .base_pytorch import PyTorchModelBase
 
 
 class PyTorchLogisticRegression(PyTorchModelBase):
