@@ -176,7 +176,7 @@ class NeuralNetworkMapper(BaseMapper):
         with torch.no_grad():
             probas_tensor = torch.tensor(probas_new, dtype=torch.float32).to(self.device)
             predictions_tensor = self.model(probas_tensor)
-            return predictions_tensor.cpu().numpy().flatten()
+            return predictions_tensor.cpu().numpy()
 
     def predict_variance(self, probas_new: np.ndarray) -> np.ndarray:
         """Predicts variance. Not implemented for this mapper yet.

@@ -8,7 +8,7 @@ import numpy as np
 from jax import grad, jit
 from sklearn.metrics import mean_squared_error
 
-from automl_package.enums import Metric, Penalty, TaskType
+from automl_package.enums import Metric, Penalty
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 
@@ -24,16 +24,15 @@ class LinearRegressionModel(BaseModel):
             kwargs.setdefault(key, value)
 
         super().__init__(**kwargs)
+        assert self.is_regression_model
         for key, value in kwargs.items():
             setattr(self, key, value)
 
         self.weights: jnp.ndarray | None = None
         self.bias: jnp.ndarray | None = None
         self.key = jax.random.PRNGKey(0)
-        self.is_regression_model = True
         self._train_residual_std = 0.0
         self.n_features = 0
-        self.task_type = TaskType.REGRESSION
 
     @property
     def name(self) -> str:
@@ -142,7 +141,7 @@ class LinearRegressionModel(BaseModel):
             iterations_to_return = iterations
             val_loss_history = []
 
-        y_pred_train = self.predict(x_train)
+        y_pred_train = self.predict(x_train, filter_data=False)
         self._train_residual_std = np.std(y_train - y_pred_train)
         if np.isnan(self._train_residual_std):
             self._train_residual_std = 0.0
@@ -175,17 +174,20 @@ class LinearRegressionModel(BaseModel):
             params["l1_ratio"] = self.l1_ratio
         return params
 
-    def predict(self, x: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Makes predictions on new data.
 
         Args:
             x (np.ndarray): Feature matrix for prediction.
+            filter_data (bool): If True, filter the input data using the feature selection mask.
 
         Returns:
             np.ndarray: Predicted values.
         """
         if self.weights is None or self.bias is None:
             raise RuntimeError("Model has not been fitted yet.")
+        if filter_data:
+            x = self._filter_predict_data(x)
         x_jax = jnp.array(x, dtype=jnp.float32)
         predictions = jnp.dot(x_jax, self.weights) + self.bias
         return np.array(predictions)
@@ -198,11 +200,12 @@ class LinearRegressionModel(BaseModel):
         """
         return 0 if self.weights is None else self.weights.size + 1
 
-    def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
             x (np.ndarray): Feature matrix for uncertainty estimation.
+            filter_data (bool): If True, filter the input data using the feature selection mask.
 
         Returns:
             np.ndarray: Uncertainty estimates (e.g., standard deviation).
@@ -211,6 +214,8 @@ class LinearRegressionModel(BaseModel):
             raise ValueError("predict_uncertainty is only available for regression models.")
         if self.weights is None or self.bias is None:
             raise RuntimeError("Model has not been fitted yet.")
+        if filter_data:
+            x = self._filter_predict_data(x)
         # For simplicity, return a constant uncertainty based on training residuals
         return np.full(x.shape[0], self._train_residual_std)
 
@@ -246,6 +251,16 @@ class LinearRegressionModel(BaseModel):
             NotImplementedError: JAXLinearRegression is not a composite model.
         """
         raise NotImplementedError("JAXLinearRegression is not a composite model and does not have an internal classifier for separate prediction.")
+
+    def get_internal_model(self) -> Any:
+        """Returns the internal model."""
+
+        class ShapModel:
+            def __init__(self, coef: np.ndarray, intercept: np.ndarray) -> None:
+                self.coef_ = coef
+                self.intercept_ = intercept
+
+        return ShapModel(self.weights, self.bias)
 
     def cross_validate(self, x: np.ndarray, y: np.ndarray, cv: int) -> dict[str, Any]:
         """Performs cross-validation and returns the scores."""

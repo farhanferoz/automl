@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -24,7 +25,6 @@ class PyTorchModelBase(BaseModel, ABC):
         "learning_rate": 0.001,
         "n_epochs": 10,
         "batch_size": 32,
-        "task_type": TaskType.REGRESSION,
         "use_batch_norm": False,
         "uncertainty_method": UncertaintyMethod.CONSTANT,
         "n_mc_dropout_samples": 100,
@@ -51,7 +51,6 @@ class PyTorchModelBase(BaseModel, ABC):
         super().__init__(**kwargs)
 
         # Now, override any attributes set by the parent's constructor if necessary
-        self.is_regression_model = self.task_type == TaskType.REGRESSION
         self.l1_log_lambda, self.l2_log_lambda = None, None
         self.using_l1_regularization = (
             self.learned_regularization_type in [LearnedRegularizationType.L1_ONLY, LearnedRegularizationType.L1_L2] if self.learn_regularization_lambdas else self.l1_lambda > 0
@@ -131,9 +130,17 @@ class PyTorchModelBase(BaseModel, ABC):
                 - The number of iterations the model was trained for.
                 - A list of the validation loss values for each epoch.
         """
-        if self.input_size is None:
-            self.input_size = 1 if x_train.ndim == 1 else x_train.shape[1]
+        new_input_size = 1 if x_train.ndim == 1 else x_train.shape[1]
+        if self.input_size != new_input_size:
+            self.input_size = new_input_size
+            self.build_model()
+
+        if self.model is None:
+            self.input_size = new_input_size
+            self.build_model()
+
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"Using device: {self.device}")
         if self.random_seed is not None:
             torch.manual_seed(self.random_seed)
             np.random.seed(self.random_seed)
@@ -210,7 +217,7 @@ class PyTorchModelBase(BaseModel, ABC):
         if best_model_state and use_early_stopping:
             self.model.load_state_dict(best_model_state)
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
-            y_pred_train = self.predict(x_train)
+            y_pred_train = self.predict(x_train, filter_data=False)
             self._train_residual_std = np.std(y_train - y_pred_train)
         return best_epoch + 1, val_loss_history
 
@@ -274,10 +281,14 @@ class PyTorchModelBase(BaseModel, ABC):
             space.update(self.search_space_override)
         return space
 
-    def predict(self, x: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
         """Makes predictions on new data."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
+        if filter_data:
+            x = self._filter_predict_data(x)
+        if isinstance(x, pd.DataFrame):
+            x = x.values
         x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
         self.model.eval()
         with torch.no_grad():
@@ -290,13 +301,17 @@ class PyTorchModelBase(BaseModel, ABC):
                 predictions = model_output.cpu().numpy()
         return predictions
 
-    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
         """Predicts class probabilities."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if self.task_type != TaskType.CLASSIFICATION:
             raise ValueError("predict_proba is only available for classification tasks.")
+        if filter_data:
+            x = self._filter_predict_data(x)
         self.model.eval()
+        if isinstance(x, pd.DataFrame):
+            x = x.values
         x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
         with torch.no_grad():
             outputs = self.model(x_tensor)
@@ -333,6 +348,6 @@ class PyTorchModelBase(BaseModel, ABC):
         self.fit(x, y)
         return {"test_score": self.cv_score_mean_}
 
-    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def get_classifier_predictions(self, x: np.ndarray | pd.DataFrame, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Gets predictions from the internal classifier."""
         raise NotImplementedError("get_classifier_predictions is not implemented for this model type.")

@@ -1,6 +1,7 @@
 """XGBoost model wrapper for AutoML."""
 
 from typing import Any, Never
+
 import numpy as np
 import xgboost as xgb
 from sklearn.metrics import accuracy_score, mean_squared_error
@@ -17,7 +18,7 @@ class XGBoostModel(BaseModel):
     as they implement the BaseModel interface. This is not a redeclaration error.
     """
 
-    def __init__(self, random_seed: int | None = None, task_type: TaskType = TaskType.REGRESSION, **kwargs: Any) -> None:
+    def __init__(self, random_seed: int | None = None, **kwargs: Any) -> None:
         """Initializes the XGBoostModel.
 
         Args:
@@ -27,19 +28,17 @@ class XGBoostModel(BaseModel):
         """
         super().__init__(**kwargs)
         self.random_seed = random_seed
-        self.task_type = task_type
         self.model: xgb.XGBRegressor | xgb.XGBClassifier | None = None
-        self.is_regression_model = self.task_type == TaskType.REGRESSION
         self._train_residual_std = 0.0
         self.num_iterations_used = 0
         self.params.setdefault("verbosity", 0)
 
         if self.task_type == TaskType.REGRESSION:
             self.objective = "reg:squarederror"
-            self.eval_metric = Metric.RMSE.value
+            self.eval_metric = Metric.RMSE.label
         elif self.task_type == TaskType.CLASSIFICATION:
             self.objective = "binary:logistic"
-            self.eval_metric = Metric.LOG_LOSS.value
+            self.eval_metric = Metric.LOG_LOSS.label
 
     @property
     def name(self) -> str:
@@ -51,7 +50,12 @@ class XGBoostModel(BaseModel):
         return Metric.RMSE if self.is_regression_model else Metric.ACCURACY
 
     def _fit_single(
-        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None,
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        forced_iterations: int | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -94,7 +98,7 @@ class XGBoostModel(BaseModel):
         self.model.fit(x_train, y_train, **fit_params)
 
         if self.is_regression_model:
-            y_pred_train = self.predict(x_train)
+            y_pred_train = self.predict(x_train, filter_data=False)
             self._train_residual_std = np.std(y_train - y_pred_train)
             if np.isnan(self._train_residual_std):
                 self._train_residual_std = 0.0
@@ -137,17 +141,20 @@ class XGBoostModel(BaseModel):
         self.fit(x, y)
         return {"test_score": self.cv_score_mean_}
 
-    def predict(self, x: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Makes predictions on new data.
 
         Args:
             x (np.ndarray): Feature matrix for prediction.
+            filter_data (bool): If True, filter the input data using the feature selection mask.
 
         Returns:
             np.ndarray: Predicted values.
         """
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
+        if filter_data:
+            x = self._filter_predict_data(x)
         if self.objective in ["binary:logistic", "multi:softmax", "multi:softprob"]:
             # For binary classification, predict_proba returns probabilities [:, 1] for positive class
             # For multi-class, predict_proba returns (N, num_classes) array of probabilities
@@ -163,11 +170,12 @@ class XGBoostModel(BaseModel):
             predictions = self.model.predict(x)
         return predictions
 
-    def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
             x (np.ndarray): Feature matrix for uncertainty estimation.
+            filter_data (bool): If True, filter the input data using the feature selection mask.
 
         Returns:
             np.ndarray: Uncertainty estimates (e.g., standard deviation).
@@ -176,14 +184,17 @@ class XGBoostModel(BaseModel):
             raise ValueError("predict_uncertainty is only available for regression models.")
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
+        if filter_data:
+            x = self._filter_predict_data(x)
         # For simplicity, return a constant uncertainty based on training residuals
         return np.full(x.shape[0], self._train_residual_std)
 
-    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Predicts class probabilities for classification tasks.
 
         Args:
             x (np.ndarray): Features for probability prediction.
+            filter_data (bool): If True, filter the input data using the feature selection mask.
 
         Returns:
             np.ndarray: Predicted probabilities.
@@ -192,6 +203,8 @@ class XGBoostModel(BaseModel):
             raise RuntimeError("Model has not been fitted yet.")
         if not hasattr(self.model, "predict_proba"):
             raise ValueError("predict_proba is not available for the current XGBoost configuration (likely regression).")
+        if filter_data:
+            x = self._filter_predict_data(x)
         return self.model.predict_proba(x)
 
     def get_hyperparameter_search_space(self) -> dict[str, Any]:

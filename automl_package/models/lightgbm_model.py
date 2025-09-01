@@ -1,6 +1,7 @@
 """LightGBM model wrapper for AutoML."""
 
 from typing import Any, NoReturn
+
 import lightgbm as lgb
 import numpy as np
 from sklearn.metrics import accuracy_score, mean_squared_error
@@ -13,23 +14,21 @@ from automl_package.models.common.common import get_loss_history
 class LightGBMModel(BaseModel):
     """LightGBM model wrapper."""
 
-    def __init__(self, task_type: TaskType = TaskType.REGRESSION, random_seed: int | None = None, **kwargs: Any) -> None:
+    def __init__(self, random_seed: int | None = None, **kwargs: Any) -> None:
         """Initializes the LightGBMModel."""
         super().__init__(**kwargs)
-        self.task_type = task_type
         self.random_seed = random_seed
         self.model = None
-        self.is_regression_model = task_type == TaskType.REGRESSION
         self._train_residual_std = 0.0
         self.num_iterations_used = 0
 
         self.params.setdefault("verbose", -1)
         if self.task_type == TaskType.REGRESSION:
             self.objective = "regression"
-            self.metric = Metric.RMSE.value
+            self.metric = Metric.RMSE.label
         elif self.task_type == TaskType.CLASSIFICATION:
             self.objective = "binary"
-            self.metric = Metric.LOG_LOSS.value
+            self.metric = Metric.LOG_LOSS.label
         else:
             raise ValueError(f"Unsupported task type: {self.task_type}")
 
@@ -102,24 +101,30 @@ class LightGBMModel(BaseModel):
         params.update({"task_type": self.task_type, "random_seed": self.random_seed})
         return params
 
-    def predict(self, x: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Makes predictions on new data."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
+        if filter_data:
+            x = self._filter_predict_data(x)
         return self.model.predict(x)
 
-    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Predicts class probabilities."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if not hasattr(self.model, "predict_proba"):
             raise ValueError("predict_proba is not available for this model.")
+        if filter_data:
+            x = self._filter_predict_data(x)
         return self.model.predict_proba(x)
 
-    def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty for predictions."""
         if not self.is_regression_model:
             raise ValueError("predict_uncertainty is only available for regression models.")
+        if filter_data:
+            x = self._filter_predict_data(x)
         return np.full(x.shape[0], self._train_residual_std)
 
     def get_hyperparameter_search_space(self) -> dict[str, Any]:

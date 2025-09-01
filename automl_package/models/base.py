@@ -13,8 +13,10 @@ from automl_package.logger import logger
 from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
 from automl_package.utils.cv import TimeSeriesSplit
 from automl_package.utils.data_handler import create_train_val_split
+from automl_package.utils.feature_selection import select_features_by_cumulative_importance
 from automl_package.utils.metrics import Metrics
 from automl_package.utils.numerics import find_optimal_iterations
+from automl_package.utils.plotting import plot_feature_importance
 
 
 class BaseModel(abc.ABC):
@@ -25,6 +27,7 @@ class BaseModel(abc.ABC):
 
     def __init__(
         self,
+        task_type: TaskType = TaskType.REGRESSION,
         early_stopping_rounds: int | None = None,
         validation_fraction: float = 0.1,
         test_fraction: float = 0.1,
@@ -33,6 +36,9 @@ class BaseModel(abc.ABC):
         optimize_hyperparameters: bool = False,
         search_space_override: dict | None = None,
         output_dir: str | None = None,
+        calculate_feature_importance: bool = True,
+        feature_selection_threshold: float | None = None,
+        shap_max_data_points: int | None = 50000,
         **kwargs: Any,
     ) -> None:
         """Initializes the base model with given parameters."""
@@ -41,7 +47,8 @@ class BaseModel(abc.ABC):
 
         self.model = None
         self.params = kwargs
-        self.is_regression_model = False
+        self.task_type = task_type
+        self.is_regression_model = task_type == TaskType.REGRESSION
         self.is_composite_regression_model = False
         self.early_stopping_rounds = early_stopping_rounds
         self.validation_fraction = validation_fraction
@@ -51,17 +58,25 @@ class BaseModel(abc.ABC):
         self.optimize_hyperparameters = optimize_hyperparameters
         self.search_space_override = search_space_override or {}
         self.output_dir = output_dir
-        self.feature_names = None
+        self.feature_names: list[str] | None = None
+        self.feature_to_idx_: dict[str, int] | None = None
+        self.calculate_feature_importance = calculate_feature_importance
+        self.feature_selection_threshold = feature_selection_threshold
+        self.shap_max_data_points = shap_max_data_points
+        self.selected_features_: list[str] | None = None
 
-        self.best_params_ = None
-        self.optimal_iterations_ = None
-        self.cv_score_mean_ = None
-        self.cv_score_std_ = None
+        if self.feature_selection_threshold is not None and self.feature_selection_threshold < 1.0:
+            assert self.feature_selection_threshold > 0
+            self.calculate_feature_importance = True
+
+        self.best_params_: dict | None = None
+        self.cv_score_mean_: float | None = None
+        self.cv_score_std_: float | None = None
 
         self.num_iterations_used = 0
-        self.train_indices = None
-        self.val_indices = None
-        self.test_indices = None
+        self.train_indices: np.ndarray | None = None
+        self.val_indices: np.ndarray | None = None
+        self.test_indices: np.ndarray | None = None
 
     def get_params(self) -> dict[str, Any]:
         """Gets the parameters of the model."""
@@ -80,45 +95,129 @@ class BaseModel(abc.ABC):
         )
         return params
 
-    def fit(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> None:
+    def _filter_predict_data(self, x: np.ndarray | pd.DataFrame) -> np.ndarray | pd.DataFrame:
+        """Filters the input data to include only the selected features."""
+        filtered_data = x
+        if self.selected_features_ is not None:
+            if isinstance(x, pd.DataFrame):
+                filtered_data = x[self.selected_features_]
+            # If the data is a numpy array, we can only filter it if the number of columns matches the original number of features. Otherwise, we assume it's already filtered.
+            elif isinstance(x, np.ndarray) and (x.shape[1] == len(self.feature_names)):
+                if self.feature_to_idx_ is None:
+                    raise ValueError("feature_to_idx_ mapping is not available for numpy array filtering.")
+                selected_indices = [self.feature_to_idx_[feature] for feature in self.selected_features_]
+                filtered_data = x[:, selected_indices]
+            # If it's a numpy array that doesn't match the original number of features, or an unsupported type,
+            # return it as is, assuming it's already been handled.
+        return filtered_data
+
+    def calculate_feature_importances(self, model_instance: "BaseModel", x_background: pd.DataFrame) -> dict[str, float]:
+        """Calculates and returns feature importances."""
+        from automl_package.explainers.feature_explainer import FeatureExplainer  # noqa: PLC0415
+
+        logger.info("--- Calculating feature importance ---")
+
+        explainer = FeatureExplainer(
+            model_instance=model_instance,
+            x_background=x_background.values,
+            feature_names=self.selected_features_ if self.selected_features_ else self.feature_names,
+            max_data_points=self.shap_max_data_points,
+            device=getattr(model_instance, "device", None),
+        )
+        shap_values = explainer.explain(x_background.values)
+        return explainer.get_feature_importance_summary(shap_values)
+
+    def _save_feature_importance(self, feature_importance: dict[str, float]) -> None:
+        if self.output_dir:
+            plot_feature_importance(feature_importance, f"{self.output_dir}/feature_importance.png")
+            feature_importance_df = pd.DataFrame(list(feature_importance.items()), columns=["feature", "importance"])
+            feature_importance_df.to_csv(f"{self.output_dir}/feature_importance.csv", index=False)
+
+    def _calculate_and_save_feature_importance(self, model_instance: "BaseModel", x_background: pd.DataFrame) -> None:
+        """Calculates and saves feature importance."""
+        feature_importance = self.calculate_feature_importances(model_instance=model_instance, x_background=x_background)
+        self._save_feature_importance(feature_importance=feature_importance)
+
+    def _perform_feature_selection(self, x_train_val: pd.DataFrame, y_train_val: np.ndarray, iterations: int | None) -> None:
+        """Performs feature selection and returns the filtered training data."""
+        temp_model = self._clone()
+        temp_model._fit_single(x_train_val.values, y_train_val, forced_iterations=iterations)
+
+        feature_importance = self.calculate_feature_importances(model_instance=temp_model, x_background=x_train_val)
+
+        if self.feature_selection_threshold is not None:
+            self.selected_features_ = select_features_by_cumulative_importance(feature_importance, self.feature_selection_threshold)
+            logger.info(f"--- Selected {len(self.selected_features_)} features ---")
+
+    def _determine_optimal_parameters(
+        self,
+        x_train: pd.DataFrame | None,
+        y_train: np.ndarray,
+        x_train_val: pd.DataFrame,
+        y_train_val: np.ndarray,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        timestamps_train_val: np.ndarray | None = None,
+    ) -> None:
+        if self.optimize_hyperparameters:
+            logger.info("--- Starting hyperparameter optimization ---")
+            self.best_params_ = self._find_best_hyperparameters(x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val)
+            self.params.update(self.best_params_)
+            logger.info(f"--- Hyperparameter optimization finished. Best params: {self.best_params_} ---")
+        elif self.early_stopping_rounds is not None:
+            # Step 2: Train the Model
+            if self.cv_folds:
+                logger.info("--- Finding optimal iterations with cross-validation ---")
+                self.num_iterations_used, self.cv_score_mean_, self.cv_score_std_ = self._find_optimal_iterations_with_cv(
+                    x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val
+                )
+            else:
+                # Fit with a single train/validation split to find the best number of iterations
+                logger.info("--- Finding optimal iterations with train/validation split ---")
+                self.num_iterations_used, _ = self._fit_single(x_train.values, y_train, x_val=x_val.values if x_val is not None else None, y_val=y_val)
+
+            logger.info(f"--- Optimal iterations found: {self.num_iterations_used} ---")
+
+    def _fit_final_model(self, x_train: np.ndarray, y_train: np.ndarray) -> None:
+        """Retrain on the full training + validation set with the optimal number of iterations."""
+        logger.info("--- Training final model with optimal parameters ---")
+        self._fit_single(x_train, y_train, forced_iterations=self.num_iterations_used)
+        logger.info("--- Final model training finished ---")
+
+    def fit(self, x: np.ndarray | pd.DataFrame, y: np.ndarray | pd.DataFrame | pd.Series, timestamps: np.ndarray | None = None) -> None:
         """Fits the model to the training data and evaluates it on all available partitions."""
         logger.info(f"--- Starting training for {self.name} ---")
 
-        if isinstance(x, pd.DataFrame):
+        if isinstance(x, np.ndarray):
+            self.feature_names = [f"feature_{i}" for i in range(x.shape[1])]
+            x = pd.DataFrame(x, columns=self.feature_names)
+        else:
             self.feature_names = x.columns.tolist()
-            x = x.values
+        self.feature_to_idx_ = {feature: i for i, feature in enumerate(self.feature_names)}
+
         if isinstance(y, pd.Series | pd.DataFrame):
             y = y.values
 
         # Step 1: Create all data partitions up front
-        x_train, y_train, x_val, y_val, x_test, y_test, _, _, _, x_train_val, y_train_val, timestamps_train_val = self._prepare_data_partitions(x, y, timestamps)
+        x_train, y_train, x_val, y_val, x_test, y_test, _, _, _, x_train_val, y_train_val, timestamps_train_val = self._prepare_data_partitions(x.values, y, timestamps)
 
-        # Step 2: Train the Model
-        if self.cv_folds:
-            if self.optimize_hyperparameters:
-                logger.info("--- Starting hyperparameter optimization ---")
-                self.best_params_ = self._find_best_hyperparameters(x_train_val, y_train_val)
-                self.params.update(self.best_params_)
-                logger.info(f"--- Hyperparameter optimization finished. Best params: {self.best_params_} ---")
+        x_train = pd.DataFrame(x_train, columns=self.feature_names)
+        x_val = pd.DataFrame(x_val, columns=self.feature_names) if x_val is not None else None
+        x_test = pd.DataFrame(x_test, columns=self.feature_names) if x_test is not None else None
+        x_train_val = pd.DataFrame(x_train_val, columns=self.feature_names)
 
-            logger.info("--- Finding optimal iterations with cross-validation ---")
-            self.optimal_iterations_, self.cv_score_mean_, self.cv_score_std_ = self._find_optimal_iterations_with_cv(x_train_val, y_train_val, timestamps_train_val)
-            logger.info(f"--- Optimal iterations found: {self.optimal_iterations_} ---")
+        self._determine_optimal_parameters(
+            x_train=x_train, y_train=y_train, x_train_val=x_train_val, y_train_val=y_train_val, x_val=x_val, y_val=y_val, timestamps_train_val=timestamps_train_val
+        )
 
-            # Final fit on the entire training+validation pool
-            logger.info("--- Training final model with optimal parameters ---")
-            self._fit_single(x_train_val, y_train_val, forced_iterations=self.optimal_iterations_)
-            logger.info("--- Final model training finished ---")
-        else:
-            # Fit with a single train/validation split to find the best number of iterations
-            logger.info("--- Finding optimal iterations with train/validation split ---")
-            self.num_iterations_used, _ = self._fit_single(x_train, y_train, x_val=x_val, y_val=y_val)
-            logger.info(f"--- Optimal iterations found: {self.num_iterations_used} ---")
+        if self.feature_selection_threshold is not None:
+            self._perform_feature_selection(x_train_val, y_train_val, self.num_iterations_used)
 
-            # Retrain on the full training + validation set with the optimal number of iterations
-            logger.info("--- Training final model with optimal parameters ---")
-            self._fit_single(x_train_val, y_train_val, forced_iterations=self.num_iterations_used)
-            logger.info("--- Final model training finished ---")
+        x_train_val_final = x_train_val[self.selected_features_] if self.selected_features_ else x_train_val
+        self._fit_final_model(x_train=x_train_val_final.values, y_train=y_train_val)
+
+        if self.calculate_feature_importance:
+            self._calculate_and_save_feature_importance(model_instance=self, x_background=x_train_val_final)
 
         # Step 3: Automatic Final Evaluation
         if self.output_dir:
@@ -126,10 +225,8 @@ class BaseModel(abc.ABC):
             if self.cv_folds:
                 self.evaluate(x_train_val, y_train_val, "train_after_cv", self.output_dir)
             else:
-                if x_train is not None:
-                    self.evaluate(x_train, y_train, "train", self.output_dir)
-                if x_val is not None:
-                    self.evaluate(x_val, y_val, "validation", self.output_dir)
+                if x_train_val is not None:
+                    self.evaluate(x_train_val, y_train_val, "train_val", self.output_dir)
             if x_test is not None:
                 self.evaluate(x_test, y_test, "test", self.output_dir)
             logger.info("--- Final evaluation finished ---")
@@ -150,12 +247,12 @@ class BaseModel(abc.ABC):
     ]:
         """Creates train, validation, and test partitions."""
         self.train_indices, self.val_indices, self.test_indices = create_train_val_split(
-            x,
-            self.validation_fraction if self.cv_folds is None else 0,
-            self.test_fraction,
-            self.split_strategy,
-            timestamps,
-            getattr(self, "random_seed", None),
+            x=x,
+            validation_fraction=self.validation_fraction if self.cv_folds is None else 0,
+            test_fraction=self.test_fraction,
+            split_strategy=self.split_strategy,
+            timestamps=timestamps,
+            random_state=getattr(self, "random_seed", None),
         )
 
         x_train, y_train = x[self.train_indices], y[self.train_indices]
@@ -197,20 +294,37 @@ class BaseModel(abc.ABC):
         """
         raise NotImplementedError
 
-    def _find_best_hyperparameters(self, x: np.ndarray, y: np.ndarray) -> dict[str, Any]:
-        """Finds the best hyperparameters using Optuna."""
-
-        def _perform_cv_for_trial(model_instance: "BaseModel", x_cv: np.ndarray, y_cv: np.ndarray) -> float:
-            kf = KFold(n_splits=self.cv_folds, shuffle=True, random_state=getattr(self, "random_seed", None))
+    def _evaluate_trial_performance(self, model_instance: "BaseModel", x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> float:
+        """Evaluates a trial performance for hyperparameter optimization."""
+        if self.cv_folds:
+            kf = self.get_kfolds(timestamps=timestamps)
             scores = []
-            for train_idx, val_idx in kf.split(x_cv, y_cv):
-                x_train_fold, x_val_fold = x_cv[train_idx], x_cv[val_idx]
-                y_train_fold, y_val_fold = y_cv[train_idx], y_cv[val_idx]
+            for train_idx, val_idx in kf.split(x, y):
+                x_train_fold, x_val_fold = x[train_idx], x[val_idx]
+                y_train_fold, y_val_fold = y[train_idx], y[val_idx]
                 model_instance._fit_single(x_train_fold, y_train_fold, x_val=x_val_fold, y_val=y_val_fold)
                 preds = model_instance.predict(x_val_fold)
                 score = self._evaluate_trial(y_val_fold, preds)
                 scores.append(score)
-            return float(np.mean(scores))
+            final_score = float(np.mean(scores))
+        else:
+            train_indices, val_indices, _ = create_train_val_split(
+                x=x,
+                validation_fraction=self.validation_fraction,
+                test_fraction=0,
+                split_strategy=self.split_strategy,
+                timestamps=timestamps,
+                random_state=getattr(self, "random_seed", None),
+            )
+            x_train, y_train = x[train_indices], y[train_indices]
+            x_val, y_val = x[val_indices], y[val_indices]
+            model_instance._fit_single(x_train, y_train, x_val=x_val, y_val=y_val)
+            preds = model_instance.predict(x_val)
+            final_score = self._evaluate_trial(y_val, preds)
+        return final_score
+
+    def _find_best_hyperparameters(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> dict[str, Any]:
+        """Finds the best hyperparameters using Optuna."""
 
         def objective(trial: optuna.Trial) -> float:
             search_space = self.get_hyperparameter_search_space()
@@ -224,9 +338,9 @@ class BaseModel(abc.ABC):
                     params[name] = trial.suggest_categorical(name, space["choices"])
 
             model_instance = self.__class__(**params)
-            return _perform_cv_for_trial(model_instance, x, y)
+            return self._evaluate_trial_performance(model_instance, x, y, timestamps=timestamps)
 
-        direction = "minimize" if self._get_optimization_metric() in [Metric.RMSE, Metric.MSE] else "maximize"
+        direction = "minimize" if self._get_optimization_metric().is_smaller_better else "maximize"
         optimizer = OptunaOptimizer(direction=direction)
         study = optimizer.optimize(objective)
         return study.best_params
@@ -236,14 +350,21 @@ class BaseModel(abc.ABC):
         """Gets the optimization metric for the model."""
         raise NotImplementedError
 
-    def _find_optimal_iterations_with_cv(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> tuple[int, float, float]:
-        """Finds the optimal number of iterations using cross-validation."""
+    def get_kfolds(self, timestamps: np.ndarray | None = None) -> TimeSeriesSplit | KFold:
+        """Gets the cross-validation folds splitter."""
         if self.split_strategy == DataSplitStrategy.TIME_ORDERED:
             if timestamps is None:
                 raise ValueError("timestamps must be provided for time_ordered split strategy.")
             kf = TimeSeriesSplit(n_splits=self.cv_folds)
-        else:
+        elif self.split_strategy == DataSplitStrategy.RANDOM:
             kf = KFold(n_splits=self.cv_folds, shuffle=True, random_state=getattr(self, "random_seed", None))
+        else:
+            raise ValueError(f"Split strategy {self.split_strategy.value} is not supported.")
+        return kf
+
+    def _find_optimal_iterations_with_cv(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> tuple[int, float, float]:
+        """Finds the optimal number of iterations using cross-validation."""
+        kf = self.get_kfolds(timestamps=timestamps)
         fold_results = []
         for i, (train_idx, val_idx) in enumerate(kf.split(x, y)):
             logger.info(f"--- Training CV fold {i+1}/{self.cv_folds} ---")
@@ -273,7 +394,7 @@ class BaseModel(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def predict(self, x: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
         """Makes predictions on new data."""
         raise NotImplementedError
 
@@ -294,7 +415,7 @@ class BaseModel(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
         """Predicts class probabilities."""
         raise NotImplementedError
 
@@ -304,7 +425,7 @@ class BaseModel(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def get_classifier_predictions(self, x: np.ndarray | pd.DataFrame, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Gets predictions from the internal classifier."""
         raise NotImplementedError
 
@@ -313,22 +434,24 @@ class BaseModel(abc.ABC):
         """Returns the number of trainable parameters in the model."""
         raise NotImplementedError
 
-    def evaluate(self, x: np.ndarray, y: np.ndarray, partition_name: str, save_path: str) -> np.ndarray:
+    def evaluate(self, x: pd.DataFrame | np.ndarray, y: np.ndarray, partition_name: str, save_path: str) -> np.ndarray:
         """Evaluates the model on a given dataset and saves the metrics."""
-        y_pred = self.predict(x)
-        y_proba = self.predict_proba(x) if self.task_type == TaskType.CLASSIFICATION else None
+        x_eval = x.values if isinstance(x, pd.DataFrame) else x
+
+        y_pred = self.predict(x_eval)
+        y_proba = self.predict_proba(x_eval) if self.task_type == TaskType.CLASSIFICATION else None
         metrics_calculator = Metrics(
-            task_type=self.task_type, model_name=self.name, x_data=x, y_true=y, y_pred=y_pred.flatten(), y_proba=y_proba, partition_name=partition_name
+            task_type=self.task_type, model_name=self.name, x_data=x_eval, y_true=y, y_pred=y_pred.flatten(), y_proba=y_proba, partition_name=partition_name
         )
         metrics_calculator.save_metrics(save_path)
 
         if self.is_composite_regression_model:
             try:
-                y_pred_internal, y_proba_internal, y_true_discretized = self.get_classifier_predictions(x, y)
+                y_pred_internal, y_proba_internal, y_true_discretized = self.get_classifier_predictions(x_eval, y)
                 classification_metrics = Metrics(
                     task_type=TaskType.CLASSIFICATION,
                     model_name=f"{self.name}_internal_classifier",
-                    x_data=x,
+                    x_data=x_eval,
                     y_true=y_true_discretized,
                     y_pred=y_pred_internal,
                     y_proba=y_proba_internal,

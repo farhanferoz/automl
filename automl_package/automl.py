@@ -14,6 +14,7 @@ import pandas as pd  # Import pandas for feature names in SHAP output
 import seaborn as sns
 import torch.nn as nn
 import wandb
+from models.pytorch_linear_regression import PyTorchLinearRegression
 from sklearn.base import TransformerMixin, clone
 
 from automl_package.enums import (
@@ -111,6 +112,7 @@ class AutoML:
         self.models_registry: dict[ModelName, type[BaseModel]] = {
             ModelName.JAX_LINEAR_REGRESSION: JAXLinearRegression,
             ModelName.NORMAL_EQUATION_LINEAR_REGRESSION: NormalEquationLinearRegression,
+            ModelName.PYTORCH_LINEAR_REGRESSION: PyTorchLinearRegression,
             ModelName.PYTORCH_NEURAL_NETWORK: PyTorchNeuralNetwork,
             # --- REGISTER THE NEW MODEL HERE ---
             ModelName.FLEXIBLE_NEURAL_NETWORK: FlexibleHiddenLayersNN,
@@ -284,13 +286,13 @@ class AutoML:
                     base_classifier_params_reconstructed["dropout_rate"] = 0.0
             elif base_model_enum == ModelName.XGBOOST:
                 base_classifier_params_reconstructed["objective"] = "binary:logistic" if n_classes == 2 else "multi:softmax"
-                base_classifier_params_reconstructed["eval_metric"] = Metric.LOG_LOSS.value
+                base_classifier_params_reconstructed["eval_metric"] = Metric.LOG_LOSS.label
             elif base_model_enum == ModelName.LIGHTGBM:
                 base_classifier_params_reconstructed["objective"] = "binary" if n_classes == 2 else "multiclass"
-                base_classifier_params_reconstructed["metric"] = Metric.LOG_LOSS.value
+                base_classifier_params_reconstructed["metric"] = Metric.LOG_LOSS.label
             elif base_model_enum == ModelName.CATBOOST:
                 base_classifier_params_reconstructed["task_type"] = TaskType.CLASSIFICATION
-                base_classifier_params_reconstructed["loss_function"] = Metric.LOG_LOSS.value if n_classes == 2 else Metric.MULTI_CLASS.value
+                base_classifier_params_reconstructed["loss_function"] = Metric.LOG_LOSS.label if n_classes == 2 else Metric.MULTI_CLASS.value
 
             return ClassifierRegressionModel(
                 n_classes=n_classes,

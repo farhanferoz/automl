@@ -62,16 +62,9 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
     Includes L1 and L2 regularization.
     """
 
-    _defaults: ClassVar[dict[str, Any]] = {
-        "hidden_layers": 1,
-        "hidden_size": 64,
-        "activation": ActivationFunction.RELU,
-    }
+    _defaults: ClassVar[dict[str, Any]] = {"hidden_layers": 1, "hidden_size": 64, "activation": ActivationFunction.RELU}
 
-    def __init__(
-        self,
-        **kwargs: Any,
-    ) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         """Initializes the PyTorchNeuralNetwork."""
         # Apply this class's defaults and then pass to the parent constructor
         for key, value in PyTorchNeuralNetwork._defaults.items():
@@ -107,7 +100,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
         ).to(self.device)
 
         # Define criterion based on task type and uncertainty method
-        if self.task_type == TaskType.REGRESSION:
+        if self.is_regression_model:
             if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
                 # Custom Negative Log-Likelihood Loss for Gaussian output
                 def nll_loss(outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:

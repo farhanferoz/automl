@@ -13,25 +13,20 @@ from automl_package.models.base import BaseModel
 class SklearnLogisticRegression(BaseModel):
     """Logistic Regression model using scikit-learn."""
 
-    _defaults: ClassVar[dict[str, Any]] = {
-        "penalty": Penalty.L2,
-        "C": 1.0,
-        "l1_ratio": None,
-        "random_seed": None,
-    }
+    _defaults: ClassVar[dict[str, Any]] = {"penalty": Penalty.L2, "C": 1.0, "l1_ratio": None, "random_seed": None}
 
     def __init__(self, **kwargs: Any) -> None:
         """Initializes the SklearnLogisticRegression model."""
         for key, value in self._defaults.items():
             kwargs.setdefault(key, value)
 
+        # Ensure the task_type is always CLASSIFICATION for this model
+        kwargs["task_type"] = TaskType.CLASSIFICATION
         super().__init__(**kwargs)
         for key, value in kwargs.items():
             setattr(self, key, value)
 
         self.model: LogisticRegression | None = None
-        self.is_regression_model = False
-        self.task_type = TaskType.CLASSIFICATION
 
     @property
     def name(self) -> str:
@@ -43,12 +38,7 @@ class SklearnLogisticRegression(BaseModel):
         return Metric.ACCURACY
 
     def _fit_single(
-        self,
-        x_train: np.ndarray,
-        y_train: np.ndarray,
-        x_val: np.ndarray | None = None,
-        y_val: np.ndarray | None = None,
-        forced_iterations: int | None = None,
+        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -100,11 +90,7 @@ class SklearnLogisticRegression(BaseModel):
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     patience_counter = 0
-                    best_model_state = {
-                        "coef_": self.model.coef_.copy(),
-                        "intercept_": self.model.intercept_.copy(),
-                        "classes_": self.model.classes_.copy(),
-                    }
+                    best_model_state = {"coef_": self.model.coef_.copy(), "intercept_": self.model.intercept_.copy(), "classes_": self.model.classes_.copy()}
                     best_iter = i
                 else:
                     patience_counter += 1
@@ -145,14 +131,7 @@ class SklearnLogisticRegression(BaseModel):
             dict: Parameter names mapped to their values.
         """
         params = super().get_params()
-        params.update(
-            {
-                "penalty": self.penalty,
-                "C": self.C,
-                "l1_ratio": self.l1_ratio,
-                "random_seed": self.random_seed,
-            }
-        )
+        params.update({"penalty": self.penalty, "C": self.C, "l1_ratio": self.l1_ratio, "random_seed": self.random_seed})
         return params
 
     def cross_validate(self, x: np.ndarray, y: np.ndarray, cv: int) -> dict[str, Any]:
@@ -161,24 +140,28 @@ class SklearnLogisticRegression(BaseModel):
         self.fit(x, y)
         return {"test_score": self.cv_score_mean_}
 
-    def predict(self, x: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Makes predictions on new data.
 
         Args:
             x (np.ndarray): Feature matrix for prediction.
+            filter_data (bool): If True, filter the input data using the feature selection mask.
 
         Returns:
             np.ndarray: Predicted class labels.
         """
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
-        return self.model.predict(x)
+        if filter_data:
+            x = self._filter_predict_data(x)
+        return self.model.predict(x.values)
 
-    def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
             x (np.ndarray): Feature matrix for uncertainty estimation.
+            filter_data (bool): If True, filter the input data using the feature selection mask.
 
         Returns:
             np.ndarray: Uncertainty estimates (e.g., 1 - confidence).
@@ -187,7 +170,9 @@ class SklearnLogisticRegression(BaseModel):
             # For classification, uncertainty is typically 1 - confidence (max probability)
             if self.model is None:
                 raise RuntimeError("Model has not been fitted yet.")
-            probabilities = self.predict_proba(x)
+            if filter_data:
+                x = self._filter_predict_data(x)
+            probabilities = self.predict_proba(x.values, filter_data=False)
             # Find the max probability for each sample (confidence)
             max_probs = np.max(probabilities, axis=1)
             # Uncertainty is higher when confidence is lower (closer to 0.5 for binary)
@@ -199,18 +184,21 @@ class SklearnLogisticRegression(BaseModel):
         # but it's good practice to ensure all abstract methods are fully implemented conceptually.
         return np.array([])
 
-    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Predicts class probabilities for classification tasks.
 
         Args:
             x (np.ndarray): Features for probability prediction.
+            filter_data (bool): If True, filter the input data using the feature selection mask.
 
         Returns:
             np.ndarray: Predicted probabilities.
         """
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
-        return self.model.predict_proba(x)
+        if filter_data:
+            x = self._filter_predict_data(x)
+        return self.model.predict_proba(x.values)
 
     def get_hyperparameter_search_space(self) -> dict[str, Any]:
         """Defines the hyperparameter search space for SKLearnLogisticRegression.
@@ -220,21 +208,11 @@ class SklearnLogisticRegression(BaseModel):
         """
         space = {
             "penalty": {"type": "categorical", "choices": [p.value for p in Penalty]},
-            "C": {
-                "type": "float",
-                "low": 1e-4,
-                "high": 10.0,
-                "log": True,
-            },  # Inverse of regularization strength
+            "C": {"type": "float", "low": 1e-4, "high": 10.0, "log": True},  # Inverse of regularization strength
             "max_iter": {"type": "int", "low": 100, "high": 1000, "step": 100},
         }
         # l1_ratio is only relevant for 'elasticnet' penalty
-        space["l1_ratio"] = {
-            "type": "float",
-            "low": 0.0,
-            "high": 1.0,
-            "step": 0.1,
-        }  # Conditional parameter
+        space["l1_ratio"] = {"type": "float", "low": 0.0, "high": 1.0, "step": 0.1}  # Conditional parameter
 
         if self.search_space_override:
             space.update(self.search_space_override)

@@ -7,13 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import (
-    ActivationFunction,
-    LayerSelectionMethod,
-    Metric,
-    TaskType,
-    UncertaintyMethod,
-)
+from automl_package.enums import ActivationFunction, LayerSelectionMethod, Metric, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.selection_strategies.layer_selection_strategies import (
@@ -48,10 +42,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         "layer_selection_method": LayerSelectionMethod.GUMBEL_SOFTMAX,
     }
 
-    def __init__(
-        self,
-        **kwargs: Any,
-    ) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         """Initializes the FlexibleHiddenLayersNN."""
         # Apply this class's defaults and then pass to the parent constructor
         for key, value in FlexibleHiddenLayersNN._defaults.items():
@@ -303,7 +294,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             self.model.load_state_dict(best_model_state)
 
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
-            y_pred_train = self.predict(x_train)
+            y_pred_train = self.predict(x_train, filter_data=False)
             self._train_residual_std = np.std(y_train - y_pred_train)
             if np.isnan(self._train_residual_std):
                 self._train_residual_std = 0.0
@@ -316,11 +307,13 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
 
         return best_epoch + 1, val_loss_history
 
-    def predict(self, x: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Makes predictions with the FlexibleHiddenLayersNN."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
-        x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
+        if filter_data:
+            x = self._filter_predict_data(x)
+        x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
 
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
             self.model.train()
@@ -341,13 +334,15 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                 predictions = final_output[:, 0].cpu().numpy() if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else final_output.cpu().numpy()
         return predictions.flatten()
 
-    def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty for regression."""
         if not self.is_regression_model:
             raise ValueError("predict_uncertainty is only available for regression models.")
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
-        x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
+        if filter_data:
+            x = self._filter_predict_data(x)
+        x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
 
         if self.uncertainty_method == UncertaintyMethod.CONSTANT:
             return np.full(x.shape[0], self._train_residual_std)
@@ -369,15 +364,17 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             return np.std(mc_predictions, axis=0)  # Return std dev of MC samples
         raise ValueError(f"Unknown uncertainty_method: {self.uncertainty_method.value}")
 
-    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Predicts class probabilities for classification tasks."""
         if self.task_type != TaskType.CLASSIFICATION:
             raise ValueError("predict_proba is only available for classification tasks.")
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
 
+        if filter_data:
+            x = self._filter_predict_data(x)
         self.model.eval()
-        x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
+        x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
         with torch.no_grad():
             final_output, _, _, _, _ = self.model(x_tensor)
             if self.output_size == 1:

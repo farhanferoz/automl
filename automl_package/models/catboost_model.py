@@ -14,7 +14,7 @@ from automl_package.models.common.common import get_loss_history
 class CatBoostModel(BaseModel):
     """CatBoost model wrapper."""
 
-    def __init__(self, task_type: TaskType = TaskType.REGRESSION, random_seed: int | None = None, **kwargs: Any) -> None:
+    def __init__(self, random_seed: int | None = None, **kwargs: Any) -> None:
         """Initializes the CatBoostModel.
 
         Args:
@@ -23,10 +23,8 @@ class CatBoostModel(BaseModel):
             **kwargs: Additional keyword arguments for the CatBoost model.
         """
         super().__init__(**kwargs)
-        self.task_type = task_type
         self.random_seed = random_seed
         self.model: CatBoostRegressor | CatBoostClassifier | None = None
-        self.is_regression_model = task_type == TaskType.REGRESSION
         self._train_residual_std = 0.0
         self.num_iterations_used = 0
 
@@ -37,8 +35,8 @@ class CatBoostModel(BaseModel):
             self.params.setdefault("loss_function", "RMSE")
             self.params.setdefault("eval_metric", "RMSE")
         elif self.task_type == TaskType.CLASSIFICATION:
-            self.params.setdefault("loss_function", Metric.LOG_LOSS.value)
-            self.params.setdefault("eval_metric", Metric.LOG_LOSS.value)
+            self.params.setdefault("loss_function", Metric.LOG_LOSS.label)
+            self.params.setdefault("eval_metric", Metric.LOG_LOSS.label)
 
     @property
     def name(self) -> str:
@@ -132,24 +130,28 @@ class CatBoostModel(BaseModel):
         params.update({"task_type": self.task_type, "random_seed": self.random_seed})
         return params
 
-    def predict(self, x: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Makes predictions on new data.
 
         Args:
             x (np.ndarray): Feature matrix for prediction.
+            filter_data (bool): If True, filter the input data using the feature selection mask.
 
         Returns:
             np.ndarray: Predicted values.
         """
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
+        if filter_data:
+            x = self._filter_predict_data(x)
         return self.model.predict(x)
 
-    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Predicts class probabilities for classification tasks.
 
         Args:
             x (np.ndarray): Features for probability prediction.
+            filter_data (bool): If True, filter the input data using the feature selection mask.
 
         Returns:
             np.ndarray: Predicted probabilities.
@@ -158,19 +160,24 @@ class CatBoostModel(BaseModel):
             raise RuntimeError("Model has not been fitted yet.")
         if self.task_type == TaskType.REGRESSION:
             raise ValueError("predict_proba is not available for regression tasks.")
+        if filter_data:
+            x = self._filter_predict_data(x)
         return self.model.predict_proba(x)
 
-    def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
             x (np.ndarray): Feature matrix for uncertainty estimation.
+            filter_data (bool): If True, filter the input data using the feature selection mask.
 
         Returns:
             np.ndarray: Uncertainty estimates (e.g., standard deviation).
         """
         if not self.is_regression_model:
             raise ValueError("predict_uncertainty is only available for regression models.")
+        if filter_data:
+            x = self._filter_predict_data(x)
         return np.full(x.shape[0], self._train_residual_std)
 
     def get_hyperparameter_search_space(self) -> dict[str, Any]:

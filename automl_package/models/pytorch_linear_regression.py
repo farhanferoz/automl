@@ -2,6 +2,7 @@
 
 from typing import Any
 
+import numpy as np
 import torch.nn as nn
 from models.base_pytorch import PyTorchModelBase
 
@@ -29,6 +30,21 @@ class PyTorchLinearRegression(PyTorchModelBase):
     def name(self) -> str:
         """Returns the name of the model."""
         return "PyTorchLinearRegression"
+
+    def get_internal_model(self) -> Any:
+        """Returns the internal model."""
+
+        class ShapModel:
+            def __init__(self, coef: np.ndarray, intercept: np.ndarray) -> None:
+                self.coef_ = coef
+                self.intercept_ = intercept
+
+        # Extract weights and bias from the linear layer
+        linear_layer = self.model[0]
+        coef = linear_layer.weight.data.cpu().numpy().flatten()
+        intercept = linear_layer.bias.data.cpu().numpy()
+
+        return ShapModel(coef, intercept)
 
     def build_model(self) -> None:
         """Builds the model architecture.

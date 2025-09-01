@@ -7,13 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import (
-    ActivationFunction,
-    LayerSelectionMethod,
-    Metric,
-    TaskType,
-    UncertaintyMethod,
-)
+from automl_package.enums import ActivationFunction, LayerSelectionMethod, Metric, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.selection_strategies.independent_weights_strategies import (
@@ -63,13 +57,7 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         if self.layer_selection_method == LayerSelectionMethod.NONE and self.n_predictor_layers != 0:
             raise ValueError("n_predictor_layers must be 0 when layer_selection_method is NONE.")
         if (
-            self.layer_selection_method
-            in [
-                LayerSelectionMethod.GUMBEL_SOFTMAX,
-                LayerSelectionMethod.STE,
-                LayerSelectionMethod.SOFT_GATING,
-                LayerSelectionMethod.REINFORCE,
-            ]
+            self.layer_selection_method in [LayerSelectionMethod.GUMBEL_SOFTMAX, LayerSelectionMethod.STE, LayerSelectionMethod.SOFT_GATING, LayerSelectionMethod.REINFORCE]
             and self.n_predictor_layers <= 0
         ):
             raise ValueError("n_predictor_layers must be > 0 for GUMBEL_SOFTMAX, STE, SOFT_GATING or REINFORCE methods.")
@@ -361,7 +349,7 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             self.model.load_state_dict(best_model_state)
 
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
-            y_pred_train = self.predict(x_train)
+            y_pred_train = self.predict(x_train, filter_data=False)
             self._train_residual_std = np.std(y_train - y_pred_train)
             if np.isnan(self._train_residual_std):
                 self._train_residual_std = 0.0
@@ -381,11 +369,13 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             params[key] = getattr(self, key)
         return params
 
-    def predict(self, x: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Makes predictions with the IndependentWeightsFlexibleNN."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
-        x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
+        if filter_data:
+            x = self._filter_predict_data(x)
+        x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
 
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
             self.model.train()
@@ -428,13 +418,15 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                 predictions = final_output[:, 0].cpu().numpy() if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else final_output.cpu().numpy()
         return predictions.flatten()
 
-    def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty for regression."""
         if not self.is_regression_model:
             raise ValueError("predict_uncertainty is only available for regression models.")
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
-        x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
+        if filter_data:
+            x = self._filter_predict_data(x)
+        x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
 
         if self.uncertainty_method == UncertaintyMethod.CONSTANT:
             return np.full(x.shape[0], self._train_residual_std)
@@ -476,15 +468,17 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             return np.std(mc_predictions, axis=0)  # Return std dev of MC samples
         raise ValueError(f"Unknown uncertainty_method: {self.uncertainty_method.value}")
 
-    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+    def predict_proba(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Predicts class probabilities for classification tasks."""
         if self.task_type != TaskType.CLASSIFICATION:
             raise ValueError("predict_proba is only available for classification tasks.")
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
 
+        if filter_data:
+            x = self._filter_predict_data(x)
         self.model.eval()
-        x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
+        x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
         with torch.no_grad():
             # Need to get n_actual for each sample
             n_logits = self.model.n_predictor(x_tensor) if self.model.n_predictor else None

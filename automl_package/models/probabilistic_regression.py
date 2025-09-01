@@ -4,30 +4,16 @@ import math
 from typing import Any, ClassVar
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 
-from automl_package.enums import (
-    NClassesSelectionMethod,
-    RegressionStrategy,
-    TaskType,
-    UncertaintyMethod,
-)
+from automl_package.enums import NClassesSelectionMethod, RegressionStrategy, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
-from automl_package.models.common.regression_heads import (
-    SeparateHeadsRegressionModule,
-    SingleHeadFinalOutputRegressionModule,
-    SingleHeadNOutputsRegressionModule,
-)
+from automl_package.models.common.regression_heads import SeparateHeadsRegressionModule, SingleHeadFinalOutputRegressionModule, SingleHeadNOutputsRegressionModule
 from automl_package.models.neural_network import PyTorchNeuralNetwork
-from automl_package.models.selection_strategies.n_classes_strategies import (
-    GumbelSoftmaxStrategy,
-    NoneStrategy,
-    ReinforceStrategy,
-    SoftGatingStrategy,
-    SteStrategy,
-)
+from automl_package.models.selection_strategies.n_classes_strategies import GumbelSoftmaxStrategy, NoneStrategy, ReinforceStrategy, SoftGatingStrategy, SteStrategy
 from automl_package.utils.numerics import create_bins
 from automl_package.utils.plotting import plot_nn_probability_mappers
 
@@ -294,6 +280,19 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
 
         return space
 
+    def get_internal_model(self) -> Any:
+        """Returns a wrapper around the internal model that is compatible with SHAP."""
+
+        class _ShapModelWrapper(nn.Module):
+            def __init__(self, model: nn.Module) -> None:
+                super().__init__()
+                self.model = model
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return self.model(x)[0]
+
+        return _ShapModelWrapper(self.model)
+
     def _setup_optimizers(self, model: nn.Module) -> None:
         super()._setup_optimizers(model)
         if self.n_classes_selection_method != NClassesSelectionMethod.NONE and hasattr(self.model, "n_classes_predictor") and self.model.n_classes_predictor is not None:
@@ -354,7 +353,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
         )
         return params
 
-    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def get_classifier_predictions(self, x: np.ndarray | pd.DataFrame, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Returns the internal classifier's predicted classes, probabilities, and.
 
         the corresponding (discretized) true labels for this composite model.

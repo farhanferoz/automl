@@ -54,6 +54,7 @@ class ModelName(Enum):
 
     JAX_LINEAR_REGRESSION = "JAXLinearRegression"
     NORMAL_EQUATION_LINEAR_REGRESSION = "NormalEquationLinearRegression"
+    PYTORCH_LINEAR_REGRESSION = "PyTorchLinearRegression"
     PYTORCH_NEURAL_NETWORK = "PyTorchNeuralNetwork"
     FLEXIBLE_NEURAL_NETWORK = "FlexibleNeuralNetwork"
     XGBOOST = "XGBoostModel"
@@ -102,10 +103,14 @@ class CategoricalEncodingStrategy(Enum):
 class Metric(Enum):
     """Enum for different evaluation metrics."""
 
-    RMSE = "rmse"
-    MSE = "mse"
-    ACCURACY = "accuracy"
-    LOG_LOSS = "log_loss"
+    RMSE = ("rmse", True)
+    MSE = ("mse", True)
+    ACCURACY = ("accuracy", False)
+    LOG_LOSS = ("log_loss", True)
+
+    def __init__(self, label: str, is_smaller_better: bool):
+        self.label = label
+        self.is_smaller_better = is_smaller_better
 
 
 class ActivationFunction(Enum):

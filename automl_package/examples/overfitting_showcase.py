@@ -28,13 +28,7 @@ from bokeh.plotting import figure
 from models.classifier_regression import ClassifierRegressionModel
 from models.neural_network import PyTorchNeuralNetwork
 
-from automl_package.enums import (
-    DataSplitStrategy,
-    MapperType,
-    RegressionStrategy,
-    TaskType,
-    UncertaintyMethod,
-)
+from automl_package.enums import DataSplitStrategy, MapperType, RegressionStrategy, TaskType, UncertaintyMethod
 from automl_package.models.base import BaseModel
 from automl_package.models.catboost_model import CatBoostModel
 from automl_package.models.lightgbm_model import LightGBMModel
@@ -142,10 +136,7 @@ def plot_time_series_results(
     true_function_glyph = p.line(time_steps, y_true, line_dash="dashed", line_color="black", line_width=3)
 
     colors = Category10[10]
-    legend_items = [
-        LegendItem(label="Test Data", renderers=[noisy_data_glyph]),
-        LegendItem(label="True Function (Noiseless Target)", renderers=[true_function_glyph]),
-    ]
+    legend_items = [LegendItem(label="Test Data", renderers=[noisy_data_glyph]), LegendItem(label="True Function (Noiseless Target)", renderers=[true_function_glyph])]
 
     # Plot predictions for each model
     for i, (name, y_pred) in enumerate(predictions.items()):
@@ -165,13 +156,14 @@ def run_showcase() -> None:
     n_samples = 2000
     user_defined_n_classes = 3
     early_stopping_rounds = 50
-    validation_fraction = None
+    validation_fraction = 0.2
     test_fraction = 0.2
-    cv_folds = 4
+    cv_folds = None
     n_epochs = 500
     hidden_layers = 2
     hidden_size = 64
     learning_rate = 0.005
+    feature_selection_threshold = 0.75
     random_seed = 42
 
     output_dir = "overfitting_showcase_results"
@@ -208,6 +200,7 @@ def run_showcase() -> None:
             test_fraction=0.0,
             cv_folds=cv_folds,
             split_strategy=DataSplitStrategy.RANDOM,
+            feature_selection_threshold=feature_selection_threshold,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, "PyTorch_NN_Random_Split"),
         ),
@@ -223,6 +216,7 @@ def run_showcase() -> None:
             test_fraction=0.0,
             cv_folds=cv_folds,
             split_strategy=DataSplitStrategy.TIME_ORDERED,
+            feature_selection_threshold=feature_selection_threshold,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, "PyTorch_NN_Time_Ordered_Split"),
         ),
@@ -245,6 +239,7 @@ def run_showcase() -> None:
             split_strategy=DataSplitStrategy.RANDOM,
             mapper_type=MapperType.AUTO,
             auto_include_nn_mappers=True,
+            feature_selection_threshold=feature_selection_threshold,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, "Classifier_Regression"),
         ),
@@ -255,6 +250,7 @@ def run_showcase() -> None:
             validation_fraction=validation_fraction,
             test_fraction=0.0,
             cv_folds=cv_folds,
+            feature_selection_threshold=feature_selection_threshold,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, "CatBoost"),
             task_type=TaskType.REGRESSION,
@@ -266,6 +262,7 @@ def run_showcase() -> None:
             validation_fraction=validation_fraction,
             test_fraction=0.0,
             cv_folds=cv_folds,
+            feature_selection_threshold=feature_selection_threshold,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, "LightGBM"),
             task_type=TaskType.REGRESSION,
@@ -274,10 +271,12 @@ def run_showcase() -> None:
             early_stopping_rounds=early_stopping_rounds,
             validation_fraction=validation_fraction,
             test_fraction=0.0,
+            feature_selection_threshold=feature_selection_threshold,
             cv_folds=cv_folds,
             output_dir=os.path.join(output_dir, "LinearRegression"),
         ),
         "NormalEquationLinearRegression": NormalEquationLinearRegression(
+            feature_selection_threshold=feature_selection_threshold,
             output_dir=os.path.join(output_dir, "NormalEquationLinearRegression"),
         ),
         "PyTorchLinearRegression": PyTorchLinearRegression(
@@ -288,6 +287,7 @@ def run_showcase() -> None:
             validation_fraction=validation_fraction,
             test_fraction=0.0,
             cv_folds=cv_folds,
+            feature_selection_threshold=feature_selection_threshold,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, "PyTorchLinearRegression"),
         ),
@@ -299,6 +299,7 @@ def run_showcase() -> None:
             test_fraction=0.0,
             cv_folds=cv_folds,
             random_seed=random_seed,
+            feature_selection_threshold=feature_selection_threshold,
             output_dir=os.path.join(output_dir, "XGBoost"),
             task_type=TaskType.REGRESSION,
         ),
@@ -309,6 +310,7 @@ def run_showcase() -> None:
         #     learning_rate=learning_rate,
         #     early_stopping_rounds=early_stopping_rounds,
         #     validation_fraction=validation_fraction,
+        #     feature_selection_threshold=feature_selection_threshold,
         #     random_seed=random_seed,
         #     output_dir=os.path.join(output_dir, "FlexibleNeuralNetwork"),
         # ),
@@ -319,6 +321,7 @@ def run_showcase() -> None:
         #     learning_rate=learning_rate,
         #     early_stopping_rounds=early_stopping_rounds,
         #     validation_fraction=validation_fraction,
+        #     feature_selection_threshold=feature_selection_threshold,
         #     random_seed=random_seed,
         #     output_dir=os.path.join(output_dir, "IndependentWeightsFlexibleNeuralNetwork"),
         # ),
@@ -337,6 +340,7 @@ def run_showcase() -> None:
             test_fraction=0.0,
             cv_folds=cv_folds,
             split_strategy=DataSplitStrategy.RANDOM,
+            feature_selection_threshold=feature_selection_threshold,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, f"Probabilistic_Regression_{strategy.value}"),
         )
