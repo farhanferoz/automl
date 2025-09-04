@@ -13,7 +13,9 @@ from automl_package.logger import logger
 from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
 from automl_package.utils.cv import TimeSeriesSplit
 from automl_package.utils.data_handler import create_train_val_split
-from automl_package.utils.feature_selection import select_features_by_cumulative_importance
+from automl_package.utils.feature_selection import (
+    select_features_by_cumulative_importance,
+)
 from automl_package.utils.metrics import Metrics
 from automl_package.utils.numerics import find_optimal_iterations
 from automl_package.utils.plotting import plot_feature_importance
@@ -178,8 +180,8 @@ class BaseModel(abc.ABC):
             # Step 2: Train the Model
             if self.cv_folds:
                 logger.info("--- Finding optimal iterations with cross-validation ---")
-                self.num_iterations_used, self.cv_score_mean_, self.cv_score_std_ = self._find_optimal_iterations_with_cv(
-                    x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val
+                self.num_iterations_used, self.cv_score_mean_, self.cv_score_std_ = (
+                    self._find_optimal_iterations_with_cv(x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val)
                 )
             else:
                 # Fit with a single train/validation split to find the best number of iterations
@@ -217,7 +219,7 @@ class BaseModel(abc.ABC):
         x_train_val = pd.DataFrame(x_train_val, columns=self.feature_names)
 
         self._determine_optimal_parameters(
-            x_train=x_train, y_train=y_train, x_train_val=x_train_val, y_train_val=y_train_val, x_val=x_val, y_val=y_val, timestamps_train_val=timestamps_train_val
+            x_train=x_train, y_train=y_train, x_train_val=x_train_val, y_train_val=y_train_val, x_val=x_val, y_val=y_val, timestamps_train_val=timestamps_train_val,
         )
 
         if self.feature_selection_threshold is not None:
@@ -241,7 +243,9 @@ class BaseModel(abc.ABC):
                 self.evaluate(x_test, y_test, "test", self.output_dir)
             logger.info("--- Final evaluation finished ---")
 
-    def _prepare_data_partitions(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> tuple[
+    def _prepare_data_partitions(
+        self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None
+    ) -> tuple[
         np.ndarray,
         np.ndarray,
         np.ndarray | None,
@@ -256,13 +260,15 @@ class BaseModel(abc.ABC):
         np.ndarray | None,
     ]:
         """Creates train, validation, and test partitions."""
-        self.train_indices, self.val_indices, self.test_indices = create_train_val_split(
-            x=x,
-            validation_fraction=self.validation_fraction if self.cv_folds is None else 0,
-            test_fraction=self.test_fraction,
-            split_strategy=self.split_strategy,
-            timestamps=timestamps,
-            random_state=getattr(self, "random_seed", None),
+        self.train_indices, self.val_indices, self.test_indices = (
+            create_train_val_split(
+                x=x,
+                validation_fraction=self.validation_fraction if self.cv_folds is None else 0,
+                test_fraction=self.test_fraction,
+                split_strategy=self.split_strategy,
+                timestamps=timestamps,
+                random_state=getattr(self, "random_seed", None),
+            )
         )
 
         x_train, y_train = x[self.train_indices], y[self.train_indices]
@@ -277,16 +283,24 @@ class BaseModel(abc.ABC):
         x_train_val, y_train_val = x[train_val_indices], y[train_val_indices]
         timestamps_train_val = timestamps[train_val_indices] if timestamps is not None else None
 
-        return x_train, y_train, x_val, y_val, x_test, y_test, timestamps_train, timestamps_val, timestamps_test, x_train_val, y_train_val, timestamps_train_val
+        return (
+            x_train,
+            y_train,
+            x_val,
+            y_val,
+            x_test,
+            y_test,
+            timestamps_train,
+            timestamps_val,
+            timestamps_test,
+            x_train_val,
+            y_train_val,
+            timestamps_train_val,
+        )
 
     @abc.abstractmethod
     def _fit_single(
-        self,
-        x_train: np.ndarray,
-        y_train: np.ndarray,
-        x_val: np.ndarray | None = None,
-        y_val: np.ndarray | None = None,
-        forced_iterations: int | None = None,
+        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -368,7 +382,8 @@ class BaseModel(abc.ABC):
         """Gets the optimization metric for the model."""
         raise NotImplementedError
 
-    def get_kfolds(self, timestamps: np.ndarray | None = None) -> TimeSeriesSplit | KFold:
+    def get_kfolds(
+        self, timestamps: np.ndarray | None = None) -> TimeSeriesSplit | KFold:
         """Gets the cross-validation folds splitter."""
         if self.split_strategy == DataSplitStrategy.TIME_ORDERED:
             if timestamps is None:
@@ -452,14 +467,22 @@ class BaseModel(abc.ABC):
         """Returns the number of trainable parameters in the model."""
         raise NotImplementedError
 
-    def evaluate(self, x: pd.DataFrame | np.ndarray, y: np.ndarray, partition_name: str, save_path: str) -> np.ndarray:
+    def evaluate(self, x: pd.DataFrame | np.ndarray, y: np.ndarray, partition_name: str, save_path: str) -> tuple[np.ndarray, np.ndarray | None]:
         """Evaluates the model on a given dataset and saves the metrics."""
         x_eval = x.values if isinstance(x, pd.DataFrame) else x
 
         y_pred = self.predict(x_eval)
+        y_std = self.predict_uncertainty(x_eval) if self.is_regression_model else None
         y_proba = self.predict_proba(x_eval) if self.task_type == TaskType.CLASSIFICATION else None
         metrics_calculator = Metrics(
-            task_type=self.task_type, model_name=self.name, x_data=x_eval, y_true=y, y_pred=y_pred.flatten(), y_proba=y_proba, partition_name=partition_name
+            task_type=self.task_type,
+            model_name=self.name,
+            x_data=x_eval,
+            y_true=y,
+            y_pred=y_pred.flatten(),
+            y_proba=y_proba,
+            y_std=y_std.flatten() if y_std is not None else None,
+            partition_name=partition_name,
         )
         metrics_calculator.save_metrics(save_path)
 
@@ -482,7 +505,7 @@ class BaseModel(abc.ABC):
         if hasattr(self, "plot_probability_mappers") and callable(self.plot_probability_mappers):
             self.plot_probability_mappers(plot_path=f"{save_path}/{partition_name}_probability_mappers.png")
 
-        return y_pred
+        return y_pred, y_std
 
     def get_internal_model(self) -> Any:
         """Returns the internal model."""

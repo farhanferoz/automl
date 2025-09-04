@@ -1,0 +1,98 @@
+Address,Building,Sale Date,Bedrooms,Floor,Parking Spaces,Actual Price (GBP),Size (sq ft),is Pan Peninsula,is Wardian,E14 Index,E14 Index Delta (Jan 2023)
+"Flat 3704, PP",Pan Peninsula,May-25,2,37,1,1000000,950,1,0,99.1,-1.5
+"Flat 801, LET",Landmark East,Mar-25,1,8,0,430000,500,0,0,98.7,-1.9
+"Flat 1205, PP",Pan Peninsula,Mar-25,1,12,0,375000,500,1,0,98.7,-1.9
+"Flat 604, LWT",Landmark West,Mar-25,1,6,0,445000,500,0,0,98.7,-1.9
+"Flat 3307, PP",Pan Peninsula,Mar-25,2,33,1,590000,950,1,0,98.7,-1.9
+"Flat 2502, PP",Pan Peninsula,Mar-25,1,25,0,444000,500,1,0,98.7,-1.9
+"Flat 3701, PP",Pan Peninsula,Mar-25,2,37,1,598000,950,1,0,98.7,-1.9
+"Flat 706, PP",Pan Peninsula,Mar-25,1,7,0,416000,500,1,0,98.7,-1.9
+"Flat 1901, LET",Landmark East,Feb-25,2,19,1,727000,950,0,0,98.7,-1.9
+"Flat 2702, LET",Landmark East,Feb-25,1,27,0,410000,500,0,0,98.7,-1.9
+"Flat 4603, Wardian",Wardian,Feb-25,3,46,1,1300000,1400,0,1,98.7,-1.9
+"Flat 3701, PP",Pan Peninsula,Feb-25,2,37,1,935500,950,1,0,98.7,-1.9
+"Flat 1610, PP",Pan Peninsula,Feb-25,1,16,0,320000,500,1,0,98.7,-1.9
+"Flat 1402, PP",Pan Peninsula,Jan-25,1,14,0,460000,500,1,0,98.7,-1.9
+"Flat 3810, LET",Landmark East,Dec-24,2,38,1,725000,950,0,0,98.3,-2.3
+"Flat 1202, PP",Pan Peninsula,Dec-24,1,12,0,426250,500,1,0,98.3,-2.3
+"Flat 1809, PP",Pan Peninsula,Nov-24,1,18,0,319200,500,1,0,98.3,-2.3
+"Flat 608, PP",Pan Peninsula,Nov-24,1,6,0,435000,500,1,0,98.3,-2.3
+"Flat 1807, PP",Pan Peninsula,Nov-24,2,18,1,620000,950,1,0,98.3,-2.3
+"Flat 908, PP",Pan Peninsula,Nov-24,1,9,0,320000,500,1,0,98.3,-2.3
+"Flat 3113, PP",Pan Peninsula,Nov-24,1,31,0,325000,500,1,0,98.3,-2.3
+"Flat 2209, PP",Pan Peninsula,Nov-24,1,22,0,335000,500,1,0,98.3,-2.3
+"Flat 411, LWT",Landmark West,Oct-24,1,4,0,350000,500,0,0,98.3,-2.3
+"Flat 906, PP",Pan Peninsula,Oct-24,1,9,0,430000,500,1,0,98.3,-2.3
+"Flat 2007, PP",Pan Peninsula,Oct-24,2,20,1,630000,950,1,0,98.3,-2.3
+"Flat 406, LWT",Landmark West,Sep-24,2,4,1,635000,950,0,0,98.1,-2.5
+"Flat 2808, LWT",Landmark West,Sep-24,1,28,0,480000,500,0,0,98.1,-2.5
+"Flat 3208, PP",Pan Peninsula,Sep-24,1,32,0,420000,500,1,0,98.1,-2.5
+"Flat 501, LWT",Landmark West,Aug-24,2,5,1,415000,950,0,0,98.1,-2.5
+"Flat 2105, PP",Pan Peninsula,Aug-24,1,21,0,402000,500,1,0,98.1,-2.5
+"Flat 511, PP",Pan Peninsula,Aug-24,1,5,0,295000,500,1,0,98.1,-2.5
+"Flat 2404, PP",Pan Peninsula,Jul-24,1,24,0,330000,500,1,0,98.1,-2.5
+"Flat 1101, PP",Pan Peninsula,Jul-24,2,11,1,575000,950,1,0,98.1,-2.5
+"Flat 1907, LWT",Landmark West,Jun-24,1,19,0,480000,500,0,0,97.8,-2.8
+"Flat 3102, LET",Landmark East,Jun-24,1,31,0,450000,500,0,0,97.8,-2.8
+"Flat 3807, LET",Landmark East,Jun-24,1,38,0,500000,500,0,0,97.8,-2.8
+"Flat 3212, PP",Pan Peninsula,Jun-24,1,32,0,385000,500,1,0,97.8,-2.8
+"Flat 2207, PP",Pan Peninsula,Jun-24,2,22,1,690000,950,1,0,97.8,-2.8
+"Flat 2412, PP",Pan Peninsula,Jun-24,1,24,0,367000,500,1,0,97.8,-2.8
+"Flat 1101, LWT",Landmark West,May-24,1,11,0,450000,500,0,0,97.8,-2.8
+"Flat 4401, PP",Pan Peninsula,May-24,3,44,1,1250000,1400,1,0,97.8,-2.8
+"Flat 1507, PP",Pan Peninsula,May-24,2,15,1,558000,950,1,0,97.8,-2.8
+"Flat 802, PP",Pan Peninsula,Apr-24,1,8,0,385000,500,1,0,97.8,-2.8
+"Flat 2805, PP",Pan Peninsula,Mar-24,1,28,0,460000,500,1,0,97.5,-3.1
+"Flat 2906, PP",Pan Peninsula,Mar-24,2,29,1,620000,950,1,0,97.5,-3.1
+"Flat 3107, LET",Landmark East,Feb-24,2,31,1,550000,950,0,0,97.5,-3.1
+"Flat 1001, PP",Pan Peninsula,Feb-24,2,10,1,560000,950,1,0,97.5,-3.1
+"Flat 2907, PP",Pan Peninsula,Feb-24,2,29,1,650000,950,1,0,97.5,-3.1
+"Flat 2708, PP",Pan Peninsula,Jan-24,1,27,0,318000,500,1,0,97.5,-3.1
+"Flat 2205, PP",Pan Peninsula,Jan-24,1,22,0,450000,500,1,0,97.5,-3.1
+"Flat 402, PP",Pan Peninsula,Jan-24,1,4,0,400000,500,1,0,97.5,-3.1
+"Flat 304, LWT",Landmark West,Dec-23,1,3,0,410000,500,0,0,98.1,-2.5
+"Flat 612, PP",Pan Peninsula,Dec-23,1,6,0,290000,500,1,0,98.1,-2.5
+"Flat 3601, PP",Pan Peninsula,Dec-23,3,36,1,1150000,1400,1,0,98.1,-2.5
+"Flat 505, PP",Pan Peninsula,Nov-23,1,5,0,418000,500,1,0,98.1,-2.5
+"Flat 1906, LET",Landmark East,Oct-23,2,19,1,785000,950,0,0,98.1,-2.5
+"Flat 1411, LET",Landmark East,Sep-23,1,14,0,380000,500,0,0,98.7,-1.9
+"Flat 401, PP",Pan Peninsula,Sep-23,2,4,1,560000,950,1,0,98.7,-1.9
+"Flat 3404, PP",Pan Peninsula,Sep-23,2,34,1,575000,950,1,0,98.7,-1.9
+"Flat 1708, PP",Pan Peninsula,Sep-23,1,17,0,315000,500,1,0,98.7,-1.9
+"Flat 510, LET",Landmark East,Aug-23,2,5,1,460000,950,0,0,98.7,-1.9
+"Flat 1506, PP",Pan Peninsula,Aug-23,2,15,1,477500,950,1,0,98.7,-1.9
+"Flat 3001, LET",Landmark East,Jul-23,2,30,1,705000,950,0,0,98.7,-1.9
+"Flat 2806, PP",Pan Peninsula,Jul-23,2,28,1,740000,950,1,0,98.7,-1.9
+"Flat 2201, PP",Pan Peninsula,Jul-23,2,22,1,625000,950,1,0,98.7,-1.9
+"Flat 2101, PP",Pan Peninsula,Jul-23,2,21,1,650000,950,1,0,98.7,-1.9
+"Flat 1914, PP",Pan Peninsula,Jul-23,2,19,1,610000,950,1,0,98.7,-1.9
+"Flat 2208, PP",Pan Peninsula,Jul-23,1,22,0,455000,500,1,0,98.7,-1.9
+"Flat 1601, LET",Landmark East,Mar-23,1,16,0,485000,500,0,0,100.6,0
+"Flat 3210, LET",Landmark East,Mar-23,2,32,1,712000,950,0,0,100.6,0
+"Flat 2301, LET",Landmark East,Mar-23,2,23,1,750000,950,0,0,100.6,0
+"Flat 1309, LET",Landmark East,Jan-23,1,13,0,457000,500,0,0,100.6,0
+"Flat 5002, Wardian",Wardian,Jul-24,3,50,1,1720000,1400,0,1,98.1,-2.5
+"Flat 5305, Wardian",Wardian,May-24,3,53,1,1650000,1400,0,1,97.8,-2.8
+"Flat 4507, Wardian",Wardian,May-24,2,45,1,1017000,950,0,1,97.8,-2.8
+"Flat 4607, Wardian",Wardian,May-24,2,46,1,988240,950,0,1,97.8,-2.8
+"Flat 4707, Wardian",Wardian,Apr-24,2,47,1,1115000,950,0,1,97.8,-2.8
+"Flat 4307, Wardian",Wardian,Mar-24,2,43,1,990000,950,0,1,97.5,-3.1
+"Flat 4401, Wardian",Wardian,Jan-24,2,44,1,678000,950,0,1,97.5,-3.1
+"Flat 2304, LWT",Landmark West,Dec-23,1,23,0,480000,500,0,0,98.1,-2.5
+"Flat 5008, Wardian",Wardian,Dec-23,1,50,0,575000,500,0,1,98.1,-2.5
+"Flat 2410, LET",Landmark East,Nov-23,2,24,1,660000,950,0,0,98.1,-2.5
+"Flat 4501, Wardian",Wardian,Nov-23,2,45,1,761670,950,0,1,98.1,-2.5
+"Flat 2404, LWT",Landmark West,Sep-23,1,24,0,473000,500,0,0,98.7,-1.9
+"Flat 4301, Wardian",Wardian,Sep-23,2,43,1,678000,950,0,1,98.7,-1.9
+"Flat 2901, LWT",Landmark West,Aug-23,3,29,1,1200000,1400,0,0,98.7,-1.9
+"Flat 3701, LET",Landmark East,Aug-23,3,37,1,1050000,1400,0,0,98.7,-1.9
+"Flat 4501, Wardian",Wardian,Aug-23,2,45,1,682000,950,0,1,98.7,-1.9
+"Flat 403, LWT",Landmark West,Jul-23,1,4,0,437000,500,0,0,98.7,-1.9
+"Flat 2407, LWT",Landmark West,Jul-23,1,24,0,475000,500,0,0,98.7,-1.9
+"Flat 4406, Wardian",Wardian,Jun-23,3,44,1,1170400,1400,0,1,99.4,-1.2
+"Flat 4801, Wardian",Wardian,May-23,2,48,1,779495,950,0,1,99.4,-1.2
+"Flat 4407, Wardian",Wardian,Apr-23,2,44,1,1004771,950,0,1,99.4,-1.2
+"Flat 4701, Wardian",Wardian,Apr-23,2,47,1,776000,950,0,1,99.4,-1.2
+"Flat 4701, Wardian",Wardian,Mar-23,2,47,1,747240,950,0,1,100.6,0
+"Flat 804, LWT",Landmark West,Feb-23,1,8,0,440000,500,0,0,100.6,0
+"Flat 607, LWT",Landmark West,Jan-23,1,6,0,438000,500,0,0,100.6,0

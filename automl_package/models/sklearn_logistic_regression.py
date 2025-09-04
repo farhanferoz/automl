@@ -13,7 +13,12 @@ from automl_package.models.base import BaseModel
 class SklearnLogisticRegression(BaseModel):
     """Logistic Regression model using scikit-learn."""
 
-    _defaults: ClassVar[dict[str, Any]] = {"penalty": Penalty.L2, "C": 1.0, "l1_ratio": None, "random_seed": None}
+    _defaults: ClassVar[dict[str, Any]] = {
+        "penalty": Penalty.L2,
+        "C": 1.0,
+        "l1_ratio": None,
+        "random_seed": None,
+    }
 
     def __init__(self, **kwargs: Any) -> None:
         """Initializes the SklearnLogisticRegression model."""
@@ -38,7 +43,12 @@ class SklearnLogisticRegression(BaseModel):
         return Metric.ACCURACY
 
     def _fit_single(
-        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        forced_iterations: int | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -63,13 +73,30 @@ class SklearnLogisticRegression(BaseModel):
         elif self.penalty == Penalty.ELASTICNET:
             solver = "saga"  # Supports ElasticNet
 
-        use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
+        use_early_stopping = (
+            self.early_stopping_rounds is not None and forced_iterations is None
+        )
 
         if use_early_stopping:
             self.model = (
-                LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, l1_ratio=self.l1_ratio, warm_start=True, max_iter=1, **self.params)
+                LogisticRegression(
+                    penalty=self.penalty,
+                    C=self.C,
+                    solver=solver,
+                    l1_ratio=self.l1_ratio,
+                    warm_start=True,
+                    max_iter=1,
+                    **self.params
+                )
                 if self.penalty == Penalty.ELASTICNET
-                else LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, warm_start=True, max_iter=1, **self.params)
+                else LogisticRegression(
+                    penalty=self.penalty,
+                    C=self.C,
+                    solver=solver,
+                    warm_start=True,
+                    max_iter=1,
+                    **self.params
+                )
             )
 
             best_val_loss = float("inf")
@@ -90,7 +117,11 @@ class SklearnLogisticRegression(BaseModel):
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     patience_counter = 0
-                    best_model_state = {"coef_": self.model.coef_.copy(), "intercept_": self.model.intercept_.copy(), "classes_": self.model.classes_.copy()}
+                    best_model_state = {
+                        "coef_": self.model.coef_.copy(),
+                        "intercept_": self.model.intercept_.copy(),
+                        "classes_": self.model.classes_.copy(),
+                    }
                     best_iter = i
                 else:
                     patience_counter += 1
@@ -107,9 +138,22 @@ class SklearnLogisticRegression(BaseModel):
         else:
             n_iterations = forced_iterations or self.params.get("max_iter", 1000)
             self.model = (
-                LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, l1_ratio=self.l1_ratio, max_iter=n_iterations, **self.params)
+                LogisticRegression(
+                    penalty=self.penalty,
+                    C=self.C,
+                    solver=solver,
+                    l1_ratio=self.l1_ratio,
+                    max_iter=n_iterations,
+                    **self.params
+                )
                 if self.penalty == Penalty.ELASTICNET
-                else LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, max_iter=n_iterations, **self.params)
+                else LogisticRegression(
+                    penalty=self.penalty,
+                    C=self.C,
+                    solver=solver,
+                    max_iter=n_iterations,
+                    **self.params
+                )
             )
             self.model.fit(x_train, y_train)
             n_iterations = self.model.n_iter_[0]
@@ -131,7 +175,14 @@ class SklearnLogisticRegression(BaseModel):
             dict: Parameter names mapped to their values.
         """
         params = super().get_params()
-        params.update({"penalty": self.penalty, "C": self.C, "l1_ratio": self.l1_ratio, "random_seed": self.random_seed})
+        params.update(
+            {
+                "penalty": self.penalty,
+                "C": self.C,
+                "l1_ratio": self.l1_ratio,
+                "random_seed": self.random_seed,
+            }
+        )
         return params
 
     def cross_validate(self, x: np.ndarray, y: np.ndarray, cv: int) -> dict[str, Any]:
@@ -156,7 +207,9 @@ class SklearnLogisticRegression(BaseModel):
             x = self._filter_predict_data(x)
         return self.model.predict(x.values)
 
-    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+    def predict_uncertainty(
+        self, x: np.ndarray, filter_data: bool = True
+    ) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
@@ -208,11 +261,21 @@ class SklearnLogisticRegression(BaseModel):
         """
         space = {
             "penalty": {"type": "categorical", "choices": [p.value for p in Penalty]},
-            "C": {"type": "float", "low": 1e-4, "high": 10.0, "log": True},  # Inverse of regularization strength
+            "C": {
+                "type": "float",
+                "low": 1e-4,
+                "high": 10.0,
+                "log": True,
+            },  # Inverse of regularization strength
             "max_iter": {"type": "int", "low": 100, "high": 1000, "step": 100},
         }
         # l1_ratio is only relevant for 'elasticnet' penalty
-        space["l1_ratio"] = {"type": "float", "low": 0.0, "high": 1.0, "step": 0.1}  # Conditional parameter
+        space["l1_ratio"] = {
+            "type": "float",
+            "low": 0.0,
+            "high": 1.0,
+            "step": 0.1,
+        }  # Conditional parameter
 
         if self.search_space_override:
             space.update(self.search_space_override)
@@ -233,10 +296,14 @@ class SklearnLogisticRegression(BaseModel):
             return 0  # Or raise an error if model not fitted
         return self.model.coef_.size + self.model.intercept_.size
 
-    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> Never:
+    def get_classifier_predictions(
+        self, x: np.ndarray, y_true_original: np.ndarray
+    ) -> Never:
         """Not implemented for SKLearnLogisticRegression.
 
         Raises:
             NotImplementedError: SKLearnLogisticRegression is not a composite model.
         """
-        raise NotImplementedError("SKLearnLogisticRegression is not a composite model and does not have an internal classifier for separate prediction.")
+        raise NotImplementedError(
+            "SKLearnLogisticRegression is not a composite model and does not have an internal classifier for separate prediction."
+        )

@@ -16,7 +16,12 @@ from automl_package.models.base import BaseModel
 class LinearRegressionModel(BaseModel):
     """Linear Regression model implemented using JAX."""
 
-    _defaults: ClassVar[dict[str, Any]] = {"learning_rate": 0.01, "n_iterations": 1000, "penalty": None, "regularization_strength": 0.0}
+    _defaults: ClassVar[dict[str, Any]] = {
+        "learning_rate": 0.01,
+        "n_iterations": 1000,
+        "penalty": None,
+        "regularization_strength": 0.0,
+    }
 
     def __init__(self, **kwargs: Any) -> None:
         """Initializes the LinearRegressionModel model."""
@@ -43,7 +48,9 @@ class LinearRegressionModel(BaseModel):
         """Gets the optimization metric for the model."""
         return Metric.RMSE
 
-    def _loss_fn(self, weights: jnp.ndarray, bias: jnp.ndarray, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
+    def _loss_fn(
+        self, weights: jnp.ndarray, bias: jnp.ndarray, x: jnp.ndarray, y: jnp.ndarray
+    ) -> jnp.ndarray:
         """Mean Squared Error loss function with L1 and L2 regularization."""
         predictions = jnp.dot(x, weights) + bias
         mse_loss = jnp.mean((predictions - y) ** 2)
@@ -89,12 +96,19 @@ class LinearRegressionModel(BaseModel):
         y_train_jax = jnp.array(y_train, dtype=jnp.float32)
 
         self.key, subkey_w = jax.random.split(self.key)
-        self.weights = jax.random.normal(subkey_w, (self.n_features,), dtype=jnp.float32) * 0.01
+        self.weights = (
+            jax.random.normal(subkey_w, (self.n_features,), dtype=jnp.float32) * 0.01
+        )
         self.bias = jnp.array(0.0, dtype=jnp.float32)
 
         loss_grad = jit(grad(self._loss_fn, argnums=(0, 1)))
 
-        use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None and x_val is not None and y_val is not None
+        use_early_stopping = (
+            self.early_stopping_rounds is not None
+            and forced_iterations is None
+            and x_val is not None
+            and y_val is not None
+        )
 
         if use_early_stopping:
             best_val_loss = float("inf")
@@ -109,7 +123,9 @@ class LinearRegressionModel(BaseModel):
 
             n_iterations = self.n_iterations
             for i in range(n_iterations):
-                grads_w, grads_b = loss_grad(self.weights, self.bias, x_train_jax, y_train_jax)
+                grads_w, grads_b = loss_grad(
+                    self.weights, self.bias, x_train_jax, y_train_jax
+                )
                 self.weights = self.weights - self.learning_rate * grads_w
                 self.bias = self.bias - self.learning_rate * grads_b
 
@@ -135,7 +151,9 @@ class LinearRegressionModel(BaseModel):
         else:
             iterations = forced_iterations or self.n_iterations
             for _i in range(iterations):
-                grads_w, grads_b = loss_grad(self.weights, self.bias, x_train_jax, y_train_jax)
+                grads_w, grads_b = loss_grad(
+                    self.weights, self.bias, x_train_jax, y_train_jax
+                )
                 self.weights = self.weights - self.learning_rate * grads_w
                 self.bias = self.bias - self.learning_rate * grads_b
             iterations_to_return = iterations
@@ -152,7 +170,9 @@ class LinearRegressionModel(BaseModel):
         """Evaluates a trial for hyperparameter optimization."""
         return self._calculate_metric(y_true, y_pred, Metric.RMSE)
 
-    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
+    def _calculate_metric(
+        self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric
+    ) -> float:
         """Calculates a metric."""
         if metric == Metric.RMSE:
             return np.sqrt(mean_squared_error(y_true, y_pred))
@@ -169,7 +189,14 @@ class LinearRegressionModel(BaseModel):
             dict: Parameter names mapped to their values.
         """
         params = super().get_params()
-        params.update({"learning_rate": self.learning_rate, "n_iterations": self.n_iterations, "penalty": self.penalty, "regularization_strength": self.regularization_strength})
+        params.update(
+            {
+                "learning_rate": self.learning_rate,
+                "n_iterations": self.n_iterations,
+                "penalty": self.penalty,
+                "regularization_strength": self.regularization_strength,
+            }
+        )
         if self.penalty == Penalty.ELASTICNET:
             params["l1_ratio"] = self.l1_ratio
         return params
@@ -200,7 +227,9 @@ class LinearRegressionModel(BaseModel):
         """
         return 0 if self.weights is None else self.weights.size + 1
 
-    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+    def predict_uncertainty(
+        self, x: np.ndarray, filter_data: bool = True
+    ) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
@@ -211,7 +240,9 @@ class LinearRegressionModel(BaseModel):
             np.ndarray: Uncertainty estimates (e.g., standard deviation).
         """
         if not self.is_regression_model:
-            raise ValueError("predict_uncertainty is only available for regression models.")
+            raise ValueError(
+                "predict_uncertainty is only available for regression models."
+            )
         if self.weights is None or self.bias is None:
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
@@ -225,7 +256,9 @@ class LinearRegressionModel(BaseModel):
         Raises:
             NotImplementedError: JAXLinearRegression is a regression model.
         """
-        raise NotImplementedError("JAXLinearRegression is a regression model and does not support predict_proba.")
+        raise NotImplementedError(
+            "JAXLinearRegression is a regression model and does not support predict_proba."
+        )
 
     def get_hyperparameter_search_space(self) -> dict[str, Any]:
         """Defines the hyperparameter search space for JAXLinearRegression.
@@ -236,21 +269,33 @@ class LinearRegressionModel(BaseModel):
         space = {
             "learning_rate": {"type": "float", "low": 1e-4, "high": 1e-1, "log": True},
             "n_iterations": {"type": "int", "low": 100, "high": 2000, "step": 100},
-            "penalty": {"type": "categorical", "choices": [Penalty.L1, Penalty.L2, Penalty.ELASTICNET, None]},
-            "regularization_strength": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},
+            "penalty": {
+                "type": "categorical",
+                "choices": [Penalty.L1, Penalty.L2, Penalty.ELASTICNET, None],
+            },
+            "regularization_strength": {
+                "type": "float",
+                "low": 1e-6,
+                "high": 1.0,
+                "log": True,
+            },
             "l1_ratio": {"type": "float", "low": 0.0, "high": 1.0},
         }
         if self.search_space_override:
             space.update(self.search_space_override)
         return space
 
-    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> Never:
+    def get_classifier_predictions(
+        self, x: np.ndarray, y_true_original: np.ndarray
+    ) -> Never:
         """Not implemented for JAXLinearRegression.
 
         Raises:
             NotImplementedError: JAXLinearRegression is not a composite model.
         """
-        raise NotImplementedError("JAXLinearRegression is not a composite model and does not have an internal classifier for separate prediction.")
+        raise NotImplementedError(
+            "JAXLinearRegression is not a composite model and does not have an internal classifier for separate prediction."
+        )
 
     def get_internal_model(self) -> Any:
         """Returns the internal model."""

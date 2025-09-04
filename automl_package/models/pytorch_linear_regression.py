@@ -61,11 +61,15 @@ class PyTorchLinearRegression(PyTorchModelBase):
         For linear regression, this is a single linear layer.
         """
         # A linear regression is a single layer mapping inputs to outputs
-        self.model = nn.Sequential(nn.Linear(self.input_size, self.output_size)).to(self.device)
+        self.model = nn.Sequential(nn.Linear(self.input_size, self.output_size)).to(
+            self.device
+        )
 
         # The criterion is set in the base class based on task_type
         if self.task_type == TaskType.REGRESSION:
             self.criterion = nn.MSELoss()
         else:
             # This should not be reached due to the __init__ override
-            raise ValueError("PyTorchLinearRegression only supports 'regression' task_type.")
+            raise ValueError(
+                "PyTorchLinearRegression only supports 'regression' task_type."
+            )

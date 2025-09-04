@@ -43,7 +43,12 @@ class LightGBMModel(BaseModel):
         return Metric.RMSE if self.is_regression_model else Metric.ACCURACY
 
     def _fit_single(
-        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        forced_iterations: int | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -61,32 +66,53 @@ class LightGBMModel(BaseModel):
         """
         eval_set = None
         callbacks = []
-        use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
+        use_early_stopping = (
+            self.early_stopping_rounds is not None and forced_iterations is None
+        )
 
         if use_early_stopping and x_val is not None:
             eval_set = [(x_val, y_val)]
-            callbacks.append(lgb.early_stopping(self.early_stopping_rounds, verbose=False))
+            callbacks.append(
+                lgb.early_stopping(self.early_stopping_rounds, verbose=False)
+            )
 
-        model_instance = lgb.LGBMClassifier if self.task_type == TaskType.CLASSIFICATION else lgb.LGBMRegressor
+        model_instance = (
+            lgb.LGBMClassifier
+            if self.task_type == TaskType.CLASSIFICATION
+            else lgb.LGBMRegressor
+        )
         params = self.params.copy()
         params.setdefault("n_estimators", 500)
-        self.model = model_instance(objective=self.objective, metric=self.metric, random_state=self.random_seed, **params)
+        self.model = model_instance(
+            objective=self.objective,
+            metric=self.metric,
+            random_state=self.random_seed,
+            **params,
+        )
 
         if forced_iterations is not None:
             self.model.n_estimators = forced_iterations
 
         self.model.fit(x_train, y_train, eval_set=eval_set, callbacks=callbacks)
 
-        best_iteration = self.model.best_iteration_ if use_early_stopping and self.model.best_iteration_ is not None else self.model.n_estimators
+        best_iteration = (
+            self.model.best_iteration_
+            if use_early_stopping and self.model.best_iteration_ is not None
+            else self.model.n_estimators
+        )
         loss_history = get_loss_history(self.model, use_early_stopping)
 
         return best_iteration, loss_history
 
     def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """Evaluates a trial for hyperparameter optimization."""
-        return self._calculate_metric(y_true, y_pred, Metric.RMSE if self.is_regression_model else Metric.ACCURACY)
+        return self._calculate_metric(
+            y_true, y_pred, Metric.RMSE if self.is_regression_model else Metric.ACCURACY
+        )
 
-    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
+    def _calculate_metric(
+        self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric
+    ) -> float:
         """Calculates a metric."""
         if metric == Metric.RMSE:
             return np.sqrt(mean_squared_error(y_true, y_pred))
@@ -123,10 +149,14 @@ class LightGBMModel(BaseModel):
         proba = self.model.predict_proba(x)
         return ensure_proba_shape(proba, self.model.n_classes_)
 
-    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+    def predict_uncertainty(
+        self, x: np.ndarray, filter_data: bool = True
+    ) -> np.ndarray:
         """Estimates uncertainty for predictions."""
         if not self.is_regression_model:
-            raise ValueError("predict_uncertainty is only available for regression models.")
+            raise ValueError(
+                "predict_uncertainty is only available for regression models."
+            )
         if filter_data:
             x = self._filter_predict_data(x)
         return np.full(x.shape[0], self._train_residual_std)
@@ -157,13 +187,18 @@ class LightGBMModel(BaseModel):
         """Returns the number of estimators in the LightGBM model."""
         if self.model is None:
             num_parameters = 0
-        elif hasattr(self.model, "best_iteration_") and self.model.best_iteration_ is not None:
+        elif (
+            hasattr(self.model, "best_iteration_")
+            and self.model.best_iteration_ is not None
+        ):
             num_parameters = self.model.best_iteration_
         else:
             num_parameters = self.model.n_estimators
         return num_parameters
 
-    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> NoReturn:
+    def get_classifier_predictions(
+        self, x: np.ndarray, y_true_original: np.ndarray
+    ) -> NoReturn:
         """Not implemented for LightGBMModel."""
         raise NotImplementedError("LightGBMModel is not a composite model.")
 

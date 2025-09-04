@@ -18,12 +18,18 @@ class LinearMapper(BaseMapper):
         self.model = None
         self._linear_mapper_residual_variance = 0.0
 
-    def _fit(self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any) -> None:  # noqa: ARG002
+    def _fit(
+        self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any
+    ) -> None:  # noqa: ARG002
         self.model = LinearRegression()
         self.model.fit(probas.reshape(-1, 1), y_original)
         y_pred_train = self.model.predict(probas.reshape(-1, 1))
         _linear_mapper_residual_variance = np.var(y_original - y_pred_train)
-        self._linear_mapper_residual_variance = 0.0 if np.isnan(_linear_mapper_residual_variance) else _linear_mapper_residual_variance
+        self._linear_mapper_residual_variance = (
+            0.0
+            if np.isnan(_linear_mapper_residual_variance)
+            else _linear_mapper_residual_variance
+        )
 
     def _fit_empty(self) -> None:
         self.model = LinearRegression()

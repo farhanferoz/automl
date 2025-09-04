@@ -38,7 +38,9 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
         self.mapping = {}
         self.global_mean = None
 
-    def fit(self, x: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None) -> "OrderedTargetEncoder":
+    def fit(
+        self, x: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None
+    ) -> "OrderedTargetEncoder":
         """Fits the encoder to the training data.
 
         Args:
@@ -57,7 +59,9 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
                 columns=pd.Index([f"col_{i}" for i in range(x.shape[1])], dtype=object),
             )
             if self.cols is not None:
-                self.cols = [f"col_{i}" for i in self.cols]  # Adjust column names if indices were given
+                self.cols = [
+                    f"col_{i}" for i in self.cols
+                ]  # Adjust column names if indices were given
 
         self.global_mean = y.mean()
 
@@ -69,7 +73,9 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
             temp_df = pd.DataFrame({"col": x[col], "target": y})
 
             # Shuffle the data to create a random permutation for leakage-free calculation
-            temp_df = temp_df.sample(frac=1, random_state=self.random_state).reset_index(drop=True)
+            temp_df = temp_df.sample(
+                frac=1, random_state=self.random_state
+            ).reset_index(drop=True)
 
             # Calculate cumulative sum and count for each category
             cumsum = temp_df.groupby("col")["target"].cumsum() - temp_df["target"]
@@ -77,7 +83,9 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
 
             # Calculate leakage-free mean
             # Add smoothing to prevent division by zero and handle rare categories
-            _ = (cumsum + self.global_mean * self.smoothing) / (cumcount + self.smoothing)
+            _ = (cumsum + self.global_mean * self.smoothing) / (
+                cumcount + self.smoothing
+            )
 
             # Store the mapping for each category
             self.mapping[col] = temp_df.groupby("col")["target"].mean().to_dict()
@@ -104,21 +112,35 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
             )
             if self.cols is not None:
                 # Create a list of column names that are actually categorical features
-                categorical_col_names = [col for col in self.cols if col in self.mapping]
+                categorical_col_names = [
+                    col for col in self.cols if col in self.mapping
+                ]
 
                 for col in categorical_col_names:
                     # Use the stored mapping for transformation
-                    x_transformed[col] = x_transformed[col].map(self.mapping[col]).fillna(self.global_mean)
+                    x_transformed[col] = (
+                        x_transformed[col]
+                        .map(self.mapping[col])
+                        .fillna(self.global_mean)
+                    )
             else:  # If cols was None during fit, assume all object/category columns were encoded
                 for col in self.mapping:  # Iterate through learned mappings
-                    x_transformed[col] = x_transformed[col].map(self.mapping[col]).fillna(self.global_mean)
+                    x_transformed[col] = (
+                        x_transformed[col]
+                        .map(self.mapping[col])
+                        .fillna(self.global_mean)
+                    )
 
-            return x_transformed.values  # Return as numpy array if input was numpy array
+            return (
+                x_transformed.values
+            )  # Return as numpy array if input was numpy array
         # Input is pandas DataFrame
         x_transformed = x.copy()
         for col in self.cols:
             if col in self.mapping:  # Check if the column was fitted
-                x_transformed[col] = x_transformed[col].map(self.mapping[col]).fillna(self.global_mean)
+                x_transformed[col] = (
+                    x_transformed[col].map(self.mapping[col]).fillna(self.global_mean)
+                )
             else:
                 # If a column was specified but not in mapping (e.g., all values unseen), fill with global mean
                 x_transformed[col] = self.global_mean
@@ -141,7 +163,9 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
             pd.DataFrame | np.ndarray: Transformed data.
         """
         if y is None:
-            raise TypeError("fit_transform() missing 1 required positional argument: 'y'")
+            raise TypeError(
+                "fit_transform() missing 1 required positional argument: 'y'"
+            )
         self.fit(x, y)
         return self.transform(x)
 
@@ -149,7 +173,9 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
 class OneHotEncoder(BaseEstimator, TransformerMixin):
     """A wrapper around sklearn.preprocessing.OneHotEncoder for categorical features."""
 
-    def __init__(self, cols: list[str | int] | None = None, handle_unknown: str = "ignore") -> None:
+    def __init__(
+        self, cols: list[str | int] | None = None, handle_unknown: str = "ignore"
+    ) -> None:
         """Initializes the OneHotEncoder.
 
         Args:
@@ -159,7 +185,9 @@ class OneHotEncoder(BaseEstimator, TransformerMixin):
         """
         self.cols = cols
         self.handle_unknown = handle_unknown
-        self.encoder = SklearnOneHotEncoder(handle_unknown=handle_unknown, sparse_output=False)
+        self.encoder = SklearnOneHotEncoder(
+            handle_unknown=handle_unknown, sparse_output=False
+        )
         self.feature_names_out_ = None  # To store feature names after transformation
 
     def fit(
@@ -205,9 +233,13 @@ class OneHotEncoder(BaseEstimator, TransformerMixin):
         # Store feature names for consistency if needed later
         if self.feature_names_out_ is None:
             if hasattr(self.encoder, "get_feature_names_out"):
-                self.feature_names_out_ = self.encoder.get_feature_names_out(self.cols if self.cols else x_selected.columns)
+                self.feature_names_out_ = self.encoder.get_feature_names_out(
+                    self.cols if self.cols else x_selected.columns
+                )
             else:  # Fallback for older sklearn versions or if method is missing
-                self.feature_names_out_ = [f"x{i}" for i in range(transformed_data.shape[1])]  # Generic names
+                self.feature_names_out_ = [
+                    f"x{i}" for i in range(transformed_data.shape[1])
+                ]  # Generic names
 
         return transformed_data
 

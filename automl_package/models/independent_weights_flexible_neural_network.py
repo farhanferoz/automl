@@ -7,7 +7,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import ActivationFunction, LayerSelectionMethod, Metric, TaskType, UncertaintyMethod
+from automl_package.enums import (
+    ActivationFunction,
+    LayerSelectionMethod,
+    Metric,
+    TaskType,
+    UncertaintyMethod,
+)
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.selection_strategies.independent_weights_strategies import (
@@ -54,13 +60,26 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         super().__init__(**kwargs)
 
         # Validation logic
-        if self.layer_selection_method == LayerSelectionMethod.NONE and self.n_predictor_layers != 0:
-            raise ValueError("n_predictor_layers must be 0 when layer_selection_method is NONE.")
         if (
-            self.layer_selection_method in [LayerSelectionMethod.GUMBEL_SOFTMAX, LayerSelectionMethod.STE, LayerSelectionMethod.SOFT_GATING, LayerSelectionMethod.REINFORCE]
+            self.layer_selection_method == LayerSelectionMethod.NONE
+            and self.n_predictor_layers != 0
+        ):
+            raise ValueError(
+                "n_predictor_layers must be 0 when layer_selection_method is NONE."
+            )
+        if (
+            self.layer_selection_method
+            in [
+                LayerSelectionMethod.GUMBEL_SOFTMAX,
+                LayerSelectionMethod.STE,
+                LayerSelectionMethod.SOFT_GATING,
+                LayerSelectionMethod.REINFORCE,
+            ]
             and self.n_predictor_layers <= 0
         ):
-            raise ValueError("n_predictor_layers must be > 0 for GUMBEL_SOFTMAX, STE, SOFT_GATING or REINFORCE methods.")
+            raise ValueError(
+                "n_predictor_layers must be > 0 for GUMBEL_SOFTMAX, STE, SOFT_GATING or REINFORCE methods."
+            )
 
         strategy_map = {
             LayerSelectionMethod.NONE: IndependentWeightsNoneStrategy,
@@ -90,7 +109,10 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
 
             # Output size for the main network's output layer
             final_output_neurons = self.outer.output_size
-            if self.outer.task_type == TaskType.REGRESSION and self.outer.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
+            if (
+                self.outer.task_type == TaskType.REGRESSION
+                and self.outer.uncertainty_method == UncertaintyMethod.PROBABILISTIC
+            ):
                 final_output_neurons = 2  # Mean and Log-Variance
 
             # n-predictor: Takes full input features and outputs logits for n (1 to max_hidden_layers)
@@ -101,11 +123,17 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                 predictor_layers.append(nn.Linear(in_features, predictor_hidden_size))
                 predictor_layers.append(self.outer.activation())
                 for _ in range(self.outer.n_predictor_layers - 1):
-                    predictor_layers.append(nn.Linear(predictor_hidden_size, predictor_hidden_size))
+                    predictor_layers.append(
+                        nn.Linear(predictor_hidden_size, predictor_hidden_size)
+                    )
                     predictor_layers.append(self.outer.activation())
-                output_layer_predictor = nn.Linear(predictor_hidden_size, self.outer.max_hidden_layers)
+                output_layer_predictor = nn.Linear(
+                    predictor_hidden_size, self.outer.max_hidden_layers
+                )
                 nn.init.normal_(output_layer_predictor.bias, mean=0.0, std=0.1)
-                self.n_predictor = nn.Sequential(*predictor_layers, output_layer_predictor)
+                self.n_predictor = nn.Sequential(
+                    *predictor_layers, output_layer_predictor
+                )
             else:
                 self.n_predictor = None
 
@@ -114,27 +142,46 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             for num_layers in range(1, self.outer.max_hidden_layers + 1):
                 network_layers = []
                 # Input layer
-                network_layers.append(nn.Linear(self.outer.input_size, self.outer.hidden_size))
+                network_layers.append(
+                    nn.Linear(self.outer.input_size, self.outer.hidden_size)
+                )
                 if self.outer.use_batch_norm:
                     network_layers.append(nn.BatchNorm1d(self.outer.hidden_size))
                 network_layers.append(self.outer.activation())
-                if self.outer.task_type == TaskType.REGRESSION and self.outer.uncertainty_method == UncertaintyMethod.MC_DROPOUT and self.outer.dropout_rate > 0:
+                if (
+                    self.outer.task_type == TaskType.REGRESSION
+                    and self.outer.uncertainty_method == UncertaintyMethod.MC_DROPOUT
+                    and self.outer.dropout_rate > 0
+                ):
                     network_layers.append(nn.Dropout(self.outer.dropout_rate))
 
                 # Hidden layers (num_layers - 1 because the first layer is already added)
                 for _ in range(num_layers - 1):
-                    network_layers.append(nn.Linear(self.outer.hidden_size, self.outer.hidden_size))
+                    network_layers.append(
+                        nn.Linear(self.outer.hidden_size, self.outer.hidden_size)
+                    )
                     if self.outer.use_batch_norm:
                         network_layers.append(nn.BatchNorm1d(self.outer.hidden_size))
                     network_layers.append(self.outer.activation())
-                    if self.outer.task_type == TaskType.REGRESSION and self.outer.uncertainty_method == UncertaintyMethod.MC_DROPOUT and self.outer.dropout_rate > 0:
+                    if (
+                        self.outer.task_type == TaskType.REGRESSION
+                        and self.outer.uncertainty_method
+                        == UncertaintyMethod.MC_DROPOUT
+                        and self.outer.dropout_rate > 0
+                    ):
                         network_layers.append(nn.Dropout(self.outer.dropout_rate))
 
                 # Output layer
-                network_layers.append(nn.Linear(self.outer.hidden_size, final_output_neurons))
+                network_layers.append(
+                    nn.Linear(self.outer.hidden_size, final_output_neurons)
+                )
                 self.independent_networks.append(nn.Sequential(*network_layers))
 
-        def forward(self, x_input: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        def forward(
+            self, x_input: torch.Tensor
+        ) -> tuple[
+            torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+        ]:
             """Forward pass for the independent weights flexible neural network."""
             n_logits = self.n_predictor(x_input) if self.n_predictor else None
 
@@ -153,7 +200,9 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             # Collect outputs from all independent networks
             all_network_outputs = []
             for network in self.independent_networks:
-                all_network_outputs.append(network(x_input))  # Output shape: (batch_size, output_dim)
+                all_network_outputs.append(
+                    network(x_input)
+                )  # Output shape: (batch_size, output_dim)
 
             # Stack them to form (batch_size, num_networks, output_dim)
             all_network_outputs_stacked = torch.stack(all_network_outputs, dim=1)
@@ -192,11 +241,17 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         if self.task_type == TaskType.REGRESSION:
             if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
 
-                def nll_loss(final_output: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+                def nll_loss(
+                    final_output: torch.Tensor, targets: torch.Tensor
+                ) -> torch.Tensor:
                     mean = final_output[:, 0]
                     log_var = final_output[:, 1]
                     targets = targets.squeeze(-1) if targets.ndim > 1 else targets
-                    per_sample_nll = 0.5 * (torch.log(torch.tensor(2 * math.pi)) + log_var + (targets - mean) ** 2 / torch.exp(log_var))
+                    per_sample_nll = 0.5 * (
+                        torch.log(torch.tensor(2 * math.pi))
+                        + log_var
+                        + (targets - mean) ** 2 / torch.exp(log_var)
+                    )
                     return torch.mean(per_sample_nll)
 
                 self.criterion = nll_loss
@@ -239,9 +294,13 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
 
         if self.learn_regularization_lambdas:
             if self.using_l1_regularization:
-                self.l1_log_lambda = nn.Parameter(torch.tensor(np.log(1e-4), dtype=torch.float32))
+                self.l1_log_lambda = nn.Parameter(
+                    torch.tensor(np.log(1e-4), dtype=torch.float32)
+                )
             if self.using_l2_regularization:
-                self.l2_log_lambda = nn.Parameter(torch.tensor(np.log(1e-4), dtype=torch.float32))
+                self.l2_log_lambda = nn.Parameter(
+                    torch.tensor(np.log(1e-4), dtype=torch.float32)
+                )
 
         if self.random_seed is not None:
             torch.manual_seed(self.random_seed)
@@ -256,11 +315,15 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         y_train_tensor = torch.tensor(y_train, dtype=torch.float32).to(self.device)
         if self.task_type == TaskType.CLASSIFICATION:
             y_train_tensor = y_train_tensor.long()
-        if (self.task_type == TaskType.REGRESSION) or (self.task_type == TaskType.CLASSIFICATION and self.output_size == 1):
+        if (self.task_type == TaskType.REGRESSION) or (
+            self.task_type == TaskType.CLASSIFICATION and self.output_size == 1
+        ):
             y_train_tensor = y_train_tensor.unsqueeze(1)
 
         train_dataset = torch.utils.data.TensorDataset(x_train_tensor, y_train_tensor)
-        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
+        train_dataloader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=self.batch_size, shuffle=True
+        )
 
         x_val_tensor, y_val_tensor = None, None
         if x_val is not None:
@@ -268,7 +331,9 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             y_val_tensor = torch.tensor(y_val, dtype=torch.float32).to(self.device)
             if self.task_type == TaskType.CLASSIFICATION:
                 y_val_tensor = y_val_tensor.long()
-            if (self.task_type == TaskType.REGRESSION) or (self.task_type == TaskType.CLASSIFICATION and self.output_size == 1):
+            if (self.task_type == TaskType.REGRESSION) or (
+                self.task_type == TaskType.CLASSIFICATION and self.output_size == 1
+            ):
                 y_val_tensor = y_val_tensor.unsqueeze(1)
 
         best_val_loss = float("inf")
@@ -295,7 +360,10 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                 main_loss = self.criterion(final_output, batch_y)
                 main_loss = self._calculate_regularization_loss(main_loss, self.model)
 
-                if self.layer_selection_method == LayerSelectionMethod.REINFORCE and log_prob is not None:
+                if (
+                    self.layer_selection_method == LayerSelectionMethod.REINFORCE
+                    and log_prob is not None
+                ):
                     # Calculate policy loss (REINFORCE)
                     # The reward signal is typically the negative of the validation loss,
                     # but for batch-wise updates, we can use the negative of the current batch's main_loss
@@ -309,7 +377,9 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                     # The policy loss is typically added to the main loss.
                     # The weighting of policy_loss can be a hyperparameter.
                     # For now, let's add it directly.
-                    loss = main_loss + policy_loss.mean()  # Use .mean() if log_prob is per-sample
+                    loss = (
+                        main_loss + policy_loss.mean()
+                    )  # Use .mean() if log_prob is per-sample
                 else:
                     loss = main_loss
 
@@ -329,7 +399,9 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                 val_loss_history.append(val_loss)
 
                 # Pass collected epoch_log_probs
-                self.strategy.on_epoch_end(validation_loss=val_loss, epoch_log_probs=epoch_log_probs)
+                self.strategy.on_epoch_end(
+                    validation_loss=val_loss, epoch_log_probs=epoch_log_probs
+                )
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
@@ -339,7 +411,10 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                 else:
                     patience_counter += 1
 
-                if self.early_stopping_rounds and patience_counter >= self.early_stopping_rounds:
+                if (
+                    self.early_stopping_rounds
+                    and patience_counter >= self.early_stopping_rounds
+                ):
                     logger.info(f"Early stopping at epoch {best_epoch + 1}")
                     break
             else:
@@ -348,7 +423,10 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         if best_model_state and x_val_tensor is not None:
             self.model.load_state_dict(best_model_state)
 
-        if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
+        if (
+            self.is_regression_model
+            and self.uncertainty_method == UncertaintyMethod.CONSTANT
+        ):
             y_pred_train = self.predict(x_train, filter_data=False)
             self._train_residual_std = np.std(y_train - y_pred_train)
             if np.isnan(self._train_residual_std):
@@ -356,9 +434,13 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
 
         if self.learn_regularization_lambdas:
             if self.l1_log_lambda is not None:
-                logger.info(f"Learned L1 Lambda: {torch.exp(self.l1_log_lambda).item():.6f}")
+                logger.info(
+                    f"Learned L1 Lambda: {torch.exp(self.l1_log_lambda).item():.6f}"
+                )
             if self.l2_log_lambda is not None:
-                logger.info(f"Learned L2 Lambda: {torch.exp(self.l2_log_lambda).item():.6f}")
+                logger.info(
+                    f"Learned L2 Lambda: {torch.exp(self.l2_log_lambda).item():.6f}"
+                )
 
         return best_epoch + 1, val_loss_history
 
@@ -377,13 +459,18 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             x = self._filter_predict_data(x)
         x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
 
-        if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
+        if (
+            self.is_regression_model
+            and self.uncertainty_method == UncertaintyMethod.MC_DROPOUT
+        ):
             self.model.train()
             mc_predictions = []
             with torch.no_grad():
                 final_output_list = []
                 # Need to get n_actual for each sample for MC Dropout
-                n_logits = self.model.n_predictor(x_tensor) if self.model.n_predictor else None
+                n_logits = (
+                    self.model.n_predictor(x_tensor) if self.model.n_predictor else None
+                )
                 _, n_actual_tensor, _, _, _ = self.strategy.forward(x_tensor, n_logits)
                 selected_network_indices = (n_actual_tensor - 1).long()
 
@@ -392,15 +479,21 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                     for i in range(x_tensor.shape[0]):
                         idx = selected_network_indices[i].item()
                         selected_network = self.model.independent_networks[idx]
-                        current_mc_output_list.append(selected_network(x_tensor[i].unsqueeze(0)))
-                    mc_predictions.append(torch.cat(current_mc_output_list, dim=0).cpu().numpy().flatten())
+                        current_mc_output_list.append(
+                            selected_network(x_tensor[i].unsqueeze(0))
+                        )
+                    mc_predictions.append(
+                        torch.cat(current_mc_output_list, dim=0).cpu().numpy().flatten()
+                    )
             self.model.eval()  # Set back to eval mode
             return np.mean(mc_predictions, axis=0)
 
         self.model.eval()
         with torch.no_grad():
             # Need to get n_actual for each sample
-            n_logits = self.model.n_predictor(x_tensor) if self.model.n_predictor else None
+            n_logits = (
+                self.model.n_predictor(x_tensor) if self.model.n_predictor else None
+            )
             _, n_actual_tensor, _, _, _ = self.strategy.forward(x_tensor, n_logits)
             selected_network_indices = (n_actual_tensor - 1).long()
 
@@ -413,15 +506,27 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             final_output = torch.cat(final_output_list, dim=0)
 
             if self.task_type == TaskType.CLASSIFICATION:
-                predictions = (torch.sigmoid(final_output) > 0.5).cpu().numpy().astype(int) if self.output_size == 1 else torch.argmax(final_output, dim=1).cpu().numpy()
+                predictions = (
+                    (torch.sigmoid(final_output) > 0.5).cpu().numpy().astype(int)
+                    if self.output_size == 1
+                    else torch.argmax(final_output, dim=1).cpu().numpy()
+                )
             else:
-                predictions = final_output[:, 0].cpu().numpy() if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else final_output.cpu().numpy()
+                predictions = (
+                    final_output[:, 0].cpu().numpy()
+                    if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC
+                    else final_output.cpu().numpy()
+                )
         return predictions.flatten()
 
-    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+    def predict_uncertainty(
+        self, x: np.ndarray, filter_data: bool = True
+    ) -> np.ndarray:
         """Estimates uncertainty for regression."""
         if not self.is_regression_model:
-            raise ValueError("predict_uncertainty is only available for regression models.")
+            raise ValueError(
+                "predict_uncertainty is only available for regression models."
+            )
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
@@ -434,7 +539,9 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             self.model.eval()  # Use eval mode for prediction
             with torch.no_grad():
                 # Need to get n_actual for each sample
-                n_logits = self.model.n_predictor(x_tensor) if self.model.n_predictor else None
+                n_logits = (
+                    self.model.n_predictor(x_tensor) if self.model.n_predictor else None
+                )
                 _, n_actual_tensor, _, _, _ = self.strategy.forward(x_tensor, n_logits)
                 selected_network_indices = (n_actual_tensor - 1).long()
 
@@ -453,7 +560,9 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             mc_predictions = []
             with torch.no_grad():
                 # Need to get n_actual for each sample
-                n_logits = self.model.n_predictor(x_tensor) if self.model.n_predictor else None
+                n_logits = (
+                    self.model.n_predictor(x_tensor) if self.model.n_predictor else None
+                )
                 _, n_actual_tensor, _, _, _ = self.strategy.forward(x_tensor, n_logits)
                 selected_network_indices = (n_actual_tensor - 1).long()
 
@@ -462,8 +571,12 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                     for i in range(x_tensor.shape[0]):
                         idx = selected_network_indices[i].item()
                         selected_network = self.model.independent_networks[idx]
-                        current_mc_output_list.append(selected_network(x_tensor[i].unsqueeze(0)))
-                    mc_predictions.append(torch.cat(current_mc_output_list, dim=0).cpu().numpy().flatten())
+                        current_mc_output_list.append(
+                            selected_network(x_tensor[i].unsqueeze(0))
+                        )
+                    mc_predictions.append(
+                        torch.cat(current_mc_output_list, dim=0).cpu().numpy().flatten()
+                    )
             self.model.eval()  # Set back to eval mode
             return np.std(mc_predictions, axis=0)  # Return std dev of MC samples
         raise ValueError(f"Unknown uncertainty_method: {self.uncertainty_method.value}")
@@ -471,7 +584,9 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
     def predict_proba(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Predicts class probabilities for classification tasks."""
         if self.task_type != TaskType.CLASSIFICATION:
-            raise ValueError("predict_proba is only available for classification tasks.")
+            raise ValueError(
+                "predict_proba is only available for classification tasks."
+            )
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
 
@@ -481,7 +596,9 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
         with torch.no_grad():
             # Need to get n_actual for each sample
-            n_logits = self.model.n_predictor(x_tensor) if self.model.n_predictor else None
+            n_logits = (
+                self.model.n_predictor(x_tensor) if self.model.n_predictor else None
+            )
             _, n_actual_tensor, _, _, _ = self.strategy.forward(x_tensor, n_logits)
             selected_network_indices = (n_actual_tensor - 1).long()
 

@@ -9,7 +9,11 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from automl_package.enums import RegressionStrategy, UncertaintyMethod
 from automl_package.logger import logger
-from automl_package.models.common.regression_heads import SeparateHeadsRegressionModule, SingleHeadFinalOutputRegressionModule, SingleHeadNOutputsRegressionModule
+from automl_package.models.common.regression_heads import (
+    SeparateHeadsRegressionModule,
+    SingleHeadFinalOutputRegressionModule,
+    SingleHeadNOutputsRegressionModule,
+)
 from automl_package.models.mappers.base_mapper import BaseMapper
 
 
@@ -43,7 +47,9 @@ class NeuralNetworkMapper(BaseMapper):
         self.mapper_params = mapper_params
         self.early_stopping_rounds = early_stopping_rounds
         self.validation_fraction = validation_fraction
-        self.device = self.mapper_params.get("device", torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        self.device = self.mapper_params.get(
+            "device", torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        )
         self.epochs = self.mapper_params.get("epochs", 100)
         self.batch_size = self.mapper_params.get("batch_size", 32)
         self.learning_rate = self.mapper_params.get("learning_rate", 1e-3)
@@ -88,7 +94,9 @@ class NeuralNetworkMapper(BaseMapper):
             probas = np.hstack((1 - probas, probas))
         return probas
 
-    def _fit(self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any) -> dict[str, Any]:
+    def _fit(
+        self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any
+    ) -> dict[str, Any]:
         """Fits the neural network mapper. This involves a full training loop."""
         train_indices = kwargs.get("train_indices")
         val_indices = kwargs.get("val_indices")
@@ -99,17 +107,30 @@ class NeuralNetworkMapper(BaseMapper):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
         loss_fn = nn.MSELoss()
 
-        use_early_stopping = self.early_stopping_rounds and self.early_stopping_rounds > 0 and train_indices is not None and val_indices is not None
+        use_early_stopping = (
+            self.early_stopping_rounds
+            and self.early_stopping_rounds > 0
+            and train_indices is not None
+            and val_indices is not None
+        )
 
         if use_early_stopping:
-            logger.info("NNMapper: Using provided train and validation indices for early stopping.")
+            logger.info(
+                "NNMapper: Using provided train and validation indices for early stopping."
+            )
             probas_train, y_train = probas[train_indices], y_original[train_indices]
             probas_val, y_val = probas[val_indices], y_original[val_indices]
 
-            probas_val_tensor = torch.tensor(probas_val, dtype=torch.float32).to(self.device)
-            y_val_tensor = torch.tensor(y_val, dtype=torch.float32).reshape(-1, 1).to(self.device)
+            probas_val_tensor = torch.tensor(probas_val, dtype=torch.float32).to(
+                self.device
+            )
+            y_val_tensor = (
+                torch.tensor(y_val, dtype=torch.float32).reshape(-1, 1).to(self.device)
+            )
         else:
-            logger.info("NNMapper: Not using early stopping. Training on all provided data.")
+            logger.info(
+                "NNMapper: Not using early stopping. Training on all provided data."
+            )
             probas_train, y_train = probas, y_original
 
         # Create DataLoader
@@ -150,7 +171,9 @@ class NeuralNetworkMapper(BaseMapper):
                     epochs_no_improve += 1
 
                 if epochs_no_improve >= self.early_stopping_rounds:
-                    logger.info(f"NNMapper: Early stopping at epoch {epoch + 1}, best epoch was {best_epoch}")
+                    logger.info(
+                        f"NNMapper: Early stopping at epoch {epoch + 1}, best epoch was {best_epoch}"
+                    )
                     break
 
         if use_early_stopping and best_model_state:
@@ -167,7 +190,9 @@ class NeuralNetworkMapper(BaseMapper):
 
         self.model.eval()
         with torch.no_grad():
-            probas_tensor = torch.tensor(probas_new, dtype=torch.float32).to(self.device)
+            probas_tensor = torch.tensor(probas_new, dtype=torch.float32).to(
+                self.device
+            )
             predictions_tensor = self.model(probas_tensor)
             return predictions_tensor.cpu().numpy()
 

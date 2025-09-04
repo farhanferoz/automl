@@ -24,7 +24,9 @@ from automl_package.models.xgboost_model import XGBoostModel
 from automl_package.utils.metrics_utils import calculate_metric
 
 
-def generate_noisy_data(n_samples: int = 1000, noise_level: float = 0.5, random_seed: int | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def generate_noisy_data(
+    n_samples: int = 1000, noise_level: float = 0.5, random_seed: int | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Generates synthetic data with a non-linear relationship and significant noise."""
     if random_seed is not None:
         np.random.seed(random_seed)
@@ -55,10 +57,14 @@ def plot_results_bokeh(
     )
 
     # Training Data
-    train_data_glyph = p.scatter(x_train.flatten(), y_train, color="gray", alpha=0.5, size=5)
+    train_data_glyph = p.scatter(
+        x_train.flatten(), y_train, color="gray", alpha=0.5, size=5
+    )
 
     # Test Data
-    test_data_glyph = p.scatter(x_test.flatten(), y_test, color="blue", alpha=0.5, size=5)
+    test_data_glyph = p.scatter(
+        x_test.flatten(), y_test, color="blue", alpha=0.5, size=5
+    )
 
     # True Relationship
     sorted_indices_true = np.argsort(x_test, axis=0).flatten()
@@ -87,7 +93,11 @@ def plot_results_bokeh(
             line_color=colors[i % len(colors)],
             line_width=2,
         )
-        legend_items.append(LegendItem(label=f"{name} (MSE: {result['mse']:.4f})", renderers=[line_glyph]))
+        legend_items.append(
+            LegendItem(
+                label=f"{name} (MSE: {result['mse']:.4f})", renderers=[line_glyph]
+            )
+        )
 
     # Create a custom legend to allow toggling
     legend = Legend(
@@ -106,7 +116,9 @@ def run_experiment() -> None:
     """Runs the full experiment to compare model performances."""
     random_seed = 42
     x, y, y_true = generate_noisy_data(random_seed=random_seed)
-    x_train, x_test, y_train, y_test, y_true_train, y_true_test = train_test_split(x, y, y_true, test_size=0.2, random_state=random_seed)
+    x_train, x_test, y_train, y_test, y_true_train, y_true_test = train_test_split(
+        x, y, y_true, test_size=0.2, random_state=random_seed
+    )
 
     # Scale features and target
     scaler_x = StandardScaler()
@@ -237,7 +249,9 @@ def run_experiment() -> None:
     for name, model in models.items():
         print(f"Training {name}...")
         model.fit(x_train_scaled, y_train_scaled)
-        y_pred_scaled = model.evaluate(x_test_scaled, y_test_scaled, save_path=f"{name}_metrics")
+        y_pred_scaled = model.evaluate(
+            x_test_scaled, y_test_scaled, save_path=f"{name}_metrics"
+        )
         y_pred = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
 
         mse = calculate_metric(y_test, y_pred, Metric.MSE, TaskType.REGRESSION)

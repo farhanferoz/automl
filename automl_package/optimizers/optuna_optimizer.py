@@ -9,7 +9,12 @@ import optuna
 class OptunaOptimizer:
     """Manages hyperparameter optimization using Optuna."""
 
-    def __init__(self, direction: str = "minimize", n_trials: int = 50, random_seed: int | None = None) -> None:
+    def __init__(
+        self,
+        direction: str = "minimize",
+        n_trials: int = 50,
+        random_seed: int | None = None,
+    ) -> None:
         """Initializes the Optuna optimizer.
 
         Args:
@@ -22,7 +27,9 @@ class OptunaOptimizer:
         self.random_seed = random_seed
         self.study: optuna.study.Study = None
 
-    def optimize(self, objective_fn: Callable[[optuna.Trial], float], **kwargs: Any) -> optuna.study.Study:
+    def optimize(
+        self, objective_fn: Callable[[optuna.Trial], float], **kwargs: Any
+    ) -> optuna.study.Study:
         """Runs the Optuna optimization.
 
         Args:
@@ -34,7 +41,11 @@ class OptunaOptimizer:
         Returns:
             optuna.study.Study: The Optuna study object containing optimization results.
         """
-        sampler = optuna.samplers.TPESampler(seed=self.random_seed) if self.random_seed is not None else optuna.samplers.TPESampler()
+        sampler = (
+            optuna.samplers.TPESampler(seed=self.random_seed)
+            if self.random_seed is not None
+            else optuna.samplers.TPESampler()
+        )
 
         self.study = optuna.create_study(
             direction=self.direction,
@@ -44,5 +55,7 @@ class OptunaOptimizer:
 
         # The objective_fn directly takes the trial object now.
         # `show_progress_bar=True` is useful for interactive sessions.
-        self.study.optimize(objective_fn, n_trials=self.n_trials, show_progress_bar=True, **kwargs)
+        self.study.optimize(
+            objective_fn, n_trials=self.n_trials, show_progress_bar=True, **kwargs
+        )
         return self.study

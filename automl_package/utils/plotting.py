@@ -11,15 +11,21 @@ import torch
 from automl_package.enums import RegressionStrategy
 
 
-def plot_feature_importance(feature_importances: dict[str, float], file_path: str) -> None:
+def plot_feature_importance(
+    feature_importances: dict[str, float], file_path: str
+) -> None:
     """Plots feature importances and saves the plot to a file.
 
     Args:
         feature_importances (Dict[str, float]): A dictionary of feature importances.
         file_path (str): The path to save the plot to.
     """
-    feature_importance_df = pd.DataFrame(list(feature_importances.items()), columns=["Feature", "Importance"])
-    feature_importance_df = feature_importance_df.sort_values(by="Importance", ascending=False)
+    feature_importance_df = pd.DataFrame(
+        list(feature_importances.items()), columns=["Feature", "Importance"]
+    )
+    feature_importance_df = feature_importance_df.sort_values(
+        by="Importance", ascending=False
+    )
 
     plt.figure(figsize=(10, 8))
     sns.barplot(x="Importance", y="Feature", data=feature_importance_df)

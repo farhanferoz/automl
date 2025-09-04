@@ -43,7 +43,11 @@ class _PyTorchNNModule(nn.Module):
             if use_batch_norm:
                 layers.append(nn.BatchNorm1d(hidden_size))
             layers.append(activation())
-            if is_regression and uncertainty_method == UncertaintyMethod.MC_DROPOUT and dropout_rate > 0:
+            if (
+                is_regression
+                and uncertainty_method == UncertaintyMethod.MC_DROPOUT
+                and dropout_rate > 0
+            ):
                 layers.append(nn.Dropout(dropout_rate))
 
         layers.append(nn.Linear(hidden_size, current_output_size))
@@ -62,7 +66,11 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
     Includes L1 and L2 regularization.
     """
 
-    _defaults: ClassVar[dict[str, Any]] = {"hidden_layers": 1, "hidden_size": 64, "activation": ActivationFunction.RELU}
+    _defaults: ClassVar[dict[str, Any]] = {
+        "hidden_layers": 1,
+        "hidden_size": 64,
+        "activation": ActivationFunction.RELU,
+    }
 
     def __init__(self, **kwargs: Any) -> None:
         """Initializes the PyTorchNeuralNetwork."""
@@ -103,13 +111,19 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
         if self.is_regression_model:
             if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
                 # Custom Negative Log-Likelihood Loss for Gaussian output
-                def nll_loss(outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+                def nll_loss(
+                    outputs: torch.Tensor, targets: torch.Tensor
+                ) -> torch.Tensor:
                     mean = outputs[:, 0]
                     log_var = outputs[:, 1]
                     # Ensure targets has the same shape as mean for element-wise operations
                     targets = targets.squeeze(-1) if targets.ndim > 1 else targets
                     # Calculate per-sample NLL
-                    per_sample_nll = 0.5 * (math.log(2 * math.pi) + log_var + (targets - mean) ** 2 / torch.exp(log_var))
+                    per_sample_nll = 0.5 * (
+                        math.log(2 * math.pi)
+                        + log_var
+                        + (targets - mean) ** 2 / torch.exp(log_var)
+                    )
                     # Average over the batch
                     return torch.mean(per_sample_nll)
 
@@ -117,7 +131,9 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
             else:  # Standard MSE loss for other regression methods
                 self.criterion = nn.MSELoss()
         elif self.task_type == TaskType.CLASSIFICATION:
-            if self.output_size == 1:  # Binary classification (e.g., outputs logits for BCEWithLogitsLoss)
+            if (
+                self.output_size == 1
+            ):  # Binary classification (e.g., outputs logits for BCEWithLogitsLoss)
                 self.criterion = nn.BCEWithLogitsLoss()
             else:  # Multi-class classification
                 self.criterion = nn.CrossEntropyLoss()

@@ -71,7 +71,11 @@ class BaseMapper(ABC):
         Returns:
             np.ndarray: The predicted values.
         """
-        return np.full(probas_new.shape[0], self._constant_prediction_value) if self._constant_prediction_value is not None else self._predict(probas_new)
+        return (
+            np.full(probas_new.shape[0], self._constant_prediction_value)
+            if self._constant_prediction_value is not None
+            else self._predict(probas_new)
+        )
 
     @abstractmethod
     def _predict(self, probas_new: np.ndarray) -> np.ndarray:
@@ -87,7 +91,11 @@ class BaseMapper(ABC):
         Returns:
             np.ndarray: The predicted variances.
         """
-        return np.full(probas_new.shape[0], self._constant_variance_value) if self._constant_variance_value is not None else self._predict_variance(probas_new)
+        return (
+            np.full(probas_new.shape[0], self._constant_variance_value)
+            if self._constant_variance_value is not None
+            else self._predict_variance(probas_new)
+        )
 
     @abstractmethod
     def _predict_variance(self, probas_new: np.ndarray) -> np.ndarray:

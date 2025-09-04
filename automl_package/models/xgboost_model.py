@@ -73,7 +73,9 @@ class XGBoostModel(BaseModel):
                 - A list of the validation loss values for each epoch.
         """
         eval_set = None
-        use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
+        use_early_stopping = (
+            self.early_stopping_rounds is not None and forced_iterations is None
+        )
 
         params = self.params.copy()
         if use_early_stopping and x_val is not None:
@@ -85,9 +87,18 @@ class XGBoostModel(BaseModel):
             self.train_indices = np.arange(x_train.shape[0])
             self.val_indices = None
 
-        model_instance = xgb.XGBClassifier if self.task_type == TaskType.CLASSIFICATION else xgb.XGBRegressor
+        model_instance = (
+            xgb.XGBClassifier
+            if self.task_type == TaskType.CLASSIFICATION
+            else xgb.XGBRegressor
+        )
         params.setdefault("n_estimators", 500)
-        self.model = model_instance(objective=self.objective, eval_metric=self.eval_metric, random_state=self.random_seed, **params)
+        self.model = model_instance(
+            objective=self.objective,
+            eval_metric=self.eval_metric,
+            random_state=self.random_seed,
+            **params,
+        )
 
         if forced_iterations is not None:
             self.model.n_estimators = forced_iterations
@@ -105,21 +116,31 @@ class XGBoostModel(BaseModel):
             if np.isnan(self._train_residual_std):
                 self._train_residual_std = 0.0
 
-        best_iteration = self.model.best_iteration if use_early_stopping and self.model.best_iteration is not None else self.model.n_estimators
+        best_iteration = (
+            self.model.best_iteration
+            if use_early_stopping and self.model.best_iteration is not None
+            else self.model.n_estimators
+        )
         loss_history = get_loss_history(self.model, use_early_stopping)
 
         return best_iteration, loss_history
 
     def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """Evaluates a trial for hyperparameter optimization."""
-        return self._calculate_metric(y_true, y_pred, Metric.RMSE if self.is_regression_model else Metric.ACCURACY)
+        return self._calculate_metric(
+            y_true, y_pred, Metric.RMSE if self.is_regression_model else Metric.ACCURACY
+        )
 
-    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
+    def _calculate_metric(
+        self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric
+    ) -> float:
         """Calculates a metric."""
         if metric == Metric.RMSE:
             return np.sqrt(mean_squared_error(y_true, y_pred))
         if metric == Metric.ACCURACY:
-            y_pred_labels = np.argmax(y_pred, axis=1) if y_pred.ndim == 2 else np.round(y_pred)
+            y_pred_labels = (
+                np.argmax(y_pred, axis=1) if y_pred.ndim == 2 else np.round(y_pred)
+            )
             return accuracy_score(y_true, y_pred_labels)
         raise ValueError(f"Unknown metric: {metric}")
 
@@ -172,7 +193,9 @@ class XGBoostModel(BaseModel):
             predictions = self.model.predict(x)
         return predictions
 
-    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+    def predict_uncertainty(
+        self, x: np.ndarray, filter_data: bool = True
+    ) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
@@ -183,7 +206,9 @@ class XGBoostModel(BaseModel):
             np.ndarray: Uncertainty estimates (e.g., standard deviation).
         """
         if not self.is_regression_model:
-            raise ValueError("predict_uncertainty is only available for regression models.")
+            raise ValueError(
+                "predict_uncertainty is only available for regression models."
+            )
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
@@ -204,7 +229,9 @@ class XGBoostModel(BaseModel):
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if not hasattr(self.model, "predict_proba"):
-            raise ValueError("predict_proba is not available for the current XGBoost configuration (likely regression).")
+            raise ValueError(
+                "predict_proba is not available for the current XGBoost configuration (likely regression)."
+            )
         if filter_data:
             x = self._filter_predict_data(x)
         proba = self.model.predict_proba(x)
@@ -222,8 +249,18 @@ class XGBoostModel(BaseModel):
             "subsample": {"type": "float", "low": 0.6, "high": 1.0, "step": 0.1},
             "colsample_bytree": {"type": "float", "low": 0.6, "high": 1.0, "step": 0.1},
             "gamma": {"type": "float", "low": 0.0, "high": 0.2, "step": 0.05},
-            "reg_alpha": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L1 regularization
-            "reg_lambda": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L2 regularization
+            "reg_alpha": {
+                "type": "float",
+                "low": 1e-6,
+                "high": 1.0,
+                "log": True,
+            },  # L1 regularization
+            "reg_lambda": {
+                "type": "float",
+                "low": 1e-6,
+                "high": 1.0,
+                "log": True,
+            },  # L2 regularization
         }
         if self.early_stopping_rounds is None:
             space["n_estimators"] = {"type": "int", "low": 5, "high": 550, "step": 50}
@@ -243,14 +280,21 @@ class XGBoostModel(BaseModel):
         """
         if self.model is None:
             return 0
-        if hasattr(self.model, "best_iteration") and self.model.best_iteration is not None:
+        if (
+            hasattr(self.model, "best_iteration")
+            and self.model.best_iteration is not None
+        ):
             return self.model.best_iteration
         return self.model.n_estimators
 
-    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> Never:
+    def get_classifier_predictions(
+        self, x: np.ndarray, y_true_original: np.ndarray
+    ) -> Never:
         """Not implemented for XGBoostModel.
 
         Raises:
             NotImplementedError: XGBoostModel is not a composite model.
         """
-        raise NotImplementedError("XGBoostModel is not a composite model and does not have an internal classifier for separate prediction.")
+        raise NotImplementedError(
+            "XGBoostModel is not a composite model and does not have an internal classifier for separate prediction."
+        )

@@ -49,7 +49,12 @@ class CatBoostModel(BaseModel):
         return Metric.RMSE if self.is_regression_model else Metric.ACCURACY
 
     def _fit_single(
-        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        forced_iterations: int | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -66,13 +71,20 @@ class CatBoostModel(BaseModel):
                 - A list of the validation loss values for each epoch.
         """
         eval_set = None
-        use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
+        use_early_stopping = (
+            self.early_stopping_rounds is not None and forced_iterations is None
+        )
 
         if use_early_stopping and x_val is not None:
             eval_set = Pool(x_val, y_val)
 
         params = self.params.copy()
-        iteration_synonyms = ["iterations", "n_estimators", "num_boost_round", "num_trees"]
+        iteration_synonyms = [
+            "iterations",
+            "n_estimators",
+            "num_boost_round",
+            "num_trees",
+        ]
         for synonym in iteration_synonyms:
             params.pop(synonym, None)
 
@@ -87,7 +99,11 @@ class CatBoostModel(BaseModel):
                 iterations = 500
             params["iterations"] = iterations
 
-        self.model = CatBoostRegressor(**params) if self.task_type == TaskType.REGRESSION else CatBoostClassifier(**params)
+        self.model = (
+            CatBoostRegressor(**params)
+            if self.task_type == TaskType.REGRESSION
+            else CatBoostClassifier(**params)
+        )
 
         fit_params: dict[str, Any] = {}
         if eval_set is not None:
@@ -96,7 +112,11 @@ class CatBoostModel(BaseModel):
 
         self.model.fit(x_train, y_train, **fit_params)
 
-        best_iteration = self.model.tree_count_ if (use_early_stopping and (self.model.tree_count_ is not None)) else params["iterations"]
+        best_iteration = (
+            self.model.tree_count_
+            if (use_early_stopping and (self.model.tree_count_ is not None))
+            else params["iterations"]
+        )
         loss_history = get_loss_history(self.model, use_early_stopping)
 
         return best_iteration, loss_history
@@ -111,9 +131,13 @@ class CatBoostModel(BaseModel):
         Returns:
             float: The evaluation score.
         """
-        return self._calculate_metric(y_true, y_pred, Metric.RMSE if self.is_regression_model else Metric.ACCURACY)
+        return self._calculate_metric(
+            y_true, y_pred, Metric.RMSE if self.is_regression_model else Metric.ACCURACY
+        )
 
-    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
+    def _calculate_metric(
+        self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric
+    ) -> float:
         """Calculates a metric."""
         if metric == Metric.RMSE:
             return np.sqrt(mean_squared_error(y_true, y_pred))
@@ -166,7 +190,9 @@ class CatBoostModel(BaseModel):
         proba = self.model.predict_proba(x)
         return ensure_proba_shape(proba, self.model.classes_.size)
 
-    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+    def predict_uncertainty(
+        self, x: np.ndarray, filter_data: bool = True
+    ) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
@@ -177,7 +203,9 @@ class CatBoostModel(BaseModel):
             np.ndarray: Uncertainty estimates (e.g., standard deviation).
         """
         if not self.is_regression_model:
-            raise ValueError("predict_uncertainty is only available for regression models.")
+            raise ValueError(
+                "predict_uncertainty is only available for regression models."
+            )
         if filter_data:
             x = self._filter_predict_data(x)
         return np.full(x.shape[0], self._train_residual_std)
@@ -211,7 +239,9 @@ class CatBoostModel(BaseModel):
         """
         return 0 if self.model is None else self.model.tree_count_
 
-    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> Never:
+    def get_classifier_predictions(
+        self, x: np.ndarray, y_true_original: np.ndarray
+    ) -> Never:
         """Not implemented for CatBoostModel.
 
         Raises:

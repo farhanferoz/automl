@@ -10,7 +10,12 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.metrics import accuracy_score, mean_squared_error
 
-from automl_package.enums import LearnedRegularizationType, Metric, TaskType, UncertaintyMethod
+from automl_package.enums import (
+    LearnedRegularizationType,
+    Metric,
+    TaskType,
+    UncertaintyMethod,
+)
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 from automl_package.utils.numerics import aggregate_stats, ensure_proba_shape, log_erfc
@@ -53,10 +58,16 @@ class PyTorchModelBase(BaseModel, ABC):
         # Now, override any attributes set by the parent's constructor if necessary
         self.l1_log_lambda, self.l2_log_lambda = None, None
         self.using_l1_regularization = (
-            self.learned_regularization_type in [LearnedRegularizationType.L1_ONLY, LearnedRegularizationType.L1_L2] if self.learn_regularization_lambdas else self.l1_lambda > 0
+            self.learned_regularization_type
+            in [LearnedRegularizationType.L1_ONLY, LearnedRegularizationType.L1_L2]
+            if self.learn_regularization_lambdas
+            else self.l1_lambda > 0
         )
         self.using_l2_regularization = (
-            self.learned_regularization_type in [LearnedRegularizationType.L2_ONLY, LearnedRegularizationType.L1_L2] if self.learn_regularization_lambdas else self.l2_lambda > 0
+            self.learned_regularization_type
+            in [LearnedRegularizationType.L2_ONLY, LearnedRegularizationType.L1_L2]
+            if self.learn_regularization_lambdas
+            else self.l2_lambda > 0
         )
         self.model: nn.Module | None = None
         self.criterion: nn.Module | None = None
@@ -80,30 +91,60 @@ class PyTorchModelBase(BaseModel, ABC):
         """Sets up the optimizers for the model."""
         self.optimizer = optim.Adam(model.parameters(), lr=self.learning_rate)
         if self.learn_regularization_lambdas:
-            lambda_params = [p for p in [self.l1_log_lambda, self.l2_log_lambda] if p is not None]
+            lambda_params = [
+                p for p in [self.l1_log_lambda, self.l2_log_lambda] if p is not None
+            ]
             if lambda_params:
-                self.lambda_optimizer = optim.Adam(lambda_params, lr=self.lambda_learning_rate)
+                self.lambda_optimizer = optim.Adam(
+                    lambda_params, lr=self.lambda_learning_rate
+                )
         elif self.l2_lambda > 0:
             for group in self.optimizer.param_groups:
                 group["weight_decay"] = self.l2_lambda
 
-    def _calculate_regularization_loss(self, base_loss: torch.Tensor, model: torch.nn.Module) -> torch.Tensor:
+    def _calculate_regularization_loss(
+        self, base_loss: torch.Tensor, model: torch.nn.Module
+    ) -> torch.Tensor:
         """Calculates the regularization loss."""
         loss = base_loss
         d, l1_sum, l2_sum = aggregate_stats(model=model, include_bias=False)
         if self.learn_regularization_lambdas:
-            l1_lambda_val = torch.exp(self.l1_log_lambda) if self.using_l1_regularization and self.l1_log_lambda is not None else None
-            l2_lambda_val = torch.exp(self.l2_log_lambda) if self.using_l2_regularization and self.l2_log_lambda is not None else None
+            l1_lambda_val = (
+                torch.exp(self.l1_log_lambda)
+                if self.using_l1_regularization and self.l1_log_lambda is not None
+                else None
+            )
+            l2_lambda_val = (
+                torch.exp(self.l2_log_lambda)
+                if self.using_l2_regularization and self.l2_log_lambda is not None
+                else None
+            )
 
-            if self.learned_regularization_type == LearnedRegularizationType.L1_ONLY and l1_lambda_val is not None:
-                loss = loss - d * torch.log(l1_lambda_val / 2.0) + l1_lambda_val * l1_sum
-            elif self.learned_regularization_type == LearnedRegularizationType.L2_ONLY and l2_lambda_val is not None:
-                loss = loss - (d / 2.0) * torch.log(l2_lambda_val / torch.pi) + l2_lambda_val * l2_sum
+            if (
+                self.learned_regularization_type == LearnedRegularizationType.L1_ONLY
+                and l1_lambda_val is not None
+            ):
+                loss = (
+                    loss - d * torch.log(l1_lambda_val / 2.0) + l1_lambda_val * l1_sum
+                )
+            elif (
+                self.learned_regularization_type == LearnedRegularizationType.L2_ONLY
+                and l2_lambda_val is not None
+            ):
+                loss = (
+                    loss
+                    - (d / 2.0) * torch.log(l2_lambda_val / torch.pi)
+                    + l2_lambda_val * l2_sum
+                )
             elif l1_lambda_val is not None and l2_lambda_val is not None:
                 log_z = (
-                    torch.log(torch.pi / l2_lambda_val) / 2.0 + torch.square(l1_lambda_val) / (4.0 * l2_lambda_val) + log_erfc(l1_lambda_val / (2.0 * torch.sqrt(l2_lambda_val)))
+                    torch.log(torch.pi / l2_lambda_val) / 2.0
+                    + torch.square(l1_lambda_val) / (4.0 * l2_lambda_val)
+                    + log_erfc(l1_lambda_val / (2.0 * torch.sqrt(l2_lambda_val)))
                 )
-                loss = loss + d * log_z + l1_lambda_val * l1_sum + l2_lambda_val * l2_sum
+                loss = (
+                    loss + d * log_z + l1_lambda_val * l1_sum + l2_lambda_val * l2_sum
+                )
         elif self.l1_lambda > 0:
             loss = loss + self.l1_lambda * l1_sum
         return loss
@@ -147,34 +188,64 @@ class PyTorchModelBase(BaseModel, ABC):
         self.build_model()
         if self.learn_regularization_lambdas:
             if self.using_l1_regularization:
-                self.l1_log_lambda = nn.Parameter(torch.tensor(np.log(1e-4), dtype=torch.float32))
+                self.l1_log_lambda = nn.Parameter(
+                    torch.tensor(np.log(1e-4), dtype=torch.float32)
+                )
             if self.using_l2_regularization:
-                self.l2_log_lambda = nn.Parameter(torch.tensor(np.log(1e-4), dtype=torch.float32))
+                self.l2_log_lambda = nn.Parameter(
+                    torch.tensor(np.log(1e-4), dtype=torch.float32)
+                )
         self._setup_optimizers(self.model)
 
-        use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
+        use_early_stopping = (
+            self.early_stopping_rounds is not None and forced_iterations is None
+        )
 
         # Convert to numpy arrays
         x_train = np.array(x_train, dtype=np.float32)
-        y_train = np.array(y_train, dtype=np.float32 if self.is_regression_model else np.int64)
+        y_train = np.array(
+            y_train, dtype=np.float32 if self.is_regression_model else np.int64
+        )
         if x_val is not None:
             x_val = np.array(x_val, dtype=np.float32)
         if y_val is not None:
-            y_val = np.array(y_val, dtype=np.float32 if self.is_regression_model else np.int64)
+            y_val = np.array(
+                y_val, dtype=np.float32 if self.is_regression_model else np.int64
+            )
 
-        is_binary_classification = self.task_type == TaskType.CLASSIFICATION and self.output_size == 1
+        is_binary_classification = (
+            self.task_type == TaskType.CLASSIFICATION and self.output_size == 1
+        )
 
         x_train_tensor = torch.tensor(x_train, dtype=torch.float32).to(self.device)
-        y_train_tensor = torch.tensor(y_train, dtype=torch.float32 if self.is_regression_model or is_binary_classification else torch.long).to(self.device)
+        y_train_tensor = torch.tensor(
+            y_train,
+            dtype=(
+                torch.float32
+                if self.is_regression_model or is_binary_classification
+                else torch.long
+            ),
+        ).to(self.device)
         if self.is_regression_model or is_binary_classification:
             y_train_tensor = y_train_tensor.unsqueeze(1)
 
-        train_dataloader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x_train_tensor, y_train_tensor), batch_size=self.batch_size, shuffle=True)
+        train_dataloader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(x_train_tensor, y_train_tensor),
+            batch_size=self.batch_size,
+            shuffle=True,
+        )
 
         x_val_tensor, y_val_tensor = None, None
         if x_val is not None and y_val is not None:
             x_val_tensor = torch.tensor(x_val, dtype=torch.float32).to(self.device)
-            y_val_tensor = torch.tensor(y_val, dtype=torch.float32 if self.is_regression_model or is_binary_classification else torch.long).to(self.device)
+            y_val_tensor = torch.tensor(
+                y_val,
+                dtype=(
+                    torch.float32
+                    if self.is_regression_model or is_binary_classification
+                    else torch.long
+                ),
+            ).to(self.device)
             if self.is_regression_model or is_binary_classification:
                 y_val_tensor = y_val_tensor.unsqueeze(1)
 
@@ -218,7 +289,10 @@ class PyTorchModelBase(BaseModel, ABC):
 
         if best_model_state and use_early_stopping:
             self.model.load_state_dict(best_model_state)
-        if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
+        if (
+            self.is_regression_model
+            and self.uncertainty_method == UncertaintyMethod.CONSTANT
+        ):
             y_pred_train = self.predict(x_train, filter_data=False)
             self._train_residual_std = np.std(y_train - y_pred_train)
         return best_epoch + 1, val_loss_history
@@ -229,15 +303,23 @@ class PyTorchModelBase(BaseModel, ABC):
 
     def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """Evaluates a trial for hyperparameter optimization."""
-        return self._calculate_metric(y_true, y_pred, metric=Metric.RMSE if self.is_regression_model else Metric.ACCURACY)
+        return self._calculate_metric(
+            y_true,
+            y_pred,
+            metric=Metric.RMSE if self.is_regression_model else Metric.ACCURACY,
+        )
 
-    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
+    def _calculate_metric(
+        self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric
+    ) -> float:
         """Calculates a metric."""
         if metric == Metric.RMSE:
-            return np.sqrt(mean_squared_error(y_true, y_pred))
-        if metric == Metric.ACCURACY:
-            return accuracy_score(y_true, np.round(y_pred))
-        raise ValueError(f"Unknown metric: {metric}")
+            metric_value = np.sqrt(mean_squared_error(y_true, y_pred))
+        elif metric == Metric.ACCURACY:
+            metric_value = accuracy_score(y_true, np.round(y_pred))
+        else:
+            raise ValueError(f"Unknown metric: {metric}")
+        return metric_value
 
     def _clone(self) -> "PyTorchModelBase":
         """Creates a new instance of the model with the same parameters."""
@@ -277,13 +359,20 @@ class PyTorchModelBase(BaseModel, ABC):
             "dropout_rate": {"type": "float", "low": 0.0, "high": 0.5, "step": 0.1},
         }
         if self.is_regression_model:
-            space["n_mc_dropout_samples"] = {"type": "int", "low": 50, "high": 200, "step": 50}
+            space["n_mc_dropout_samples"] = {
+                "type": "int",
+                "low": 50,
+                "high": 200,
+                "step": 50,
+            }
 
         if self.search_space_override:
             space.update(self.search_space_override)
         return space
 
-    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
+    def predict(
+        self, x: np.ndarray | pd.DataFrame, filter_data: bool = True
+    ) -> np.ndarray:
         """Makes predictions on new data."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
@@ -298,17 +387,33 @@ class PyTorchModelBase(BaseModel, ABC):
             model_output = outputs[0] if isinstance(outputs, tuple) else outputs
 
             if self.task_type == TaskType.CLASSIFICATION:
-                predictions = (torch.sigmoid(model_output) > 0.5).cpu().numpy().astype(int) if self.output_size == 1 else torch.argmax(model_output, dim=1).cpu().numpy()
-            else:
-                predictions = model_output.cpu().numpy()
+                predictions = (
+                    (torch.sigmoid(model_output) > 0.5).cpu().numpy().astype(int)
+                    if self.output_size == 1
+                    else torch.argmax(model_output, dim=1).cpu().numpy()
+                )
+            else:  # Regression case
+                predictions = (
+                    (
+                        model_output[:, 0]
+                        if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC
+                        else model_output
+                    )
+                    .cpu()
+                    .numpy()
+                )
         return predictions
 
-    def predict_proba(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
+    def predict_proba(
+        self, x: np.ndarray | pd.DataFrame, filter_data: bool = True
+    ) -> np.ndarray:
         """Predicts class probabilities."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if self.task_type != TaskType.CLASSIFICATION:
-            raise ValueError("predict_proba is only available for classification tasks.")
+            raise ValueError(
+                "predict_proba is only available for classification tasks."
+            )
         if filter_data:
             x = self._filter_predict_data(x)
         self.model.eval()
@@ -330,18 +435,48 @@ class PyTorchModelBase(BaseModel, ABC):
     def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
         """Estimates the uncertainty of predictions."""
         if not self.is_regression_model:
-            raise ValueError("predict_uncertainty is only available for regression models.")
+            raise ValueError(
+                "predict_uncertainty is only available for regression models."
+            )
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
+
+        if isinstance(x, pd.DataFrame):
+            x = x.values
+        x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
+
         if self.uncertainty_method == UncertaintyMethod.CONSTANT:
-            return np.full(x.shape[0], self._train_residual_std)
-        raise ValueError(f"Unknown uncertainty_method: {self.uncertainty_method.value}")
+            uncertainty_std = np.full(x.shape[0], self._train_residual_std)
+        elif self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
+            self.model.train()  # Activate dropout
+            predictions = []
+            for _ in range(self.n_mc_dropout_samples):
+                with torch.no_grad():
+                    outputs = self.model(x_tensor)
+                    model_output = outputs[0] if isinstance(outputs, tuple) else outputs
+                    predictions.append(model_output.cpu().numpy())
+            uncertainty_std = np.std(np.array(predictions), axis=0)
+        elif self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
+            self.model.eval()
+            with torch.no_grad():
+                outputs = self.model(x_tensor)
+                model_output = outputs[0] if isinstance(outputs, tuple) else outputs
+                # Assuming the second column is variance
+                variance = model_output[:, 1].cpu().numpy()
+                uncertainty_std = np.sqrt(variance)
+        else:
+            raise ValueError(
+                f"Unknown uncertainty_method: {self.uncertainty_method.value}"
+            )
+        return uncertainty_std
 
     def get_num_parameters(self) -> int:
         """Returns the number of trainable parameters in the model."""
-        if self.model is None:
-            return 0
-        return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        return (
+            0
+            if self.model is None
+            else sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        )
 
     def get_internal_model(self) -> Any:
         """Returns the internal model."""
@@ -353,6 +488,10 @@ class PyTorchModelBase(BaseModel, ABC):
         self.fit(x, y)
         return {"test_score": self.cv_score_mean_}
 
-    def get_classifier_predictions(self, x: np.ndarray | pd.DataFrame, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def get_classifier_predictions(
+        self, x: np.ndarray | pd.DataFrame, y_true_original: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Gets predictions from the internal classifier."""
-        raise NotImplementedError("get_classifier_predictions is not implemented for this model type.")
+        raise NotImplementedError(
+            "get_classifier_predictions is not implemented for this model type."
+        )

@@ -16,11 +16,15 @@ from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 from automl_package.models.catboost_model import CatBoostModel
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
-from automl_package.models.independent_weights_flexible_neural_network import IndependentWeightsFlexibleNN
+from automl_package.models.independent_weights_flexible_neural_network import (
+    IndependentWeightsFlexibleNN,
+)
 from automl_package.models.lightgbm_model import LightGBMModel
 from automl_package.models.linear_regression import LinearRegressionModel
 from automl_package.models.neural_network import PyTorchNeuralNetwork
-from automl_package.models.normal_equation_linear_regression import NormalEquationLinearRegression
+from automl_package.models.normal_equation_linear_regression import (
+    NormalEquationLinearRegression,
+)
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
 from automl_package.models.pytorch_linear_regression import PyTorchLinearRegression
 from automl_package.models.sklearn_logistic_regression import SklearnLogisticRegression
@@ -54,7 +58,9 @@ class FeatureExplainer:
             max_data_points (int): Maximum number of data points to use for SHAP explanation.
             random_state (int, optional): Random seed for reproducibility. Defaults to None.
         """
-        self.original_model = model_instance  # Store the original object (can be pipeline)
+        self.original_model = (
+            model_instance  # Store the original object (can be pipeline)
+        )
         self.x_background = x_background
         self.feature_names = feature_names if feature_names is not None else [f"Feature_{i}" for i in range(x_background.shape[1])]
         self.explainer = None  # SHAP explainer object
@@ -121,6 +127,9 @@ class FeatureExplainer:
             if hasattr(background_data, "data"):
                 background_data = background_data.data
 
+            if isinstance(background_data, memoryview):
+                background_data = np.asarray(background_data)
+
             background_tensor = torch.tensor(background_data, dtype=torch.float32).to(self.device)
 
             # Ensure the model is on the correct device
@@ -164,13 +173,21 @@ class FeatureExplainer:
 
         # If the number of data points exceeds max_data_points, randomly sample
         if x_to_explain.shape[0] > self.max_data_points:
-            logger.info(f"Sampling {self.max_data_points} data points for SHAP explanation from {x_to_explain.shape[0]} available.")
+            logger.info(
+                f"Sampling {self.max_data_points} data points for SHAP explanation from {x_to_explain.shape[0]} available."
+            )
             rng = np.random.default_rng(self.random_state)
-            sample_indices = rng.choice(x_to_explain.shape[0], self.max_data_points, replace=False)
+            sample_indices = rng.choice(
+                x_to_explain.shape[0], self.max_data_points, replace=False
+            )
             x_to_explain = x_to_explain[sample_indices]
 
         if isinstance(self.explainer, shap.DeepExplainer):
-            x_to_explain_values = x_to_explain.values if isinstance(x_to_explain, pd.DataFrame) else x_to_explain
+            x_to_explain_values = (
+                x_to_explain.values
+                if isinstance(x_to_explain, pd.DataFrame)
+                else x_to_explain
+            )
             data_for_shap = torch.tensor(x_to_explain_values, dtype=torch.float32).to(self.device)
             shap_values_obj = self.explainer.shap_values(data_for_shap, check_additivity=False)
         else:
@@ -184,21 +201,32 @@ class FeatureExplainer:
             # is an array of SHAP values for that class.
             # For binary classification (where output_size=1), DeepExplainer might return a list of 2 arrays
             # (one for class 0, one for class 1). We typically explain the positive class (index 1).
-            if hasattr(self.model_to_explain_directly, "task_type") and self.model_to_explain_directly.task_type == TaskType.CLASSIFICATION:
+            if (
+                hasattr(self.model_to_explain_directly, "task_type")
+                and self.model_to_explain_directly.task_type == TaskType.CLASSIFICATION
+            ):
                 if len(shap_values_obj) == 2:  # Binary classification
-                    return np.array(shap_values_obj[1])  # SHAP values for the positive class
+                    return np.array(
+                        shap_values_obj[1]
+                    )  # SHAP values for the positive class
                 # Multi-class
                 # For multi-class, often useful to get the SHAP values for the predicted class,
                 # or average their absolute values. For a general summary, mean absolute over classes.
-                logger.warning("Multi-class classification SHAP values: Returning mean of absolute SHAP values across classes for summary.")
+                logger.warning(
+                    "Multi-class classification SHAP values: Returning mean of absolute SHAP values across classes for summary."
+                )
                 return np.mean(np.abs(np.array(shap_values_obj)), axis=0)
             # Multi-output regression (if any model has this and explainer supports)
             # Average across outputs or handle specifically
-            logger.warning("Multi-output regression SHAP values: Returning mean of absolute SHAP values across outputs for summary.")
+            logger.warning(
+                "Multi-output regression SHAP values: Returning mean of absolute SHAP values across outputs for summary."
+            )
             return np.mean(np.array(shap_values_obj), axis=0)
         return np.array(shap_values_obj)
 
-    def get_feature_importance_summary(self, shap_values_object: np.ndarray, normalize: bool = True) -> dict[str, float]:
+    def get_feature_importance_summary(
+        self, shap_values_object: np.ndarray, normalize: bool = True
+    ) -> dict[str, float]:
         """Calculates global feature importance based on mean absolute SHAP values.
 
         Args:
@@ -212,7 +240,11 @@ class FeatureExplainer:
         shap_values = np.abs(shap_values_object)
 
         if shap_values.ndim == 3:
-            shap_values = np.squeeze(shap_values, axis=2) if shap_values.shape[2] == 1 else np.mean(shap_values, axis=2)
+            shap_values = (
+                np.squeeze(shap_values, axis=2)
+                if shap_values.shape[2] == 1
+                else np.mean(shap_values, axis=2)
+            )
 
         mean_abs_shap = np.mean(shap_values, axis=0)
 
@@ -224,12 +256,19 @@ class FeatureExplainer:
             # Adjust feature names if mismatch, to prevent errors
             self.feature_names = [f"Feature_{i}" for i in range(len(mean_abs_shap))]
 
-        feature_importance = dict(zip(self.feature_names, mean_abs_shap.tolist(), strict=False))
+        feature_importance = dict(
+            zip(self.feature_names, mean_abs_shap.tolist(), strict=False)
+        )
 
         if normalize:
             total_importance = sum(feature_importance.values())
             if total_importance > 0:
-                feature_importance = {feature: importance / total_importance for feature, importance in feature_importance.items()}
+                feature_importance = {
+                    feature: importance / total_importance
+                    for feature, importance in feature_importance.items()
+                }
 
         # Sort in descending order of importance
-        return dict(sorted(feature_importance.items(), key=lambda item: item[1], reverse=True))
+        return dict(
+            sorted(feature_importance.items(), key=lambda item: item[1], reverse=True)
+        )

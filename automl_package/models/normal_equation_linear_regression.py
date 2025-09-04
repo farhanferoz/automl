@@ -25,7 +25,9 @@ class NormalEquationLinearRegression(BaseModel):
             setattr(self, key, value)
 
         if self.early_stopping_rounds is not None:
-            raise ValueError("Early stopping is not applicable to NormalEquationLinearRegression as it is a direct solution method.")
+            raise ValueError(
+                "Early stopping is not applicable to NormalEquationLinearRegression as it is a direct solution method."
+            )
         if "l1_lambda" in kwargs and kwargs["l1_lambda"] > 0:
             raise ValueError(
                 "L1 regularization (Lasso) is not supported by NormalEquationLinearRegression due to non-differentiability at zero. "
@@ -86,7 +88,9 @@ class NormalEquationLinearRegression(BaseModel):
         """Evaluates a trial for hyperparameter optimization."""
         return self._calculate_metric(y_true, y_pred, Metric.RMSE)
 
-    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
+    def _calculate_metric(
+        self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric
+    ) -> float:
         """Calculates a metric."""
         if metric == Metric.RMSE:
             return np.sqrt(mean_squared_error(y_true, y_pred))
@@ -126,7 +130,9 @@ class NormalEquationLinearRegression(BaseModel):
             x = self._filter_predict_data(x)
         return x @ self.weights + self.bias
 
-    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+    def predict_uncertainty(
+        self, x: np.ndarray, filter_data: bool = True
+    ) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
@@ -137,7 +143,9 @@ class NormalEquationLinearRegression(BaseModel):
             np.ndarray: Uncertainty estimates (e.g., standard deviation).
         """
         if not self.is_regression_model:
-            raise ValueError("predict_uncertainty is only available for regression models.")
+            raise ValueError(
+                "predict_uncertainty is only available for regression models."
+            )
         if self.weights is None or self.bias is None:
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
@@ -150,7 +158,9 @@ class NormalEquationLinearRegression(BaseModel):
         Raises:
             NotImplementedError: NormalEquationLinearRegression is a regression model.
         """
-        raise NotImplementedError("NormalEquationLinearRegression is a regression model and does not support predict_proba.")
+        raise NotImplementedError(
+            "NormalEquationLinearRegression is a regression model and does not support predict_proba."
+        )
 
     def get_hyperparameter_search_space(self) -> dict[str, Any]:
         """Defines the hyperparameter search space for NormalEquationLinearRegression.
@@ -180,13 +190,17 @@ class NormalEquationLinearRegression(BaseModel):
             return 0
         return self.weights.size + 1  # weights + bias
 
-    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> Never:
+    def get_classifier_predictions(
+        self, x: np.ndarray, y_true_original: np.ndarray
+    ) -> Never:
         """Not implemented for NormalEquationLinearRegression.
 
         Raises:
             NotImplementedError: NormalEquationLinearRegression is not a composite model.
         """
-        raise NotImplementedError("NormalEquationLinearRegression is not a composite model and does not have an internal classifier for separate prediction.")
+        raise NotImplementedError(
+            "NormalEquationLinearRegression is not a composite model and does not have an internal classifier for separate prediction."
+        )
 
     def get_internal_model(self) -> Any:
         """Returns the internal model."""

@@ -13,7 +13,9 @@ from automl_package.models.mappers.spline_mapper import SplineMapper
 class ClassProbabilityMapper:
     """Maps classification probabilities for a single class back to original regression values."""
 
-    def __init__(self, mapper_type: MapperType = MapperType.LINEAR, **kwargs: Any) -> None:
+    def __init__(
+        self, mapper_type: MapperType = MapperType.LINEAR, **kwargs: Any
+    ) -> None:
         """Initializes the ClassProbabilityMapper.
 
         Args:
@@ -23,7 +25,9 @@ class ClassProbabilityMapper:
         self.mapper_type = mapper_type
         self.mapper = self._create_mapper(**kwargs)
 
-    def _filter_kwargs(self, mapper_type: MapperType, kwargs: dict[str, Any]) -> dict[str, Any]:
+    def _filter_kwargs(
+        self, mapper_type: MapperType, kwargs: dict[str, Any]
+    ) -> dict[str, Any]:
         """Filters kwargs for the specific mapper type."""
         if mapper_type == MapperType.SPLINE:
             return {k: v for k, v in kwargs.items() if k in ["spline_k", "spline_s"]}

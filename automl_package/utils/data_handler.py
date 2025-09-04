@@ -11,22 +11,45 @@ from automl_package.enums import DataSplitStrategy
 class DataHandler:
     """Handles data scaling and splitting."""
 
-    def __init__(self, scale_x: bool = True, scale_y: bool = True) -> None:
+    def __init__(self, scale_x: bool = True, scale_y: bool = True, scale_binary_features: bool = False) -> None:
         """Initializes the DataHandler."""
         self.scale_x = scale_x
         self.scale_y = scale_y
+        self.scale_binary_features = scale_binary_features
         self.x_scaler = StandardScaler() if scale_x else None
         self.y_scaler = StandardScaler() if scale_y else None
+        self.binary_feature_indices_ = []
+        self.non_binary_feature_indices_ = []
+
+    def _detect_binary_features(self, x: np.ndarray):
+        if not self.scale_binary_features:
+            self.binary_feature_indices_ = [i for i in range(x.shape[1]) if np.all(np.isin(x[:, i], [0, 1]))]
+            self.non_binary_feature_indices_ = [i for i in range(x.shape[1]) if i not in self.binary_feature_indices_]
+        else:
+            self.non_binary_feature_indices_ = list(range(x.shape[1]))
 
     def fit_transform(self, x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Fits and transforms the data."""
-        x_scaled = self.x_scaler.fit_transform(x) if self.scale_x else x
+        if self.scale_x:
+            self._detect_binary_features(x)
+            x_scaled = x.copy()
+            if self.non_binary_feature_indices_:
+                x_scaled[:, self.non_binary_feature_indices_] = self.x_scaler.fit_transform(x[:, self.non_binary_feature_indices_])
+        else:
+            x_scaled = x
+
         y_scaled = self.y_scaler.fit_transform(y.reshape(-1, 1)).flatten() if self.scale_y else y
         return x_scaled, y_scaled
 
     def transform(self, x: np.ndarray, y: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray | None]:
         """Transforms the data using the fitted scalers."""
-        x_scaled = self.x_scaler.transform(x) if self.scale_x else x
+        if self.scale_x:
+            x_scaled = x.copy()
+            if self.non_binary_feature_indices_:
+                x_scaled[:, self.non_binary_feature_indices_] = self.x_scaler.transform(x[:, self.non_binary_feature_indices_])
+        else:
+            x_scaled = x
+
         y_scaled = self.y_scaler.transform(y.reshape(-1, 1)).flatten() if self.scale_y and y is not None else y
         return x_scaled, y_scaled
 
@@ -91,7 +114,12 @@ def _random_split(x: np.ndarray, validation_fraction: float, test_fraction: floa
     return train_indices, val_indices, test_indices
 
 
-def _distinct_dates_split(validation_fraction: float, test_fraction: float, timestamps: np.ndarray | None, random_state: int | None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _distinct_dates_split(
+    validation_fraction: float,
+    test_fraction: float,
+    timestamps: np.ndarray | None,
+    random_state: int | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Performs a split based on distinct dates."""
     if timestamps is None:
         raise ValueError("timestamps must be provided for distinct_dates split strategy.")

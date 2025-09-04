@@ -5,7 +5,9 @@ from typing import Any
 import torch
 import torch.nn.functional as f
 
-from automl_package.models.selection_strategies.base_selection_strategy import BaseSelectionStrategy
+from automl_package.models.selection_strategies.base_selection_strategy import (
+    BaseSelectionStrategy,
+)
 
 
 class NoneStrategy(BaseSelectionStrategy):
@@ -17,7 +19,11 @@ class NoneStrategy(BaseSelectionStrategy):
     def on_epoch_end(self, **kwargs: Any) -> None:
         """No special actions needed at the end of the epoch for NoneStrategy."""
 
-    def forward(self, x_input: torch.Tensor, _logits: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x_input: torch.Tensor, _logits: torch.Tensor | None
+    ) -> tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor
+    ]:
         """Performs forward pass without layer selection.
 
         Args:
@@ -32,8 +38,15 @@ class NoneStrategy(BaseSelectionStrategy):
             current_output = self.model.model.hidden_layers_blocks[i](current_output)
         final_output = self.model.model.output_layer(current_output)
 
-        n_actual = torch.full((x_input.size(0),), self.model.max_hidden_layers, device=x_input.device, dtype=torch.long)
-        n_probs = torch.zeros(x_input.size(0), self.model.max_hidden_layers + 1, device=x_input.device)
+        n_actual = torch.full(
+            (x_input.size(0),),
+            self.model.max_hidden_layers,
+            device=x_input.device,
+            dtype=torch.long,
+        )
+        n_probs = torch.zeros(
+            x_input.size(0), self.model.max_hidden_layers + 1, device=x_input.device
+        )
         if self.model.max_hidden_layers > 0:
             n_probs[:, -1] = 1.0
 
@@ -47,7 +60,11 @@ class GumbelSoftmaxStrategy(BaseSelectionStrategy):
     def on_epoch_end(self, **kwargs: Any) -> None:
         """Performs operations at the end of each training epoch."""
 
-    def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x_input: torch.Tensor, logits: torch.Tensor
+    ) -> tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor
+    ]:
         """Performs forward pass using Gumbel-Softmax for layer selection.
 
         Args:
@@ -62,9 +79,13 @@ class GumbelSoftmaxStrategy(BaseSelectionStrategy):
 
         # Specific weighted average logic for layers
         final_output_neurons = self.model.model.output_layer.out_features
-        aggregated_output = torch.zeros(x_input.size(0), final_output_neurons, device=x_input.device)
+        aggregated_output = torch.zeros(
+            x_input.size(0), final_output_neurons, device=x_input.device
+        )
 
-        max_depth_needed = self.model.max_hidden_layers  # Assuming n_probs covers all possible layers
+        max_depth_needed = (
+            self.model.max_hidden_layers
+        )  # Assuming n_probs covers all possible layers
         hidden_representations = []
         current_output = x_input
         for i in range(max_depth_needed):
@@ -90,7 +111,11 @@ class SoftGatingStrategy(BaseSelectionStrategy):
     def on_epoch_end(self, **kwargs: Any) -> None:
         """Performs operations at the end of each training epoch."""
 
-    def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x_input: torch.Tensor, logits: torch.Tensor
+    ) -> tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor
+    ]:
         """Performs forward pass using Softmax for layer selection.
 
         Args:
@@ -105,7 +130,9 @@ class SoftGatingStrategy(BaseSelectionStrategy):
 
         # Specific weighted average logic for layers (same as GumbelSoftmaxStrategy for layers)
         final_output_neurons = self.model.model.output_layer.out_features
-        aggregated_output = torch.zeros(x_input.size(0), final_output_neurons, device=x_input.device)
+        aggregated_output = torch.zeros(
+            x_input.size(0), final_output_neurons, device=x_input.device
+        )
 
         max_depth_needed = self.model.max_hidden_layers
         hidden_representations = []
@@ -133,7 +160,11 @@ class SteStrategy(BaseSelectionStrategy):
     def on_epoch_end(self, **kwargs: Any) -> None:
         """Performs operations at the end of each training epoch."""
 
-    def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x_input: torch.Tensor, logits: torch.Tensor
+    ) -> tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor
+    ]:
         """Performs forward pass using STE for layer selection.
 
         Args:
@@ -163,7 +194,9 @@ class SteStrategy(BaseSelectionStrategy):
 class ReinforceStrategy(BaseSelectionStrategy):
     """A strategy that uses REINFORCE for layer selection."""
 
-    def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x_input: torch.Tensor, logits: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Performs forward pass using REINFORCE for layer selection.
 
         Args:
@@ -178,7 +211,9 @@ class ReinforceStrategy(BaseSelectionStrategy):
         action = dist.sample()
         log_prob = dist.log_prob(action)
         n_actual = action + 1
-        self.mode_selection_probs = f.one_hot(action, num_classes=logits.size(-1)).float()  # Store for external use
+        self.mode_selection_probs = f.one_hot(
+            action, num_classes=logits.size(-1)
+        ).float()  # Store for external use
 
         current_output = x_input
         for i in range(self.model.max_hidden_layers):
@@ -188,7 +223,13 @@ class ReinforceStrategy(BaseSelectionStrategy):
                 current_output = torch.where(active_mask, block_output, current_output)
 
         final_output = self.model.model.output_layer(current_output)
-        return final_output, n_actual, log_prob, self.mode_selection_probs, torch.tensor(0.0)
+        return (
+            final_output,
+            n_actual,
+            log_prob,
+            self.mode_selection_probs,
+            torch.tensor(0.0),
+        )
 
     def on_epoch_end(self, **kwargs: Any) -> None:
         """Performs operations at the end of each training epoch."""

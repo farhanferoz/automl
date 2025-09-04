@@ -28,12 +28,16 @@ class LookupMapper(BaseMapper):
         self.n_partitions_min = kwargs.get("n_partitions_min", 5)
         self.n_partitions_max = kwargs.get("n_partitions_max", np.inf)
 
-    def _fit(self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any) -> None:  # noqa: ARG002
+    def _fit(
+        self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any
+    ) -> None:  # noqa: ARG002
         min_partitions = max(self.n_partitions_min, len(probas) // 2000)
         max_partitions = min(self.n_partitions_max, len(probas) // 100)
         num_partitions = max(1, min_partitions, max_partitions)
 
-        bin_edges, bin_indices = create_bins(data=probas, n_bins=num_partitions, min_value=0.0, max_value=1.0)
+        bin_edges, bin_indices = create_bins(
+            data=probas, n_bins=num_partitions, min_value=0.0, max_value=1.0
+        )
         bin_edges = bin_edges[1:]
 
         temp_lookup_keys = bin_edges
@@ -46,7 +50,11 @@ class LookupMapper(BaseMapper):
             # Handle empty partitions by taking the overall mean/median and variance
             if len(partition_y) == 0:
                 partition_y = y_original
-            expected_y = np.mean(partition_y) if self._mapper_type == MapperType.LOOKUP_MEAN else np.median(partition_y)
+            expected_y = (
+                np.mean(partition_y)
+                if self._mapper_type == MapperType.LOOKUP_MEAN
+                else np.median(partition_y)
+            )
             partition_variance = np.var(partition_y)
 
             if np.isnan(partition_variance):
@@ -62,14 +70,20 @@ class LookupMapper(BaseMapper):
         }
 
     def _fit_empty(self) -> None:
-        self.lookup_table = {LookupTableEntries.KEYS: np.array([0.0, 1.0]), LookupTableEntries.VALUES: np.array([0.0, 0.0]), LookupTableEntries.VARIANCES: np.array([0.0, 0.0])}
+        self.lookup_table = {
+            LookupTableEntries.KEYS: np.array([0.0, 1.0]),
+            LookupTableEntries.VALUES: np.array([0.0, 0.0]),
+            LookupTableEntries.VARIANCES: np.array([0.0, 0.0]),
+        }
 
     def _find_indices(self, probas_new: np.ndarray) -> np.ndarray:
         keys = self.lookup_table[LookupTableEntries.KEYS]
         if len(keys) == 0:
             indices = np.zeros_like(probas_new, dtype=int)
         else:
-            _, indices = create_bins(data=probas_new, unique_bin_edges=np.insert(keys, 0, 0))
+            _, indices = create_bins(
+                data=probas_new, unique_bin_edges=np.insert(keys, 0, 0)
+            )
             # Clip indices to be within the valid range of the lookup table keys
             indices = np.clip(indices, 0, len(keys) - 1)
         return indices

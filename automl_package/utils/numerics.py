@@ -97,14 +97,24 @@ def find_optimal_iterations(fold_results: list[dict]) -> int:
     if max_best_iter == min_best_iter:
         optimal_iterations = max_best_iter
     else:
-        max_valid_len = min(len(res[loss_history_label]) for res in fold_results if res[loss_history_label])
+        max_valid_len = min(
+            len(res[loss_history_label])
+            for res in fold_results
+            if res[loss_history_label]
+        )
         optimal_iterations = 0
         if (max_valid_len == 0) or (max_best_iter > max_valid_len):
-            optimal_iterations = int(np.mean([res[best_iter_label] for res in fold_results]))
+            optimal_iterations = int(
+                np.mean([res[best_iter_label] for res in fold_results])
+            )
         if (max_valid_len > 0) and (optimal_iterations < max_valid_len):
             avg_loss_curve = np.full(max_valid_len, np.nan)
             for i in range(max_valid_len):
-                epoch_losses = [res[loss_history_label][i] for res in fold_results if i < len(res[loss_history_label])]
+                epoch_losses = [
+                    res[loss_history_label][i]
+                    for res in fold_results
+                    if i < len(res[loss_history_label])
+                ]
                 if epoch_losses:
                     avg_loss_curve[i] = np.mean(epoch_losses)
             optimal_iterations = np.nanargmin(avg_loss_curve) + 1
@@ -127,7 +137,9 @@ def ensure_proba_shape(y_proba: np.ndarray, n_classes: int) -> np.ndarray:
 
     # Case 3: Mismatch between columns and n_classes (error condition)
     if y_proba.shape[1] != n_classes:
-        raise ValueError(f"Classifier predict_proba output shape {y_proba.shape} does not match n_classes {n_classes}.")
+        raise ValueError(
+            f"Classifier predict_proba output shape {y_proba.shape} does not match n_classes {n_classes}."
+        )
 
     # Case 4: Shape is already correct
     return y_proba

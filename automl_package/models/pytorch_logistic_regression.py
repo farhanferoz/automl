@@ -36,7 +36,9 @@ class PyTorchLogisticRegression(PyTorchModelBase):
         For logistic regression, this is a single linear layer.
         The output activation (sigmoid or softmax) is handled by the loss function.
         """
-        self.model = nn.Sequential(nn.Linear(self.input_size, self.output_size)).to(self.device)
+        self.model = nn.Sequential(nn.Linear(self.input_size, self.output_size)).to(
+            self.device
+        )
 
         # The criterion is set in the base class based on task_type and output_size
         if self.task_type == TaskType.CLASSIFICATION:
@@ -46,4 +48,6 @@ class PyTorchLogisticRegression(PyTorchModelBase):
                 self.criterion = nn.CrossEntropyLoss()
         else:
             # This should not be reached due to the __init__ override
-            raise ValueError("PyTorchLogisticRegression only supports 'classification' task_type.")
+            raise ValueError(
+                "PyTorchLogisticRegression only supports 'classification' task_type."
+            )

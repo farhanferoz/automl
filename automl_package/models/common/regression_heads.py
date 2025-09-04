@@ -55,7 +55,10 @@ class BaseRegressionHead(nn.Module):
             if use_batch_norm:
                 layers.append(nn.BatchNorm1d(hidden_size))
             layers.append(activation())
-            if dropout_rate > 0 and self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
+            if (
+                dropout_rate > 0
+                and self.uncertainty_method == UncertaintyMethod.MC_DROPOUT
+            ):
                 layers.append(nn.Dropout(dropout_rate))
 
         layers.append(nn.Linear(hidden_size, output_size))
@@ -82,7 +85,10 @@ class BaseRegressionHead(nn.Module):
         Returns:
             The processed output.
         """
-        if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC and self.output_size == 2:
+        if (
+            self.uncertainty_method == UncertaintyMethod.PROBABILISTIC
+            and self.output_size == 2
+        ):
             mean = raw_output[:, 0].unsqueeze(1)
             log_var = raw_output[:, 1].unsqueeze(1)
             var = torch.exp(log_var)
@@ -137,7 +143,9 @@ class SeparateHeadsRegressionModule(nn.Module):
         Returns:
             The final prediction, which is a weighted sum of the head outputs.
         """
-        final_predictions = torch.zeros(probabilities.size(0), self.heads[0].output_size).to(probabilities.device)
+        final_predictions = torch.zeros(
+            probabilities.size(0), self.heads[0].output_size
+        ).to(probabilities.device)
         for i in range(len(self.heads)):
             p_i = probabilities[:, i].unsqueeze(1)
             y_i_processed = self.heads[i](p_i)
@@ -191,7 +199,9 @@ class SingleHeadNOutputsRegressionModule(nn.Module):
             The final prediction, which is a weighted sum of the reshaped head outputs.
         """
         y_output_all_classes = self.head(probabilities)
-        regression_outputs = y_output_all_classes.reshape(probabilities.shape[0], self.n_classes, self.regression_output_size)
+        regression_outputs = y_output_all_classes.reshape(
+            probabilities.shape[0], self.n_classes, self.regression_output_size
+        )
         return torch.sum(probabilities.unsqueeze(-1) * regression_outputs, dim=1)
 
 
@@ -222,7 +232,9 @@ class SingleHeadFinalOutputRegressionModule(nn.Module):
             use_batch_norm=regression_head_params.get("use_batch_norm", True),
             dropout_rate=regression_head_params.get("dropout_rate", 0.0),
             uncertainty_method=uncertainty_method,
-            activation=regression_head_params.get("activation", ActivationFunction.RELU),
+            activation=regression_head_params.get(
+                "activation", ActivationFunction.RELU
+            ),
         )
 
     def forward(self, head_input_probas: torch.Tensor) -> torch.Tensor:
