@@ -9,17 +9,17 @@ import optuna
 class OptunaOptimizer:
     """Manages hyperparameter optimization using Optuna."""
 
-    def __init__(self, direction: str = "minimize", n_trials: int = 50, seed: int | None = None) -> None:
+    def __init__(self, direction: str = "minimize", n_trials: int = 50, random_seed: int | None = None) -> None:
         """Initializes the Optuna optimizer.
 
         Args:
             direction (str): 'minimize' or 'maximize' the objective function.
             n_trials (int): Number of optimization trials.
-            seed (int): Random seed for reproducibility.
+            random_seed (int | None): Random seed for reproducibility.
         """
         self.direction = direction
         self.n_trials = n_trials
-        self.seed = seed
+        self.random_seed = random_seed
         self.study: optuna.study.Study = None
 
     def optimize(self, objective_fn: Callable[[optuna.Trial], float], **kwargs: Any) -> optuna.study.Study:
@@ -34,9 +34,7 @@ class OptunaOptimizer:
         Returns:
             optuna.study.Study: The Optuna study object containing optimization results.
         """
-        sampler = optuna.samplers.TPESampler()
-        if self.seed is not None:
-            sampler = optuna.samplers.TPESampler(seed=self.seed)
+        sampler = optuna.samplers.TPESampler(seed=self.random_seed) if self.random_seed is not None else optuna.samplers.TPESampler()
 
         self.study = optuna.create_study(
             direction=self.direction,

@@ -130,13 +130,15 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
         space.update(
             {
                 "hidden_layers": {"type": "int", "low": 1, "high": 3},
-                "hidden_size": {"type": "int", "low": 32, "high": 128, "step": 32},
-                "activation": {
-                    "type": "categorical",
-                    "choices": [e.value for e in ActivationFunction],
-                },
+                "hidden_size": {"type": "int", "low": 16, "high": 128, "step": 16},
+                # "activation": {
+                #     "type": "categorical",
+                #     "choices": [e.value for e in ActivationFunction],
+                # },
             }
         )
+        if self.early_stopping_rounds is None:
+            space["n_epochs"] = {"type": "int", "low": 5, "high": 50, "step": 10}
         if self.search_space_override:
             space.update(self.search_space_override)
         return space

@@ -23,13 +23,23 @@ class ClassProbabilityMapper:
         self.mapper_type = mapper_type
         self.mapper = self._create_mapper(**kwargs)
 
+    def _filter_kwargs(self, mapper_type: MapperType, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Filters kwargs for the specific mapper type."""
+        if mapper_type == MapperType.SPLINE:
+            return {k: v for k, v in kwargs.items() if k in ["spline_k", "spline_s"]}
+        if mapper_type in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
+            return {k: v for k, v in kwargs.items() if k in ["lookup_n_partitions"]}
+        return {}
+
     def _create_mapper(self, **kwargs: Any) -> Any:
+        filtered_kwargs = self._filter_kwargs(self.mapper_type, kwargs)
+
         if self.mapper_type == MapperType.LINEAR:
-            return LinearMapper(**kwargs)
+            return LinearMapper(**filtered_kwargs)
         if self.mapper_type in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
-            return LookupMapper(mapper_type=self.mapper_type, **kwargs)
+            return LookupMapper(mapper_type=self.mapper_type, **filtered_kwargs)
         if self.mapper_type == MapperType.SPLINE:
-            return SplineMapper(**kwargs)
+            return SplineMapper(**filtered_kwargs)
         raise ValueError(f"Unsupported mapper_type: {self.mapper_type.label}")
 
     def fit(self, probas: np.ndarray, y_original: np.ndarray) -> None:

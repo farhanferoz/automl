@@ -110,3 +110,24 @@ def find_optimal_iterations(fold_results: list[dict]) -> int:
             optimal_iterations = np.nanargmin(avg_loss_curve) + 1
 
     return optimal_iterations
+
+
+def ensure_proba_shape(y_proba: np.ndarray, n_classes: int) -> np.ndarray:
+    """Ensures that the probability array has the correct shape, especially for binary classification."""
+    if y_proba is None:
+        return None
+
+    # Case 1: Binary classification with a single output column (e.g., from sigmoid)
+    if n_classes == 2 and y_proba.ndim == 2 and y_proba.shape[1] == 1:
+        return np.hstack((1 - y_proba, y_proba))
+
+    # Case 2: Binary classification with a 1D array of probabilities for the positive class
+    if n_classes == 2 and y_proba.ndim == 1:
+        return np.vstack((1 - y_proba, y_proba)).T
+
+    # Case 3: Mismatch between columns and n_classes (error condition)
+    if y_proba.shape[1] != n_classes:
+        raise ValueError(f"Classifier predict_proba output shape {y_proba.shape} does not match n_classes {n_classes}.")
+
+    # Case 4: Shape is already correct
+    return y_proba

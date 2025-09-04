@@ -36,6 +36,8 @@ class NeuralNetworkMapper(BaseMapper):
             early_stopping_rounds: The number of epochs with no improvement after which training will be stopped.
             validation_fraction: The proportion of training data to set aside as validation data for early stopping.
         """
+        super().__init__()
+        self._bypass_sorting = True
         self.n_classes = n_classes
         self.regression_strategy = regression_strategy
         self.mapper_params = mapper_params
@@ -86,22 +88,13 @@ class NeuralNetworkMapper(BaseMapper):
             probas = np.hstack((1 - probas, probas))
         return probas
 
-    def fit(self, probas: np.ndarray, y_original: np.ndarray, train_indices: np.ndarray | None = None, val_indices: np.ndarray | None = None) -> dict[str, Any]:
-        """Overrides the BaseMapper.fit to handle 2D probability arrays directly.
-
-        This bypasses the sorting logic in the parent class, which is not applicable here.
-        Returns a dictionary of learned parameters, e.g., optimal epochs.
-        """
-        if probas.shape[0] != y_original.shape[0]:
-            raise ValueError(f"Shape mismatch between probas ({probas.shape[0]}) and y_original ({y_original.shape[0]})")
+    def _fit(self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any) -> dict[str, Any]:
+        """Fits the neural network mapper. This involves a full training loop."""
+        train_indices = kwargs.get("train_indices")
+        val_indices = kwargs.get("val_indices")
 
         probas = self._format_probas(probas=probas)
 
-        # Call _fit directly, bypassing the sorting in BaseMapper
-        return self._fit(probas, y_original, train_indices, val_indices)
-
-    def _fit(self, probas: np.ndarray, y_original: np.ndarray, train_indices: np.ndarray | None = None, val_indices: np.ndarray | None = None) -> dict[str, Any]:
-        """Fits the neural network mapper. This involves a full training loop."""
         self.model.train()
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
         loss_fn = nn.MSELoss()
@@ -168,7 +161,7 @@ class NeuralNetworkMapper(BaseMapper):
     def _fit_empty(self) -> None:
         """Handles fitting on empty data."""
 
-    def predict(self, probas_new: np.ndarray) -> np.ndarray:
+    def _predict(self, probas_new: np.ndarray) -> np.ndarray:
         """Makes predictions with the trained neural network mapper."""
         probas_new = self._format_probas(probas=probas_new)
 
@@ -178,7 +171,7 @@ class NeuralNetworkMapper(BaseMapper):
             predictions_tensor = self.model(probas_tensor)
             return predictions_tensor.cpu().numpy()
 
-    def predict_variance(self, probas_new: np.ndarray) -> np.ndarray:
+    def _predict_variance(self, probas_new: np.ndarray) -> np.ndarray:
         """Predicts variance. Not implemented for this mapper yet.
 
         Returns an array of zeros.

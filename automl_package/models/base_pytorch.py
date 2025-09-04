@@ -13,7 +13,7 @@ from sklearn.metrics import accuracy_score, mean_squared_error
 from automl_package.enums import LearnedRegularizationType, Metric, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
-from automl_package.utils.numerics import aggregate_stats, log_erfc
+from automl_package.utils.numerics import aggregate_stats, ensure_proba_shape, log_erfc
 
 
 class PyTorchModelBase(BaseModel, ABC):
@@ -23,7 +23,7 @@ class PyTorchModelBase(BaseModel, ABC):
         "input_size": None,
         "output_size": 1,
         "learning_rate": 0.001,
-        "n_epochs": 10,
+        "n_epochs": 50,
         "batch_size": 32,
         "use_batch_norm": False,
         "uncertainty_method": UncertaintyMethod.CONSTANT,
@@ -162,9 +162,11 @@ class PyTorchModelBase(BaseModel, ABC):
         if y_val is not None:
             y_val = np.array(y_val, dtype=np.float32 if self.is_regression_model else np.int64)
 
+        is_binary_classification = self.task_type == TaskType.CLASSIFICATION and self.output_size == 1
+
         x_train_tensor = torch.tensor(x_train, dtype=torch.float32).to(self.device)
-        y_train_tensor = torch.tensor(y_train, dtype=torch.float32 if self.is_regression_model else torch.long).to(self.device)
-        if self.is_regression_model or (self.task_type == TaskType.CLASSIFICATION and self.output_size == 1):
+        y_train_tensor = torch.tensor(y_train, dtype=torch.float32 if self.is_regression_model or is_binary_classification else torch.long).to(self.device)
+        if self.is_regression_model or is_binary_classification:
             y_train_tensor = y_train_tensor.unsqueeze(1)
 
         train_dataloader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x_train_tensor, y_train_tensor), batch_size=self.batch_size, shuffle=True)
@@ -172,8 +174,8 @@ class PyTorchModelBase(BaseModel, ABC):
         x_val_tensor, y_val_tensor = None, None
         if x_val is not None and y_val is not None:
             x_val_tensor = torch.tensor(x_val, dtype=torch.float32).to(self.device)
-            y_val_tensor = torch.tensor(y_val, dtype=torch.float32 if self.is_regression_model else torch.long).to(self.device)
-            if self.is_regression_model or (self.task_type == TaskType.CLASSIFICATION and self.output_size == 1):
+            y_val_tensor = torch.tensor(y_val, dtype=torch.float32 if self.is_regression_model or is_binary_classification else torch.long).to(self.device)
+            if self.is_regression_model or is_binary_classification:
                 y_val_tensor = y_val_tensor.unsqueeze(1)
 
         best_val_loss, patience_counter, best_epoch = float("inf"), 0, 0
@@ -269,9 +271,9 @@ class PyTorchModelBase(BaseModel, ABC):
     def get_hyperparameter_search_space(self) -> dict[str, Any]:
         """Gets the hyperparameter search space for the model."""
         space = {
-            "learning_rate": {"type": "float", "low": 1e-4, "high": 1e-2, "log": True},
-            "l1_lambda": {"type": "float", "low": 1e-8, "high": 1e-2, "log": True},
-            "l2_lambda": {"type": "float", "low": 1e-8, "high": 1e-2, "log": True},
+            "learning_rate": {"type": "float", "low": 1e-4, "high": 1e-2, "log": False},
+            "l1_lambda": {"type": "float", "low": 1e-8, "high": 1e-2, "log": False},
+            "l2_lambda": {"type": "float", "low": 1e-8, "high": 1e-2, "log": False},
             "dropout_rate": {"type": "float", "low": 0.0, "high": 0.5, "step": 0.1},
         }
         if self.is_regression_model:
@@ -318,9 +320,12 @@ class PyTorchModelBase(BaseModel, ABC):
             model_output = outputs[0] if isinstance(outputs, tuple) else outputs
 
             if self.output_size == 1:
-                proba = torch.sigmoid(model_output).cpu().numpy().flatten()
-                return np.vstack((1 - proba, proba)).T
-            return torch.softmax(model_output, dim=1).cpu().numpy()
+                proba = torch.sigmoid(model_output).cpu().numpy()
+                n_classes = 2
+            else:
+                proba = torch.softmax(model_output, dim=1).cpu().numpy()
+                n_classes = self.output_size
+            return ensure_proba_shape(proba, n_classes)
 
     def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
         """Estimates the uncertainty of predictions."""

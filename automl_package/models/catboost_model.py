@@ -9,6 +9,7 @@ from sklearn.metrics import accuracy_score, mean_squared_error
 from automl_package.enums import Metric, TaskType
 from automl_package.models.base import BaseModel
 from automl_package.models.common.common import get_loss_history
+from automl_package.utils.numerics import ensure_proba_shape
 
 
 class CatBoostModel(BaseModel):
@@ -78,12 +79,12 @@ class CatBoostModel(BaseModel):
         if forced_iterations is not None:
             params["iterations"] = forced_iterations
         else:
-            # Use original iterations if provided, otherwise default to 1000
+            # Use original iterations if provided, otherwise default to 500
             iterations = self.params.get("iterations")
             if iterations is None:
                 iterations = self.params.get("n_estimators")
             if iterations is None:
-                iterations = 1000
+                iterations = 500
             params["iterations"] = iterations
 
         self.model = CatBoostRegressor(**params) if self.task_type == TaskType.REGRESSION else CatBoostClassifier(**params)
@@ -162,7 +163,8 @@ class CatBoostModel(BaseModel):
             raise ValueError("predict_proba is not available for regression tasks.")
         if filter_data:
             x = self._filter_predict_data(x)
-        return self.model.predict_proba(x)
+        proba = self.model.predict_proba(x)
+        return ensure_proba_shape(proba, self.model.classes_.size)
 
     def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty for predictions.
@@ -187,11 +189,12 @@ class CatBoostModel(BaseModel):
             dict[str, Any]: A dictionary defining the hyperparameter search space.
         """
         space = {
-            "iterations": {"type": "int", "low": 50, "high": 200, "step": 50},
             "learning_rate": {"type": "float", "low": 0.01, "high": 0.3, "log": True},
             "depth": {"type": "int", "low": 3, "high": 8},
             "l2_leaf_reg": {"type": "float", "low": 1e-2, "high": 10.0, "log": True},
         }
+        if self.early_stopping_rounds is None:
+            space["iterations"] = {"type": "int", "low": 5, "high": 550, "step": 50}
         if self.search_space_override:
             space.update(self.search_space_override)
         return space

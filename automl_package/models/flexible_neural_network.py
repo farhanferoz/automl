@@ -414,6 +414,9 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             }
         )
 
+        if self.early_stopping_rounds is None:
+            space["n_epochs"] = {"type": "int", "low": 5, "high": 50, "step": 10}
+
         if "hidden_layers" in space:
             del space["hidden_layers"]
 

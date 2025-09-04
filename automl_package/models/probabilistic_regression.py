@@ -61,6 +61,11 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+        if isinstance(self.regression_strategy, str):
+            self.regression_strategy = RegressionStrategy[self.regression_strategy.upper()]
+        if isinstance(self.n_classes_selection_method, str):
+            self.n_classes_selection_method = NClassesSelectionMethod[self.n_classes_selection_method.upper()]
+
         self.base_classifier_params = self.base_classifier_params if self.base_classifier_params is not None else {}
         self.regression_head_params = self.regression_head_params if self.regression_head_params is not None else {}
         self.direct_regression_head_params = self.direct_regression_head_params if self.direct_regression_head_params is not None else {}
@@ -181,99 +186,29 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
         space = super().get_hyperparameter_search_space()
         space.update(
             {
-                "regression_strategy": {
-                    "type": "categorical",
-                    "choices": [s.value for s in RegressionStrategy],
-                },
-                "n_classes_selection_method": {
-                    "type": "categorical",
-                    "choices": [s.value for s in NClassesSelectionMethod],
-                },
+                "regression_strategy": {"type": "categorical", "choices": [s.value for s in RegressionStrategy]},
+                # "n_classes_selection_method": {"type": "categorical", "choices": [s.value for s in NClassesSelectionMethod]},
                 "gumbel_tau": {"type": "float", "low": 1e-8, "high": 1.0, "log": True},
-                "n_classes_predictor_learning_rate": {
-                    "type": "float",
-                    "low": 1e-8,
-                    "high": 1e-2,
-                    "log": True,
-                },
-                "base_classifier_params__hidden_layers": {
-                    "type": "int",
-                    "low": 1,
-                    "high": 2,
-                },
-                "base_classifier_params__hidden_size": {
-                    "type": "int",
-                    "low": 32,
-                    "high": 64,
-                    "step": 32,
-                },
-                "base_classifier_params__use_batch_norm": {
-                    "type": "categorical",
-                    "choices": [True, False],
-                },
-                "base_classifier_params__dropout_rate": {
-                    "type": "float",
-                    "low": 0.0,
-                    "high": 0.5,
-                    "step": 0.1,
-                },
-                "regression_head_params__hidden_layers": {
-                    "type": "int",
-                    "low": 0,
-                    "high": 1,
-                },
-                "regression_head_params__hidden_size": {
-                    "type": "int",
-                    "low": 16,
-                    "high": 32,
-                    "step": 16,
-                },
-                "regression_head_params__use_batch_norm": {
-                    "type": "categorical",
-                    "choices": [True, False],
-                },
-                "regression_head_params__dropout_rate": {
-                    "type": "float",
-                    "low": 0.0,
-                    "high": 0.5,
-                    "step": 0.1,
-                },
+                "n_classes_predictor_learning_rate": {"type": "float", "low": 1e-8, "high": 1e-2, "log": True},
+                "base_classifier_params__hidden_layers": {"type": "int", "low": 1, "high": 2},
+                "base_classifier_params__hidden_size": {"type": "int", "low": 32, "high": 64, "step": 32},
+                "base_classifier_params__use_batch_norm": {"type": "categorical", "choices": [True, False]},
+                "base_classifier_params__dropout_rate": {"type": "float", "low": 0.0, "high": 0.5, "step": 0.1},
+                "regression_head_params__hidden_layers": {"type": "int", "low": 0, "high": 1},
+                "regression_head_params__hidden_size": {"type": "int", "low": 16, "high": 32, "step": 16},
+                "regression_head_params__use_batch_norm": {"type": "categorical", "choices": [True, False]},
+                "regression_head_params__dropout_rate": {"type": "float", "low": 0.0, "high": 0.5, "step": 0.1},
             }
         )
 
         if self.n_classes_selection_method == NClassesSelectionMethod.NONE:
-            space["n_classes"] = {
-                "type": "int",
-                "low": 2,
-                "high": (int(self.n_classes_inf) - 1 if self.n_classes_inf != float("inf") else 5),
-            }
+            space["n_classes"] = {"type": "int", "low": 2, "high": (int(self.n_classes_inf) - 1 if self.n_classes_inf != float("inf") else 5)}
         else:
-            space["max_n_classes_for_probabilistic_path"] = {
-                "type": "int",
-                "low": 2,
-                "high": (int(self.n_classes_inf) - 1 if self.n_classes_inf != float("inf") else 10),
-            }
-            space["direct_regression_head_params__hidden_layers"] = {
-                "type": "int",
-                "low": 1,
-                "high": 2,
-            }
-            space["direct_regression_head_params__hidden_size"] = {
-                "type": "int",
-                "low": 32,
-                "high": 64,
-                "step": 32,
-            }
-            space["direct_regression_head_params__use_batch_norm"] = {
-                "type": "categorical",
-                "choices": [True, False],
-            }
-            space["direct_regression_head_params__dropout_rate"] = {
-                "type": "float",
-                "low": 0.0,
-                "high": 0.5,
-                "step": 0.1,
-            }
+            space["max_n_classes_for_probabilistic_path"] = {"type": "int", "low": 2, "high": (int(self.n_classes_inf) - 1 if self.n_classes_inf != float("inf") else 10)}
+            space["direct_regression_head_params__hidden_layers"] = {"type": "int", "low": 1, "high": 2}
+            space["direct_regression_head_params__hidden_size"] = {"type": "int", "low": 32, "high": 64, "step": 32}
+            space["direct_regression_head_params__use_batch_norm"] = {"type": "categorical", "choices": [True, False]}
+            space["direct_regression_head_params__dropout_rate"] = {"type": "float", "low": 0.0, "high": 0.5, "step": 0.1}
 
         if self.search_space_override:
             space.update(self.search_space_override)
@@ -328,6 +263,40 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
                 self.precomputed_class_boundaries[k] = boundaries
 
         return super()._fit_single(x_train, y_train, x_val, y_val, forced_iterations)
+
+    def _update_params(self, params: dict[str, Any]) -> None:
+        """Updates the model's parameters from a given dictionary."""
+        super()._update_params(params)
+        # Handle nested params
+        base_classifier_params = {}
+        regression_head_params = {}
+        direct_regression_head_params = {}
+
+        for key, value in params.items():
+            if key.startswith("base_classifier_params__"):
+                param_name = key.split("__", 1)[1]
+                base_classifier_params[param_name] = value
+            elif key.startswith("regression_head_params__"):
+                param_name = key.split("__", 1)[1]
+                regression_head_params[param_name] = value
+            elif key.startswith("direct_regression_head_params__"):
+                param_name = key.split("__", 1)[1]
+                direct_regression_head_params[param_name] = value
+            else:
+                # Handle enums and other direct attributes
+                if key == "regression_strategy" and isinstance(value, str):
+                    setattr(self, key, RegressionStrategy[value.upper()])
+                elif key == "n_classes_selection_method" and isinstance(value, str):
+                    setattr(self, key, NClassesSelectionMethod[value.upper()])
+                else:
+                    setattr(self, key, value)
+
+        if base_classifier_params:
+            self.base_classifier_params.update(base_classifier_params)
+        if regression_head_params:
+            self.regression_head_params.update(regression_head_params)
+        if direct_regression_head_params:
+            self.direct_regression_head_params.update(direct_regression_head_params)
 
     def _clone(self) -> "ProbabilisticRegressionModel":
         """Creates a new instance of the model with the same parameters."""

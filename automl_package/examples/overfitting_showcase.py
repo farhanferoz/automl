@@ -156,14 +156,16 @@ def run_showcase() -> None:
     n_samples = 2000
     user_defined_n_classes = 3
     early_stopping_rounds = 50
-    validation_fraction = 0.2
+    validation_fraction = None
     test_fraction = 0.2
-    cv_folds = None
+    cv_folds = 4
     n_epochs = 500
     hidden_layers = 2
     hidden_size = 64
     learning_rate = 0.005
     feature_selection_threshold = 0.75
+    optimize_hyperparameters = True
+    n_trials = 50
     random_seed = 42
 
     output_dir = "overfitting_showcase_results"
@@ -201,6 +203,8 @@ def run_showcase() -> None:
             cv_folds=cv_folds,
             split_strategy=DataSplitStrategy.RANDOM,
             feature_selection_threshold=feature_selection_threshold,
+            optimize_hyperparameters=optimize_hyperparameters,
+            n_trials=n_trials,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, "PyTorch_NN_Random_Split"),
         ),
@@ -217,6 +221,8 @@ def run_showcase() -> None:
             cv_folds=cv_folds,
             split_strategy=DataSplitStrategy.TIME_ORDERED,
             feature_selection_threshold=feature_selection_threshold,
+            optimize_hyperparameters=optimize_hyperparameters,
+            n_trials=n_trials,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, "PyTorch_NN_Time_Ordered_Split"),
         ),
@@ -240,6 +246,8 @@ def run_showcase() -> None:
             mapper_type=MapperType.AUTO,
             auto_include_nn_mappers=True,
             feature_selection_threshold=feature_selection_threshold,
+            optimize_hyperparameters=optimize_hyperparameters,
+            n_trials=n_trials,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, "Classifier_Regression"),
         ),
@@ -251,6 +259,8 @@ def run_showcase() -> None:
             test_fraction=0.0,
             cv_folds=cv_folds,
             feature_selection_threshold=feature_selection_threshold,
+            optimize_hyperparameters=optimize_hyperparameters,
+            n_trials=n_trials,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, "CatBoost"),
             task_type=TaskType.REGRESSION,
@@ -263,6 +273,8 @@ def run_showcase() -> None:
             test_fraction=0.0,
             cv_folds=cv_folds,
             feature_selection_threshold=feature_selection_threshold,
+            optimize_hyperparameters=optimize_hyperparameters,
+            n_trials=n_trials,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, "LightGBM"),
             task_type=TaskType.REGRESSION,
@@ -272,11 +284,15 @@ def run_showcase() -> None:
             validation_fraction=validation_fraction,
             test_fraction=0.0,
             feature_selection_threshold=feature_selection_threshold,
+            optimize_hyperparameters=optimize_hyperparameters,
+            n_trials=n_trials,
             cv_folds=cv_folds,
             output_dir=os.path.join(output_dir, "LinearRegression"),
         ),
         "NormalEquationLinearRegression": NormalEquationLinearRegression(
             feature_selection_threshold=feature_selection_threshold,
+            optimize_hyperparameters=optimize_hyperparameters,
+            n_trials=n_trials,
             output_dir=os.path.join(output_dir, "NormalEquationLinearRegression"),
         ),
         "PyTorchLinearRegression": PyTorchLinearRegression(
@@ -288,6 +304,8 @@ def run_showcase() -> None:
             test_fraction=0.0,
             cv_folds=cv_folds,
             feature_selection_threshold=feature_selection_threshold,
+            optimize_hyperparameters=optimize_hyperparameters,
+            n_trials=n_trials,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, "PyTorchLinearRegression"),
         ),
@@ -300,6 +318,8 @@ def run_showcase() -> None:
             cv_folds=cv_folds,
             random_seed=random_seed,
             feature_selection_threshold=feature_selection_threshold,
+            optimize_hyperparameters=optimize_hyperparameters,
+            n_trials=n_trials,
             output_dir=os.path.join(output_dir, "XGBoost"),
             task_type=TaskType.REGRESSION,
         ),
@@ -341,6 +361,8 @@ def run_showcase() -> None:
             cv_folds=cv_folds,
             split_strategy=DataSplitStrategy.RANDOM,
             feature_selection_threshold=feature_selection_threshold,
+            optimize_hyperparameters=optimize_hyperparameters,
+            n_trials=n_trials,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, f"Probabilistic_Regression_{strategy.value}"),
         )

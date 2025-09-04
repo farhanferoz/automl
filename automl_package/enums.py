@@ -108,7 +108,13 @@ class Metric(Enum):
     ACCURACY = ("accuracy", False)
     LOG_LOSS = ("log_loss", True)
 
-    def __init__(self, label: str, is_smaller_better: bool):
+    def __init__(self, label: str, is_smaller_better: bool) -> None:
+        """Initializes the Metric enum member.
+
+        Args:
+            label: The string value for the enum.
+            is_smaller_better: A boolean indicating if a smaller metric value is better.
+        """
         self.label = label
         self.is_smaller_better = is_smaller_better
 

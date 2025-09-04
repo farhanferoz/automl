@@ -46,6 +46,15 @@ class PyTorchLinearRegression(PyTorchModelBase):
 
         return ShapModel(coef, intercept)
 
+    def get_hyperparameter_search_space(self) -> dict[str, Any]:
+        """Gets the hyperparameter search space for the model."""
+        space = super().get_hyperparameter_search_space()
+        if self.early_stopping_rounds is None:
+            space["n_epochs"] = {"type": "int", "low": 5, "high": 100, "step": 10}
+        if self.search_space_override:
+            space.update(self.search_space_override)
+        return space
+
     def build_model(self) -> None:
         """Builds the model architecture.
 

@@ -34,6 +34,7 @@ class BaseModel(abc.ABC):
         cv_folds: int | None = None,
         split_strategy: DataSplitStrategy = DataSplitStrategy.RANDOM,
         optimize_hyperparameters: bool = False,
+        n_trials: int = 50,
         search_space_override: dict | None = None,
         output_dir: str | None = None,
         calculate_feature_importance: bool = True,
@@ -56,6 +57,7 @@ class BaseModel(abc.ABC):
         self.split_strategy = split_strategy
         self.cv_folds = cv_folds
         self.optimize_hyperparameters = optimize_hyperparameters
+        self.n_trials = n_trials
         self.search_space_override = search_space_override or {}
         self.output_dir = output_dir
         self.feature_names: list[str] | None = None
@@ -69,7 +71,6 @@ class BaseModel(abc.ABC):
             assert self.feature_selection_threshold > 0
             self.calculate_feature_importance = True
 
-        self.best_params_: dict | None = None
         self.cv_score_mean_: float | None = None
         self.cv_score_std_: float | None = None
 
@@ -89,11 +90,18 @@ class BaseModel(abc.ABC):
                 "cv_folds": self.cv_folds,
                 "split_strategy": self.split_strategy,
                 "optimize_hyperparameters": self.optimize_hyperparameters,
+                "n_trials": self.n_trials,
                 "search_space_override": self.search_space_override,
                 "output_dir": self.output_dir,
             }
         )
         return params
+
+    def _update_params(self, params: dict[str, Any]) -> None:
+        """Updates the model's parameters from a given dictionary."""
+        for key, value in params.items():
+            setattr(self, key, value)
+        self.params.update(params)
 
     def _filter_predict_data(self, x: np.ndarray | pd.DataFrame) -> np.ndarray | pd.DataFrame:
         """Filters the input data to include only the selected features."""
@@ -141,6 +149,7 @@ class BaseModel(abc.ABC):
     def _perform_feature_selection(self, x_train_val: pd.DataFrame, y_train_val: np.ndarray, iterations: int | None) -> None:
         """Performs feature selection and returns the filtered training data."""
         temp_model = self._clone()
+        logger.info("--- Training model on all the features in preparation for feature selection ---")
         temp_model._fit_single(x_train_val.values, y_train_val, forced_iterations=iterations)
 
         feature_importance = self.calculate_feature_importances(model_instance=temp_model, x_background=x_train_val)
@@ -161,9 +170,10 @@ class BaseModel(abc.ABC):
     ) -> None:
         if self.optimize_hyperparameters:
             logger.info("--- Starting hyperparameter optimization ---")
-            self.best_params_ = self._find_best_hyperparameters(x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val)
-            self.params.update(self.best_params_)
-            logger.info(f"--- Hyperparameter optimization finished. Best params: {self.best_params_} ---")
+            best_params, self.num_iterations_used = self._find_best_hyperparameters(x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val)
+            self._update_params(best_params)
+            logger.info(f"--- Hyperparameter optimization finished. Best params: {self.get_params()} ---")
+            logger.info(f"--- Optimal iterations from HPO: {self.num_iterations_used} ---")
         elif self.early_stopping_rounds is not None:
             # Step 2: Train the Model
             if self.cv_folds:
@@ -294,19 +304,21 @@ class BaseModel(abc.ABC):
         """
         raise NotImplementedError
 
-    def _evaluate_trial_performance(self, model_instance: "BaseModel", x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> float:
-        """Evaluates a trial performance for hyperparameter optimization."""
+    def _evaluate_trial_performance(self, model_instance: "BaseModel", x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> tuple[float, int]:
+        """Evaluates a trial's performance and returns the score and optimal iterations."""
         if self.cv_folds:
             kf = self.get_kfolds(timestamps=timestamps)
-            scores = []
+            fold_results = []
             for train_idx, val_idx in kf.split(x, y):
                 x_train_fold, x_val_fold = x[train_idx], x[val_idx]
                 y_train_fold, y_val_fold = y[train_idx], y[val_idx]
-                model_instance._fit_single(x_train_fold, y_train_fold, x_val=x_val_fold, y_val=y_val_fold)
+                best_iter, loss_history = model_instance._fit_single(x_train_fold, y_train_fold, x_val=x_val_fold, y_val=y_val_fold)
                 preds = model_instance.predict(x_val_fold)
                 score = self._evaluate_trial(y_val_fold, preds)
-                scores.append(score)
-            final_score = float(np.mean(scores))
+                fold_results.append({"best_iter": best_iter, "loss_history": loss_history, "score": score})
+
+            final_score = float(np.mean([res["score"] for res in fold_results]))
+            optimal_iterations = find_optimal_iterations(fold_results)
         else:
             train_indices, val_indices, _ = create_train_val_split(
                 x=x,
@@ -318,32 +330,38 @@ class BaseModel(abc.ABC):
             )
             x_train, y_train = x[train_indices], y[train_indices]
             x_val, y_val = x[val_indices], y[val_indices]
-            model_instance._fit_single(x_train, y_train, x_val=x_val, y_val=y_val)
+            optimal_iterations, _ = model_instance._fit_single(x_train, y_train, x_val=x_val, y_val=y_val)
             preds = model_instance.predict(x_val)
             final_score = self._evaluate_trial(y_val, preds)
-        return final_score
+        return final_score, optimal_iterations
 
-    def _find_best_hyperparameters(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> dict[str, Any]:
-        """Finds the best hyperparameters using Optuna."""
+    def _find_best_hyperparameters(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> tuple[dict[str, Any], int]:
+        """Finds the best hyperparameters and optimal iterations using Optuna."""
 
         def objective(trial: optuna.Trial) -> float:
             search_space = self.get_hyperparameter_search_space()
-            params = {}
+            trial_params = {}
             for name, space in search_space.items():
                 if space["type"] == "int":
-                    params[name] = trial.suggest_int(name, space["low"], space["high"], step=space.get("step", 1), log=space.get("log", False))
+                    trial_params[name] = trial.suggest_int(name, space["low"], space["high"], step=space.get("step", 1), log=space.get("log", False))
                 elif space["type"] == "float":
-                    params[name] = trial.suggest_float(name, space["low"], space["high"], step=space.get("step"), log=space.get("log", False))
+                    trial_params[name] = trial.suggest_float(name, space["low"], space["high"], step=space.get("step"), log=space.get("log", False))
                 elif space["type"] == "categorical":
-                    params[name] = trial.suggest_categorical(name, space["choices"])
+                    trial_params[name] = trial.suggest_categorical(name, space["choices"])
 
-            model_instance = self.__class__(**params)
-            return self._evaluate_trial_performance(model_instance, x, y, timestamps=timestamps)
+            # Create a new model instance with the original parameters, updated with the trial's specific hyperparameters
+            model_instance = self._clone()
+            model_instance._update_params(trial_params)
+
+            score, iterations = self._evaluate_trial_performance(model_instance, x, y, timestamps=timestamps)
+            trial.set_user_attr("iterations", iterations)
+            return score
 
         direction = "minimize" if self._get_optimization_metric().is_smaller_better else "maximize"
-        optimizer = OptunaOptimizer(direction=direction)
+        optimizer = OptunaOptimizer(direction=direction, n_trials=self.n_trials, random_seed=getattr(self, "random_seed", None))
         study = optimizer.optimize(objective)
-        return study.best_params
+        best_iterations = study.best_trial.user_attrs["iterations"]
+        return study.best_trial.params, best_iterations
 
     @abc.abstractmethod
     def _get_optimization_metric(self) -> Metric:

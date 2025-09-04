@@ -9,6 +9,7 @@ from sklearn.metrics import accuracy_score, mean_squared_error
 from automl_package.enums import Metric, TaskType
 from automl_package.models.base import BaseModel
 from automl_package.models.common.common import get_loss_history
+from automl_package.utils.numerics import ensure_proba_shape
 
 
 class XGBoostModel(BaseModel):
@@ -85,6 +86,7 @@ class XGBoostModel(BaseModel):
             self.val_indices = None
 
         model_instance = xgb.XGBClassifier if self.task_type == TaskType.CLASSIFICATION else xgb.XGBRegressor
+        params.setdefault("n_estimators", 500)
         self.model = model_instance(objective=self.objective, eval_metric=self.eval_metric, random_state=self.random_seed, **params)
 
         if forced_iterations is not None:
@@ -205,7 +207,8 @@ class XGBoostModel(BaseModel):
             raise ValueError("predict_proba is not available for the current XGBoost configuration (likely regression).")
         if filter_data:
             x = self._filter_predict_data(x)
-        return self.model.predict_proba(x)
+        proba = self.model.predict_proba(x)
+        return ensure_proba_shape(proba, self.model.n_classes_)
 
     def get_hyperparameter_search_space(self) -> dict[str, Any]:
         """Defines the hyperparameter search space for XGBoost.
@@ -214,7 +217,6 @@ class XGBoostModel(BaseModel):
             Dict[str, Any]: A dictionary defining the hyperparameter search space.
         """
         space = {
-            "n_estimators": {"type": "int", "low": 50, "high": 200, "step": 50},
             "learning_rate": {"type": "float", "low": 0.01, "high": 0.3, "log": True},
             "max_depth": {"type": "int", "low": 3, "high": 9, "step": 2},
             "subsample": {"type": "float", "low": 0.6, "high": 1.0, "step": 0.1},
@@ -223,6 +225,8 @@ class XGBoostModel(BaseModel):
             "reg_alpha": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L1 regularization
             "reg_lambda": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L2 regularization
         }
+        if self.early_stopping_rounds is None:
+            space["n_estimators"] = {"type": "int", "low": 5, "high": 550, "step": 50}
         if self.search_space_override:
             space.update(self.search_space_override)
         return space
