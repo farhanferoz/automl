@@ -46,27 +46,47 @@ def load_house_price_data() -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     return X, y, df
 
 
-def get_linear_model_params(model: BaseModel, feature_names: list[str], output_dir: str) -> None:
-    """Gets and saves the parameters of a linear model."""
+def get_linear_model_params(model: BaseModel, data_handler: DataHandler, feature_names: list[str], output_dir: str) -> None:
+    """Gets, unscales, and saves the parameters of a linear model."""
     params = {}
     internal_model = model.get_internal_model()
 
-    # Handle ShapModel wrapper
     if hasattr(internal_model, "model"):
         original_model = internal_model.model
     else:
         original_model = internal_model
 
     if hasattr(original_model, "coef_") and hasattr(original_model, "intercept_"):
-        params["intercept"] = np.array(original_model.intercept_).item()
-        coefs = np.array(original_model.coef_).flatten()
-        coefficients = {feature_names[i]: coefs[i] for i in range(len(coefs))}
+        scaled_weights = np.array(original_model.coef_).flatten()
+        scaled_intercept = np.array(original_model.intercept_).item()
+
+        # Unscale weights and intercept
+        x_mean = np.zeros(len(feature_names))
+        x_std = np.ones(len(feature_names))
+
+        if data_handler.scale_x and data_handler.x_scaler is not None and data_handler.x_scaler.mean_ is not None:
+            non_binary_indices = data_handler.non_binary_feature_indices_
+            if len(non_binary_indices) > 0:
+                x_mean[non_binary_indices] = data_handler.x_scaler.mean_
+                x_std[non_binary_indices] = data_handler.x_scaler.scale_
+
+        y_mean = 0.0
+        y_std = 1.0
+        if data_handler.scale_y and data_handler.y_scaler is not None and data_handler.y_scaler.mean_ is not None:
+            y_mean = data_handler.y_scaler.mean_[0]
+            y_std = data_handler.y_scaler.scale_[0]
+
+        unscaled_weights = scaled_weights * (y_std / x_std)
+        unscaled_intercept = y_mean - np.sum(unscaled_weights * x_mean) + scaled_intercept * y_std
+
+        params["intercept"] = unscaled_intercept
+        coefficients = {feature_names[i]: unscaled_weights[i] for i in range(len(unscaled_weights))}
         params["coefficients"] = coefficients
     else:
         logging.warning(f"Could not get parameters for model {model.name}")
         return
 
-    logging.info(f"  -> Model Parameters: {params}")
+    logging.info(f"  -> Model Parameters (unscaled): {params}")
 
     with open(os.path.join(output_dir, "model_parameters.json"), "w") as f:
         json.dump(params, f, indent=4, cls=NumpyEncoder)
@@ -224,7 +244,7 @@ def run_house_price_prediction() -> None:
         logging.info(f"  -> Test MSE: {test_mse:.4f}")
 
         if "Linear" in name:
-            get_linear_model_params(model, x_data.columns.tolist(), model_output_dir)
+            get_linear_model_params(model, data_handler, x_data.columns.tolist(), model_output_dir)
 
     logging.info("\n--- Model Performance Summary ---")
     results_df = pd.DataFrame.from_dict(results, orient="index").sort_values(by="MSE")
