@@ -4,14 +4,14 @@ import contextlib
 import os
 import sys
 from collections.abc import Generator
-
+from copy import deepcopy
 import numpy as np
 import pandas as pd
 import shap
 import torch
 from sklearn.pipeline import Pipeline
 
-from automl_package.enums import TaskType
+from automl_package.enums import TaskType, UncertaintyMethod, ExplainerType
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 from automl_package.models.catboost_model import CatBoostModel
@@ -109,18 +109,16 @@ class FeatureExplainer:
 
     def _create_explainer(self) -> None:
         model_instance = self.model_to_explain_directly
-        model_name = type(model_instance).__name__
+        explainer_info = model_instance.get_shap_explainer_info()
+        explainer_type = explainer_info["explainer_type"]
+        model_to_explain = explainer_info["model"]
 
-        tree_models = [XGBoostModel.__name__, LightGBMModel.__name__, CatBoostModel.__name__]
-        deep_models = [PyTorchNeuralNetwork.__name__, FlexibleHiddenLayersNN.__name__, IndependentWeightsFlexibleNN.__name__, ProbabilisticRegressionModel.__name__]
-        linear_models = [SklearnLogisticRegression.__name__, LinearRegressionModel.__name__, NormalEquationLinearRegression.__name__, PyTorchLinearRegression.__name__]
+        if explainer_type == ExplainerType.TREE:
+            logger.info(f"Using shap.TreeExplainer for {model_instance.name} model.")
+            self.explainer = shap.TreeExplainer(model_to_explain)
 
-        if model_name in tree_models:
-            logger.info(f"Using shap.TreeExplainer for {model_name} model.")
-            self.explainer = shap.TreeExplainer(model_instance.get_internal_model())
-
-        elif model_name in deep_models:
-            logger.info(f"Using shap.DeepExplainer for {model_name} model.")
+        elif explainer_type == ExplainerType.DEEP:
+            logger.info(f"Using shap.DeepExplainer for {model_instance.name} model.")
             x_background_values = self.x_background.values if isinstance(self.x_background, pd.DataFrame) else self.x_background
             background_data = self._summarize_background_data(x_background_values)
 
@@ -131,29 +129,39 @@ class FeatureExplainer:
                 background_data = np.asarray(background_data)
 
             background_tensor = torch.tensor(background_data, dtype=torch.float32).to(self.device)
-
-            # Ensure the model is on the correct device
-            model_on_device = model_instance.get_internal_model().to(self.device)
+            model_on_device = model_to_explain.to(self.device)
 
             with self._suppress_output():
                 self.explainer = shap.DeepExplainer(model_on_device, background_tensor)
 
-        elif model_name in linear_models:
-            logger.info(f"Using shap.LinearExplainer for {model_name} model.")
+        elif explainer_type == ExplainerType.LINEAR:
+            logger.info(f"Using shap.LinearExplainer for {model_instance.name} model.")
             with self._suppress_output():
-                self.explainer = shap.LinearExplainer(model_instance.get_internal_model(), self.x_background)
+                self.explainer = shap.LinearExplainer(model_to_explain, self.x_background)
+
+        elif explainer_type == ExplainerType.KERNEL:
+            logger.warning(f"Using shap.KernelExplainer for {model_instance.name} model. This may be slow.")
+            background_data = self._summarize_background_data(self.x_background)
+            with self._suppress_output():
+                self.explainer = shap.KernelExplainer(model_to_explain, background_data)
+
+        elif explainer_type == ExplainerType.CATBOOST_PROBABILISTIC_PROXY:
+            logger.warning(f"Using a proxy model for SHAP explanation of probabilistic CatBoost model. This provides an approximation of feature importances.")
+            mean_predictions = model_to_explain.predict(self.x_background)
+
+            # Create a clean set of parameters for the proxy model
+            proxy_params = deepcopy(model_to_explain.get_params())
+            proxy_params["loss_function"] = "RMSE"
+            proxy_params["eval_metric"] = "RMSE"
+            proxy_params["uncertainty_method"] = UncertaintyMethod.CONSTANT
+
+            proxy_model = CatBoostModel(**proxy_params)
+            proxy_model.fit(self.x_background, mean_predictions)
+
+            self.explainer = shap.TreeExplainer(proxy_model.get_internal_model())
 
         else:
-            logger.warning(f"Model type '{model_name}' not specifically optimized for SHAP. Falling back to shap.KernelExplainer.")
-            background_data = self._summarize_background_data(self.x_background)
-
-            def predict_wrapper(data: np.ndarray) -> np.ndarray:
-                if isinstance(data, torch.Tensor):
-                    data = data.cpu().numpy()
-                return model_instance.predict(data)
-
-            with self._suppress_output():
-                self.explainer = shap.KernelExplainer(predict_wrapper, background_data)
+            raise ValueError(f"Unknown explainer type: {explainer_type}")
 
     def _initialize_explainer(self) -> None:
         self._get_model_name()

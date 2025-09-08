@@ -6,7 +6,7 @@ from typing import Any, ClassVar
 import torch
 import torch.nn as nn
 
-from automl_package.enums import ActivationFunction, Metric, TaskType, UncertaintyMethod
+from automl_package.enums import ActivationFunction, Metric, TaskType, UncertaintyMethod, ExplainerType
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.utils.pytorch_utils import get_activation_function_map
 
@@ -66,11 +66,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
     Includes L1 and L2 regularization.
     """
 
-    _defaults: ClassVar[dict[str, Any]] = {
-        "hidden_layers": 1,
-        "hidden_size": 64,
-        "activation": ActivationFunction.RELU,
-    }
+    _defaults: ClassVar[dict[str, Any]] = {"hidden_layers": 1, "hidden_size": 64, "activation": ActivationFunction.RELU}
 
     def __init__(self, **kwargs: Any) -> None:
         """Initializes the PyTorchNeuralNetwork."""
@@ -111,19 +107,13 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
         if self.is_regression_model:
             if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
                 # Custom Negative Log-Likelihood Loss for Gaussian output
-                def nll_loss(
-                    outputs: torch.Tensor, targets: torch.Tensor
-                ) -> torch.Tensor:
+                def nll_loss(outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
                     mean = outputs[:, 0]
                     log_var = outputs[:, 1]
                     # Ensure targets has the same shape as mean for element-wise operations
                     targets = targets.squeeze(-1) if targets.ndim > 1 else targets
                     # Calculate per-sample NLL
-                    per_sample_nll = 0.5 * (
-                        math.log(2 * math.pi)
-                        + log_var
-                        + (targets - mean) ** 2 / torch.exp(log_var)
-                    )
+                    per_sample_nll = 0.5 * (math.log(2 * math.pi) + log_var + (targets - mean) ** 2 / torch.exp(log_var))
                     # Average over the batch
                     return torch.mean(per_sample_nll)
 
@@ -131,9 +121,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
             else:  # Standard MSE loss for other regression methods
                 self.criterion = nn.MSELoss()
         elif self.task_type == TaskType.CLASSIFICATION:
-            if (
-                self.output_size == 1
-            ):  # Binary classification (e.g., outputs logits for BCEWithLogitsLoss)
+            if (self.output_size == 1):  # Binary classification (e.g., outputs logits for BCEWithLogitsLoss)
                 self.criterion = nn.BCEWithLogitsLoss()
             else:  # Multi-class classification
                 self.criterion = nn.CrossEntropyLoss()
@@ -165,3 +153,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
         for key in self._defaults:
             params[key] = getattr(self, key)
         return params
+
+    def get_shap_explainer_info(self) -> dict[str, Any]:
+        """Gets the SHAP explainer type and the model to be explained."""
+        return {"explainer_type": ExplainerType.DEEP, "model": self.get_internal_model()}

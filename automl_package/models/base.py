@@ -8,7 +8,7 @@ import optuna
 import pandas as pd
 from sklearn.model_selection import KFold
 
-from automl_package.enums import DataSplitStrategy, Metric, TaskType
+from automl_package.enums import DataSplitStrategy, Metric, TaskType, UncertaintyMethod, ExplainerType
 from automl_package.logger import logger
 from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
 from automl_package.utils.cv import TimeSeriesSplit
@@ -42,6 +42,7 @@ class BaseModel(abc.ABC):
         calculate_feature_importance: bool = True,
         feature_selection_threshold: float | None = None,
         shap_max_data_points: int | None = 50000,
+        uncertainty_method: UncertaintyMethod = UncertaintyMethod.CONSTANT,
         **kwargs: Any,
     ) -> None:
         """Initializes the base model with given parameters."""
@@ -68,6 +69,7 @@ class BaseModel(abc.ABC):
         self.feature_selection_threshold = feature_selection_threshold
         self.shap_max_data_points = shap_max_data_points
         self.selected_features_: list[str] | None = None
+        self.uncertainty_method = uncertainty_method
 
         if self.feature_selection_threshold is not None and self.feature_selection_threshold < 1.0:
             assert self.feature_selection_threshold > 0
@@ -95,6 +97,7 @@ class BaseModel(abc.ABC):
                 "n_trials": self.n_trials,
                 "search_space_override": self.search_space_override,
                 "output_dir": self.output_dir,
+                "uncertainty_method": self.uncertainty_method,
             }
         )
         return params
@@ -510,3 +513,14 @@ class BaseModel(abc.ABC):
     def get_internal_model(self) -> Any:
         """Returns the internal model."""
         return self.model
+
+    @abc.abstractmethod
+    def get_shap_explainer_info(self) -> dict[str, Any]:
+        """Gets the SHAP explainer type and the model to be explained.
+
+        This method must be implemented by all concrete model subclasses.
+
+        Returns:
+            A dictionary containing the explainer type and the model object.
+        """
+        raise NotImplementedError

@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, log_loss
 
-from automl_package.enums import Metric, Penalty, TaskType
+from automl_package.enums import Metric, Penalty, TaskType, ExplainerType
 from automl_package.models.base import BaseModel
 
 
@@ -285,6 +285,10 @@ class SklearnLogisticRegression(BaseModel):
     def get_internal_model(self) -> LogisticRegression | None:
         """Returns the raw underlying scikit-learn model."""
         return self.model
+
+    def get_shap_explainer_info(self) -> dict[str, Any]:
+        """Gets the SHAP explainer type and the model to be explained."""
+        return {"explainer_type": ExplainerType.LINEAR, "model": self.get_internal_model()}
 
     def get_num_parameters(self) -> int:
         """Returns the total number of trainable parameters in the model.

@@ -167,7 +167,7 @@ def run_showcase() -> None:
     hidden_size = 64
     learning_rate = 0.005
     feature_selection_threshold = 0.75
-    optimize_hyperparameters = True
+    optimize_hyperparameters = False
     n_trials = 50
     random_seed = 42
 
@@ -199,7 +199,7 @@ def run_showcase() -> None:
             hidden_size=hidden_size,
             n_epochs=n_epochs,
             learning_rate=learning_rate,
-            uncertainty_method=UncertaintyMethod.CONSTANT,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
             early_stopping_rounds=early_stopping_rounds,
             validation_fraction=validation_fraction,
             test_fraction=0.0,
@@ -217,7 +217,7 @@ def run_showcase() -> None:
             hidden_size=hidden_size,
             n_epochs=n_epochs,
             learning_rate=learning_rate,
-            uncertainty_method=UncertaintyMethod.CONSTANT,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
             early_stopping_rounds=early_stopping_rounds,
             validation_fraction=validation_fraction,
             test_fraction=0.0,
@@ -245,6 +245,7 @@ def run_showcase() -> None:
             validation_fraction=validation_fraction,
             test_fraction=0.0,
             cv_folds=cv_folds,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
             split_strategy=DataSplitStrategy.RANDOM,
             mapper_type=MapperType.AUTO,
             auto_include_nn_mappers=True,
@@ -257,6 +258,7 @@ def run_showcase() -> None:
         "CatBoost": CatBoostModel(
             n_estimators=n_epochs,
             learning_rate=learning_rate,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
             early_stopping_rounds=early_stopping_rounds,
             validation_fraction=validation_fraction,
             test_fraction=0.0,
@@ -378,6 +380,8 @@ def run_showcase() -> None:
 
     logging.info("--- Running Model Training and Evaluation ---")
     for name, model in models_to_test.items():
+        if not name.startswith("Classifier_Regression"):
+            continue
         logging.info(f"Training {name}...")
         model_output_dir = os.path.join(output_dir, name)
         os.makedirs(model_output_dir, exist_ok=True)

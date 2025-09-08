@@ -12,7 +12,7 @@ from automl_package.enums import (
     LayerSelectionMethod,
     Metric,
     TaskType,
-    UncertaintyMethod,
+    UncertaintyMethod, ExplainerType,
 )
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
@@ -515,3 +515,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         for key in self._defaults:
             params[key] = getattr(self, key)
         return params
+
+    def get_shap_explainer_info(self) -> dict[str, Any]:
+        """Gets the SHAP explainer type and the model to be explained."""
+        return {"explainer_type": ExplainerType.DEEP, "model": self.get_internal_model()}

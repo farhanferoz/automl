@@ -5,7 +5,7 @@ from typing import Any, ClassVar, Never
 import numpy as np
 from sklearn.metrics import mean_squared_error
 
-from automl_package.enums import Metric
+from automl_package.enums import Metric, ExplainerType
 from automl_package.models.base import BaseModel
 
 
@@ -211,6 +211,10 @@ class NormalEquationLinearRegression(BaseModel):
                 self.intercept_ = intercept
 
         return ShapModel(self.weights, self.bias)
+
+    def get_shap_explainer_info(self) -> dict[str, Any]:
+        """Gets the SHAP explainer type and the model to be explained."""
+        return {"explainer_type": ExplainerType.LINEAR, "model": self.get_internal_model()}
 
     def cross_validate(self, x: np.ndarray, y: np.ndarray, cv: int) -> dict[str, Any]:
         """Performs cross-validation and returns the scores."""

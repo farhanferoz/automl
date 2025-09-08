@@ -7,7 +7,7 @@ import torch.nn as nn
 from models.base_pytorch import PyTorchModelBase
 import torch
 
-from automl_package.enums import TaskType
+from automl_package.enums import TaskType, ExplainerType
 
 
 class PyTorchLinearRegression(PyTorchModelBase):
@@ -47,6 +47,10 @@ class PyTorchLinearRegression(PyTorchModelBase):
         intercept = linear_layer.bias.data.cpu().numpy()
 
         return ShapModel(coef, intercept)
+
+    def get_shap_explainer_info(self) -> dict[str, Any]:
+        """Gets the SHAP explainer type and the model to be explained."""
+        return {"explainer_type": ExplainerType.LINEAR, "model": self.get_internal_model()}
 
     def _after_step(self) -> None:
         """Applies positivity constraints to the weights after each optimizer step."""

@@ -12,7 +12,7 @@ from automl_package.enums import (
     NClassesSelectionMethod,
     RegressionStrategy,
     TaskType,
-    UncertaintyMethod,
+    UncertaintyMethod, ExplainerType,
 )
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
@@ -458,6 +458,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
             self.regression_head_params.update(regression_head_params)
         if direct_regression_head_params:
             self.direct_regression_head_params.update(direct_regression_head_params)
+
+    def get_shap_explainer_info(self) -> dict[str, Any]:
+        """Gets the SHAP explainer type and the model to be explained."""
+        return {"explainer_type": ExplainerType.DEEP, "model": self.get_internal_model()}
 
     def _clone(self) -> "ProbabilisticRegressionModel":
         """Creates a new instance of the model with the same parameters."""

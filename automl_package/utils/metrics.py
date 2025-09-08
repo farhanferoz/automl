@@ -23,16 +23,17 @@ from sklearn.metrics import (
     roc_curve,
 )
 
+from automl_package.enums import RegressionStrategy, TaskType
+from automl_package.logger import logger
+from automl_package.utils.numerics import create_bins
+
 
 def mean_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Calculates the Mean Absolute Percentage Error."""
     y_true, y_pred = np.array(y_true), np.array(y_pred)
     # Avoid division by zero
     non_zero_mask = y_true != 0
-    return (
-        np.mean(np.abs((y_true[non_zero_mask] - y_pred[non_zero_mask]) / y_true[non_zero_mask]))
-        * 100
-    )
+    return np.mean(np.abs((y_true[non_zero_mask] - y_pred[non_zero_mask]) / y_true[non_zero_mask])) * 100
 
 
 def median_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -40,14 +41,7 @@ def median_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) -> 
     y_true, y_pred = np.array(y_true), np.array(y_pred)
     # Avoid division by zero
     non_zero_mask = y_true != 0
-    return (
-        np.median(np.abs((y_true[non_zero_mask] - y_pred[non_zero_mask]) / y_true[non_zero_mask]))
-        * 100
-    )
-
-from automl_package.enums import RegressionStrategy, TaskType
-from automl_package.logger import logger
-from automl_package.utils.numerics import create_bins
+    return np.median(np.abs((y_true[non_zero_mask] - y_pred[non_zero_mask]) / y_true[non_zero_mask])) * 100
 
 
 class Metrics:
@@ -85,11 +79,7 @@ class Metrics:
         self.y_std = y_std
         self.partition_name = kwargs.get("partition_name")
 
-        if (
-            self.task_type == TaskType.REGRESSION
-            and self.y_pred.ndim > 1
-            and self.y_pred.shape[1] > 1
-        ):
+        if self.task_type == TaskType.REGRESSION and self.y_pred.ndim > 1 and self.y_pred.shape[1] > 1:
             self.y_pred = self.y_pred[:, 0]
 
         # For Flexible NN architecture plots
@@ -99,21 +89,15 @@ class Metrics:
         self.flexible_nn_feature_scaler = kwargs.get("flexible_nn_feature_scaler")
 
         # For Probabilistic Regression internal plots
-        self.prob_reg_classifier_probabilities = kwargs.get(
-            "prob_reg_classifier_probabilities"
-        )
-        self.prob_reg_regression_head_outputs = kwargs.get(
-            "prob_reg_regression_head_outputs"
-        )
+        self.prob_reg_classifier_probabilities = kwargs.get("prob_reg_classifier_probabilities")
+        self.prob_reg_regression_head_outputs = kwargs.get("prob_reg_regression_head_outputs")
         self.prob_reg_n_classes = kwargs.get("prob_reg_n_classes")
         self.prob_reg_regression_strategy = kwargs.get("prob_reg_regression_strategy")
         self.prob_reg_uncertainty_method = kwargs.get("prob_reg_uncertainty_method")
         self.prob_reg_X_original = kwargs.get("prob_reg_X_original")
         self.prob_reg_probas_for_plotting = kwargs.get("prob_reg_probas_for_plotting")
 
-    def _calculate_bins(
-        self, data: np.ndarray, n_bins: int
-    ) -> tuple[np.ndarray, np.ndarray, int]:
+    def _calculate_bins(self, data: np.ndarray, n_bins: int) -> tuple[np.ndarray, np.ndarray, int]:
         unique_bin_edges, _ = create_bins(data, n_bins)
         bin_midpoints = (unique_bin_edges[:-1] + unique_bin_edges[1:]) / 2
         return unique_bin_edges, bin_midpoints, len(unique_bin_edges) - 1
@@ -124,9 +108,7 @@ class Metrics:
         Returns:
             dict: A dictionary of calculated metrics.
         """
-        if self.task_type == TaskType.REGRESSION:
-            return self.calculate_regression_metrics()
-        return self.calculate_classification_metrics()
+        return self.calculate_regression_metrics() if self.task_type == TaskType.REGRESSION else self.calculate_classification_metrics()
 
     def calculate_regression_metrics(self) -> dict[str, float]:
         """Calculates regression-specific metrics.
@@ -154,10 +136,7 @@ class Metrics:
         # Ensure y_std is not zero to avoid division by zero or log(0)
         y_std = np.maximum(self.y_std, 1e-9)
         # Gaussian NLL formula: 0.5 * log(2 * pi * sigma^2) + (y_true - y_pred)^2 / (2 * sigma^2)
-        nll = 0.5 * (
-            np.log(2 * np.pi * y_std**2)
-            + ((self.y_true - self.y_pred) ** 2) / (y_std**2)
-        )
+        nll = 0.5 * (np.log(2 * np.pi * y_std**2) + ((self.y_true - self.y_pred) ** 2) / (y_std**2))
         return np.mean(nll)
 
     def calculate_standardized_residuals(self) -> np.ndarray | None:
@@ -183,25 +162,17 @@ class Metrics:
 
         # Convert std dev to confidence probabilities using the CDF
         z_scores = np.abs(self.y_true - self.y_pred) / np.maximum(self.y_std, 1e-9)
-        confidences = 2 * (
-            1 - norm.cdf(z_scores)
-        )  # Confidence is the probability of being within the predicted interval
+        confidences = 2 * (1 - norm.cdf(z_scores))  # Confidence is the probability of being within the predicted interval
 
         bin_boundaries = np.linspace(0, 1, n_bins + 1)
         ece = 0.0
         for i in range(n_bins):
-            in_bin = (confidences > bin_boundaries[i]) & (
-                confidences <= bin_boundaries[i + 1]
-            )
+            in_bin = (confidences > bin_boundaries[i]) & (confidences <= bin_boundaries[i + 1])
             if np.sum(in_bin) > 0:
                 # Accuracy in this bin is the proportion of times the true value was within the predicted interval
-                accuracy_in_bin = np.mean(
-                    z_scores[in_bin] <= 1
-                )  # A z-score <= 1 means it's within 1 std dev
+                accuracy_in_bin = np.mean(z_scores[in_bin] <= 1)  # A z-score <= 1 means it's within 1 std dev
                 confidence_in_bin = np.mean(confidences[in_bin])
-                ece += np.abs(accuracy_in_bin - confidence_in_bin) * (
-                    np.sum(in_bin) / len(self.y_true)
-                )
+                ece += np.abs(accuracy_in_bin - confidence_in_bin) * (np.sum(in_bin) / len(self.y_true))
         return ece
 
     def calculate_classification_metrics(self) -> dict[str, float]:
@@ -221,16 +192,12 @@ class Metrics:
             if len(unique_classes) == 2:
                 # For binary classification, y_proba should be (n_samples,) or (n_samples, 2)
                 # If (n_samples, 2), take the probability of the positive class
-                y_score_for_roc_auc = (
-                    self.y_proba[:, 1] if self.y_proba.ndim == 2 else self.y_proba
-                )
+                y_score_for_roc_auc = self.y_proba[:, 1] if self.y_proba.ndim == 2 else self.y_proba
                 metrics["roc_auc"] = roc_auc_score(self.y_true, y_score_for_roc_auc)
             else:
                 # For multi-class, y_proba should be (n_samples, n_classes)
                 # Use 'ovr' (one-vs-rest) strategy for multi-class ROC AUC
-                metrics["roc_auc"] = roc_auc_score(
-                    self.y_true, self.y_proba, multi_class="ovr", average="weighted"
-                )
+                metrics["roc_auc"] = roc_auc_score(self.y_true, self.y_proba, multi_class="ovr", average="weighted")
 
             # log_loss expects y_proba to be (n_samples, n_classes) for multi-class, or (n_samples,) for binary
             # If binary and y_proba is (n_samples, 2), log_loss handles it.
@@ -252,17 +219,10 @@ class Metrics:
         # Predicted vs. Actual Plot
         plt.figure(figsize=(10, 6))
         plt.scatter(y_true_flat, y_pred_flat, alpha=0.5)
-        plt.plot(
-            [y_true_flat.min(), y_true_flat.max()],
-            [y_true_flat.min(), y_true_flat.max()],
-            "--r",
-            linewidth=2,
-        )
+        plt.plot([y_true_flat.min(), y_true_flat.max()], [y_true_flat.min(), y_true_flat.max()], "--r", linewidth=2)
         plt.xlabel("Actual Values")
         plt.ylabel("Predicted Values")
-        plt.title(
-            f"Predicted vs. Actual Values for {self.model_name} ({self.partition_name})"
-        )
+        plt.title(f"Predicted vs. Actual Values for {self.model_name} ({self.partition_name})")
         plt.savefig(f"{save_path}/{self.partition_name}_predicted_vs_actual.png")
         plt.close()
 
@@ -273,9 +233,7 @@ class Metrics:
         plt.axhline(y=0, color="r", linestyle="--")
         plt.xlabel("Predicted Values")
         plt.ylabel("Residuals")
-        plt.title(
-            f"Residuals vs. Predicted Values for {self.model_name} ({self.partition_name})"
-        )
+        plt.title(f"Residuals vs. Predicted Values for {self.model_name} ({self.partition_name})")
         plt.savefig(f"{save_path}/{self.partition_name}_residuals_vs_predicted.png")
         plt.close()
 
@@ -308,11 +266,7 @@ class Metrics:
                 # Binary ROC Curve
                 fpr, tpr, _ = roc_curve(self.y_true, self.y_proba[:, 1])
                 plt.figure(figsize=(8, 6))
-                plt.plot(
-                    fpr,
-                    tpr,
-                    label=f"ROC Curve (AUC = {roc_auc_score(self.y_true, self.y_proba[:, 1]):.2f})",
-                )
+                plt.plot(fpr, tpr, label=f"ROC Curve (AUC = {roc_auc_score(self.y_true, self.y_proba[:, 1]):.2f})")
                 plt.plot([0, 1], [0, 1], "k--")
                 plt.xlabel("False Positive Rate")
                 plt.ylabel("True Positive Rate")
@@ -322,20 +276,14 @@ class Metrics:
                 plt.close()
 
                 # Binary Precision-Recall Curve
-                precision, recall, _ = precision_recall_curve(
-                    self.y_true, self.y_proba[:, 1]
-                )
+                precision, recall, _ = precision_recall_curve(self.y_true, self.y_proba[:, 1])
                 plt.figure(figsize=(8, 6))
                 plt.plot(recall, precision, label="Precision-Recall Curve")
                 plt.xlabel("Recall")
                 plt.ylabel("Precision")
-                plt.title(
-                    f"Precision-Recall Curve for {self.model_name} ({self.partition_name})"
-                )
+                plt.title(f"Precision-Recall Curve for {self.model_name} ({self.partition_name})")
                 plt.legend(loc="lower left")
-                plt.savefig(
-                    f"{save_path}/{self.partition_name}_precision_recall_curve.png"
-                )
+                plt.savefig(f"{save_path}/{self.partition_name}_precision_recall_curve.png")
                 plt.close()
             else:
                 # Multi-class ROC Curve (One-vs-Rest)
@@ -347,21 +295,13 @@ class Metrics:
                     y_proba_class = self.y_proba[:, i]
                     fpr, tpr, _ = roc_curve(y_true_bin, y_proba_class)
                     auc_score = roc_auc_score(y_true_bin, y_proba_class)
-                    plt.plot(
-                        fpr,
-                        tpr,
-                        label=f"ROC Curve (Class {class_label}, AUC = {auc_score:.2f})",
-                    )
+                    plt.plot(fpr, tpr, label=f"ROC Curve (Class {class_label}, AUC = {auc_score:.2f})")
                 plt.plot([0, 1], [0, 1], "k--")
                 plt.xlabel("False Positive Rate")
                 plt.ylabel("True Positive Rate")
-                plt.title(
-                    f"Multi-class ROC Curve for {self.model_name} ({self.partition_name}) (One-vs-Rest)"
-                )
+                plt.title(f"Multi-class ROC Curve for {self.model_name} ({self.partition_name}) (One-vs-Rest)")
                 plt.legend(loc="lower right")
-                plt.savefig(
-                    f"{save_path}/{self.partition_name}_multiclass_roc_curve.png"
-                )
+                plt.savefig(f"{save_path}/{self.partition_name}_multiclass_roc_curve.png")
                 plt.close()
 
                 # Multi-class Precision-Recall Curve (One-vs-Rest)
@@ -369,19 +309,13 @@ class Metrics:
                 for i, class_label in enumerate(unique_classes):
                     y_true_bin = (self.y_true == class_label).astype(int)
                     y_proba_class = self.y_proba[:, i]
-                    precision, recall, _ = precision_recall_curve(
-                        y_true_bin, y_proba_class
-                    )
+                    precision, recall, _ = precision_recall_curve(y_true_bin, y_proba_class)
                     plt.plot(recall, precision, label=f"PR Curve (Class {class_label})")
                 plt.xlabel("Recall")
                 plt.ylabel("Precision")
-                plt.title(
-                    f"Multi-class Precision-Recall Curve for {self.model_name} ({self.partition_name}) (One-vs-Rest)"
-                )
+                plt.title(f"Multi-class Precision-Recall Curve for {self.model_name} ({self.partition_name}) (One-vs-Rest)")
                 plt.legend(loc="lower left")
-                plt.savefig(
-                    f"{save_path}/{self.partition_name}_multiclass_precision_recall_curve.png"
-                )
+                plt.savefig(f"{save_path}/{self.partition_name}_multiclass_precision_recall_curve.png")
                 plt.close()
 
             self.plot_predicted_vs_true_classification_rate(save_path)
@@ -405,11 +339,7 @@ class Metrics:
         inverse_cumulative_means: list[float] = []
 
         for i in range(n_bins):
-            mask = (
-                (max_proba >= bin_edges[i]) & (max_proba < bin_edges[i + 1])
-                if i < n_bins - 1
-                else (max_proba >= bin_edges[i]) & (max_proba <= bin_edges[i + 1])
-            )
+            mask = (max_proba >= bin_edges[i]) & (max_proba < bin_edges[i + 1]) if i < n_bins - 1 else (max_proba >= bin_edges[i]) & (max_proba <= bin_edges[i + 1])
 
             if np.any(mask):
                 bin_means.append(np.mean(is_correct[mask]))
@@ -419,31 +349,19 @@ class Metrics:
                 bin_medians.append(0.0)
 
             inv_cum_mask = max_proba >= bin_edges[i]
-            if np.any(inv_cum_mask):
-                inverse_cumulative_means.append(np.mean(is_correct[inv_cum_mask]))
-            else:
-                inverse_cumulative_means.append(0.0)
+            inverse_cumulative_means.append(np.mean(is_correct[inv_cum_mask]) if np.any(inv_cum_mask) else 0.0)
 
         plt.figure(figsize=(12, 8))
         plt.plot(bin_midpoints, bin_means, "o-", label="Mean Classification Rate")
         plt.plot(bin_midpoints, bin_medians, "s--", label="Median Classification Rate")
-        plt.plot(
-            bin_midpoints,
-            inverse_cumulative_means,
-            "^-.",
-            label="Inverse Cumulative Mean Rate",
-        )
+        plt.plot(bin_midpoints, inverse_cumulative_means, "^-.", label="Inverse Cumulative Mean Rate")
         plt.xlabel("Bin Midpoint of Maximum Classification Probability")
         plt.ylabel("Classification Rate")
-        plt.title(
-            f"Predicted vs. True Classification Rate for {self.model_name} ({self.partition_name})"
-        )
+        plt.title(f"Predicted vs. True Classification Rate for {self.model_name} ({self.partition_name})")
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
-        plt.savefig(
-            f"{save_path}/{self.partition_name}_predicted_vs_true_classification_rate.png"
-        )
+        plt.savefig(f"{save_path}/{self.partition_name}_predicted_vs_true_classification_rate.png")
         plt.close()
 
     def plot_completeness_vs_purity(self, save_path: str) -> None:
@@ -476,9 +394,7 @@ class Metrics:
         plt.plot(thresholds, purity, "s--", label="Purity")
         plt.xlabel("Threshold Probability")
         plt.ylabel("Rate")
-        plt.title(
-            f"Completeness vs. Purity for {self.model_name} ({self.partition_name})"
-        )
+        plt.title(f"Completeness vs. Purity for {self.model_name} ({self.partition_name})")
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
@@ -488,41 +404,29 @@ class Metrics:
     def plot_standardized_residuals_histogram(self, save_path: str) -> None:
         """Plots a histogram of the standardized residuals against a standard normal distribution."""
         residuals = self.calculate_standardized_residuals()
-        if residuals is None:
-            return
+        if residuals is not None:
+            # Clip outliers for better visualization
+            lower_clip = np.percentile(residuals, 0.1)
+            upper_clip = np.percentile(residuals, 99.9)
+            residuals_clipped = np.clip(residuals, lower_clip, upper_clip)
 
-        # Clip outliers for better visualization
-        clip_threshold = 4  # 4 standard deviations
-        residuals_clipped = np.clip(residuals, -clip_threshold, clip_threshold)
+            plt.figure(figsize=(10, 6))
+            # Plot histogram of the standardized residuals
+            plt.hist(residuals_clipped, bins='auto', density=True, alpha=0.6, color="g", label="Standardized Residuals")
 
-        plt.figure(figsize=(10, 6))
-        # Plot histogram of the standardized residuals
-        plt.hist(
-            residuals_clipped,
-            bins=50,
-            density=True,
-            alpha=0.6,
-            color="g",
-            label="Standardized Residuals",
-        )
+            # Overlay the standard normal distribution for comparison
+            xmin, xmax = plt.xlim()
+            x = np.linspace(xmin, xmax, 100)
+            p = np.exp(-0.5 * x**2) / np.sqrt(2 * np.pi)  # PDF of standard normal
+            plt.plot(x, p, "k", linewidth=2, label="Standard Normal Distribution")
 
-        # Overlay the standard normal distribution for comparison
-        xmin, xmax = plt.xlim()
-        x = np.linspace(xmin, xmax, 100)
-        p = np.exp(-0.5 * x**2) / np.sqrt(2 * np.pi)  # PDF of standard normal
-        plt.plot(x, p, "k", linewidth=2, label="Standard Normal Distribution")
-
-        plt.title(
-            f"Histogram of Standardized Residuals for {self.model_name} ({self.partition_name})"
-        )
-        plt.xlabel("Standardized Residual (prediction_error / predicted_std)")
-        plt.ylabel("Density")
-        plt.legend()
-        plt.grid(True)
-        plt.savefig(
-            f"{save_path}/{self.partition_name}_standardized_residuals_histogram.png"
-        )
-        plt.close()
+            plt.title(f"Histogram of Standardized Residuals for {self.model_name} ({self.partition_name})")
+            plt.xlabel("Standardized Residual (prediction_error / predicted_std)")
+            plt.ylabel("Density")
+            plt.legend()
+            plt.grid(True)
+            plt.savefig(f"{save_path}/{self.partition_name}_standardized_residuals_histogram.png")
+            plt.close()
 
     def plot_flexible_nn_architecture(self, save_path: str) -> None:
         """Plots the architecture decisions of a Flexible Neural Network.
@@ -530,16 +434,10 @@ class Metrics:
         Args:
             save_path (str): Directory to save the plots.
         """
-        if (
-            self.flexible_nn_n_actual is None
-            or self.flexible_nn_n_logits is None
-            or self.x_data is None
-        ):
+        if self.flexible_nn_n_actual is None or self.flexible_nn_n_logits is None or self.x_data is None:
             return
 
-        logger.info(
-            f"Plotting Flexible NN Architecture Decisions to {save_path}/flexible_nn_architecture.png ---"
-        )
+        logger.info(f"Plotting Flexible NN Architecture Decisions to {save_path}/flexible_nn_architecture.png ---")
 
         n_actual = self.flexible_nn_n_actual
         n_logits = self.flexible_nn_n_logits
@@ -550,15 +448,9 @@ class Metrics:
         x_original = self.x_data
         if feature_scaler:
             # Handle both 1D and 2D x_data for inverse_transform
-            x_original = (
-                feature_scaler.inverse_transform(x_original.reshape(-1, 1)).flatten()
-                if x_original.ndim == 1
-                else feature_scaler.inverse_transform(x_original)[:, 0]
-            )  # Plot against the first feature
+            x_original = feature_scaler.inverse_transform(x_original.reshape(-1, 1)).flatten() if x_original.ndim == 1 else feature_scaler.inverse_transform(x_original)[:, 0]
         else:
-            x_original = (
-                x_original.flatten() if x_original.ndim == 1 else x_original[:, 0]
-            )
+            x_original = x_original.flatten() if x_original.ndim == 1 else x_original[:, 0]
 
         # Calculate n_probs from logits
         n_probs = softmax(n_logits, axis=1)
@@ -571,36 +463,20 @@ class Metrics:
         fig, axs = plt.subplots(3, 1, figsize=(10, 18))
 
         # Plot 1: Distribution of chosen active layers (n_actual)
-        axs[0].hist(
-            n_actual,
-            bins=np.arange(1, max_hidden_layers + 2),
-            align="left",
-            rwidth=0.8,
-            color="navy",
-        )
+        axs[0].hist(n_actual, bins=np.arange(1, max_hidden_layers + 2), align="left", rwidth=0.8, color="navy")
         axs[0].set_xticks(np.arange(1, max_hidden_layers + 1))
         axs[0].set_xlabel("Number of Active Layers (Actual)")
         axs[0].set_ylabel("Count")
-        axs[0].set_title(
-            f"Flexible NN ({self.model_name}) - Chosen Active Layers Distribution"
-        )
+        axs[0].set_title(f"Flexible NN ({self.model_name}) - Chosen Active Layers Distribution")
         axs[0].grid(axis="y", alpha=0.75)
 
         # Plot 2: Logits for each layer vs. Input Feature
         colors = plt.cm.get_cmap("viridis", max_hidden_layers)
         for i in range(max_hidden_layers):
-            axs[1].scatter(
-                x_original,
-                n_logits[:, i],
-                label=f"Layer {i+1} Logit",
-                alpha=0.6,
-                color=colors(i),
-            )
+            axs[1].scatter(x_original, n_logits[:, i], label=f"Layer {i+1} Logit", alpha=0.6, color=colors(i))
         axs[1].set_xlabel("Input Feature")
         axs[1].set_ylabel("Logit Value")
-        axs[1].set_title(
-            f"Flexible NN ({self.model_name}) - Layer Logits vs. Input Feature"
-        )
+        axs[1].set_title(f"Flexible NN ({self.model_name}) - Layer Logits vs. Input Feature")
         axs[1].legend(loc="upper left")
         axs[1].grid(True)
 
@@ -608,9 +484,7 @@ class Metrics:
         axs[2].scatter(x_original, weighted_layers, alpha=0.6, color="purple")
         axs[2].set_xlabel("Input Feature")
         axs[2].set_ylabel("Weighted Avg. Layers")
-        axs[2].set_title(
-            f"Flexible NN ({self.model_name}) - Weighted Average Layers vs. Input Feature"
-        )
+        axs[2].set_title(f"Flexible NN ({self.model_name}) - Weighted Average Layers vs. Input Feature")
         axs[2].grid(True)
         axs[2].set_yticks(np.arange(1, max_hidden_layers + 1, 1))
 
@@ -626,47 +500,26 @@ class Metrics:
         Args:
             save_path (str): Directory to save the plots.
         """
-        if (
-            self.prob_reg_classifier_probabilities is None
-            or self.prob_reg_regression_head_outputs is None
-        ):
+        if self.prob_reg_classifier_probabilities is None or self.prob_reg_regression_head_outputs is None:
             return
 
-        logger.info(
-            f"Plotting Probabilistic Regression internal plots to {save_path} ---"
-        )
+        logger.info(f"Plotting Probabilistic Regression internal plots to {save_path} ---")
 
         # Plot 1: Internal Classifier Probabilities
         plt.figure(figsize=(10, 6))
         colors = plt.cm.get_cmap("viridis", self.prob_reg_n_classes)
-        x_original_plot = (
-            self.prob_reg_X_original.flatten()
-            if self.prob_reg_X_original.ndim > 1
-            else self.prob_reg_X_original
-        )
+        x_original_plot = self.prob_reg_X_original.flatten() if self.prob_reg_X_original.ndim > 1 else self.prob_reg_X_original
 
         # Sort data by X_original_plot for cleaner lines
         sort_indices = np.argsort(x_original_plot)
         x_original_plot_sorted = x_original_plot[sort_indices]
-        prob_reg_classifier_probabilities_sorted = (
-            self.prob_reg_classifier_probabilities[sort_indices]
-        )
+        prob_reg_classifier_probabilities_sorted = self.prob_reg_classifier_probabilities[sort_indices]
 
         if prob_reg_classifier_probabilities_sorted.shape[1] > 1:  # Multi-class
             for i in range(self.prob_reg_n_classes):
-                plt.plot(
-                    x_original_plot_sorted,
-                    prob_reg_classifier_probabilities_sorted[:, i],
-                    label=f"Class {i} Probability",
-                    color=colors(i),
-                )
+                plt.plot(x_original_plot_sorted, prob_reg_classifier_probabilities_sorted[:, i], label=f"Class {i} Probability", color=colors(i))
         else:  # Binary
-            plt.plot(
-                x_original_plot_sorted,
-                prob_reg_classifier_probabilities_sorted[:, 1],
-                label="Positive Class Probability",
-                color=colors(0),
-            )
+            plt.plot(x_original_plot_sorted, prob_reg_classifier_probabilities_sorted[:, 1], label="Positive Class Probability", color=colors(0))
 
         plt.title("Internal Classifier Probabilities vs. Input Feature")
         plt.xlabel("Input Feature Value")
@@ -682,66 +535,27 @@ class Metrics:
         colors = plt.cm.get_cmap("plasma", self.prob_reg_n_classes)
 
         # Use probas_for_plotting for the x-axis
-        probas_range = (
-            self.prob_reg_probas_for_plotting[:, 0]
-            if self.prob_reg_probas_for_plotting.ndim > 1
-            else self.prob_reg_probas_for_plotting
-        )
+        probas_range = self.prob_reg_probas_for_plotting[:, 0] if self.prob_reg_probas_for_plotting.ndim > 1 else self.prob_reg_probas_for_plotting
 
         # Sort the regression head outputs based on the sorted probas_range
         sort_indices = np.argsort(probas_range)
         probas_range_sorted = probas_range[sort_indices]
-        sorted_regression_head_outputs = self.prob_reg_regression_head_outputs[
-            sort_indices
-        ]
+        sorted_regression_head_outputs = self.prob_reg_regression_head_outputs[sort_indices]
 
         if self.prob_reg_regression_strategy == RegressionStrategy.SEPARATE_HEADS:
             for i in range(self.prob_reg_n_classes):
                 # output is (N, output_size) for each head, so take the mean (index 0)
-                output_for_plot = (
-                    sorted_regression_head_outputs[:, i, 0]
-                    if sorted_regression_head_outputs.ndim == 3
-                    else sorted_regression_head_outputs[:, i]
-                )
-                plt.plot(
-                    probas_range_sorted,
-                    output_for_plot,
-                    label=f"Head {i} Output",
-                    color=colors(i),
-                )
-        elif (
-            self.prob_reg_regression_strategy
-            == RegressionStrategy.SINGLE_HEAD_N_OUTPUTS
-        ):
+                output_for_plot = sorted_regression_head_outputs[:, i, 0] if sorted_regression_head_outputs.ndim == 3 else sorted_regression_head_outputs[:, i]
+                plt.plot(probas_range_sorted, output_for_plot, label=f"Head {i} Output", color=colors(i))
+        elif self.prob_reg_regression_strategy == RegressionStrategy.SINGLE_HEAD_N_OUTPUTS:
             # This strategy returns (N, n_classes, output_size)
             for i in range(self.prob_reg_n_classes):
-                output_for_plot = (
-                    sorted_regression_head_outputs[:, i, 0]
-                    if sorted_regression_head_outputs.ndim == 3
-                    else sorted_regression_head_outputs[:, i]
-                )
-                plt.plot(
-                    probas_range_sorted,
-                    output_for_plot,
-                    label=f"Class {i} Contribution",
-                    color=colors(i),
-                )
-        elif (
-            self.prob_reg_regression_strategy
-            == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT
-        ):
+                output_for_plot = sorted_regression_head_outputs[:, i, 0] if sorted_regression_head_outputs.ndim == 3 else sorted_regression_head_outputs[:, i]
+                plt.plot(probas_range_sorted, output_for_plot, label=f"Class {i} Contribution", color=colors(i))
+        elif self.prob_reg_regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
             # This strategy returns (N, output_size)
-            output_for_plot = (
-                sorted_regression_head_outputs[:, 0]
-                if sorted_regression_head_outputs.ndim == 2
-                else sorted_regression_head_outputs
-            )
-            plt.plot(
-                probas_range_sorted,
-                output_for_plot,
-                label="Combined Output",
-                color="red",
-            )
+            output_for_plot = sorted_regression_head_outputs[:, 0] if sorted_regression_head_outputs.ndim == 2 else sorted_regression_head_outputs
+            plt.plot(probas_range_sorted, output_for_plot, label="Combined Output", color="red")
 
         plt.title(f"Regression Head Outputs for {self.model_name}")
         plt.xlabel("Input Probability")
@@ -769,9 +583,7 @@ class Metrics:
             observed_frequencies.append(np.mean(is_covered))
 
         plt.figure(figsize=(8, 6))
-        plt.plot(
-            confidence_levels, observed_frequencies, "o-", label="Calibration Curve"
-        )
+        plt.plot(confidence_levels, observed_frequencies, "o-", label="Calibration Curve")
         plt.plot([0, 1], [0, 1], "k--", label="Perfect Calibration")
         plt.xlabel("Predicted Confidence Level")
         plt.ylabel("Observed Frequency")
@@ -787,7 +599,7 @@ class Metrics:
             return
 
         interval_widths = 2 * 1.96 * self.y_std
-        
+
         n_bins = min(50, len(np.unique(interval_widths)))
 
         if n_bins < 2:
@@ -795,14 +607,7 @@ class Metrics:
             return
 
         plt.figure(figsize=(10, 6))
-        plt.hist(
-            interval_widths,
-            bins=n_bins,
-            density=True,
-            alpha=0.6,
-            color="b",
-            label="Prediction Interval Width",
-        )
+        plt.hist(interval_widths, bins='auto', density=True, alpha=0.6, color="b", label="Prediction Interval Width")
         plt.xlabel("Prediction Interval Width")
         plt.ylabel("Density")
         plt.title(f"Sharpness Plot for {self.model_name} ({self.partition_name})")
@@ -837,37 +642,3 @@ class Metrics:
 
         if self.prob_reg_classifier_probabilities is not None:
             self.plot_prob_reg_internal_plots(save_path)
-
-
-def plot_standardized_residuals(
-    residuals: np.ndarray, model_name: str, output_path: str
-) -> None:
-    """Plots a histogram of standardized residuals against the standard normal distribution."""
-    # Clip outliers for better visualization
-    clip_threshold = 4
-    residuals_clipped = np.clip(residuals, -clip_threshold, clip_threshold)
-
-    plt.figure(figsize=(10, 6))
-    # Plot histogram of the standardized residuals
-    plt.hist(
-        residuals_clipped,
-        bins=50,
-        density=True,
-        alpha=0.6,
-        color="g",
-        label="Standardized Residuals",
-    )
-
-    # Overlay the standard normal distribution for comparison
-    xmin, xmax = plt.xlim()
-    x = np.linspace(xmin, xmax, 100)
-    p = norm.pdf(x)  # PDF of standard normal
-    plt.plot(x, p, "k", linewidth=2, label="Standard Normal Distribution")
-
-    plt.title(f"Histogram of Standardized Residuals for {model_name}")
-    plt.xlabel("Standardized Residual (y_true - y_pred) / std_dev")
-    plt.ylabel("Density")
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(output_path)
-    plt.close()

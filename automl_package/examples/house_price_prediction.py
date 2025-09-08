@@ -6,7 +6,7 @@ import shutil
 import numpy as np
 import pandas as pd
 
-from automl_package.enums import DataSplitStrategy, TaskType
+from automl_package.enums import DataSplitStrategy, TaskType, UncertaintyMethod
 from automl_package.models.base import BaseModel
 from automl_package.models.catboost_model import CatBoostModel
 from automl_package.models.classifier_regression import ClassifierRegressionModel

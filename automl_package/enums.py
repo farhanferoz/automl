@@ -175,3 +175,13 @@ class DataSplitStrategy(Enum):
     RANDOM = "random"
     DISTINCT_DATES = "distinct_dates"
     TIME_ORDERED = "time_ordered"
+
+
+class ExplainerType(Enum):
+    """Enum for different SHAP explainer types."""
+
+    TREE = "tree"
+    DEEP = "deep"
+    LINEAR = "linear"
+    KERNEL = "kernel"
+    CATBOOST_PROBABILISTIC_PROXY = "catboost_probabilistic_proxy"

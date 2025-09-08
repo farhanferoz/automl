@@ -6,7 +6,7 @@ import numpy as np
 import xgboost as xgb
 from sklearn.metrics import accuracy_score, mean_squared_error
 
-from automl_package.enums import Metric, TaskType
+from automl_package.enums import Metric, TaskType, ExplainerType
 from automl_package.models.base import BaseModel
 from automl_package.models.common.common import get_loss_history
 from automl_package.utils.numerics import ensure_proba_shape
@@ -271,6 +271,10 @@ class XGBoostModel(BaseModel):
     def get_internal_model(self) -> xgb.XGBRegressor | xgb.XGBClassifier | None:
         """Returns the raw underlying XGBoost model."""
         return self.model
+
+    def get_shap_explainer_info(self) -> dict[str, Any]:
+        """Gets the SHAP explainer type and the model to be explained."""
+        return {"explainer_type": ExplainerType.TREE, "model": self.get_internal_model()}
 
     def get_num_parameters(self) -> int:
         """Returns the number of estimators in the XGBoost model.
