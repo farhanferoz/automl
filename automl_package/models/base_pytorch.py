@@ -267,6 +267,7 @@ class PyTorchModelBase(BaseModel, ABC):
                 self.optimizer.step()
                 if self.lambda_optimizer:
                     self.lambda_optimizer.step()
+                self._after_step()
 
             if use_early_stopping and x_val_tensor is not None:
                 self.model.eval()
@@ -487,6 +488,10 @@ class PyTorchModelBase(BaseModel, ABC):
         self.cv_folds = cv
         self.fit(x, y)
         return {"test_score": self.cv_score_mean_}
+
+    def _after_step(self) -> None:
+        """A hook that is called after each optimizer step."""
+        pass
 
     def get_classifier_predictions(
         self, x: np.ndarray | pd.DataFrame, y_true_original: np.ndarray

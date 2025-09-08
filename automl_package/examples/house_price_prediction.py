@@ -5,7 +5,6 @@ import shutil
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import mean_squared_error
 
 from automl_package.enums import DataSplitStrategy, TaskType
 from automl_package.models.base import BaseModel
@@ -16,6 +15,7 @@ from automl_package.models.neural_network import PyTorchNeuralNetwork
 from automl_package.models.normal_equation_linear_regression import NormalEquationLinearRegression
 from automl_package.models.pytorch_linear_regression import PyTorchLinearRegression
 from automl_package.utils.data_handler import DataHandler, create_train_val_split
+from automl_package.utils.metrics import mean_absolute_percentage_error, median_absolute_percentage_error
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -37,7 +37,7 @@ def load_house_price_data() -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     data_path = os.path.join(os.path.dirname(__file__), "data", "FlatSaleData.csv")
     df = pd.read_csv(data_path)
 
-    features = ["Floor", "Parking Spaces", "Size (sq ft)", "is Pan Peninsula", "is Wardian", "E14 Index Delta (Jan 2023)"]
+    features = ["Floor", "Parking Spaces", "Size (sq ft)", "is Pan Peninsula", "is Wardian", "E14 Index Delta (Jan 2023)", "Bedrooms"]
     target = "Actual Price (GBP)"
 
     X = df[features]
@@ -92,9 +92,7 @@ def get_linear_model_params(model: BaseModel, data_handler: DataHandler, feature
         json.dump(params, f, indent=4, cls=NumpyEncoder)
 
 
-def generate_output_file(
-    model: BaseModel, data_handler: DataHandler, all_data: pd.DataFrame, indices: np.ndarray, file_path: str, feature_names: list[str]
-) -> None:
+def generate_output_file(model: BaseModel, data_handler: DataHandler, all_data: pd.DataFrame, indices: np.ndarray, file_path: str, feature_names: list[str]) -> None:
     """Generates a CSV file with predictions and errors."""
     subset_data = all_data.iloc[indices].copy()
     subset_x = subset_data[feature_names]
@@ -123,13 +121,22 @@ def run_house_price_prediction() -> None:
 
     X, y, full_df = load_house_price_data()
 
+    # Feature Engineering
+    X["Size_per_Bedroom"] = X["Size (sq ft)"] / (X["Bedrooms"] + 1e-6)
+    full_df["Size_per_Bedroom"] = full_df["Size (sq ft)"] / (full_df["Bedrooms"] + 1e-6)
+    X = X.drop(columns=["Bedrooms"])
+    full_df = full_df.drop(columns=["Bedrooms"])
+
     # Create a separate feature set for linear models
     X_linear = X.copy()
-    X_linear["Size (sq ft)^2"] = X_linear["Size (sq ft)"] ** 2
+    X_linear["Floor^2"] = X["Floor"] ** 2
 
     # Data Splitting
+    always_test_addresses = ["Flat 4304 LET"]
+    force_to_test_indices = full_df[full_df["Address"].isin(always_test_addresses)].index.values
+
     train_indices, val_indices, test_indices = create_train_val_split(
-        x=X.values, validation_fraction=0.2, test_fraction=0.2, split_strategy=DataSplitStrategy.RANDOM, random_state=random_seed, timestamps=None
+        x=X.values, validation_fraction=0.2, test_fraction=0.2, split_strategy=DataSplitStrategy.RANDOM, random_state=random_seed, timestamps=None, force_to_test_indices=force_to_test_indices
     )
     train_val_indices = np.concatenate((train_indices, val_indices))
 
@@ -148,6 +155,7 @@ def run_house_price_prediction() -> None:
             test_fraction=0.0,
             random_seed=random_seed,
             early_stopping_rounds=early_stopping_rounds,
+            positive_features=["Floor", "Parking Spaces", "Size (sq ft)"],
         ),
         "NormalEquationLinearRegression": NormalEquationLinearRegression(
             output_dir=os.path.join(output_dir, "NormalEquationLinearRegression"),
@@ -164,6 +172,7 @@ def run_house_price_prediction() -> None:
             test_fraction=0.0,
             random_seed=random_seed,
             early_stopping_rounds=early_stopping_rounds,
+            positive_features=["Floor", "Parking Spaces", "Size (sq ft)"],
         ),
         "PyTorch_NN": PyTorchNeuralNetwork(
             input_size=X.shape[1],
@@ -193,13 +202,13 @@ def run_house_price_prediction() -> None:
             base_classifier_class=PyTorchNeuralNetwork,
             base_classifier_params={
                 "input_size": X.shape[1],
-                "output_size": 10,  # 10 classes for regression
+                "output_size": 3,  # 3 classes for regression
                 "n_epochs": 500,
                 "hidden_layers": nn_hidden_layers,
                 "hidden_size": nn_hidden_size,
                 "early_stopping_rounds": early_stopping_rounds,
             },
-            n_classes=10,
+            n_classes=3,
             split_strategy=DataSplitStrategy.RANDOM,
             output_dir=os.path.join(output_dir, "Classifier_Regression"),
             validation_fraction=0.2,
@@ -217,19 +226,21 @@ def run_house_price_prediction() -> None:
         model_output_dir = os.path.join(output_dir, name)
         os.makedirs(model_output_dir, exist_ok=True)
 
+        data_handler = DataHandler(scale_binary_features=False, log_transform_y=True)
         if "Linear" in name:
             x_data = X_linear
-            data_handler = DataHandler(scale_binary_features=False)
-            x_train_val, y_train_val = data_handler.fit_transform(x_data.iloc[train_val_indices].values, y.iloc[train_val_indices].values)
-            all_data_for_output = X_linear.copy()
-            all_data_for_output['Actual Price (GBP)'] = y
+            x_train_val, y_train_val_log = data_handler.fit_transform(x_data.iloc[train_val_indices].values, y.iloc[train_val_indices].values)
+            all_data_for_output = full_df.copy()
+            all_data_for_output["Floor^2"] = all_data_for_output["Floor"] ** 2
         else:
             x_data = X
-            data_handler = DataHandler(scale_binary_features=False)
-            x_train_val, y_train_val = data_handler.fit_transform(x_data.iloc[train_val_indices].values, y.iloc[train_val_indices].values)
+            x_train_val, y_train_val_log = data_handler.fit_transform(x_data.iloc[train_val_indices].values, y.iloc[train_val_indices].values)
             all_data_for_output = full_df
 
-        model.fit(pd.DataFrame(x_train_val, columns=x_data.columns), y_train_val)
+        model.fit(pd.DataFrame(x_train_val, columns=x_data.columns), y_train_val_log)
+
+        # Fit the smearing correction
+        data_handler.fit_smearing_correction(y_train_log=y_train_val_log, model=model, x_train=x_train_val)
 
         # Generate output files
         generate_output_file(model, data_handler, all_data_for_output, train_val_indices, os.path.join(model_output_dir, "train_predictions.csv"), x_data.columns.tolist())
@@ -239,15 +250,19 @@ def run_house_price_prediction() -> None:
         x_test_scaled, _ = data_handler.transform(x_data.iloc[test_indices].values, None)
         y_pred_scaled = model.predict(x_test_scaled)
         y_pred = data_handler.inverse_transform_y(y_pred_scaled)
-        test_mse = mean_squared_error(y.iloc[test_indices], y_pred)
-        results[name] = {"MSE": test_mse}
-        logging.info(f"  -> Test MSE: {test_mse:.4f}")
+
+        mape = mean_absolute_percentage_error(y.iloc[test_indices], y_pred)
+        median_ape = median_absolute_percentage_error(y.iloc[test_indices], y_pred)
+        
+        results[name] = {"MAPE": mape, "Median APE": median_ape}
+        logging.info(f"  -> Test MAPE: {mape:.4f}%")
+        logging.info(f"  -> Test Median APE: {median_ape:.4f}%")
 
         if "Linear" in name:
             get_linear_model_params(model, data_handler, x_data.columns.tolist(), model_output_dir)
 
     logging.info("\n--- Model Performance Summary ---")
-    results_df = pd.DataFrame.from_dict(results, orient="index").sort_values(by="MSE")
+    results_df = pd.DataFrame.from_dict(results, orient="index").sort_values(by="MAPE")
     logging.info(f"\n{results_df}")
 
     logging.info("\nShowcase complete.")

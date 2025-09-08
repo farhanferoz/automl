@@ -1,5 +1,7 @@
 """Data handling utilities."""
 
+from typing import Optional, TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -7,19 +9,25 @@ from sklearn.preprocessing import StandardScaler
 
 from automl_package.enums import DataSplitStrategy
 
+if TYPE_CHECKING:
+    from automl_package.models.base import BaseModel
+
 
 class DataHandler:
     """Handles data scaling and splitting."""
 
-    def __init__(self, scale_x: bool = True, scale_y: bool = True, scale_binary_features: bool = False) -> None:
+    def __init__(self, scale_x: bool = True, scale_y: bool = True, scale_binary_features: bool = False, log_transform_y: bool = False) -> None:
         """Initializes the DataHandler."""
         self.scale_x = scale_x
         self.scale_y = scale_y
         self.scale_binary_features = scale_binary_features
+        self.log_transform_y = log_transform_y
         self.x_scaler = StandardScaler() if scale_x else None
         self.y_scaler = StandardScaler() if scale_y else None
         self.binary_feature_indices_ = []
         self.non_binary_feature_indices_ = []
+        self.y_was_log_transformed = False
+        self.smearing_factor = None
 
     def _detect_binary_features(self, x: np.ndarray):
         if not self.scale_binary_features:
@@ -30,6 +38,10 @@ class DataHandler:
 
     def fit_transform(self, x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Fits and transforms the data."""
+        if self.log_transform_y:
+            y = np.log1p(y)
+            self.y_was_log_transformed = True
+
         if self.scale_x:
             self._detect_binary_features(x)
             x_scaled = x.copy()
@@ -53,11 +65,50 @@ class DataHandler:
         y_scaled = self.y_scaler.transform(y.reshape(-1, 1)).flatten() if self.scale_y and y is not None else y
         return x_scaled, y_scaled
 
-    def inverse_transform_y(self, y_pred_scaled: np.ndarray) -> np.ndarray:
-        """Inverse transforms the scaled y predictions."""
-        if not self.scale_y:
-            return y_pred_scaled
-        return self.y_scaler.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
+    def inverse_transform_y(self, y_pred: np.ndarray) -> np.ndarray:
+        """
+        Inverse transforms the predictions.
+        This method assumes y_pred is on the same scale as the transformed y from fit_transform.
+        It will inverse scale and inverse log transform if they were applied.
+        """
+        y_processed = y_pred
+        if self.scale_y:
+            y_processed = self.y_scaler.inverse_transform(y_processed.reshape(-1, 1)).flatten()
+
+        if self.y_was_log_transformed:
+            y_processed = np.expm1(y_processed)
+            if self.smearing_factor is not None:
+                y_processed *= self.smearing_factor
+
+        return y_processed
+
+    def fit_smearing_correction(
+        self,
+        y_train_log: np.ndarray,
+        model: Optional["BaseModel"] = None,
+        x_train: Optional[np.ndarray] = None,
+        y_train_pred_log: Optional[np.ndarray] = None,
+        are_logs_scaled: bool = True,
+    ) -> None:
+        """Calculates and stores the smearing factor for correction."""
+        if self.y_was_log_transformed:
+            # Determine the predicted log values
+            if y_train_pred_log is None:
+                if model is None or x_train is None:
+                    raise ValueError("Either (model, x_train) or y_train_pred_log must be provided.")
+                # Predictions from the model are always scaled
+                y_train_pred_log_scaled = model.predict(x_train)
+                y_train_pred_log_unscaled_log = self.y_scaler.inverse_transform(y_train_pred_log_scaled.reshape(-1, 1)).flatten() if self.scale_y else y_train_pred_log_scaled
+            else:  # y_train_pred_log is provided
+                y_train_pred_log_unscaled_log = (
+                    self.y_scaler.inverse_transform(y_train_pred_log.reshape(-1, 1)).flatten() if self.scale_y else y_train_pred_log if are_logs_scaled else y_train_pred_log
+                )
+
+            # Determine the true log values
+            y_train_log_unscaled_log = self.y_scaler.inverse_transform(y_train_log.reshape(-1, 1)).flatten() if self.scale_y else y_train_log if are_logs_scaled else y_train_log
+
+            residuals = y_train_log_unscaled_log - y_train_pred_log_unscaled_log
+            self.smearing_factor = np.mean(np.exp(residuals))
 
 
 def create_train_val_split(
@@ -67,13 +118,22 @@ def create_train_val_split(
     split_strategy: DataSplitStrategy,
     timestamps: np.ndarray | None,
     random_state: int | None,
+    force_to_test_indices: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Creates train, validation, and test splits and returns the indices."""
     if timestamps is None and split_strategy != DataSplitStrategy.RANDOM:
         raise ValueError("timestamps cannot be None for non-random split strategies.")
 
+    if force_to_test_indices is not None:
+        all_indices = np.arange(x.shape[0])
+        forced_test_indices = force_to_test_indices
+        remaining_indices = np.setdiff1d(all_indices, forced_test_indices)
+    else:
+        remaining_indices = np.arange(x.shape[0])
+        forced_test_indices = np.array([], dtype=int)
+
     if split_strategy == DataSplitStrategy.RANDOM:
-        train_indices, val_indices, test_indices = _random_split(x, validation_fraction, test_fraction, random_state)
+        train_indices, val_indices, test_indices = _random_split(x[remaining_indices], validation_fraction, test_fraction, random_state)
     elif split_strategy == DataSplitStrategy.DISTINCT_DATES:
         if timestamps is None:
             raise ValueError("timestamps must be provided for distinct_dates split strategy.")
@@ -82,7 +142,7 @@ def create_train_val_split(
                 timestamps = pd.to_datetime(timestamps)
             except (ValueError, TypeError) as e:
                 raise ValueError("timestamps must be of type date or datetime for distinct_dates split strategy.") from e
-        train_indices, val_indices, test_indices = _distinct_dates_split(validation_fraction, test_fraction, timestamps, random_state)
+        train_indices, val_indices, test_indices = _distinct_dates_split(validation_fraction, test_fraction, timestamps[remaining_indices], random_state)
     elif split_strategy == DataSplitStrategy.TIME_ORDERED:
         if timestamps is None:
             raise ValueError("timestamps must be provided for time_ordered split strategy.")
@@ -91,9 +151,14 @@ def create_train_val_split(
                 timestamps = pd.to_datetime(timestamps)
             except (ValueError, TypeError) as e:
                 raise ValueError("timestamps must be of type date, datetime or numeric for time_ordered split strategy.") from e
-        train_indices, val_indices, test_indices = _time_ordered_split(validation_fraction, test_fraction, timestamps)
+        train_indices, val_indices, test_indices = _time_ordered_split(validation_fraction, test_fraction, timestamps[remaining_indices])
     else:
         raise ValueError(f"Unknown split strategy: {split_strategy}")
+
+    # Map back to original indices
+    train_indices = remaining_indices[train_indices]
+    val_indices = remaining_indices[val_indices]
+    test_indices = np.concatenate([forced_test_indices, remaining_indices[test_indices]])
 
     return train_indices, val_indices, test_indices
 
@@ -114,12 +179,7 @@ def _random_split(x: np.ndarray, validation_fraction: float, test_fraction: floa
     return train_indices, val_indices, test_indices
 
 
-def _distinct_dates_split(
-    validation_fraction: float,
-    test_fraction: float,
-    timestamps: np.ndarray | None,
-    random_state: int | None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _distinct_dates_split(validation_fraction: float, test_fraction: float, timestamps: np.ndarray | None, random_state: int | None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Performs a split based on distinct dates."""
     if timestamps is None:
         raise ValueError("timestamps must be provided for distinct_dates split strategy.")

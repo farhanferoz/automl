@@ -23,6 +23,28 @@ from sklearn.metrics import (
     roc_curve,
 )
 
+
+def mean_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Calculates the Mean Absolute Percentage Error."""
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    # Avoid division by zero
+    non_zero_mask = y_true != 0
+    return (
+        np.mean(np.abs((y_true[non_zero_mask] - y_pred[non_zero_mask]) / y_true[non_zero_mask]))
+        * 100
+    )
+
+
+def median_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Calculates the Median Absolute Percentage Error."""
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    # Avoid division by zero
+    non_zero_mask = y_true != 0
+    return (
+        np.median(np.abs((y_true[non_zero_mask] - y_pred[non_zero_mask]) / y_true[non_zero_mask]))
+        * 100
+    )
+
 from automl_package.enums import RegressionStrategy, TaskType
 from automl_package.logger import logger
 from automl_package.utils.numerics import create_bins
@@ -116,6 +138,8 @@ class Metrics:
             "mae": mean_absolute_error(self.y_true, self.y_pred),
             "rmse": np.sqrt(mean_squared_error(self.y_true, self.y_pred)),
             "r2_score": r2_score(self.y_true, self.y_pred),
+            "mape": mean_absolute_percentage_error(self.y_true, self.y_pred),
+            "median_ape": median_absolute_percentage_error(self.y_true, self.y_pred),
         }
         if self.y_std is not None:
             metrics["nll"] = self.calculate_nll()

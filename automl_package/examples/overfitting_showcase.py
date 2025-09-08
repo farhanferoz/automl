@@ -159,15 +159,15 @@ def run_showcase() -> None:
     n_samples = 2000
     user_defined_n_classes = 3
     early_stopping_rounds = 50
-    validation_fraction = 0.2
+    validation_fraction = None
     test_fraction = 0.2
-    cv_folds = None
+    cv_folds = 4
     n_epochs = 500
     hidden_layers = 2
     hidden_size = 64
     learning_rate = 0.005
     feature_selection_threshold = 0.75
-    optimize_hyperparameters = False
+    optimize_hyperparameters = True
     n_trials = 50
     random_seed = 42
 

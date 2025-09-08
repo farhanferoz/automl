@@ -21,6 +21,7 @@ class LinearRegressionModel(BaseModel):
         "n_iterations": 1000,
         "penalty": None,
         "regularization_strength": 0.0,
+        "positive_features": None,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -103,6 +104,21 @@ class LinearRegressionModel(BaseModel):
 
         loss_grad = jit(grad(self._loss_fn, argnums=(0, 1)))
 
+        positive_mask = np.zeros(self.n_features, dtype=bool)
+        if self.positive_features and self.feature_to_idx_:
+            positive_indices = [self.feature_to_idx_[feat] for feat in self.positive_features if feat in self.feature_to_idx_]
+            if positive_indices:
+                positive_mask[positive_indices] = True
+        
+        positive_mask_jax = jnp.array(positive_mask)
+
+        def update_step(weights, bias, x, y):
+            grads_w, grads_b = loss_grad(weights, bias, x, y)
+            new_weights = weights - self.learning_rate * grads_w
+            new_bias = bias - self.learning_rate * grads_b
+            new_weights = jnp.where(positive_mask_jax, jnp.maximum(0, new_weights), new_weights)
+            return new_weights, new_bias
+
         use_early_stopping = (
             self.early_stopping_rounds is not None
             and forced_iterations is None
@@ -123,11 +139,7 @@ class LinearRegressionModel(BaseModel):
 
             n_iterations = self.n_iterations
             for i in range(n_iterations):
-                grads_w, grads_b = loss_grad(
-                    self.weights, self.bias, x_train_jax, y_train_jax
-                )
-                self.weights = self.weights - self.learning_rate * grads_w
-                self.bias = self.bias - self.learning_rate * grads_b
+                self.weights, self.bias = update_step(self.weights, self.bias, x_train_jax, y_train_jax)
 
                 val_loss = self._loss_fn(self.weights, self.bias, x_val_jax, y_val_jax)
                 val_loss_history.append(float(val_loss))
@@ -151,11 +163,8 @@ class LinearRegressionModel(BaseModel):
         else:
             iterations = forced_iterations or self.n_iterations
             for _i in range(iterations):
-                grads_w, grads_b = loss_grad(
-                    self.weights, self.bias, x_train_jax, y_train_jax
-                )
-                self.weights = self.weights - self.learning_rate * grads_w
-                self.bias = self.bias - self.learning_rate * grads_b
+                self.weights, self.bias = update_step(self.weights, self.bias, x_train_jax, y_train_jax)
+
             iterations_to_return = iterations
             val_loss_history = []
 
