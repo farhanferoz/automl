@@ -8,7 +8,7 @@ import numpy as np
 from jax import grad, jit
 from sklearn.metrics import mean_squared_error
 
-from automl_package.enums import Metric, Penalty, ExplainerType
+from automl_package.enums import ExplainerType, Metric, Penalty
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 
@@ -49,9 +49,7 @@ class LinearRegressionModel(BaseModel):
         """Gets the optimization metric for the model."""
         return Metric.RMSE
 
-    def _loss_fn(
-        self, weights: jnp.ndarray, bias: jnp.ndarray, x: jnp.ndarray, y: jnp.ndarray
-    ) -> jnp.ndarray:
+    def _loss_fn(self, weights: jnp.ndarray, bias: jnp.ndarray, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
         """Mean Squared Error loss function with L1 and L2 regularization."""
         predictions = jnp.dot(x, weights) + bias
         mse_loss = jnp.mean((predictions - y) ** 2)
@@ -97,9 +95,7 @@ class LinearRegressionModel(BaseModel):
         y_train_jax = jnp.array(y_train, dtype=jnp.float32)
 
         self.key, subkey_w = jax.random.split(self.key)
-        self.weights = (
-            jax.random.normal(subkey_w, (self.n_features,), dtype=jnp.float32) * 0.01
-        )
+        self.weights = jax.random.normal(subkey_w, (self.n_features,), dtype=jnp.float32) * 0.01
         self.bias = jnp.array(0.0, dtype=jnp.float32)
 
         loss_grad = jit(grad(self._loss_fn, argnums=(0, 1)))
@@ -109,22 +105,17 @@ class LinearRegressionModel(BaseModel):
             positive_indices = [self.feature_to_idx_[feat] for feat in self.positive_features if feat in self.feature_to_idx_]
             if positive_indices:
                 positive_mask[positive_indices] = True
-        
+
         positive_mask_jax = jnp.array(positive_mask)
 
-        def update_step(weights, bias, x, y):
+        def update_step(weights: jnp.ndarray, bias: jnp.ndarray, x: jnp.ndarray, y: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
             grads_w, grads_b = loss_grad(weights, bias, x, y)
             new_weights = weights - self.learning_rate * grads_w
             new_bias = bias - self.learning_rate * grads_b
             new_weights = jnp.where(positive_mask_jax, jnp.maximum(0, new_weights), new_weights)
             return new_weights, new_bias
 
-        use_early_stopping = (
-            self.early_stopping_rounds is not None
-            and forced_iterations is None
-            and x_val is not None
-            and y_val is not None
-        )
+        use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None and x_val is not None and y_val is not None
 
         if use_early_stopping:
             best_val_loss = float("inf")
@@ -179,9 +170,7 @@ class LinearRegressionModel(BaseModel):
         """Evaluates a trial for hyperparameter optimization."""
         return self._calculate_metric(y_true, y_pred, Metric.RMSE)
 
-    def _calculate_metric(
-        self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric
-    ) -> float:
+    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
         """Calculates a metric."""
         if metric == Metric.RMSE:
             return np.sqrt(mean_squared_error(y_true, y_pred))
@@ -236,9 +225,7 @@ class LinearRegressionModel(BaseModel):
         """
         return 0 if self.weights is None else self.weights.size + 1
 
-    def predict_uncertainty(
-        self, x: np.ndarray, filter_data: bool = True
-    ) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
@@ -249,9 +236,7 @@ class LinearRegressionModel(BaseModel):
             np.ndarray: Uncertainty estimates (e.g., standard deviation).
         """
         if not self.is_regression_model:
-            raise ValueError(
-                "predict_uncertainty is only available for regression models."
-            )
+            raise ValueError("predict_uncertainty is only available for regression models.")
         if self.weights is None or self.bias is None:
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
@@ -265,9 +250,7 @@ class LinearRegressionModel(BaseModel):
         Raises:
             NotImplementedError: JAXLinearRegression is a regression model.
         """
-        raise NotImplementedError(
-            "JAXLinearRegression is a regression model and does not support predict_proba."
-        )
+        raise NotImplementedError("JAXLinearRegression is a regression model and does not support predict_proba.")
 
     def get_hyperparameter_search_space(self) -> dict[str, Any]:
         """Defines the hyperparameter search space for JAXLinearRegression.
@@ -294,17 +277,13 @@ class LinearRegressionModel(BaseModel):
             space.update(self.search_space_override)
         return space
 
-    def get_classifier_predictions(
-        self, x: np.ndarray, y_true_original: np.ndarray
-    ) -> Never:
+    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> Never:
         """Not implemented for JAXLinearRegression.
 
         Raises:
             NotImplementedError: JAXLinearRegression is not a composite model.
         """
-        raise NotImplementedError(
-            "JAXLinearRegression is not a composite model and does not have an internal classifier for separate prediction."
-        )
+        raise NotImplementedError("JAXLinearRegression is not a composite model and does not have an internal classifier for separate prediction.")
 
     def get_internal_model(self) -> Any:
         """Returns the internal model."""

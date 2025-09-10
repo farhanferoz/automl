@@ -102,16 +102,12 @@ class AutoML:
 
         # Initialize scalers
         self.feature_scaler = feature_scaler
-        self.target_scaler = (
-            target_scaler if self.task_type == TaskType.REGRESSION else None
-        )
+        self.target_scaler = target_scaler if self.task_type == TaskType.REGRESSION else None
 
         # Internal storage for fitted scalers and encoders
         self._fitted_feature_scaler: TransformerMixin | None = None
         self._fitted_target_scaler: TransformerMixin | None = None
-        self._fitted_categorical_encoder: (
-            OrderedTargetEncoder | OneHotEncoder | None
-        ) = None
+        self._fitted_categorical_encoder: OrderedTargetEncoder | OneHotEncoder | None = None
         self._final_categorical_features: list[str | int] = []
 
         # Use ModelName enum for registry keys
@@ -131,13 +127,9 @@ class AutoML:
             ModelName.PROBABILISTIC_REGRESSION: ProbabilisticRegressionModel,
         }
         # Use ModelName enum for best_model_name storage
-        self.trained_models: dict[
-            ModelName, tuple[BaseModel, dict[str, Any], float]
-        ] = {}  # Stores best_model_instance, best_params, best_score
+        self.trained_models: dict[ModelName, tuple[BaseModel, dict[str, Any], float]] = {}  # Stores best_model_instance, best_params, best_score
         self.best_model_name: ModelName | None = None
-        self.best_overall_metric: float = (
-            float("inf") if self._is_minimize_metric() else -float("inf")
-        )
+        self.best_overall_metric: float = float("inf") if self._is_minimize_metric() else -float("inf")
 
         self.optuna_optimizer = OptunaOptimizer(
             direction="minimize" if self._is_minimize_metric() else "maximize",
@@ -158,16 +150,12 @@ class AutoML:
                     ModelName.JAX_LINEAR_REGRESSION,
                 ]
             }
-            logger.info(
-                f"Removed regression-only models from consideration for {self.task_type.value} task."
-            )
+            logger.info(f"Removed regression-only models from consideration for {self.task_type.value} task.")
 
         self.X_train_for_shap: np.ndarray | None = None  # For SHAP background data
         self.leaderboard: list[dict[str, Any]] = []  # New: Initialize leaderboard
 
-    def _identify_categorical_features(
-        self, x: pd.DataFrame | np.ndarray
-    ) -> list[str | int]:
+    def _identify_categorical_features(self, x: pd.DataFrame | np.ndarray) -> list[str | int]:
         """Identifies categorical features based on user input and/or automatic detection."""
         identified_features = set()
 
@@ -177,24 +165,18 @@ class AutoML:
                 # Ensure provided feature names exist in DataFrame
                 for col in self.categorical_features:
                     if col not in x.columns:
-                        logger.warning(
-                            f"User-provided categorical feature '{col}' not found in input data. Ignoring."
-                        )
+                        logger.warning(f"User-provided categorical feature '{col}' not found in input data. Ignoring.")
                     else:
                         identified_features.add(col)
             elif isinstance(x, np.ndarray):
                 # For numpy arrays, assume indices are provided
                 for idx in self.categorical_features:
                     if not isinstance(idx, int) or idx < 0 or idx >= x.shape[1]:
-                        logger.warning(
-                            f"User-provided categorical feature index '{idx}' is invalid. Ignoring."
-                        )
+                        logger.warning(f"User-provided categorical feature index '{idx}' is invalid. Ignoring.")
                     else:
                         identified_features.add(idx)
             else:
-                logger.warning(
-                    "Unsupported input data type for categorical feature identification. Skipping user-provided features."
-                )
+                logger.warning("Unsupported input data type for categorical feature identification. Skipping user-provided features.")
 
         # Auto-detect additional categorical features
         if self.auto_detect_categorical:
@@ -202,9 +184,7 @@ class AutoML:
                 for col in x.columns:
                     if col in identified_features:  # Skip if already identified by user
                         continue
-                    if x[col].dtype == "object" or isinstance(
-                        x[col].dtype, pd.CategoricalDtype
-                    ):
+                    if x[col].dtype == "object" or isinstance(x[col].dtype, pd.CategoricalDtype):
                         identified_features.add(col)
                     elif pd.api.types.is_numeric_dtype(x[col]):
                         unique_ratio = x[col].nunique() / len(x[col])
@@ -223,9 +203,7 @@ class AutoML:
                         if unique_ratio < self.auto_detect_categorical_threshold:
                             identified_features.add(i)
             else:
-                logger.warning(
-                    "Unsupported input data type for automatic categorical feature detection. Skipping auto-detection."
-                )
+                logger.warning("Unsupported input data type for automatic categorical feature detection. Skipping auto-detection.")
 
         # Convert set to sorted list for consistent ordering
         if isinstance(x, pd.DataFrame):
@@ -237,9 +215,7 @@ class AutoML:
         """Determines if the metric should be minimized."""
         return self.metric in [Metric.RMSE, Metric.MSE, Metric.LOG_LOSS]
 
-    def _evaluate_metric(
-        self, y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray | None = None
-    ) -> float:
+    def _evaluate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray | None = None) -> float:
         """Evaluates the chosen metric."""
         return calculate_metric(y_true, y_pred, self.metric, self.task_type, y_proba)
 
@@ -254,54 +230,29 @@ class AutoML:
         if model_name == ModelName.CLASSIFIER_REGRESSION:
             # ClassifierRegressionModel needs special handling for its nested parameters
             base_classifier_name_str = params.pop("base_classifier_name")
-            base_model_enum = ModelName(
-                base_classifier_name_str
-            )  # Convert string back to Enum
+            base_model_enum = ModelName(base_classifier_name_str)  # Convert string back to Enum
             base_classifier_class = self.models_registry[base_model_enum]
 
             mapper_type_str = params.pop("mapper_type", MapperType.SPLINE.label)
             mapper_type = MapperType(mapper_type_str)
 
             # Reconstruct base_classifier_params
-            base_classifier_params_reconstructed = {
-                k.replace("base__", ""): v
-                for k, v in params.items()
-                if k.startswith("base__")
-            }
-            for k in list(
-                params.keys()
-            ):  # Remove consumed params from top-level `params`
+            base_classifier_params_reconstructed = {k.replace("base__", ""): v for k, v in params.items() if k.startswith("base__")}
+            for k in list(params.keys()):  # Remove consumed params from top-level `params`
                 if k.startswith("base__"):
                     del params[k]
 
             # Convert enum strings back to Enum objects within reconstructed params
-            if (
-                "uncertainty_method" in base_classifier_params_reconstructed
-                and isinstance(
-                    base_classifier_params_reconstructed["uncertainty_method"], str
-                )
-            ):
-                base_classifier_params_reconstructed["uncertainty_method"] = (
-                    UncertaintyMethod(
-                        base_classifier_params_reconstructed["uncertainty_method"]
-                    )
-                )
-            if "activation" in base_classifier_params_reconstructed and isinstance(
-                base_classifier_params_reconstructed["activation"], str
-            ):
-                base_classifier_params_reconstructed["activation"] = ActivationFunction(
-                    base_classifier_params_reconstructed["activation"]
-                )
+            if "uncertainty_method" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["uncertainty_method"], str):
+                base_classifier_params_reconstructed["uncertainty_method"] = UncertaintyMethod(base_classifier_params_reconstructed["uncertainty_method"])
+            if "activation" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["activation"], str):
+                base_classifier_params_reconstructed["activation"] = ActivationFunction(base_classifier_params_reconstructed["activation"])
 
             # Reconstruct mapper_params
             mapper_params_reconstructed = {}
             if mapper_type in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
-                mapper_params_reconstructed["n_partitions_min"] = params.pop(
-                    "n_partitions_min_lookup", 5
-                )
-                mapper_params_reconstructed["n_partitions_max"] = params.pop(
-                    "n_partitions_max_lookup", np.inf
-                )
+                mapper_params_reconstructed["n_partitions_min"] = params.pop("n_partitions_min_lookup", 5)
+                mapper_params_reconstructed["n_partitions_max"] = params.pop("n_partitions_max_lookup", np.inf)
             elif mapper_type == MapperType.SPLINE:
                 mapper_params_reconstructed["spline_k"] = params.pop("spline_k", 3)
                 mapper_params_reconstructed["spline_s"] = params.pop("spline_s", None)
@@ -312,80 +263,38 @@ class AutoML:
             # Handle specific parameters for internal models when passed through ClassifierRegression
             if base_model_enum == ModelName.PYTORCH_NEURAL_NETWORK:
                 base_classifier_params_reconstructed["input_size"] = input_features
-                base_classifier_params_reconstructed["output_size"] = (
-                    1 if n_classes == 2 else n_classes
-                )  # n_classes from outer model
-                base_classifier_params_reconstructed["task_type"] = (
-                    TaskType.CLASSIFICATION
-                )
+                base_classifier_params_reconstructed["output_size"] = 1 if n_classes == 2 else n_classes  # n_classes from outer model
+                base_classifier_params_reconstructed["task_type"] = TaskType.CLASSIFICATION
                 # Convert string activation to Type[nn.Module]
-                if "activation" in base_classifier_params_reconstructed and isinstance(
-                    base_classifier_params_reconstructed["activation"], str
-                ):
-                    base_classifier_params_reconstructed["activation"] = (
-                        ActivationFunction(
-                            base_classifier_params_reconstructed["activation"]
-                        )
-                    )
+                if "activation" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["activation"], str):
+                    base_classifier_params_reconstructed["activation"] = ActivationFunction(base_classifier_params_reconstructed["activation"])
                 # Ensure dropout_rate and n_mc_dropout_samples are set if uncertainty_method is MC_DROPOUT
-                if (
-                    base_classifier_params_reconstructed.get("uncertainty_method")
-                    == UncertaintyMethod.MC_DROPOUT.value
-                ):
+                if base_classifier_params_reconstructed.get("uncertainty_method") == UncertaintyMethod.MC_DROPOUT.value:
                     base_classifier_params_reconstructed.setdefault("dropout_rate", 0.1)
-                    base_classifier_params_reconstructed.setdefault(
-                        "n_mc_dropout_samples", 100
-                    )
+                    base_classifier_params_reconstructed.setdefault("n_mc_dropout_samples", 100)
                 else:  # If not MC_DROPOUT, ensure dropout is off
                     base_classifier_params_reconstructed["dropout_rate"] = 0.0
             elif base_model_enum == ModelName.FLEXIBLE_NEURAL_NETWORK:
                 base_classifier_params_reconstructed["input_size"] = input_features
-                base_classifier_params_reconstructed["output_size"] = (
-                    1 if n_classes == 2 else n_classes
-                )
-                base_classifier_params_reconstructed["task_type"] = (
-                    TaskType.CLASSIFICATION
-                )
-                if "activation" in base_classifier_params_reconstructed and isinstance(
-                    base_classifier_params_reconstructed["activation"], str
-                ):
-                    activation_enum = ActivationFunction(
-                        base_classifier_params_reconstructed["activation"]
-                    )
-                    base_classifier_params_reconstructed["activation"] = getattr(
-                        nn, activation_enum.name
-                    )
-                if (
-                    base_classifier_params_reconstructed.get("uncertainty_method")
-                    == UncertaintyMethod.MC_DROPOUT.value
-                ):
+                base_classifier_params_reconstructed["output_size"] = 1 if n_classes == 2 else n_classes
+                base_classifier_params_reconstructed["task_type"] = TaskType.CLASSIFICATION
+                if "activation" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["activation"], str):
+                    activation_enum = ActivationFunction(base_classifier_params_reconstructed["activation"])
+                    base_classifier_params_reconstructed["activation"] = getattr(nn, activation_enum.name)
+                if base_classifier_params_reconstructed.get("uncertainty_method") == UncertaintyMethod.MC_DROPOUT.value:
                     base_classifier_params_reconstructed.setdefault("dropout_rate", 0.1)
-                    base_classifier_params_reconstructed.setdefault(
-                        "n_mc_dropout_samples", 100
-                    )
+                    base_classifier_params_reconstructed.setdefault("n_mc_dropout_samples", 100)
                 else:
                     base_classifier_params_reconstructed["dropout_rate"] = 0.0
             elif base_model_enum == ModelName.XGBOOST:
-                base_classifier_params_reconstructed["objective"] = (
-                    "binary:logistic" if n_classes == 2 else "multi:softmax"
-                )
-                base_classifier_params_reconstructed["eval_metric"] = (
-                    Metric.LOG_LOSS.label
-                )
+                base_classifier_params_reconstructed["objective"] = "binary:logistic" if n_classes == 2 else "multi:softmax"
+                base_classifier_params_reconstructed["eval_metric"] = Metric.LOG_LOSS.label
             elif base_model_enum == ModelName.LIGHTGBM:
-                base_classifier_params_reconstructed["objective"] = (
-                    "binary" if n_classes == 2 else "multiclass"
-                )
+                base_classifier_params_reconstructed["objective"] = "binary" if n_classes == 2 else "multiclass"
                 base_classifier_params_reconstructed["metric"] = Metric.LOG_LOSS.label
             elif base_model_enum == ModelName.CATBOOST:
-                base_classifier_params_reconstructed["task_type"] = (
-                    TaskType.CLASSIFICATION
-                )
-                base_classifier_params_reconstructed["loss_function"] = (
-                    Metric.LOG_LOSS.label
-                    if n_classes == 2
-                    else Metric.MULTI_CLASS.value
-                )
+                base_classifier_params_reconstructed["task_type"] = TaskType.CLASSIFICATION
+                base_classifier_params_reconstructed["loss_function"] = Metric.LOG_LOSS.label if n_classes == 2 else Metric.MULTI_CLASS.value
 
             return ClassifierRegressionModel(
                 n_classes=n_classes,
@@ -400,11 +309,7 @@ class AutoML:
             # PyTorchNeuralNetwork parameters
             return self.models_registry[model_name](
                 input_size=input_features,
-                output_size=(
-                    1
-                    if self.task_type == TaskType.REGRESSION
-                    else (1 if num_classes == 2 else num_classes)
-                ),
+                output_size=(1 if self.task_type == TaskType.REGRESSION else (1 if num_classes == 2 else num_classes)),
                 task_type=self.task_type,
                 **params,  # Pass any remaining
             )
@@ -412,11 +317,7 @@ class AutoML:
         if model_name == ModelName.FLEXIBLE_NEURAL_NETWORK:
             return self.models_registry[model_name](
                 input_size=input_features,
-                output_size=(
-                    1
-                    if self.task_type == TaskType.REGRESSION
-                    else (1 if num_classes == 2 else num_classes)
-                ),
+                output_size=(1 if self.task_type == TaskType.REGRESSION else (1 if num_classes == 2 else num_classes)),
                 task_type=self.task_type,
                 feature_scaler=self.feature_scaler,  # Pass the feature scaler
                 **params,
@@ -424,44 +325,24 @@ class AutoML:
         # -----------------------------------------------------------
         if model_name == ModelName.PROBABILISTIC_REGRESSION:
             n_classes = params.pop("n_classes")
-            regression_strategy_enum = RegressionStrategy(
-                params.pop("regression_strategy")
-            )
-            uncertainty_method_enum = UncertaintyMethod(
-                params.pop("uncertainty_method")
-            )
+            regression_strategy_enum = RegressionStrategy(params.pop("regression_strategy"))
+            uncertainty_method_enum = UncertaintyMethod(params.pop("uncertainty_method"))
 
             # Reconstruct base_classifier_params
-            base_classifier_params_reconstructed = {
-                k.replace("base_classifier_params__", ""): v
-                for k, v in params.items()
-                if k.startswith("base_classifier_params__")
-            }
+            base_classifier_params_reconstructed = {k.replace("base_classifier_params__", ""): v for k, v in params.items() if k.startswith("base_classifier_params__")}
             for k in list(params.keys()):  # Remove consumed params
                 if k.startswith("base_classifier_params__"):
                     del params[k]
-            if "activation" in base_classifier_params_reconstructed and isinstance(
-                base_classifier_params_reconstructed["activation"], str
-            ):
-                base_classifier_params_reconstructed["activation"] = ActivationFunction(
-                    base_classifier_params_reconstructed["activation"]
-                )
+            if "activation" in base_classifier_params_reconstructed and isinstance(base_classifier_params_reconstructed["activation"], str):
+                base_classifier_params_reconstructed["activation"] = ActivationFunction(base_classifier_params_reconstructed["activation"])
 
             # Reconstruct regression_head_params
-            regression_head_params_reconstructed = {
-                k.replace("regression_head_params__", ""): v
-                for k, v in params.items()
-                if k.startswith("regression_head_params__")
-            }
+            regression_head_params_reconstructed = {k.replace("regression_head_params__", ""): v for k, v in params.items() if k.startswith("regression_head_params__")}
             for k in list(params.keys()):  # Remove consumed params
                 if k.startswith("regression_head_params__"):
                     del params[k]
-            if "activation" in regression_head_params_reconstructed and isinstance(
-                regression_head_params_reconstructed["activation"], str
-            ):
-                regression_head_params_reconstructed["activation"] = ActivationFunction(
-                    regression_head_params_reconstructed["activation"]
-                )
+            if "activation" in regression_head_params_reconstructed and isinstance(regression_head_params_reconstructed["activation"], str):
+                regression_head_params_reconstructed["activation"] = ActivationFunction(regression_head_params_reconstructed["activation"])
 
             return self.models_registry[model_name](
                 input_size=input_features,
@@ -480,38 +361,19 @@ class AutoML:
         if model_name == ModelName.XGBOOST:
             if self.task_type == TaskType.CLASSIFICATION:
                 objective = "binary:logistic" if num_classes == 2 else "multi:softmax"
-                eval_metric = (
-                    Metric.LOG_LOSS.value
-                    if num_classes == 2
-                    else Metric.MULTI_CLASS_LOG_LOSS.value
-                )
-                return self.models_registry[model_name](
-                    objective=objective, eval_metric=eval_metric, **params
-                )
-            return self.models_registry[model_name](
-                objective="reg:squarederror", eval_metric=Metric.RMSE.value, **params
-            )
+                eval_metric = Metric.LOG_LOSS.value if num_classes == 2 else Metric.MULTI_CLASS_LOG_LOSS.value
+                return self.models_registry[model_name](objective=objective, eval_metric=eval_metric, **params)
+            return self.models_registry[model_name](objective="reg:squarederror", eval_metric=Metric.RMSE.value, **params)
         if model_name == ModelName.LIGHTGBM:
             if self.task_type == TaskType.CLASSIFICATION:
                 objective = "binary" if num_classes == 2 else "multiclass"
-                metric = (
-                    Metric.LOG_LOSS.value
-                    if num_classes == 2
-                    else Metric.MULTI_CLASS_LOG_LOSS.value
-                )
-                return self.models_registry[model_name](
-                    objective=objective, metric=metric, **params
-                )
-            return self.models_registry[model_name](
-                objective="regression", metric=Metric.RMSE.value, **params
-            )
+                metric = Metric.LOG_LOSS.value if num_classes == 2 else Metric.MULTI_CLASS_LOG_LOSS.value
+                return self.models_registry[model_name](objective=objective, metric=metric, **params)
+            return self.models_registry[model_name](objective="regression", metric=Metric.RMSE.value, **params)
         if model_name == ModelName.CATBOOST:
             return self.models_registry[model_name](task_type=self.task_type, **params)
         if model_name == ModelName.SKLEARN_LOGISTIC_REGRESSION:
-            if (
-                params.get("penalty") == Penalty.ELASTICNET.value
-                and "l1_ratio" in params
-            ):  # Ensure l1_ratio only if elasticnet
+            if params.get("penalty") == Penalty.ELASTICNET.value and "l1_ratio" in params:  # Ensure l1_ratio only if elasticnet
                 return self.models_registry[model_name](**params)
             params_copy = params.copy()
             if "l1_ratio" in params_copy:
@@ -521,16 +383,12 @@ class AutoML:
             return self.models_registry[model_name](**params)
         raise ValueError(f"Unknown model name: {model_name}")
 
-    def _sample_params_for_trial(
-        self, trial: optuna.Trial, model_name: ModelName
-    ) -> tuple[dict[str, Any], str | None]:
+    def _sample_params_for_trial(self, trial: optuna.Trial, model_name: ModelName) -> tuple[dict[str, Any], str | None]:
         """Samples hyperparameters for a given model from its search space."""
         model_class = self.models_registry[model_name]
         params = {}
         if model_name == ModelName.CLASSIFIER_REGRESSION:
-            params["n_classes"] = trial.suggest_int(
-                "n_classes", 2, 5
-            )  # For ClassifierRegression's discretization
+            params["n_classes"] = trial.suggest_int("n_classes", 2, 5)  # For ClassifierRegression's discretization
 
             base_classifier_choices_str = [
                 ModelName.PYTORCH_NEURAL_NETWORK.value,
@@ -540,39 +398,23 @@ class AutoML:
                 ModelName.CATBOOST.value,
             ]
             base_classifier_name_str = (
-                params.pop("base_classifier_name")
-                if "base_classifier_name" in params
-                else trial.suggest_categorical(
-                    "base_classifier_name", base_classifier_choices_str
-                )
+                params.pop("base_classifier_name") if "base_classifier_name" in params else trial.suggest_categorical("base_classifier_name", base_classifier_choices_str)
             )
             params["base_classifier_name"] = base_classifier_name_str
-            base_classifier_class = self.models_registry[
-                ModelName(base_classifier_name_str)
-            ]
-            param_key_prefix = (
-                "base__"  # This prefix is specific to base classifier params
-            )
+            base_classifier_class = self.models_registry[ModelName(base_classifier_name_str)]
+            param_key_prefix = "base__"  # This prefix is specific to base classifier params
 
             # Get search space for the chosen base classifier
             # Get search space for the chosen base classifier
             if ModelName(base_classifier_name_str) == ModelName.PYTORCH_NEURAL_NETWORK:
                 # For temporary instantiation, a generic output_size (e.g., 1 for binary) is sufficient.
                 # The actual output_size will be correctly set during the _instantiate_model call.
-                temp_model_instance = base_classifier_class(
-                    task_type=TaskType.CLASSIFICATION, input_size=10, output_size=1
-                )
-            elif (
-                ModelName(base_classifier_name_str) == ModelName.FLEXIBLE_NEURAL_NETWORK
-            ):
+                temp_model_instance = base_classifier_class(task_type=TaskType.CLASSIFICATION, input_size=10, output_size=1)
+            elif ModelName(base_classifier_name_str) == ModelName.FLEXIBLE_NEURAL_NETWORK:
                 # Same logic for FlexibleNeuralNetwork
-                temp_model_instance = base_classifier_class(
-                    task_type=TaskType.CLASSIFICATION, input_size=10, output_size=1
-                )
+                temp_model_instance = base_classifier_class(task_type=TaskType.CLASSIFICATION, input_size=10, output_size=1)
             elif ModelName(base_classifier_name_str) == ModelName.CATBOOST:
-                temp_model_instance = base_classifier_class(
-                    task_type=TaskType.CLASSIFICATION
-                )
+                temp_model_instance = base_classifier_class(task_type=TaskType.CLASSIFICATION)
             elif ModelName(base_classifier_name_str) in [
                 ModelName.XGBOOST,
                 ModelName.LIGHTGBM,
@@ -580,45 +422,26 @@ class AutoML:
             ]:
                 temp_model_instance = base_classifier_class(is_classification=True)
             else:
-                temp_model_instance = (
-                    base_classifier_class()
-                )  # Fallback for other models
+                temp_model_instance = base_classifier_class()  # Fallback for other models
 
             base_search_space = temp_model_instance.get_hyperparameter_search_space()
 
             for param_name, config in base_search_space.items():
                 param_key = f"base__{param_name}"
                 # Conditional sampling for PyTorchNN uncertainty methods within base classifier params
-                if param_name == "uncertainty_method" and ModelName(
-                    base_classifier_name_str
-                ) in [
+                if param_name == "uncertainty_method" and ModelName(base_classifier_name_str) in [
                     ModelName.PYTORCH_NEURAL_NETWORK,
                     ModelName.FLEXIBLE_NEURAL_NETWORK,
                 ]:
-                    sampled_uncertainty_method_val = trial.suggest_categorical(
-                        param_key, [e.value for e in UncertaintyMethod]
-                    )
+                    sampled_uncertainty_method_val = trial.suggest_categorical(param_key, [e.value for e in UncertaintyMethod])
                     params[param_key] = sampled_uncertainty_method_val
-                    if (
-                        sampled_uncertainty_method_val
-                        == UncertaintyMethod.MC_DROPOUT.value
-                    ):
-                        params[f"{param_key}_n_mc_dropout_samples"] = trial.suggest_int(
-                            f"{param_key}_n_mc_dropout_samples", 50, 200, step=50
-                        )
-                        params[f"{param_key}_dropout_rate"] = trial.suggest_float(
-                            f"{param_key}_dropout_rate", 0.1, 0.5, step=0.1
-                        )
+                    if sampled_uncertainty_method_val == UncertaintyMethod.MC_DROPOUT.value:
+                        params[f"{param_key}_n_mc_dropout_samples"] = trial.suggest_int(f"{param_key}_n_mc_dropout_samples", 50, 200, step=50)
+                        params[f"{param_key}_dropout_rate"] = trial.suggest_float(f"{param_key}_dropout_rate", 0.1, 0.5, step=0.1)
                     continue
                 # Handle l1_ratio for SKLearnLogisticRegression
-                if (
-                    param_name == "l1_ratio"
-                    and ModelName(base_classifier_name_str)
-                    == ModelName.SKLEARN_LOGISTIC_REGRESSION
-                ):
-                    if (
-                        params.get(f"{param_key_prefix}penalty") == "elasticnet"
-                    ):  # Check if penalty is elasticnet (should be sampled already)
+                if param_name == "l1_ratio" and ModelName(base_classifier_name_str) == ModelName.SKLEARN_LOGISTIC_REGRESSION:
+                    if params.get(f"{param_key_prefix}penalty") == "elasticnet":  # Check if penalty is elasticnet (should be sampled already)
                         params[param_key] = trial.suggest_float(
                             param_key,
                             config["low"],
@@ -642,14 +465,10 @@ class AutoML:
                         log=config.get("log", False),
                     )
                 elif config["type"] == "categorical":
-                    params[param_key] = trial.suggest_categorical(
-                        param_key, config["choices"]
-                    )
+                    params[param_key] = trial.suggest_categorical(param_key, config["choices"])
 
             # Parameters for the probability mapper
-            mapper_type_val = trial.suggest_categorical(
-                "mapper_type", [e.label for e in MapperType]
-            )
+            mapper_type_val = trial.suggest_categorical("mapper_type", [e.label for e in MapperType])
             params["mapper_type"] = mapper_type_val
 
             # Conditional mapper params
@@ -657,70 +476,38 @@ class AutoML:
                 MapperType.LOOKUP_MEAN,
                 MapperType.LOOKUP_MEDIAN,
             ]:
-                params["n_partitions_min_lookup"] = trial.suggest_int(
-                    "n_partitions_min_lookup", 5, 10
-                )
-                params["n_partitions_max_lookup"] = trial.suggest_int(
-                    "n_partitions_max_lookup", 10, 50
-                )
+                params["n_partitions_min_lookup"] = trial.suggest_int("n_partitions_min_lookup", 5, 10)
+                params["n_partitions_max_lookup"] = trial.suggest_int("n_partitions_max_lookup", 10, 50)
             elif MapperType(mapper_type_val) == MapperType.SPLINE:
                 params["spline_k"] = trial.suggest_int("spline_k", 1, 3)
-                params["spline_s"] = trial.suggest_float(
-                    "spline_s", 0.01, 10.0, log=True
-                )
+                params["spline_s"] = trial.suggest_float("spline_s", 0.01, 10.0, log=True)
 
             return params, base_classifier_name_str
 
         if model_name == ModelName.PROBABILISTIC_REGRESSION:
             # Sample common parameters for ProbabilisticRegressionModel
             params["n_classes"] = trial.suggest_int("n_classes", 2, 5)
-            params["learning_rate"] = trial.suggest_float(
-                "learning_rate", 1e-4, 1e-2, log=True
-            )
+            params["learning_rate"] = trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True)
             params["n_epochs"] = trial.suggest_int("n_epochs", 10, 50, step=10)
             params["batch_size"] = trial.suggest_categorical("batch_size", [16, 32, 64])
-            params["regression_strategy"] = trial.suggest_categorical(
-                "regression_strategy", [e.value for e in RegressionStrategy]
-            )
-            params["uncertainty_method"] = trial.suggest_categorical(
-                "uncertainty_method", [e.value for e in UncertaintyMethod]
-            )
+            params["regression_strategy"] = trial.suggest_categorical("regression_strategy", [e.value for e in RegressionStrategy])
+            params["uncertainty_method"] = trial.suggest_categorical("uncertainty_method", [e.value for e in UncertaintyMethod])
 
             # Conditional top-level dropout params for MC_DROPOUT
             if params["uncertainty_method"] == UncertaintyMethod.MC_DROPOUT.value:
-                params["n_mc_dropout_samples"] = trial.suggest_int(
-                    "n_mc_dropout_samples", 50, 200, step=50
-                )
-                params["dropout_rate"] = trial.suggest_float(
-                    "dropout_rate", 0.1, 0.5, step=0.1
-                )
+                params["n_mc_dropout_samples"] = trial.suggest_int("n_mc_dropout_samples", 50, 200, step=50)
+                params["dropout_rate"] = trial.suggest_float("dropout_rate", 0.1, 0.5, step=0.1)
             else:  # Set dropout to 0 if not MC_DROPOUT
                 params["dropout_rate"] = 0.0  # This is the top-level dropout rate
             # Nested params for base classifier (internal PyTorchNN/JAX MLP)
-            params["base_classifier_params__hidden_layers"] = trial.suggest_int(
-                "base_classifier_params__hidden_layers", 1, 2
-            )
-            params["base_classifier_params__hidden_size"] = trial.suggest_int(
-                "base_classifier_params__hidden_size", 32, 64, step=32
-            )
-            params["base_classifier_params__use_batch_norm"] = (
-                trial.suggest_categorical(
-                    "base_classifier_params__use_batch_norm", [True, False]
-                )
-            )
+            params["base_classifier_params__hidden_layers"] = trial.suggest_int("base_classifier_params__hidden_layers", 1, 2)
+            params["base_classifier_params__hidden_size"] = trial.suggest_int("base_classifier_params__hidden_size", 32, 64, step=32)
+            params["base_classifier_params__use_batch_norm"] = trial.suggest_categorical("base_classifier_params__use_batch_norm", [True, False])
 
             # Nested params for regression heads (internal PyTorchNN/JAX MLP)
-            params["regression_head_params__hidden_layers"] = trial.suggest_int(
-                "regression_head_params__hidden_layers", 0, 1
-            )
-            params["regression_head_params__hidden_size"] = trial.suggest_int(
-                "regression_head_params__hidden_size", 16, 32, step=16
-            )
-            params["regression_head_params__use_batch_norm"] = (
-                trial.suggest_categorical(
-                    "regression_head_params__use_batch_norm", [True, False]
-                )
-            )
+            params["regression_head_params__hidden_layers"] = trial.suggest_int("regression_head_params__hidden_layers", 0, 1)
+            params["regression_head_params__hidden_size"] = trial.suggest_int("regression_head_params__hidden_size", 16, 32, step=16)
+            params["regression_head_params__use_batch_norm"] = trial.suggest_categorical("regression_head_params__use_batch_norm", [True, False])
 
             return params, None
 
@@ -730,10 +517,7 @@ class AutoML:
             # Conditional sampling for uncertainty method related parameters in PyTorchNNs
             if param_name == "n_mc_dropout_samples" or param_name == "dropout_rate":
                 # Only suggest these if 'uncertainty_method' is MC_DROPOUT
-                if (
-                    params.get("uncertainty_method")
-                    == UncertaintyMethod.MC_DROPOUT.value
-                ):
+                if params.get("uncertainty_method") == UncertaintyMethod.MC_DROPOUT.value:
                     if config["type"] == "int":
                         params[param_name] = trial.suggest_int(
                             param_name,
@@ -748,21 +532,14 @@ class AutoML:
                             config["high"],
                             step=config["step"],
                         )
-                elif (
-                    param_name == "dropout_rate"
-                ):  # If not MC_DROPOUT, set dropout rate to 0.0
+                elif param_name == "dropout_rate":  # If not MC_DROPOUT, set dropout rate to 0.0
                     params[param_name] = 0.0
                 continue  # Skip to next param after handling
 
             # Handle l1_ratio for SKLearnLogisticRegression's elasticnet
-            if (
-                param_name == "l1_ratio"
-                and model_name == ModelName.SKLEARN_LOGISTIC_REGRESSION
-            ):
+            if param_name == "l1_ratio" and model_name == ModelName.SKLEARN_LOGISTIC_REGRESSION:
                 if params.get("penalty") == Penalty.ELASTICNET.value:
-                    params[param_name] = trial.suggest_float(
-                        param_name, config["low"], config["high"], step=config["step"]
-                    )
+                    params[param_name] = trial.suggest_float(param_name, config["low"], config["high"], step=config["step"])
                 continue  # Skip to next param
 
             if config["type"] == "int":
@@ -780,21 +557,13 @@ class AutoML:
                     log=config.get("log", False),
                 )
             elif config["type"] == "categorical":
-                params[param_name] = trial.suggest_categorical(
-                    param_name, config["choices"]
-                )
+                params[param_name] = trial.suggest_categorical(param_name, config["choices"])
 
         # Add FlexibleNeuralNetwork specific hyperparameters to the search space
         if model_name == ModelName.FLEXIBLE_NEURAL_NETWORK:
-            params["gumbel_tau"] = trial.suggest_float(
-                "gumbel_tau", 0.01, 1.0, log=True
-            )
-            params["gumbel_tau_anneal_rate"] = trial.suggest_float(
-                "gumbel_tau_anneal_rate", 0.995, 0.9999, log=True
-            )
-            params["n_predictor_learning_rate"] = trial.suggest_float(
-                "n_predictor_learning_rate", 1e-3, 0.1, log=True
-            )
+            params["gumbel_tau"] = trial.suggest_float("gumbel_tau", 0.01, 1.0, log=True)
+            params["gumbel_tau_anneal_rate"] = trial.suggest_float("gumbel_tau_anneal_rate", 0.995, 0.9999, log=True)
+            params["n_predictor_learning_rate"] = trial.suggest_float("n_predictor_learning_rate", 1e-3, 0.1, log=True)
             params["n_predictor_layers"] = trial.suggest_int("n_predictor_layers", 1, 3)
 
         return params, None
@@ -817,15 +586,11 @@ class AutoML:
                     num_classes=num_classes_for_instantiation,
                 )
 
-                cv_results = model_instance.cross_validate(
-                    x_processed, y_for_training, cv=self.n_splits
-                )
+                cv_results = model_instance.cross_validate(x_processed, y_for_training, cv=self.n_splits)
 
                 avg_metric = cv_results["mean_test_score"]
 
-                logger.info(
-                    f"  Average {self.metric} for {model_name.value}: {avg_metric:.4f}"
-                )
+                logger.info(f"  Average {self.metric} for {model_name.value}: {avg_metric:.4f}")
 
                 trial.report(avg_metric, step=trial.number)
 
@@ -835,9 +600,7 @@ class AutoML:
                 return avg_metric
 
             except Exception as e:
-                logger.error(
-                    f"Error during cross-validation for {model_name.value}: {e}"
-                )
+                logger.error(f"Error during cross-validation for {model_name.value}: {e}")
                 return float("inf") if self._is_minimize_metric() else -float("inf")
 
         return objective
@@ -865,22 +628,14 @@ class AutoML:
                     "n_trials": self.n_trials,
                     "n_splits": self.n_splits,
                     "random_state": self.random_state,
-                    "feature_scaler": (
-                        str(type(self.feature_scaler))
-                        if self.feature_scaler
-                        else "None"
-                    ),
-                    "target_scaler": (
-                        str(type(self.target_scaler)) if self.target_scaler else "None"
-                    ),
+                    "feature_scaler": (str(type(self.feature_scaler)) if self.feature_scaler else "None"),
+                    "target_scaler": (str(type(self.target_scaler)) if self.target_scaler else "None"),
                 },
             )
             wandb.log_artifact("requirements.txt", type="env")
             logger.info("Weights & Biases run initialized.")
 
-        logger.info(
-            f"Starting AutoML training for {self.task_type.value} task with metric '{self.metric.value}'."
-        )
+        logger.info(f"Starting AutoML training for {self.task_type.value} task with metric '{self.metric.value}'.")
         logger.info(
             f"Feature scaling: {'Enabled' if self.feature_scaler else 'Disabled'}, "
             f"Target scaling (regression): {'Enabled' if self.target_scaler and self.task_type == TaskType.REGRESSION else 'Disabled'}"
@@ -890,36 +645,18 @@ class AutoML:
         # Categorical Feature Identification
         self._final_categorical_features = self._identify_categorical_features(x)
         if self._final_categorical_features:
-            logger.info(
-                f"Identified categorical features: {self._final_categorical_features}"
-            )
+            logger.info(f"Identified categorical features: {self._final_categorical_features}")
 
         # Categorical Feature Encoding
         x_processed = x.copy()  # Work on a copy to avoid modifying original X
         if self._final_categorical_features:
-            if (
-                self.categorical_encoding_strategy
-                == CategoricalEncodingStrategy.ORDERED_TARGET
-            ):
-                self._fitted_categorical_encoder = OrderedTargetEncoder(
-                    cols=self._final_categorical_features
-                )
-                x_processed = self._fitted_categorical_encoder.fit_transform(
-                    x_processed, y
-                )
-                logger.info(
-                    "Categorical features encoded using Ordered Target Encoding."
-                )
-            elif (
-                self.categorical_encoding_strategy
-                == CategoricalEncodingStrategy.ONE_HOT
-            ):
-                self._fitted_categorical_encoder = OneHotEncoder(
-                    cols=self._final_categorical_features
-                )
-                x_processed = self._fitted_categorical_encoder.fit_transform(
-                    x_processed
-                )
+            if self.categorical_encoding_strategy == CategoricalEncodingStrategy.ORDERED_TARGET:
+                self._fitted_categorical_encoder = OrderedTargetEncoder(cols=self._final_categorical_features)
+                x_processed = self._fitted_categorical_encoder.fit_transform(x_processed, y)
+                logger.info("Categorical features encoded using Ordered Target Encoding.")
+            elif self.categorical_encoding_strategy == CategoricalEncodingStrategy.ONE_HOT:
+                self._fitted_categorical_encoder = OneHotEncoder(cols=self._final_categorical_features)
+                x_processed = self._fitted_categorical_encoder.fit_transform(x_processed)
                 logger.info("Categorical features encoded using One-Hot Encoding.")
 
         # Apply feature scaling to the entire dataset before cross-validation splits
@@ -933,34 +670,26 @@ class AutoML:
             logger.info("No feature scaler provided. Features will not be scaled.")
 
         # Store a subset of X_scaled for SHAP background data
-        sample_indices = np.random.choice(
-            x_scaled.shape[0], min(200, x_scaled.shape[0]), replace=False
-        )
+        sample_indices = np.random.choice(x_scaled.shape[0], min(200, x_scaled.shape[0]), replace=False)
         self.X_train_for_shap = x_scaled[sample_indices]
 
         # Target Scaling (for Regression only)
         y_for_training = y
         if self.task_type == TaskType.REGRESSION and self.target_scaler:
             y_reshaped = y.reshape(-1, 1) if y.ndim == 1 else y
-            y_scaled = self.target_scaler.fit_transform(
-                y_reshaped
-            ).flatten()  # Flatten back to 1D after scaling
+            y_scaled = self.target_scaler.fit_transform(y_reshaped).flatten()  # Flatten back to 1D after scaling
             self._fitted_target_scaler = self.target_scaler
             y_for_training = y_scaled
             logger.info("Target variable scaled for regression.")
         elif self.task_type == TaskType.REGRESSION and not self.target_scaler:
-            logger.info(
-                "No target scaler provided for regression. Target will not be scaled."
-            )
+            logger.info("No target scaler provided for regression. Target will not be scaled.")
 
         # Determine num_classes for classification tasks (needed for model instantiation)
         num_classes_for_instantiation = None
         if self.task_type == TaskType.CLASSIFICATION:
             num_classes_for_instantiation = np.unique(y).shape[0]
             if num_classes_for_instantiation < 2:
-                raise ValueError(
-                    "Classification task requires at least 2 unique classes in y."
-                )
+                raise ValueError("Classification task requires at least 2 unique classes in y.")
 
         # Use only specified models or all registered models
         if models_to_consider is None:
@@ -970,9 +699,7 @@ class AutoML:
 
         for model_name in models_to_consider:  # model_name is now an Enum
             if model_name not in self.models_registry:
-                logger.warning(
-                    f"Model '{model_name.value}' not found in registry. Skipping."
-                )
+                logger.warning(f"Model '{model_name.value}' not found in registry. Skipping.")
                 continue
 
             # Skip regression-only models if task type is classification (already filtered in __init__ but good to double check)
@@ -981,9 +708,7 @@ class AutoML:
                 ModelName.PROBABILISTIC_REGRESSION,
                 ModelName.CLASSIFIER_REGRESSION,
             ]:
-                logger.info(
-                    f"Skipping {model_name.value} as it is designed for regression tasks for {self.task_type.value} task."
-                )
+                logger.info(f"Skipping {model_name.value} as it is designed for regression tasks for {self.task_type.value} task.")
                 continue
 
             logger.info(f"\n--- Optimizing {model_name.value} ---")
@@ -1008,9 +733,7 @@ class AutoML:
             logger.info(f"  Params: {best_params}")
 
             # Instantiate and train the best model on the full dataset
-            logger.info(
-                f"Training final {model_name.value} model with best parameters on full dataset..."
-            )
+            logger.info(f"Training final {model_name.value} model with best parameters on full dataset...")
             final_model_instance = self._instantiate_model(
                 model_name,
                 best_params.copy(),
@@ -1026,16 +749,10 @@ class AutoML:
             )
 
             # Update overall best model
-            if (
-                self._is_minimize_metric() and best_score < self.best_overall_metric
-            ) or (
-                not self._is_minimize_metric() and best_score > self.best_overall_metric
-            ):
+            if (self._is_minimize_metric() and best_score < self.best_overall_metric) or (not self._is_minimize_metric() and best_score > self.best_overall_metric):
                 self.best_overall_metric = best_score
                 self.best_model_name = model_name
-                logger.info(
-                    f"New best overall model: {self.best_model_name.value} with {self.metric.value}: {self.best_overall_metric:.4f}"
-                )
+                logger.info(f"New best overall model: {self.best_model_name.value} with {self.metric.value}: {self.best_overall_metric:.4f}")
 
             # Add to leaderboard
             self.leaderboard.append(
@@ -1048,15 +765,11 @@ class AutoML:
                 }
             )
             if self.use_wandb:
-                self._log_model_artifact(
-                    final_model_instance, model_name.value, best_params
-                )
+                self._log_model_artifact(final_model_instance, model_name.value, best_params)
 
         logger.info("\nAutoML training complete.")
         if self.best_model_name:
-            logger.info(
-                f"Best overall model: {self.best_model_name.value} with {self.metric.value}: {self.best_overall_metric:.4f}"
-            )
+            logger.info(f"Best overall model: {self.best_model_name.value} with {self.metric.value}: {self.best_overall_metric:.4f}")
         else:
             logger.warning("No models were successfully trained.")
 
@@ -1078,18 +791,10 @@ class AutoML:
             raise RuntimeError("No model has been trained yet. Call .train() first.")
 
         # Apply categorical encoding to input features for prediction
-        x_encoded = (
-            self._fitted_categorical_encoder.transform(x)
-            if self._fitted_categorical_encoder
-            else x
-        )
+        x_encoded = self._fitted_categorical_encoder.transform(x) if self._fitted_categorical_encoder else x
 
         # Scale input features for prediction
-        x_transformed = (
-            self._fitted_feature_scaler.transform(x_encoded)
-            if self._fitted_feature_scaler
-            else x_encoded
-        )
+        x_transformed = self._fitted_feature_scaler.transform(x_encoded) if self._fitted_feature_scaler else x_encoded
 
         best_model_instance, _, _ = self.trained_models[self.best_model_name]
 
@@ -1097,14 +802,8 @@ class AutoML:
 
         # Denormalize predictions if regression task
         if self.task_type == TaskType.REGRESSION and self._fitted_target_scaler:
-            predictions_reshaped = (
-                predictions_scaled.reshape(-1, 1)
-                if predictions_scaled.ndim == 1
-                else predictions_scaled
-            )
-            return self._fitted_target_scaler.inverse_transform(
-                predictions_reshaped
-            ).flatten()
+            predictions_reshaped = predictions_scaled.reshape(-1, 1) if predictions_scaled.ndim == 1 else predictions_scaled
+            return self._fitted_target_scaler.inverse_transform(predictions_reshaped).flatten()
         return predictions_scaled  # Return as is for classification or no target scaler
 
     def _log_model_artifact(
@@ -1120,9 +819,7 @@ class AutoML:
             model_name (str): The name of the model.
             hyperparameters (Dict[str, Any]): The hyperparameters of the model.
         """
-        model_artifact = wandb.Artifact(
-            name=f"{model_name}-model", type="model", metadata=hyperparameters
-        )
+        model_artifact = wandb.Artifact(name=f"{model_name}-model", type="model", metadata=hyperparameters)
         model_path = f"{model_name}_model.joblib"
         self.export_model(model_instance, model_path)
         model_artifact.add_file(model_path)
@@ -1143,33 +840,18 @@ class AutoML:
             raise RuntimeError("No model has been trained yet. Call .train() first.")
 
         if self.task_type == TaskType.CLASSIFICATION:
-            raise ValueError(
-                "Uncertainty prediction is not supported for classification tasks directly by AutoML."
-            )
+            raise ValueError("Uncertainty prediction is not supported for classification tasks directly by AutoML.")
 
         best_model_instance, _, _ = self.trained_models[self.best_model_name]
 
         # Ensure the model is a regression model and supports predict_uncertainty
-        if (
-            not hasattr(best_model_instance, "predict_uncertainty")
-            or not best_model_instance.is_regression_model
-        ):
-            raise NotImplementedError(
-                f"Uncertainty prediction not implemented or not a regression model for {type(best_model_instance).__name__}."
-            )
+        if not hasattr(best_model_instance, "predict_uncertainty") or not best_model_instance.is_regression_model:
+            raise NotImplementedError(f"Uncertainty prediction not implemented or not a regression model for {type(best_model_instance).__name__}.")
 
         # Scale input features
-        x_encoded = (
-            self._fitted_categorical_encoder.transform(x)
-            if self._fitted_categorical_encoder
-            else x
-        )
+        x_encoded = self._fitted_categorical_encoder.transform(x) if self._fitted_categorical_encoder else x
 
-        x_transformed = (
-            self._fitted_feature_scaler.transform(x_encoded)
-            if self._fitted_feature_scaler
-            else x_encoded
-        )
+        x_transformed = self._fitted_feature_scaler.transform(x_encoded) if self._fitted_feature_scaler else x_encoded
 
         # Get raw uncertainty from the model (in scaled target space)
         uncertainty_scaled = best_model_instance.predict_uncertainty(x_transformed)
@@ -1177,17 +859,11 @@ class AutoML:
         # Denormalize uncertainty if target scaler was used
         if self._fitted_target_scaler:
             # Uncertainty (std dev) is scaled by multiplying by the scale_ factor of the scaler
-            scale_factor = (
-                self._fitted_target_scaler.scale_[0]
-                if self._fitted_target_scaler.scale_.ndim > 1
-                else self._fitted_target_scaler.scale_
-            )
+            scale_factor = self._fitted_target_scaler.scale_[0] if self._fitted_target_scaler.scale_.ndim > 1 else self._fitted_target_scaler.scale_
             return uncertainty_scaled * scale_factor
         return uncertainty_scaled  # Return as is if no target scaler
 
-    def get_feature_importance(
-        self, x_test: np.ndarray, feature_names: list[str] | None = None
-    ) -> dict[str, float] | dict[str, str]:
+    def get_feature_importance(self, x_test: np.ndarray, feature_names: list[str] | None = None) -> dict[str, float] | dict[str, str]:
         """Calculates feature importance using SHAP for the best trained model.
 
         Args:
@@ -1204,22 +880,16 @@ class AutoML:
         # Prepare background data for SHAP Explainer (use a subset of training data)
         # It's important that X_train_for_shap is already scaled if _fitted_feature_scaler exists
         if self.X_train_for_shap is None:
-            logger.warning(
-                "X_train was not stored. SHAP background data will be limited. Ensure X_train is passed to AutoML.train()."
-            )
+            logger.warning("X_train was not stored. SHAP background data will be limited. Ensure X_train is passed to AutoML.train().")
             # Fallback to using a subset of test data for background, but transform it if a scaler is present
             x_background_subset_original_scale = x_test[: min(200, len(x_test))]
         else:
-            x_background_subset_original_scale = self.X_train_for_shap[
-                : min(200, len(self.X_train_for_shap))
-            ]
+            x_background_subset_original_scale = self.X_train_for_shap[: min(200, len(self.X_train_for_shap))]
 
         # Scale X_background_subset and X_test_original for SHAP explanation
         # The FeatureExplainer expects scaled data if a scaler was used during training.
         if self._fitted_feature_scaler:
-            x_background_scaled = self._fitted_feature_scaler.transform(
-                x_background_subset_original_scale
-            )
+            x_background_scaled = self._fitted_feature_scaler.transform(x_background_subset_original_scale)
             x_test_scaled = self._fitted_feature_scaler.transform(x_test)
         else:
             x_background_scaled = x_background_subset_original_scale
@@ -1238,9 +908,7 @@ class AutoML:
             )
 
             shap_values = explainer.explain(x_test_scaled)
-            feature_importance_summary = explainer.get_feature_importance_summary(
-                shap_values
-            )
+            feature_importance_summary = explainer.get_feature_importance_summary(shap_values)
 
             # Normalize importances
             total_importance = sum(feature_importance_summary.values())
@@ -1248,10 +916,7 @@ class AutoML:
                 logger.warning("Total feature importance is zero. Cannot normalize.")
                 normalized_importance = feature_importance_summary
             else:
-                normalized_importance = {
-                    k: v / total_importance
-                    for k, v in feature_importance_summary.items()
-                }
+                normalized_importance = {k: v / total_importance for k, v in feature_importance_summary.items()}
 
             # Sort in decreasing order
             sorted_normalized_importance = dict(
@@ -1262,18 +927,14 @@ class AutoML:
                 )
             )
 
-            logger.info(
-                f"\nFeature Importances (SHAP) for {self.best_model_name.value} (Normalized and Sorted):"
-            )
+            logger.info(f"\nFeature Importances (SHAP) for {self.best_model_name.value} (Normalized and Sorted):")
             for feature, importance in sorted_normalized_importance.items():
                 logger.info(f"  {feature}: {importance:.4f}")
 
             return sorted_normalized_importance
 
         except Exception as e:
-            logger.error(
-                f"Error calculating SHAP feature importance for {self.best_model_name.value}: {e}"
-            )
+            logger.error(f"Error calculating SHAP feature importance for {self.best_model_name.value}: {e}")
             return {"error": f"Failed to calculate SHAP: {e}"}
 
     def save_feature_importance_to_csv(
@@ -1320,27 +981,15 @@ class AutoML:
                 columns=pd.Index(["Feature", "Importance"]),
             )
 
-            plt.figure(
-                figsize=(10, max(6, int(len(df_importance) * 0.4)))
-            )  # Adjust figure size dynamically
-            sns.barplot(
-                x="Importance", y="Feature", data=df_importance, palette="viridis"
-            )
-            plt.title(
-                f"Feature Importance for {self.best_model_name.value} (Normalized SHAP Values)"
-            )
+            plt.figure(figsize=(10, max(6, int(len(df_importance) * 0.4))))  # Adjust figure size dynamically
+            sns.barplot(x="Importance", y="Feature", data=df_importance, palette="viridis")
+            plt.title(f"Feature Importance for {self.best_model_name.value} (Normalized SHAP Values)")
             plt.xlabel("Normalized Importance (Sum to 1)")
             plt.ylabel("Feature")
             plt.tight_layout()
             plt.savefig(plot_path)
             if wandb_log and self.use_wandb:
-                wandb.log(
-                    {
-                        f"feature_importance/{self.best_model_name.value}": wandb.Image(
-                            plot_path
-                        )
-                    }
-                )
+                wandb.log({f"feature_importance/{self.best_model_name.value}": wandb.Image(plot_path)})
             plt.close()
             logger.info("Feature importance plot saved successfully.")
         except Exception as e:
@@ -1365,21 +1014,15 @@ class AutoML:
             List[str]: A list of selected feature names.
         """
         if not (0.0 < threshold <= 1.0):
-            raise ValueError(
-                "Threshold must be between 0 (exclusive) and 1 (inclusive)."
-            )
+            raise ValueError("Threshold must be between 0 (exclusive) and 1 (inclusive).")
 
-        logger.info(
-            f"\n--- Performing Feature Selection by Cumulative SHAP Importance (Threshold: {threshold:.2f}) ---"
-        )
+        logger.info(f"\n--- Performing Feature Selection by Cumulative SHAP Importance (Threshold: {threshold:.2f}) ---")
 
         # 1. Get normalized and sorted feature importances
         normalized_importances = self.get_feature_importance(x_test, feature_names)
 
         if "error" in normalized_importances:
-            logger.error(
-                f"Could not perform feature selection due to SHAP calculation error: {normalized_importances['error']}"
-            )
+            logger.error(f"Could not perform feature selection due to SHAP calculation error: {normalized_importances['error']}")
             return []
 
         if not normalized_importances:
@@ -1398,9 +1041,7 @@ class AutoML:
             else:
                 break  # Stop when adding next feature would exceed the threshold
 
-        logger.info(
-            f"Selected {len(selected_features)} features with cumulative importance {cumulative_importance:.4f}:"
-        )
+        logger.info(f"Selected {len(selected_features)} features with cumulative importance {cumulative_importance:.4f}:")
         for f in selected_features:
             logger.info(f"  - {f}")
 
@@ -1439,47 +1080,31 @@ class AutoML:
 
         logger.info("\n--- Retraining Best Model with Selected Features ---")
 
-        selected_feature_names = self.select_features_by_cumulative_importance(
-            x_full_test, threshold=shap_threshold, feature_names=feature_names
-        )
+        selected_feature_names = self.select_features_by_cumulative_importance(x_full_test, threshold=shap_threshold, feature_names=feature_names)
 
         # Determine num_classes for classification tasks for instantiation during retraining
         num_classes_for_instantiation = None
         if self.task_type == TaskType.CLASSIFICATION:
             num_classes_for_instantiation = np.unique(y_full_train).shape[0]
             if num_classes_for_instantiation < 2:
-                raise ValueError(
-                    "Classification task requires at least 2 unique classes in y_full_train."
-                )
+                raise ValueError("Classification task requires at least 2 unique classes in y_full_train.")
 
         # Prepare filtered datasets based on selected features
         if not selected_feature_names:
-            logger.warning(
-                "No features selected by cumulative importance. Retraining with all features."
-            )
+            logger.warning("No features selected by cumulative importance. Retraining with all features.")
             selected_indices = list(range(x_full_train.shape[1]))
-            filtered_feature_names = (
-                feature_names
-                if feature_names
-                else [f"Feature_{i}" for i in selected_indices]
-            )
+            filtered_feature_names = feature_names if feature_names else [f"Feature_{i}" for i in selected_indices]
             x_train_filtered_original_scale = x_full_train
             x_test_filtered_original_scale = x_full_test
         else:
             if feature_names is None:
-                logger.warning(
-                    "Feature names not provided for retraining. Assuming original column order for selection. It is highly recommended to provide feature_names."
-                )
-                original_feature_map = {
-                    f"Feature_{i}": i for i in range(x_full_train.shape[1])
-                }
+                logger.warning("Feature names not provided for retraining. Assuming original column order for selection. It is highly recommended to provide feature_names.")
+                original_feature_map = {f"Feature_{i}": i for i in range(x_full_train.shape[1])}
             else:
                 original_feature_map = {name: i for i, name in enumerate(feature_names)}
 
             # Get indices corresponding to selected feature names
-            selected_indices = [
-                original_feature_map[name] for name in selected_feature_names
-            ]
+            selected_indices = [original_feature_map[name] for name in selected_feature_names]
             filtered_feature_names = [feature_names[i] for i in selected_indices]
 
             # Filter X_full_train and X_full_test based on selected_indices
@@ -1490,45 +1115,23 @@ class AutoML:
                 x_train_filtered_original_scale = x_full_train[:, selected_indices]
                 x_test_filtered_original_scale = x_full_test[:, selected_indices]
 
-        logger.info(
-            f"Retraining {self.best_model_name.value} with {len(filtered_feature_names)} selected features: {filtered_feature_names}"
-        )
+        logger.info(f"Retraining {self.best_model_name.value} with {len(filtered_feature_names)} selected features: {filtered_feature_names}")
 
         # Apply categorical encoding to the filtered datasets
         x_train_encoded = x_train_filtered_original_scale
         x_test_encoded = x_test_filtered_original_scale
         if self._final_categorical_features:
             # Filter categorical features to only include those that are also selected
-            selected_categorical_features = [
-                f
-                for f in self._final_categorical_features
-                if f in filtered_feature_names
-            ]
+            selected_categorical_features = [f for f in self._final_categorical_features if f in filtered_feature_names]
             if selected_categorical_features:
-                if (
-                    self.categorical_encoding_strategy
-                    == CategoricalEncodingStrategy.ORDERED_TARGET
-                ):
-                    retrain_encoder = OrderedTargetEncoder(
-                        cols=selected_categorical_features
-                    )
-                    x_train_encoded = retrain_encoder.fit_transform(
-                        x_train_filtered_original_scale, y_full_train
-                    )
-                    x_test_encoded = retrain_encoder.transform(
-                        x_test_filtered_original_scale
-                    )
-                elif (
-                    self.categorical_encoding_strategy
-                    == CategoricalEncodingStrategy.ONE_HOT
-                ):
+                if self.categorical_encoding_strategy == CategoricalEncodingStrategy.ORDERED_TARGET:
+                    retrain_encoder = OrderedTargetEncoder(cols=selected_categorical_features)
+                    x_train_encoded = retrain_encoder.fit_transform(x_train_filtered_original_scale, y_full_train)
+                    x_test_encoded = retrain_encoder.transform(x_test_filtered_original_scale)
+                elif self.categorical_encoding_strategy == CategoricalEncodingStrategy.ONE_HOT:
                     retrain_encoder = OneHotEncoder(cols=selected_categorical_features)
-                    x_train_encoded = retrain_encoder.fit_transform(
-                        x_train_filtered_original_scale
-                    )
-                    x_test_encoded = retrain_encoder.transform(
-                        x_test_filtered_original_scale
-                    )
+                    x_train_encoded = retrain_encoder.fit_transform(x_train_filtered_original_scale)
+                    x_test_encoded = retrain_encoder.transform(x_test_filtered_original_scale)
 
         # Apply feature scaling to the filtered and encoded datasets
         if self.feature_scaler:
@@ -1542,15 +1145,11 @@ class AutoML:
         # Apply target scaling for regression tasks
         y_full_train_scaled = y_full_train
         if self.task_type == TaskType.REGRESSION and self._fitted_target_scaler:
-            y_full_train_scaled = self._fitted_target_scaler.transform(
-                y_full_train.reshape(-1, 1)
-            ).flatten()
+            y_full_train_scaled = self._fitted_target_scaler.transform(y_full_train.reshape(-1, 1)).flatten()
 
         # Retrieve best model class and previously learned hyperparameters
         best_model_class_type = self.models_registry[self.best_model_name]
-        best_hyperparameters = self.trained_models[self.best_model_name][
-            1
-        ].copy()  # Get a copy to modify
+        best_hyperparameters = self.trained_models[self.best_model_name][1].copy()  # Get a copy to modify
 
         # Adjust input_size in hyperparameters for neural network based models
         # This is crucial as the number of features changes after selection
@@ -1563,84 +1162,49 @@ class AutoML:
             ]
             and "base_classifier_params" in best_hyperparameters
         ):
-            best_hyperparameters["base_classifier_params"]["input_size"] = (
-                x_train_filtered.shape[1]
-            )
+            best_hyperparameters["base_classifier_params"]["input_size"] = x_train_filtered.shape[1]
 
         # Instantiate the final model with best hyperparameters and adjusted input features
         # This part requires careful reconstruction of parameters for composite models
         if self.best_model_name == ModelName.CLASSIFIER_REGRESSION:
             final_n_classes = best_hyperparameters["n_classes"]
             final_base_classifier_name = best_hyperparameters["base_classifier_name"]
-            final_base_classifier_class = self.models_registry[
-                ModelName(final_base_classifier_name)
-            ]
+            final_base_classifier_class = self.models_registry[ModelName(final_base_classifier_name)]
             final_mapper_type = MapperType(best_hyperparameters["mapper_type"])
 
             # Reconstruct base_classifier_params by filtering from best_hyperparameters
-            final_base_classifier_params = {
-                k.replace("base__", ""): v
-                for k, v in best_hyperparameters.items()
-                if k.startswith("base__")
-            }
+            final_base_classifier_params = {k.replace("base__", ""): v for k, v in best_hyperparameters.items() if k.startswith("base__")}
             # Convert enum strings back to Enum values
-            if "uncertainty_method" in final_base_classifier_params and isinstance(
-                final_base_classifier_params["uncertainty_method"], str
-            ):
-                final_base_classifier_params["uncertainty_method"] = UncertaintyMethod(
-                    final_base_classifier_params["uncertainty_method"]
-                )
+            if "uncertainty_method" in final_base_classifier_params and isinstance(final_base_classifier_params["uncertainty_method"], str):
+                final_base_classifier_params["uncertainty_method"] = UncertaintyMethod(final_base_classifier_params["uncertainty_method"])
 
             # Reconstruct mapper_params
             final_mapper_params = {}
             if final_mapper_type in [MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN]:
-                final_mapper_params["n_partitions_min"] = best_hyperparameters.get(
-                    "n_partitions_min_lookup"
-                )
-                final_mapper_params["n_partitions_max"] = best_hyperparameters.get(
-                    "n_partitions_max_lookup"
-                )
+                final_mapper_params["n_partitions_min"] = best_hyperparameters.get("n_partitions_min_lookup")
+                final_mapper_params["n_partitions_max"] = best_hyperparameters.get("n_partitions_max_lookup")
             elif final_mapper_type == MapperType.SPLINE:
                 final_mapper_params["spline_k"] = best_hyperparameters.get("spline_k")
                 final_mapper_params["spline_s"] = best_hyperparameters.get("spline_s")
 
             # Adjust parameters for internal classifier if it's PyTorchNN
-            if (
-                ModelName(final_base_classifier_name)
-                == ModelName.PYTORCH_NEURAL_NETWORK
-            ):
-                final_base_classifier_params["input_size"] = x_train_filtered.shape[
-                    1
-                ]  # Crucial adjustment
-                final_base_classifier_params["output_size"] = (
-                    1 if final_n_classes == 2 else final_n_classes
-                )
+            if ModelName(final_base_classifier_name) == ModelName.PYTORCH_NEURAL_NETWORK:
+                final_base_classifier_params["input_size"] = x_train_filtered.shape[1]  # Crucial adjustment
+                final_base_classifier_params["output_size"] = 1 if final_n_classes == 2 else final_n_classes
                 final_base_classifier_params["task_type"] = TaskType.CLASSIFICATION
-                if "activation" in final_base_classifier_params and isinstance(
-                    final_base_classifier_params["activation"], str
-                ):
-                    final_base_classifier_params["activation"] = ActivationFunction(
-                        final_base_classifier_params["activation"]
-                    )
+                if "activation" in final_base_classifier_params and isinstance(final_base_classifier_params["activation"], str):
+                    final_base_classifier_params["activation"] = ActivationFunction(final_base_classifier_params["activation"])
 
             # Adjust parameters for internal boosting classifiers if it's the base
             elif ModelName(final_base_classifier_name) == ModelName.XGBOOST:
-                final_base_classifier_params["objective"] = (
-                    "binary:logistic" if final_n_classes == 2 else "multi:softmax"
-                )
+                final_base_classifier_params["objective"] = "binary:logistic" if final_n_classes == 2 else "multi:softmax"
                 final_base_classifier_params["eval_metric"] = Metric.LOG_LOSS.value
             elif ModelName(final_base_classifier_name) == ModelName.LIGHTGBM:
-                final_base_classifier_params["objective"] = (
-                    "binary" if final_n_classes == 2 else "multiclass"
-                )
+                final_base_classifier_params["objective"] = "binary" if final_n_classes == 2 else "multiclass"
                 final_base_classifier_params["metric"] = Metric.LOG_LOSS.value
             elif ModelName(final_base_classifier_name) == ModelName.CATBOOST:
                 final_base_classifier_params["task_type"] = TaskType.CLASSIFICATION
-                final_base_classifier_params["loss_function"] = (
-                    Metric.LOG_LOSS.value
-                    if final_n_classes == 2
-                    else Metric.MULTI_CLASS.value
-                )
+                final_base_classifier_params["loss_function"] = Metric.LOG_LOSS.value if final_n_classes == 2 else Metric.MULTI_CLASS.value
 
             final_model_instance = best_model_class_type(
                 n_classes=final_n_classes,
@@ -1653,38 +1217,18 @@ class AutoML:
         elif self.best_model_name == ModelName.PROBABILISTIC_REGRESSION:
             # Extract and reconstruct parameters for these composite models
             final_n_classes = best_hyperparameters["n_classes"]
-            final_regression_strategy = RegressionStrategy(
-                best_hyperparameters["regression_strategy"]
-            )
-            final_uncertainty_method = UncertaintyMethod(
-                best_hyperparameters["uncertainty_method"]
-            )
+            final_regression_strategy = RegressionStrategy(best_hyperparameters["regression_strategy"])
+            final_uncertainty_method = UncertaintyMethod(best_hyperparameters["uncertainty_method"])
 
             # Reconstruct nested base_classifier_params
-            final_base_classifier_params = {
-                k.replace("base_classifier_params__", ""): v
-                for k, v in best_hyperparameters.items()
-                if k.startswith("base_classifier_params__")
-            }
-            if "activation" in final_base_classifier_params and isinstance(
-                final_base_classifier_params["activation"], str
-            ):
-                final_base_classifier_params["activation"] = ActivationFunction(
-                    final_base_classifier_params["activation"]
-                )
+            final_base_classifier_params = {k.replace("base_classifier_params__", ""): v for k, v in best_hyperparameters.items() if k.startswith("base_classifier_params__")}
+            if "activation" in final_base_classifier_params and isinstance(final_base_classifier_params["activation"], str):
+                final_base_classifier_params["activation"] = ActivationFunction(final_base_classifier_params["activation"])
 
             # Reconstruct nested regression_head_params
-            final_regression_head_params = {
-                k.replace("regression_head_params__", ""): v
-                for k, v in best_hyperparameters.items()
-                if k.startswith("regression_head_params__")
-            }
-            if "activation" in final_regression_head_params and isinstance(
-                final_regression_head_params["activation"], str
-            ):
-                final_regression_head_params["activation"] = ActivationFunction(
-                    final_regression_head_params["activation"]
-                )
+            final_regression_head_params = {k.replace("regression_head_params__", ""): v for k, v in best_hyperparameters.items() if k.startswith("regression_head_params__")}
+            if "activation" in final_regression_head_params and isinstance(final_regression_head_params["activation"], str):
+                final_regression_head_params["activation"] = ActivationFunction(final_regression_head_params["activation"])
 
             final_model_instance = best_model_class_type(
                 input_size=x_train_filtered.shape[1],  # Adjust input_size
@@ -1696,21 +1240,15 @@ class AutoML:
                 n_epochs=best_hyperparameters["n_epochs"],
                 batch_size=best_hyperparameters["batch_size"],
                 uncertainty_method=final_uncertainty_method,
-                n_mc_dropout_samples=best_hyperparameters.get(
-                    "n_mc_dropout_samples", 100
-                ),
+                n_mc_dropout_samples=best_hyperparameters.get("n_mc_dropout_samples", 100),
                 dropout_rate=best_hyperparameters.get("dropout_rate", 0.0),
                 random_seed=best_hyperparameters.get("random_seed", 0),  # For JAX
             )
         elif self.best_model_name == ModelName.PYTORCH_NEURAL_NETWORK:
             # Reconstruct activation and uncertainty enum values from strings
             if "activation" in best_hyperparameters:
-                best_hyperparameters["activation"] = ActivationFunction[
-                    best_hyperparameters["activation"]
-                ]
-            best_hyperparameters["uncertainty_method"] = UncertaintyMethod(
-                best_hyperparameters["uncertainty_method"]
-            )
+                best_hyperparameters["activation"] = ActivationFunction[best_hyperparameters["activation"]]
+            best_hyperparameters["uncertainty_method"] = UncertaintyMethod(best_hyperparameters["uncertainty_method"])
             final_model_instance = best_model_class_type(
                 input_size=x_train_filtered.shape[1],
                 task_type=self.task_type,
@@ -1719,12 +1257,8 @@ class AutoML:
             )
         elif self.best_model_name == ModelName.FLEXIBLE_NEURAL_NETWORK:
             if "activation" in best_hyperparameters:
-                best_hyperparameters["activation"] = ActivationFunction[
-                    best_hyperparameters["activation"]
-                ]
-            best_hyperparameters["uncertainty_method"] = UncertaintyMethod(
-                best_hyperparameters["uncertainty_method"]
-            )
+                best_hyperparameters["activation"] = ActivationFunction[best_hyperparameters["activation"]]
+            best_hyperparameters["uncertainty_method"] = UncertaintyMethod(best_hyperparameters["uncertainty_method"])
             final_model_instance = best_model_class_type(
                 input_size=x_train_filtered.shape[1],
                 task_type=self.task_type,
@@ -1735,11 +1269,7 @@ class AutoML:
             objective_str = "reg:squarederror"
             eval_metric_str = Metric.RMSE.value
             if self.task_type == TaskType.CLASSIFICATION:
-                objective_str = (
-                    "binary:logistic"
-                    if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2
-                    else "multi:softmax"
-                )
+                objective_str = "binary:logistic" if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2 else "multi:softmax"
                 eval_metric_str = Metric.LOG_LOSS.value
             final_model_instance = best_model_class_type(
                 objective=objective_str,
@@ -1751,16 +1281,8 @@ class AutoML:
             objective_str = "regression"
             eval_metric_str = Metric.RMSE.value
             if self.task_type == TaskType.CLASSIFICATION:
-                objective_str = (
-                    "binary"
-                    if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2
-                    else "multiclass"
-                )
-                eval_metric_str = (
-                    Metric.LOG_LOSS.value
-                    if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2
-                    else Metric.MULTI_CLASS_LOG_LOSS.value
-                )
+                objective_str = "binary" if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2 else "multiclass"
+                eval_metric_str = Metric.LOG_LOSS.value if y_full_train.ndim == 1 and np.unique(y_full_train).shape[0] == 2 else Metric.MULTI_CLASS_LOG_LOSS.value
             final_model_instance = best_model_class_type(
                 objective=objective_str,
                 eval_metric=eval_metric_str,
@@ -1768,32 +1290,21 @@ class AutoML:
                 **best_hyperparameters,
             )
         elif self.best_model_name == ModelName.CATBOOST:
-            final_model_instance = best_model_class_type(
-                task_type=self.task_type, **best_hyperparameters
-            )
+            final_model_instance = best_model_class_type(task_type=self.task_type, **best_hyperparameters)
         elif self.best_model_name == ModelName.SKLEARN_LOGISTIC_REGRESSION:
-            if (
-                best_hyperparameters.get("penalty") == Penalty.ELASTICNET.value
-                and "l1_ratio" in best_hyperparameters
-            ):
-                final_model_instance = best_model_class_type(
-                    num_classes=num_classes_for_instantiation, **best_hyperparameters
-                )
+            if best_hyperparameters.get("penalty") == Penalty.ELASTICNET.value and "l1_ratio" in best_hyperparameters:
+                final_model_instance = best_model_class_type(num_classes=num_classes_for_instantiation, **best_hyperparameters)
             else:  # Remove l1_ratio if not elasticnet to avoid warnings
                 params_copy = best_hyperparameters.copy()
                 if "l1_ratio" in params_copy:
                     del params_copy["l1_ratio"]
-                final_model_instance = best_model_class_type(
-                    num_classes=num_classes_for_instantiation, **params_copy
-                )
+                final_model_instance = best_model_class_type(num_classes=num_classes_for_instantiation, **params_copy)
         elif self.best_model_name == ModelName.JAX_LINEAR_REGRESSION:
             final_model_instance = best_model_class_type(
                 num_classes=num_classes_for_instantiation, **best_hyperparameters
             )  # Added num_classes, though not used by JAXLinearRegression directly
         else:
-            raise ValueError(
-                f"Unsupported model for retraining: {self.best_model_name.value}"
-            )
+            raise ValueError(f"Unsupported model for retraining: {self.best_model_name.value}")
 
         # 8. Retrain the model on the filtered and scaled training data
         final_model_instance.fit(x_train_filtered, y_full_train_scaled)
@@ -1803,35 +1314,21 @@ class AutoML:
 
         # Denormalize predictions for metric evaluation
         if self.task_type == TaskType.REGRESSION and self._fitted_target_scaler:
-            y_pred_retrained_reshaped = (
-                y_pred_retrained_scaled.reshape(-1, 1)
-                if y_pred_retrained_scaled.ndim == 1
-                else y_pred_retrained_scaled
-            )
-            y_pred_retrained = (
-                cast(TransformerMixin, self._fitted_target_scaler)
-                .inverse_transform(y_pred_retrained_reshaped)
-                .flatten()
-            )
+            y_pred_retrained_reshaped = y_pred_retrained_scaled.reshape(-1, 1) if y_pred_retrained_scaled.ndim == 1 else y_pred_retrained_scaled
+            y_pred_retrained = cast(TransformerMixin, self._fitted_target_scaler).inverse_transform(y_pred_retrained_reshaped).flatten()
         else:
             y_pred_retrained = y_pred_retrained_scaled
 
         # Re-evaluate metric using original scale test targets and denormalized predictions
         retrained_metric_value = self._evaluate_metric(y_full_test, y_pred_retrained)
 
-        logger.info(
-            f"Retraining complete for {self.best_model_name.value} with selected features."
-        )
+        logger.info(f"Retraining complete for {self.best_model_name.value} with selected features.")
         logger.info(f"New test {self.metric.value}: {retrained_metric_value:.4f}")
 
         if save_feature_importance_metrics:
-            logger.info(
-                "Saving and plotting feature importances for the retrained model."
-            )
+            logger.info("Saving and plotting feature importances for the retrained model.")
             # Recalculate feature importance for the retrained model
-            retrained_feature_importances = self.get_feature_importance(
-                x_full_test[:, selected_indices], feature_names=filtered_feature_names
-            )
+            retrained_feature_importances = self.get_feature_importance(x_full_test[:, selected_indices], feature_names=filtered_feature_names)
             if "error" not in retrained_feature_importances:
                 self.save_feature_importance_to_csv(
                     retrained_feature_importances,
@@ -1843,9 +1340,7 @@ class AutoML:
                     wandb_log=True,
                 )
             else:
-                logger.error(
-                    f"Could not save/plot feature importances for retrained model due to: {retrained_feature_importances['error']}"
-                )
+                logger.error(f"Could not save/plot feature importances for retrained model due to: {retrained_feature_importances['error']}")
 
         return {
             "retrained_model_instance": final_model_instance,
@@ -1888,37 +1383,25 @@ class AutoML:
 
             # Convert ModelName enum to string
             if isinstance(serializable_entry["model_name"], Enum):
-                serializable_entry["model_name"] = serializable_entry[
-                    "model_name"
-                ].value
+                serializable_entry["model_name"] = serializable_entry["model_name"].value
 
             # Convert any enum values within hyperparameters to strings
             serializable_hyperparameters = {}
             for k, v in serializable_entry["hyperparameters"].items():
                 if isinstance(v, Enum):
                     serializable_hyperparameters[k] = v.value
-                elif isinstance(
-                    v, dict
-                ):  # Handle nested dictionaries (e.g., base_classifier_params)
+                elif isinstance(v, dict):  # Handle nested dictionaries (e.g., base_classifier_params)
                     nested_dict = {}
                     for nk, nv in v.items():
                         if isinstance(nv, Enum):
                             nested_dict[nk] = nv.value
-                        elif isinstance(nv, type) and issubclass(
-                            nv, BaseModel
-                        ):  # Handle ModelName class directly if stored
-                            nested_dict[nk] = (
-                                nv.__name__
-                            )  # Store class name if a model class
+                        elif isinstance(nv, type) and issubclass(nv, BaseModel):  # Handle ModelName class directly if stored
+                            nested_dict[nk] = nv.__name__  # Store class name if a model class
                         else:
                             nested_dict[nk] = nv
                     serializable_hyperparameters[k] = nested_dict
-                elif isinstance(v, type) and issubclass(
-                    v, BaseModel
-                ):  # Handle ModelName class directly if stored
-                    serializable_hyperparameters[k] = (
-                        v.__name__
-                    )  # Store class name if a model class
+                elif isinstance(v, type) and issubclass(v, BaseModel):  # Handle ModelName class directly if stored
+                    serializable_hyperparameters[k] = v.__name__  # Store class name if a model class
                 else:
                     serializable_hyperparameters[k] = v
             serializable_entry["hyperparameters"] = serializable_hyperparameters
@@ -1965,9 +1448,7 @@ class AutoML:
         try:
             model = joblib.load(file_path)
             if not isinstance(model, BaseModel):
-                logger.warning(
-                    "Loaded object is not an instance of BaseModel. Ensure it was saved correctly."
-                )
+                logger.warning("Loaded object is not an instance of BaseModel. Ensure it was saved correctly.")
             logger.info("Model loaded successfully.")
             return model
         except Exception as e:

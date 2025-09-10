@@ -1,6 +1,6 @@
 """Data handling utilities."""
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import pandas as pd
@@ -66,8 +66,7 @@ class DataHandler:
         return x_scaled, y_scaled
 
     def inverse_transform_y(self, y_pred: np.ndarray) -> np.ndarray:
-        """
-        Inverse transforms the predictions.
+        """Inverse transforms the predictions.
         This method assumes y_pred is on the same scale as the transformed y from fit_transform.
         It will inverse scale and inverse log transform if they were applied.
         """
@@ -86,8 +85,8 @@ class DataHandler:
         self,
         y_train_log: np.ndarray,
         model: Optional["BaseModel"] = None,
-        x_train: Optional[np.ndarray] = None,
-        y_train_pred_log: Optional[np.ndarray] = None,
+        x_train: np.ndarray | None = None,
+        y_train_pred_log: np.ndarray | None = None,
         are_logs_scaled: bool = True,
     ) -> None:
         """Calculates and stores the smearing factor for correction."""

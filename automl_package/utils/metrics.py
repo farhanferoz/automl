@@ -412,7 +412,7 @@ class Metrics:
 
             plt.figure(figsize=(10, 6))
             # Plot histogram of the standardized residuals
-            plt.hist(residuals_clipped, bins='auto', density=True, alpha=0.6, color="g", label="Standardized Residuals")
+            plt.hist(residuals_clipped, bins="auto", density=True, alpha=0.6, color="g", label="Standardized Residuals")
 
             # Overlay the standard normal distribution for comparison
             xmin, xmax = plt.xlim()
@@ -607,7 +607,7 @@ class Metrics:
             return
 
         plt.figure(figsize=(10, 6))
-        plt.hist(interval_widths, bins='auto', density=True, alpha=0.6, color="b", label="Prediction Interval Width")
+        plt.hist(interval_widths, bins="auto", density=True, alpha=0.6, color="b", label="Prediction Interval Width")
         plt.xlabel("Prediction Interval Width")
         plt.ylabel("Density")
         plt.title(f"Sharpness Plot for {self.model_name} ({self.partition_name})")

@@ -1,28 +1,16 @@
 """Flexible Neural Network model with dynamic hidden layers."""
 
-import math
 from typing import Any, ClassVar
 
 import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import (
-    ActivationFunction,
-    LayerSelectionMethod,
-    Metric,
-    TaskType,
-    UncertaintyMethod, ExplainerType,
-)
+from automl_package.enums import ActivationFunction, ExplainerType, LayerSelectionMethod, Metric, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
-from automl_package.models.selection_strategies.layer_selection_strategies import (
-    GumbelSoftmaxStrategy,
-    NoneStrategy,
-    ReinforceStrategy,
-    SoftGatingStrategy,
-    SteStrategy,
-)
+from automl_package.models.selection_strategies.layer_selection_strategies import GumbelSoftmaxStrategy, NoneStrategy, ReinforceStrategy, SoftGatingStrategy, SteStrategy
+from automl_package.utils.losses import nll_loss
 from automl_package.utils.pytorch_utils import get_activation_function_map
 
 
@@ -56,26 +44,13 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         super().__init__(**kwargs)
 
         # Validation logic
+        if self.layer_selection_method == LayerSelectionMethod.NONE and self.n_predictor_layers != 0:
+            raise ValueError("n_predictor_layers must be 0 when layer_selection_method is NONE.")
         if (
-            self.layer_selection_method == LayerSelectionMethod.NONE
-            and self.n_predictor_layers != 0
-        ):
-            raise ValueError(
-                "n_predictor_layers must be 0 when layer_selection_method is NONE."
-            )
-        if (
-            self.layer_selection_method
-            in [
-                LayerSelectionMethod.GUMBEL_SOFTMAX,
-                LayerSelectionMethod.STE,
-                LayerSelectionMethod.SOFT_GATING,
-                LayerSelectionMethod.REINFORCE,
-            ]
+            self.layer_selection_method in [LayerSelectionMethod.GUMBEL_SOFTMAX, LayerSelectionMethod.STE, LayerSelectionMethod.SOFT_GATING, LayerSelectionMethod.REINFORCE]
             and self.n_predictor_layers <= 0
         ):
-            raise ValueError(
-                "n_predictor_layers must be > 0 for GUMBEL_SOFTMAX, STE, SOFT_GATING or REINFORCE methods."
-            )
+            raise ValueError("n_predictor_layers must be > 0 for GUMBEL_SOFTMAX, STE, SOFT_GATING or REINFORCE methods.")
 
         strategy_map = {
             LayerSelectionMethod.NONE: NoneStrategy,
@@ -105,10 +80,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
 
             # Output size for the main network's output layer
             final_output_neurons = self.outer.output_size
-            if (
-                self.outer.task_type == TaskType.REGRESSION
-                and self.outer.uncertainty_method == UncertaintyMethod.PROBABILISTIC
-            ):
+            if self.outer.task_type == TaskType.REGRESSION and self.outer.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
                 final_output_neurons = 2  # Mean and Log-Variance
 
             # n-predictor: Takes full input features and outputs logits for n (1 to max_hidden_layers)
@@ -119,35 +91,23 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                 predictor_layers.append(nn.Linear(in_features, predictor_hidden_size))
                 predictor_layers.append(self.outer.activation())
                 for _ in range(self.outer.n_predictor_layers - 1):
-                    predictor_layers.append(
-                        nn.Linear(predictor_hidden_size, predictor_hidden_size)
-                    )
+                    predictor_layers.append(nn.Linear(predictor_hidden_size, predictor_hidden_size))
                     predictor_layers.append(self.outer.activation())
-                output_layer_predictor = nn.Linear(
-                    predictor_hidden_size, self.outer.max_hidden_layers
-                )
+                output_layer_predictor = nn.Linear(predictor_hidden_size, self.outer.max_hidden_layers)
                 nn.init.normal_(output_layer_predictor.bias, mean=0.0, std=0.1)
-                self.n_predictor = nn.Sequential(
-                    *predictor_layers, output_layer_predictor
-                )
+                self.n_predictor = nn.Sequential(*predictor_layers, output_layer_predictor)
             else:
                 self.n_predictor = None
 
             self.hidden_layers_blocks = nn.ModuleList()
             for i in range(self.outer.max_hidden_layers):
                 block_layers = []
-                in_features = (
-                    self.outer.input_size if i == 0 else self.outer.hidden_size
-                )
+                in_features = self.outer.input_size if i == 0 else self.outer.hidden_size
                 block_layers.append(nn.Linear(in_features, self.outer.hidden_size))
                 if self.outer.use_batch_norm:
                     block_layers.append(nn.BatchNorm1d(self.outer.hidden_size))
                 block_layers.append(self.outer.activation())
-                if (
-                    self.outer.task_type == TaskType.REGRESSION
-                    and self.outer.uncertainty_method == UncertaintyMethod.MC_DROPOUT
-                    and self.outer.dropout_rate > 0
-                ):
+                if self.outer.task_type == TaskType.REGRESSION and self.outer.uncertainty_method == UncertaintyMethod.MC_DROPOUT and self.outer.dropout_rate > 0:
                     block_layers.append(nn.Dropout(self.outer.dropout_rate))
                 self.hidden_layers_blocks.append(nn.Sequential(*block_layers))
 
@@ -168,39 +128,14 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         self.model = self.FlexibleNNModule(self).to(self.device)
 
         if self.task_type == TaskType.REGRESSION:
-            if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
-
-                def nll_loss(
-                    final_output: torch.Tensor, targets: torch.Tensor
-                ) -> torch.Tensor:
-                    mean = final_output[:, 0]
-                    log_var = final_output[:, 1]
-                    targets = targets.squeeze(-1) if targets.ndim > 1 else targets
-                    per_sample_nll = 0.5 * (
-                        torch.log(torch.tensor(2 * math.pi))
-                        + log_var
-                        + (targets - mean) ** 2 / torch.exp(log_var)
-                    )
-                    return torch.mean(per_sample_nll)
-
-                self.criterion = nll_loss
-            else:
-                self.criterion = nn.MSELoss()
+            self.criterion = nll_loss if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else nn.MSELoss()
         elif self.task_type == TaskType.CLASSIFICATION:
-            if self.output_size == 1:
-                self.criterion = nn.BCEWithLogitsLoss()
-            else:
-                self.criterion = nn.CrossEntropyLoss()
+            self.criterion = nn.BCEWithLogitsLoss() if self.output_size == 1 else nn.CrossEntropyLoss()
         else:
             raise ValueError("task_type must be 'regression' or 'classification'")
 
     def _fit_single(
-        self,
-        x_train: np.ndarray,
-        y_train: np.ndarray,
-        x_val: np.ndarray | None = None,
-        y_val: np.ndarray | None = None,
-        forced_iterations: int | None = None,
+        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -223,13 +158,9 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
 
         if self.learn_regularization_lambdas:
             if self.using_l1_regularization:
-                self.l1_log_lambda = nn.Parameter(
-                    torch.tensor(np.log(1e-4), dtype=torch.float32)
-                )
+                self.l1_log_lambda = nn.Parameter(torch.tensor(np.log(1e-4), dtype=torch.float32))
             if self.using_l2_regularization:
-                self.l2_log_lambda = nn.Parameter(
-                    torch.tensor(np.log(1e-4), dtype=torch.float32)
-                )
+                self.l2_log_lambda = nn.Parameter(torch.tensor(np.log(1e-4), dtype=torch.float32))
 
         if self.random_seed is not None:
             torch.manual_seed(self.random_seed)
@@ -244,15 +175,11 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         y_train_tensor = torch.tensor(y_train, dtype=torch.float32).to(self.device)
         if self.task_type == TaskType.CLASSIFICATION:
             y_train_tensor = y_train_tensor.long()
-        if (self.task_type == TaskType.REGRESSION) or (
-            self.task_type == TaskType.CLASSIFICATION and self.output_size == 1
-        ):
+        if (self.task_type == TaskType.REGRESSION) or (self.task_type == TaskType.CLASSIFICATION and self.output_size == 1):
             y_train_tensor = y_train_tensor.unsqueeze(1)
 
         train_dataset = torch.utils.data.TensorDataset(x_train_tensor, y_train_tensor)
-        train_dataloader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=self.batch_size, shuffle=True
-        )
+        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
 
         x_val_tensor, y_val_tensor = None, None
         if x_val is not None:
@@ -260,9 +187,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             y_val_tensor = torch.tensor(y_val, dtype=torch.float32).to(self.device)
             if self.task_type == TaskType.CLASSIFICATION:
                 y_val_tensor = y_val_tensor.long()
-            if (self.task_type == TaskType.REGRESSION) or (
-                self.task_type == TaskType.CLASSIFICATION and self.output_size == 1
-            ):
+            if (self.task_type == TaskType.REGRESSION) or (self.task_type == TaskType.CLASSIFICATION and self.output_size == 1):
                 y_val_tensor = y_val_tensor.unsqueeze(1)
 
         best_val_loss = float("inf")
@@ -271,13 +196,8 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         best_epoch = 0
         val_loss_history = []
 
-        if self.layer_selection_method not in [
-            LayerSelectionMethod.GUMBEL_SOFTMAX,
-            LayerSelectionMethod.STE,
-        ]:
-            logger.info(
-                "Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used."
-            )
+        if self.layer_selection_method not in [LayerSelectionMethod.GUMBEL_SOFTMAX, LayerSelectionMethod.STE]:
+            logger.info("Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.")
 
         n_epochs = forced_iterations or self.n_epochs
         for epoch in range(int(n_epochs)):
@@ -294,10 +214,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                 loss = self.criterion(final_output, batch_y)
                 loss = self._calculate_regularization_loss(loss, self.model)
 
-                if (
-                    self.layer_selection_method == LayerSelectionMethod.REINFORCE
-                    and log_prob is not None
-                ):
+                if self.layer_selection_method == LayerSelectionMethod.REINFORCE and log_prob is not None:
                     # Calculate policy loss (REINFORCE)
                     # The reward signal is typically the negative of the validation loss,
                     # but for batch-wise updates, we can use the negative of the current batch's main_loss
@@ -323,9 +240,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                     val_loss = self.criterion(val_outputs, y_val_tensor).item()
                 val_loss_history.append(val_loss)
 
-                self.strategy.on_epoch_end(
-                    validation_loss=val_loss, epoch_log_probs=epoch_log_probs
-                )
+                self.strategy.on_epoch_end(validation_loss=val_loss, epoch_log_probs=epoch_log_probs)
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
@@ -344,10 +259,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         if best_model_state:
             self.model.load_state_dict(best_model_state)
 
-        if (
-            self.is_regression_model
-            and self.uncertainty_method == UncertaintyMethod.CONSTANT
-        ):
+        if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
             y_pred_train = self.predict(x_train, filter_data=False)
             self._train_residual_std = np.std(y_train - y_pred_train)
             if np.isnan(self._train_residual_std):
@@ -355,13 +267,9 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
 
         if self.learn_regularization_lambdas:
             if self.l1_log_lambda is not None:
-                logger.info(
-                    f"Learned L1 Lambda: {torch.exp(self.l1_log_lambda).item():.6f}"
-                )
+                logger.info(f"Learned L1 Lambda: {torch.exp(self.l1_log_lambda).item():.6f}")
             if self.l2_log_lambda is not None:
-                logger.info(
-                    f"Learned L2 Lambda: {torch.exp(self.l2_log_lambda).item():.6f}"
-                )
+                logger.info(f"Learned L2 Lambda: {torch.exp(self.l2_log_lambda).item():.6f}")
 
         return best_epoch + 1, val_loss_history
 
@@ -373,10 +281,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             x = self._filter_predict_data(x)
         x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
 
-        if (
-            self.is_regression_model
-            and self.uncertainty_method == UncertaintyMethod.MC_DROPOUT
-        ):
+        if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
             self.model.train()
             mc_predictions = []
             with torch.no_grad():
@@ -390,27 +295,15 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         with torch.no_grad():
             final_output, _, _, _, _ = self.model(x_tensor)
             if self.task_type == TaskType.CLASSIFICATION:
-                predictions = (
-                    (torch.sigmoid(final_output) > 0.5).cpu().numpy().astype(int)
-                    if self.output_size == 1
-                    else torch.argmax(final_output, dim=1).cpu().numpy()
-                )
+                predictions = (torch.sigmoid(final_output) > 0.5).cpu().numpy().astype(int) if self.output_size == 1 else torch.argmax(final_output, dim=1).cpu().numpy()
             else:
-                predictions = (
-                    final_output[:, 0].cpu().numpy()
-                    if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC
-                    else final_output.cpu().numpy()
-                )
+                predictions = final_output[:, 0].cpu().numpy() if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else final_output.cpu().numpy()
         return predictions.flatten()
 
-    def predict_uncertainty(
-        self, x: np.ndarray, filter_data: bool = True
-    ) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty for regression."""
         if not self.is_regression_model:
-            raise ValueError(
-                "predict_uncertainty is only available for regression models."
-            )
+            raise ValueError("predict_uncertainty is only available for regression models.")
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
@@ -440,9 +333,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
     def predict_proba(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Predicts class probabilities for classification tasks."""
         if self.task_type != TaskType.CLASSIFICATION:
-            raise ValueError(
-                "predict_proba is only available for classification tasks."
-            )
+            raise ValueError("predict_proba is only available for classification tasks.")
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
 
@@ -464,18 +355,10 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             {
                 "max_hidden_layers": {"type": "int", "low": 1, "high": 3},
                 "hidden_size": {"type": "int", "low": 32, "high": 128, "step": 32},
-                "activation": {
-                    "type": "categorical",
-                    "choices": [e.value for e in ActivationFunction],
-                },
+                "activation": {"type": "categorical", "choices": [e.value for e in ActivationFunction]},
                 "gumbel_tau": {"type": "float", "low": 1e-8, "high": 1.0, "log": True},
                 "n_predictor_layers": {"type": "int", "low": 0, "high": 2},
-                "n_predictor_learning_rate": {
-                    "type": "float",
-                    "low": 1e-8,
-                    "high": 1e-2,
-                    "log": True,
-                },
+                "n_predictor_learning_rate": {"type": "float", "low": 1e-8, "high": 1e-2, "log": True},
                 "layer_selection_method": {
                     "type": "categorical",
                     "choices": [

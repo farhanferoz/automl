@@ -19,9 +19,7 @@ class NoneStrategy(BaseSelectionStrategy):
     def on_epoch_end(self, **kwargs: Any) -> None:
         """This method is called at the end of each epoch (no-op for this strategy)."""
 
-    def forward(
-        self, x_input: torch.Tensor, _logits: torch.Tensor | None
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
+    def forward(self, x_input: torch.Tensor, _logits: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
         """Performs forward pass without n_classes selection.
 
         Args:
@@ -36,16 +34,12 @@ class NoneStrategy(BaseSelectionStrategy):
         classifier_raw_logits = self.model.classifier_layers(x_input)
 
         masked_classifier_logits = torch.full_like(classifier_raw_logits, float("-inf"))
-        masked_classifier_logits[:, : self.model.n_classes] = classifier_raw_logits[
-            :, : self.model.n_classes
-        ]
+        masked_classifier_logits[:, : self.model.n_classes] = classifier_raw_logits[:, : self.model.n_classes]
 
         probabilities = torch.softmax(masked_classifier_logits, dim=1)
         final_predictions_contribution = self.model.regression_module(probabilities)
 
-        selected_k_values_for_logging = torch.full(
-            (x_input.size(0),), self.model.n_classes, dtype=torch.long
-        ).to(x_input.device)
+        selected_k_values_for_logging = torch.full((x_input.size(0),), self.model.n_classes, dtype=torch.long).to(x_input.device)
 
         return (
             final_predictions_contribution,
@@ -64,9 +58,7 @@ class GumbelSoftmaxStrategy(BaseSelectionStrategy):
     def on_epoch_end(self, **kwargs: Any) -> None:
         """This method is called at the end of each epoch (no-op for this strategy)."""
 
-    def forward(
-        self, x_input: torch.Tensor, logits: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
+    def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
         """Performs forward pass using Gumbel-Softmax for n_classes selection.
 
         Args:
@@ -76,9 +68,7 @@ class GumbelSoftmaxStrategy(BaseSelectionStrategy):
         Returns:
             tuple: A tuple containing final predictions, selected k values, log_prob_for_reinforce, and classifier_raw_logits.
         """
-        mode_selection_probs = f.gumbel_softmax(
-            logits, tau=self.model.gumbel_tau, hard=False, dim=-1
-        )
+        mode_selection_probs = f.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=False, dim=-1)
         self.mode_selection_probs = mode_selection_probs  # Store for classifier_logits_out in _CombinedProbabilisticModel
         (
             final_predictions_contribution,
@@ -102,9 +92,7 @@ class SoftGatingStrategy(BaseSelectionStrategy):
     def on_epoch_end(self, **kwargs: Any) -> None:
         """This method is called at the end of each epoch (no-op for this strategy)."""
 
-    def forward(
-        self, x_input: torch.Tensor, logits: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
+    def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
         """Performs forward pass using Softmax for n_classes selection.
 
         Args:
@@ -138,9 +126,7 @@ class SteStrategy(BaseSelectionStrategy):
     def on_epoch_end(self, **kwargs: Any) -> None:
         """This method is called at the end of each epoch (no-op for this strategy)."""
 
-    def forward(
-        self, x_input: torch.Tensor, logits: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
+    def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
         """Performs forward pass using STE for n_classes selection.
 
         Args:
@@ -150,9 +136,7 @@ class SteStrategy(BaseSelectionStrategy):
         Returns:
             tuple: A tuple containing final predictions, selected k values, log_prob_for_reinforce, and classifier_raw_logits.
         """
-        mode_selection_one_hot = f.gumbel_softmax(
-            logits, tau=self.model.gumbel_tau, hard=True, dim=-1
-        )
+        mode_selection_one_hot = f.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=True, dim=-1)
         self.mode_selection_probs = mode_selection_one_hot  # Store for classifier_logits_out in _CombinedProbabilisticModel
         (
             final_predictions_contribution,
@@ -176,13 +160,9 @@ class ReinforceStrategy(BaseSelectionStrategy):
         Args:
             policy_params (Any): Parameters of the policy network.
         """
-        self.policy_optimizer = torch.optim.Adam(
-            policy_params, lr=self.model.n_classes_predictor_learning_rate
-        )
+        self.policy_optimizer = torch.optim.Adam(policy_params, lr=self.model.n_classes_predictor_learning_rate)
 
-    def forward(
-        self, x_input: torch.Tensor, logits: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
+    def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
         """Performs forward pass using REINFORCE for n_classes selection.
 
         Args:

@@ -6,7 +6,7 @@ import numpy as np
 from catboost import CatBoostClassifier, CatBoostRegressor, Pool
 from sklearn.metrics import accuracy_score, mean_squared_error
 
-from automl_package.enums import Metric, TaskType, UncertaintyMethod, ExplainerType
+from automl_package.enums import ExplainerType, Metric, TaskType, UncertaintyMethod
 from automl_package.models.base import BaseModel
 from automl_package.models.common.common import get_loss_history
 from automl_package.utils.numerics import ensure_proba_shape

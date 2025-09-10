@@ -5,31 +5,27 @@ from typing import Any
 import numpy as np
 from sklearn.linear_model import LinearRegression
 
-from automl_package.enums import MapperType
+from automl_package.enums import MapperType, UncertaintyMethod
+from automl_package.logger import logger
 from automl_package.models.mappers.base_mapper import BaseMapper
 
 
 class LinearMapper(BaseMapper):
     """Linear mapper for probability mapping."""
 
-    def __init__(self) -> None:
+    def __init__(self, uncertainty_method: UncertaintyMethod = UncertaintyMethod.CONSTANT) -> None:
         """Initializes the LinearMapper."""
-        super().__init__(MapperType.LINEAR)
+        super().__init__(MapperType.LINEAR, uncertainty_method)
         self.model = None
         self._linear_mapper_residual_variance = 0.0
 
-    def _fit(
-        self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any
-    ) -> None:  # noqa: ARG002
+    def _fit(self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG002
         self.model = LinearRegression()
         self.model.fit(probas.reshape(-1, 1), y_original)
         y_pred_train = self.model.predict(probas.reshape(-1, 1))
         _linear_mapper_residual_variance = np.var(y_original - y_pred_train)
-        self._linear_mapper_residual_variance = (
-            0.0
-            if np.isnan(_linear_mapper_residual_variance)
-            else _linear_mapper_residual_variance
-        )
+        self._linear_mapper_residual_variance = 0.0 if np.isnan(_linear_mapper_residual_variance) else _linear_mapper_residual_variance
+        return {}
 
     def _fit_empty(self) -> None:
         self.model = LinearRegression()
@@ -60,4 +56,6 @@ class LinearMapper(BaseMapper):
         """
         if self.model is None:
             raise RuntimeError("Linear mapper has not been fitted yet.")
+        if self.uncertainty_method != UncertaintyMethod.CONSTANT:
+            logger.warning("LinearMapper only supports CONSTANT uncertainty. Falling back to constant variance.")
         return np.full(probas_new.shape[0], self._linear_mapper_residual_variance)

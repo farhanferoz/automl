@@ -3,9 +3,7 @@
 from automl_package.logger import logger
 
 
-def select_features_by_cumulative_importance(
-    feature_importances: dict[str, float], threshold: float = 0.95
-) -> list[str]:
+def select_features_by_cumulative_importance(feature_importances: dict[str, float], threshold: float = 0.95) -> list[str]:
     """Selects features based on a cumulative importance threshold.
 
     Args:
@@ -15,9 +13,7 @@ def select_features_by_cumulative_importance(
     Returns:
         List[str]: A list of selected feature names.
     """
-    sorted_features = sorted(
-        feature_importances.items(), key=lambda item: item[1], reverse=True
-    )
+    sorted_features = sorted(feature_importances.items(), key=lambda item: item[1], reverse=True)
 
     cumulative_importance = 0.0
     selected_features = []
@@ -27,7 +23,5 @@ def select_features_by_cumulative_importance(
         if cumulative_importance >= threshold:
             break
 
-    logger.info(
-        f"Selected {len(selected_features)} features with cumulative importance of {cumulative_importance}"
-    )
+    logger.info(f"Selected {len(selected_features)} features with cumulative importance of {cumulative_importance}")
     return selected_features

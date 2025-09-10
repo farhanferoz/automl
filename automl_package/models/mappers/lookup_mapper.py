@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from automl_package.enums import MapperType
+from automl_package.enums import MapperType, UncertaintyMethod
 from automl_package.models.mappers.base_mapper import BaseMapper
 from automl_package.utils.numerics import create_bins
 
@@ -23,21 +23,19 @@ class LookupMapper(BaseMapper):
 
     def __init__(self, mapper_type: MapperType, **kwargs: Any) -> None:
         """Initializes the LookupMapper."""
-        super().__init__(mapper_type)
+        super().__init__(mapper_type, **kwargs)
         self.lookup_table = None
         self.n_partitions_min = kwargs.get("n_partitions_min", 5)
         self.n_partitions_max = kwargs.get("n_partitions_max", np.inf)
+        self._residual_variance = 0.0
 
-    def _fit(
-        self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any
-    ) -> None:  # noqa: ARG002
+    def _fit(self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG002
+        # For probabilistic uncertainty, calculate binned variance
         min_partitions = max(self.n_partitions_min, len(probas) // 2000)
         max_partitions = min(self.n_partitions_max, len(probas) // 100)
         num_partitions = max(1, min_partitions, max_partitions)
 
-        bin_edges, bin_indices = create_bins(
-            data=probas, n_bins=num_partitions, min_value=0.0, max_value=1.0
-        )
+        bin_edges, bin_indices = create_bins(data=probas, n_bins=num_partitions, min_value=0.0, max_value=1.0)
         bin_edges = bin_edges[1:]
 
         temp_lookup_keys = bin_edges
@@ -47,14 +45,9 @@ class LookupMapper(BaseMapper):
         for i in range(len(bin_edges)):
             mask = bin_indices == i
             partition_y = y_original[mask]
-            # Handle empty partitions by taking the overall mean/median and variance
             if len(partition_y) == 0:
                 partition_y = y_original
-            expected_y = (
-                np.mean(partition_y)
-                if self._mapper_type == MapperType.LOOKUP_MEAN
-                else np.median(partition_y)
-            )
+            expected_y = np.mean(partition_y) if self._mapper_type == MapperType.LOOKUP_MEAN else np.median(partition_y)
             partition_variance = np.var(partition_y)
 
             if np.isnan(partition_variance):
@@ -69,21 +62,24 @@ class LookupMapper(BaseMapper):
             LookupTableEntries.VARIANCES: np.array(temp_lookup_variances),
         }
 
+        # For constant uncertainty, calculate overall residual variance
+        y_pred_train = self._predict(probas)
+        self._residual_variance = np.var(y_original - y_pred_train)
+        if np.isnan(self._residual_variance):
+            self._residual_variance = 0.0
+
+        return {}
+
     def _fit_empty(self) -> None:
-        self.lookup_table = {
-            LookupTableEntries.KEYS: np.array([0.0, 1.0]),
-            LookupTableEntries.VALUES: np.array([0.0, 0.0]),
-            LookupTableEntries.VARIANCES: np.array([0.0, 0.0]),
-        }
+        self.lookup_table = {LookupTableEntries.KEYS: np.array([0.0, 1.0]), LookupTableEntries.VALUES: np.array([0.0, 0.0]), LookupTableEntries.VARIANCES: np.array([0.0, 0.0])}
+        self._residual_variance = 0.0
 
     def _find_indices(self, probas_new: np.ndarray) -> np.ndarray:
         keys = self.lookup_table[LookupTableEntries.KEYS]
         if len(keys) == 0:
             indices = np.zeros_like(probas_new, dtype=int)
         else:
-            _, indices = create_bins(
-                data=probas_new, unique_bin_edges=np.insert(keys, 0, 0)
-            )
+            _, indices = create_bins(data=probas_new, unique_bin_edges=np.insert(keys, 0, 0))
             # Clip indices to be within the valid range of the lookup table keys
             indices = np.clip(indices, 0, len(keys) - 1)
         return indices
@@ -116,6 +112,10 @@ class LookupMapper(BaseMapper):
         if self.lookup_table is None:
             raise RuntimeError("Lookup mapper has not been fitted yet.")
 
+        if self.uncertainty_method == UncertaintyMethod.CONSTANT:
+            return np.full(probas_new.shape[0], self._residual_variance)
+
+        # Default to probabilistic (binned) uncertainty
         variances = self.lookup_table[LookupTableEntries.VARIANCES]
         indices = self._find_indices(probas_new=probas_new).astype(np.int64)
         return variances[indices]

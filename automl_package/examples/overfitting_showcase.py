@@ -1,3 +1,4 @@
+# ruff: noqa: ERA001
 """Showcase of Overfitting in Various Models.
 
 This script demonstrates how different models handle a simple dataset,
@@ -22,12 +23,12 @@ import shutil
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import mean_squared_error
 from bokeh.io import output_file, save
 from bokeh.palettes import Category10
 from bokeh.plotting import figure
 from models.classifier_regression import ClassifierRegressionModel
 from models.neural_network import PyTorchNeuralNetwork
+from sklearn.metrics import mean_squared_error
 
 from automl_package.enums import DataSplitStrategy, MapperType, RegressionStrategy, TaskType, UncertaintyMethod
 from automl_package.models.base import BaseModel
@@ -45,7 +46,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 
 def create_price_delta_data(
-    n_samples: int = 1000, n_features: int = 2, n_noise_features: int = 8, signal_strength: float = 1.0, noise_level: float = 0.5, seed: int = 42,
+    n_samples: int = 1000,
+    n_features: int = 2,
+    n_noise_features: int = 8,
+    signal_strength: float = 1.0,
+    noise_level: float = 0.5,
+    seed: int = 42,
 ) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
     """Creates a synthetic dataset based on price deltas with noise features.
 
@@ -122,7 +128,7 @@ def create_price_delta_data(
     return df, pd.Series(y_noisy), pd.Series(y_true)
 
 
-def plot_time_series_results(y_data: np.ndarray, y_true: np.ndarray, predictions: dict, uncertainties: dict, results: dict, output_path: str) -> None:
+def plot_time_series_results(y_data: np.ndarray, y_true: np.ndarray, predictions: dict, results: dict, output_path: str) -> None:
     """Generates and saves a Bokeh plot comparing model predictions for time series."""
     p = figure(width=1200, height=700, title="Overfitting Showcase: Model Comparison (Test Set)", x_axis_label="Time Step", y_axis_label="Output (y)")
 
@@ -142,8 +148,6 @@ def plot_time_series_results(y_data: np.ndarray, y_true: np.ndarray, predictions
         y_pred_flat = y_pred.flatten()
         p.line(time_steps, y_pred_flat, line_color=color, line_width=2.5, legend_label=f"{name} (MSE: {results[name]['rmse']**2:.4f})")
 
-        
-
     p.legend.location = "top_right"
     p.legend.click_policy = "hide"
     p.legend.background_fill_alpha = 0.5
@@ -159,14 +163,14 @@ def run_showcase() -> None:
     n_samples = 2000
     user_defined_n_classes = 3
     early_stopping_rounds = 50
-    validation_fraction = None
+    validation_fraction = 0.2
     test_fraction = 0.2
-    cv_folds = 4
+    cv_folds = None
     n_epochs = 500
     hidden_layers = 2
     hidden_size = 64
     learning_rate = 0.005
-    feature_selection_threshold = 0.75
+    feature_selection_threshold = None
     optimize_hyperparameters = False
     n_trials = 50
     random_seed = 42
@@ -247,9 +251,10 @@ def run_showcase() -> None:
             cv_folds=cv_folds,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
             split_strategy=DataSplitStrategy.RANDOM,
-            mapper_type=MapperType.AUTO,
+            mapper_type=MapperType.NN_SINGLE_HEAD_FINAL_OUTPUT,
             auto_include_nn_mappers=True,
             feature_selection_threshold=feature_selection_threshold,
+            calculate_feature_importance=False,
             optimize_hyperparameters=optimize_hyperparameters,
             n_trials=n_trials,
             random_seed=random_seed,
@@ -353,25 +358,23 @@ def run_showcase() -> None:
     }
 
     for strategy in RegressionStrategy:
-        models_to_test[f"Probabilistic_Regression_{strategy.value}"] = (
-            ProbabilisticRegressionModel(
-                input_size=x_train_scaled.shape[1],
-                n_classes=user_defined_n_classes,
-                regression_strategy=strategy,
-                base_classifier_params={"hidden_layers": hidden_layers, "hidden_size": hidden_size, "random_seed": random_seed},
-                n_epochs=n_epochs,
-                learning_rate=learning_rate,
-                early_stopping_rounds=early_stopping_rounds,
-                validation_fraction=validation_fraction,
-                test_fraction=0.0,
-                cv_folds=cv_folds,
-                split_strategy=DataSplitStrategy.RANDOM,
-                feature_selection_threshold=feature_selection_threshold,
-                optimize_hyperparameters=optimize_hyperparameters,
-                n_trials=n_trials,
-                random_seed=random_seed,
-                output_dir=os.path.join(output_dir, f"Probabilistic_Regression_{strategy.value}"),
-            )
+        models_to_test[f"Probabilistic_Regression_{strategy.value}"] = ProbabilisticRegressionModel(
+            input_size=x_train_scaled.shape[1],
+            n_classes=user_defined_n_classes,
+            regression_strategy=strategy,
+            base_classifier_params={"hidden_layers": hidden_layers, "hidden_size": hidden_size, "random_seed": random_seed},
+            n_epochs=n_epochs,
+            learning_rate=learning_rate,
+            early_stopping_rounds=early_stopping_rounds,
+            validation_fraction=validation_fraction,
+            test_fraction=0.0,
+            cv_folds=cv_folds,
+            split_strategy=DataSplitStrategy.RANDOM,
+            feature_selection_threshold=feature_selection_threshold,
+            optimize_hyperparameters=optimize_hyperparameters,
+            n_trials=n_trials,
+            random_seed=random_seed,
+            output_dir=os.path.join(output_dir, f"Probabilistic_Regression_{strategy.value}"),
         )
 
     results = {}
@@ -400,7 +403,7 @@ def run_showcase() -> None:
             results[name] = json.load(f)
 
         unscaled_mse = mean_squared_error(y_test, y_pred)
-        results[name]['unscaled_mse'] = unscaled_mse
+        results[name]["unscaled_mse"] = unscaled_mse
         logging.info(f"  -> Test MSE (scaled): {results[name]['rmse']**2:.4f}")
         logging.info(f"  -> Test MSE (unscaled): {unscaled_mse:.4f}")
         if "nll" in results[name]:
@@ -416,7 +419,7 @@ def run_showcase() -> None:
 
     # --- Visualization ---
     plot_path = os.path.join(output_dir, "overfitting_comparison.html")
-    plot_time_series_results(y_test.values, y_true_test.values, predictions, uncertainties, results, plot_path)
+    plot_time_series_results(y_test.values, y_true_test.values, predictions, results, plot_path)
 
     logging.info("\nShowcase complete.")
 

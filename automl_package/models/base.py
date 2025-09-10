@@ -8,7 +8,7 @@ import optuna
 import pandas as pd
 from sklearn.model_selection import KFold
 
-from automl_package.enums import DataSplitStrategy, Metric, TaskType, UncertaintyMethod, ExplainerType
+from automl_package.enums import DataSplitStrategy, Metric, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
 from automl_package.utils.cv import TimeSeriesSplit
@@ -183,8 +183,8 @@ class BaseModel(abc.ABC):
             # Step 2: Train the Model
             if self.cv_folds:
                 logger.info("--- Finding optimal iterations with cross-validation ---")
-                self.num_iterations_used, self.cv_score_mean_, self.cv_score_std_ = (
-                    self._find_optimal_iterations_with_cv(x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val)
+                self.num_iterations_used, self.cv_score_mean_, self.cv_score_std_ = self._find_optimal_iterations_with_cv(
+                    x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val
                 )
             else:
                 # Fit with a single train/validation split to find the best number of iterations
@@ -222,7 +222,13 @@ class BaseModel(abc.ABC):
         x_train_val = pd.DataFrame(x_train_val, columns=self.feature_names)
 
         self._determine_optimal_parameters(
-            x_train=x_train, y_train=y_train, x_train_val=x_train_val, y_train_val=y_train_val, x_val=x_val, y_val=y_val, timestamps_train_val=timestamps_train_val,
+            x_train=x_train,
+            y_train=y_train,
+            x_train_val=x_train_val,
+            y_train_val=y_train_val,
+            x_val=x_val,
+            y_val=y_val,
+            timestamps_train_val=timestamps_train_val,
         )
 
         if self.feature_selection_threshold is not None:
@@ -246,9 +252,7 @@ class BaseModel(abc.ABC):
                 self.evaluate(x_test, y_test, "test", self.output_dir)
             logger.info("--- Final evaluation finished ---")
 
-    def _prepare_data_partitions(
-        self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None
-    ) -> tuple[
+    def _prepare_data_partitions(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> tuple[
         np.ndarray,
         np.ndarray,
         np.ndarray | None,
@@ -263,15 +267,13 @@ class BaseModel(abc.ABC):
         np.ndarray | None,
     ]:
         """Creates train, validation, and test partitions."""
-        self.train_indices, self.val_indices, self.test_indices = (
-            create_train_val_split(
-                x=x,
-                validation_fraction=self.validation_fraction if self.cv_folds is None else 0,
-                test_fraction=self.test_fraction,
-                split_strategy=self.split_strategy,
-                timestamps=timestamps,
-                random_state=getattr(self, "random_seed", None),
-            )
+        self.train_indices, self.val_indices, self.test_indices = create_train_val_split(
+            x=x,
+            validation_fraction=self.validation_fraction if self.cv_folds is None else 0,
+            test_fraction=self.test_fraction,
+            split_strategy=self.split_strategy,
+            timestamps=timestamps,
+            random_state=getattr(self, "random_seed", None),
         )
 
         x_train, y_train = x[self.train_indices], y[self.train_indices]
@@ -303,7 +305,12 @@ class BaseModel(abc.ABC):
 
     @abc.abstractmethod
     def _fit_single(
-        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None,
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        forced_iterations: int | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -385,8 +392,7 @@ class BaseModel(abc.ABC):
         """Gets the optimization metric for the model."""
         raise NotImplementedError
 
-    def get_kfolds(
-        self, timestamps: np.ndarray | None = None) -> TimeSeriesSplit | KFold:
+    def get_kfolds(self, timestamps: np.ndarray | None = None) -> TimeSeriesSplit | KFold:
         """Gets the cross-validation folds splitter."""
         if self.split_strategy == DataSplitStrategy.TIME_ORDERED:
             if timestamps is None:

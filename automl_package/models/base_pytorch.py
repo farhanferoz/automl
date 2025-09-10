@@ -108,7 +108,12 @@ class PyTorchModelBase(BaseModel, ABC):
         return loss
 
     def _fit_single(
-        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None,
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        forced_iterations: int | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -378,7 +383,6 @@ class PyTorchModelBase(BaseModel, ABC):
 
     def _after_step(self) -> None:
         """A hook that is called after each optimizer step."""
-        pass
 
     def get_classifier_predictions(self, x: np.ndarray | pd.DataFrame, y_true_original: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Gets predictions from the internal classifier."""

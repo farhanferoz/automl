@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from automl_package.enums import MapperType
+from automl_package.enums import MapperType, UncertaintyMethod
 from automl_package.models.mappers.linear_mapper import LinearMapper
 from automl_package.models.mappers.lookup_mapper import LookupMapper
 from automl_package.models.mappers.spline_mapper import SplineMapper
@@ -13,9 +13,7 @@ from automl_package.models.mappers.spline_mapper import SplineMapper
 class ClassProbabilityMapper:
     """Maps classification probabilities for a single class back to original regression values."""
 
-    def __init__(
-        self, mapper_type: MapperType = MapperType.LINEAR, **kwargs: Any
-    ) -> None:
+    def __init__(self, mapper_type: MapperType = MapperType.LINEAR, **kwargs: Any) -> None:
         """Initializes the ClassProbabilityMapper.
 
         Args:
@@ -23,11 +21,10 @@ class ClassProbabilityMapper:
             **kwargs: Additional parameters specific to the mapper type.
         """
         self.mapper_type = mapper_type
+        self.uncertainty_method = kwargs.get("uncertainty_method", UncertaintyMethod.CONSTANT)
         self.mapper = self._create_mapper(**kwargs)
 
-    def _filter_kwargs(
-        self, mapper_type: MapperType, kwargs: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _filter_kwargs(self, mapper_type: MapperType, kwargs: dict[str, Any]) -> dict[str, Any]:
         """Filters kwargs for the specific mapper type."""
         if mapper_type == MapperType.SPLINE:
             return {k: v for k, v in kwargs.items() if k in ["spline_k", "spline_s"]}
@@ -37,6 +34,7 @@ class ClassProbabilityMapper:
 
     def _create_mapper(self, **kwargs: Any) -> Any:
         filtered_kwargs = self._filter_kwargs(self.mapper_type, kwargs)
+        filtered_kwargs["uncertainty_method"] = self.uncertainty_method
 
         if self.mapper_type == MapperType.LINEAR:
             return LinearMapper(**filtered_kwargs)

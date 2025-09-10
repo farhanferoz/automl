@@ -21,9 +21,7 @@ class TimeSeriesSplit(BaseCrossValidator):
             raise ValueError(f"n_splits={n_splits} cannot be smaller than 2.")
         self.n_splits = n_splits
 
-    def get_n_splits(
-        self, x: np.ndarray = None, _y: np.ndarray = None, _groups: np.ndarray = None
-    ) -> int:  # noqa: ARG002
+    def get_n_splits(self, x: np.ndarray = None, _y: np.ndarray = None, _groups: np.ndarray = None) -> int:
         """Returns the number of splitting iterations in the cross-validator.
 
         Parameters
@@ -42,9 +40,7 @@ class TimeSeriesSplit(BaseCrossValidator):
         """
         return self.n_splits
 
-    def split(
-        self, x: np.ndarray, _y: np.ndarray = None, _groups: np.ndarray = None
-    ) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
+    def split(self, x: np.ndarray, _y: np.ndarray = None, _groups: np.ndarray = None) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
         """Generate indices to split data into training and test set.
 
         Parameters

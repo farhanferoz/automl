@@ -1,14 +1,15 @@
+# ruff: noqa: ERA001
 """Composite model for regression using classification and probability mapping."""
 
 import os
-from typing import Any, ClassVar
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error
 
-from automl_package.enums import MapperType, Metric, ModelName, RegressionStrategy, TaskType
+from automl_package.enums import MapperType, Metric, ModelName, RegressionStrategy, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 from automl_package.models.mappers.base_mapper import BaseMapper
@@ -28,36 +29,30 @@ class ClassifierRegressionModel(BaseModel):
     back to continuous regression output using various mapping strategies.
     """
 
-    _defaults: ClassVar[dict[str, Any]] = {
-        "n_classes": 3,
-        "base_classifier_class": None,
-        "base_classifier_params": None,
-        "mapper_type": MapperType.SPLINE,
-        "mapper_params": None,
-        "nn_mapper_params": None,
-        "auto_include_nn_mappers": True,
-    }
-
     def __init__(self, **kwargs: Any) -> None:
         """Initializes the ClassifierRegressionModel."""
-        self.base_classifier_class: type[BaseModel] | None = None
-        self.n_classes: int = 0
-        self.auto_include_nn_mappers: bool = True
-        self.mapper_type: MapperType | str = MapperType.SPLINE
-        self.base_classifier_params: dict | None = None
-        self.mapper_params: dict | None = None
-        self.nn_mapper_params: dict | None = None
-
-        for key, value in self._defaults.items():
-            kwargs.setdefault(key, value)
+        self.base_classifier_class: type[BaseModel] | None = kwargs.pop("base_classifier_class", None)
+        self.n_classes: int = kwargs.pop("n_classes", 3)
+        self.auto_include_nn_mappers: bool = kwargs.pop("auto_include_nn_mappers", True)
+        self.mapper_type: MapperType | str = kwargs.pop("mapper_type", MapperType.SPLINE)
+        self.base_classifier_params: dict | None = kwargs.pop("base_classifier_params", None)
+        self.mapper_params: dict | None = kwargs.pop("mapper_params", None)
+        self.nn_mapper_params: dict | None = kwargs.pop("nn_mapper_params", None)
+        self.regression_strategy: RegressionStrategy | None = kwargs.pop("regression_strategy", None)
+        self.mapper_to_strategy_map = {
+            MapperType.NN_SEPARATE_HEADS: RegressionStrategy.SEPARATE_HEADS,
+            MapperType.NN_SINGLE_HEAD_N_OUTPUTS: RegressionStrategy.SINGLE_HEAD_N_OUTPUTS,
+            MapperType.NN_SINGLE_HEAD_FINAL_OUTPUT: RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT,
+        }
 
         super().__init__(**kwargs)
         assert self.is_regression_model
-        for key, value in kwargs.items():
-            setattr(self, key, value)
 
         if isinstance(self.mapper_type, str):
             self.mapper_type = MapperType[self.mapper_type]
+
+        if self.mapper_type.is_nn and self.regression_strategy is None:
+            self.regression_strategy = self.mapper_to_strategy_map.get(self.mapper_type)
 
         if self.base_classifier_class is None:
             raise ValueError("base_classifier_class must be provided.")
@@ -72,6 +67,7 @@ class ClassifierRegressionModel(BaseModel):
         self.is_composite_regression_model = True
         self.optimal_mapper_params_ = {}
         self.task_type = TaskType.REGRESSION
+        self._train_residual_std = 0.0
 
         if self.n_classes < 2:
             raise ValueError("n_classes must be at least 2 for classification-regression strategy.")
@@ -114,16 +110,11 @@ class ClassifierRegressionModel(BaseModel):
             current_nn_params.update(forced_mapper_params)
 
         if mapper_type.is_nn:
-            mapper_to_strategy_map = {
-                MapperType.NN_SEPARATE_HEADS: RegressionStrategy.SEPARATE_HEADS,
-                MapperType.NN_SINGLE_HEAD_N_OUTPUTS: RegressionStrategy.SINGLE_HEAD_N_OUTPUTS,
-                MapperType.NN_SINGLE_HEAD_FINAL_OUTPUT: RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT,
-            }
-            strategy = mapper_to_strategy_map[mapper_type]
             nn_mapper = NeuralNetworkMapper(
                 n_classes=self.n_classes,
-                regression_strategy=strategy,
+                regression_strategy=self.mapper_to_strategy_map[mapper_type],
                 mapper_params=current_nn_params,
+                uncertainty_method=self.uncertainty_method,
                 early_stopping_rounds=self.early_stopping_rounds,
                 validation_fraction=self.validation_fraction,
             )
@@ -140,10 +131,74 @@ class ClassifierRegressionModel(BaseModel):
             # Non-NN mappers are simpler and fit only on the training data provided.
             fitted_mappers = []
             for c in range(self.n_classes):
-                mapper = ClassProbabilityMapper(mapper_type, **self.mapper_params)
+                mapper = ClassProbabilityMapper(mapper_type, uncertainty_method=self.uncertainty_method, **self.mapper_params)
                 mapper.fit(probas[:, c].reshape(-1, 1), y)
                 fitted_mappers.append(mapper)
         return fitted_mappers, learned_params
+
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+        """Estimates uncertainty for regression predictions.
+
+        The method depends on the uncertainty_method set for the model.
+        - CONSTANT: Returns a constant uncertainty based on training residuals.
+        - PROBABILISTIC: Applies the Law of Total Variance using learned uncertainties from mappers.
+
+        Args:
+            x (np.ndarray): Features for uncertainty estimation.
+            filter_data (bool): If True, filter the input data using the feature selection mask.
+
+        Returns:
+            np.ndarray: Uncertainty estimates (standard deviation) for each prediction.
+        """
+        if self.uncertainty_method == UncertaintyMethod.CONSTANT:
+            uncertainties = np.full(x.shape[0], self._train_residual_std)
+        else:
+            assert self.uncertainty_method == UncertaintyMethod.PROBABILISTIC
+            # PROBABILISTIC method
+            if not self.is_regression_model:
+                raise ValueError("predict_uncertainty is only available for regression models.")
+            if self.base_classifier is None or not self.class_mappers:
+                raise RuntimeError("Model has not been fitted yet. Call fit() first.")
+
+            if filter_data:
+                x = self._filter_predict_data(x)
+
+            probas = self.base_classifier.predict_proba(x, filter_data=False)
+
+            # Handle SINGLE_HEAD_FINAL_OUTPUT strategy
+            if self.mapper_type.is_nn and self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
+                mapper = self.class_mappers[0]
+                uncertainties = np.sqrt(mapper.predict_variance(probas))
+            else:
+                # Handle other strategies using the Law of Total Variance
+                if self.mapper_type.is_nn:
+                    mapper = self.class_mappers[0]
+                    mapper_means, mapper_variances = mapper.predict_mean_and_variance_per_class(probas)
+                else:
+                    mapper_means = np.zeros_like(probas)
+                    mapper_variances = np.zeros_like(probas)
+                    for c in range(self.n_classes):
+                        if self.class_mappers[c] is None:
+                            continue
+
+                        class_probas = probas[:, c].reshape(-1, 1)
+                        mapper_means[:, c] = self.class_mappers[c].predict(class_probas).flatten()
+                        mapper_variances[:, c] = self.class_mappers[c].predict_variance_contribution(class_probas).flatten()
+
+                # E[Y|X] = sum(P(C=i|X) * E[Y|X, C=i])
+                total_mean = np.sum(probas * mapper_means, axis=1)
+
+                # E[Var(Y|X)] = sum(P(C=i|X) * Var(Y|X, C=i))
+                expected_variance = np.sum(probas * mapper_variances, axis=1)
+
+                # Var(E[Y|X]) = sum(P(C=i|X) * (E[Y|X, C=i] - E[Y|X])^2)
+                variance_of_expectation = np.sum(probas * np.square(mapper_means - total_mean[:, np.newaxis]), axis=1)
+
+                # Total Variance = E[Var(Y|X)] + Var(E[Y|X])
+                total_variance = expected_variance + variance_of_expectation
+
+                uncertainties = np.sqrt(total_variance)
+        return uncertainties
 
     def _fit_single(
         self,
@@ -190,6 +245,10 @@ class ClassifierRegressionModel(BaseModel):
             y_proba_val = self.base_classifier.predict_proba(x_val) if x_val is not None else None
 
             self.class_mappers, _ = self._fit_single_mapper(self.mapper_type, y_proba_train, y_flat, val_probas=y_proba_val, val_y=y_val, forced_mapper_params=forced_mapper_params)
+
+            if self.uncertainty_method == UncertaintyMethod.CONSTANT:
+                y_pred_train = self.predict(x_train, filter_data=False)
+                self._train_residual_std = np.std(y_train - y_pred_train)
 
         return self.num_iterations_used, []
 
@@ -302,7 +361,11 @@ class ClassifierRegressionModel(BaseModel):
         return final_score, optimal_iterations
 
     def _evaluate_fold_performance(
-        self, x_train_fold: np.ndarray, y_train_fold: np.ndarray, x_val_fold: np.ndarray, y_val_fold: np.ndarray,
+        self,
+        x_train_fold: np.ndarray,
+        y_train_fold: np.ndarray,
+        x_val_fold: np.ndarray,
+        y_val_fold: np.ndarray,
     ) -> tuple[int, dict[MapperType, float], dict[MapperType, dict[str, Any]]]:
         """Evaluates the performance of the classifier and mappers on a single fold.
 
@@ -498,45 +561,6 @@ class ClassifierRegressionModel(BaseModel):
         if filter_data:
             x = self._filter_predict_data(x)
         return self._mapper_predict(probas=self.base_classifier.predict_proba(x, filter_data=False), mapper_type_to_test=self.mapper_type, fitted_mappers=self.class_mappers)
-
-    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
-        """Estimates uncertainty for regression predictions using this composite model.
-
-        It sums the variance contributions from each class's mapper, weighted by their probabilities.
-
-        Args:
-            x (np.ndarray): Features for uncertainty estimation.
-            filter_data (bool): If True, filter the input data using the feature selection mask.
-
-        Returns:
-            np.ndarray: Uncertainty estimates (standard deviation) for each prediction.
-        """
-        if not self.is_regression_model:
-            raise ValueError("predict_uncertainty is only available for regression models.")
-        if self.base_classifier is None or not self.class_mappers:
-            raise RuntimeError("Model has not been fitted yet. Call fit() first.")
-
-        if filter_data:
-            x = self._filter_predict_data(x)
-        y_proba_all = self.base_classifier.predict_proba(x, filter_data=False)
-
-        # Initialize an array to store the sum of variance contributions (P_i^2 * Var_mapper_i)
-        total_variance = np.zeros(x.shape[0])
-
-        for c in range(self.n_classes):
-            if self.class_mappers[c] is None:
-                logger.warning(f"Mapper for class {c} is None. Skipping its variance contribution.")
-                continue
-
-            proba_c = y_proba_all[:, c]  # 1D array of probabilities for class c
-
-            # Get variance from the mapper for this class's probabilities
-            mapper_variances = self.class_mappers[c].predict_variance_contribution(proba_c)
-
-            # Add this class's weighted variance contribution
-            total_variance += (proba_c**2) * mapper_variances
-
-        return np.sqrt(total_variance)  # Standard deviation is sqrt of total variance
 
     def predict_proba(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Returns the predicted probabilities from the internal base classifier.

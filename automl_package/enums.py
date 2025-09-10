@@ -16,6 +16,7 @@ class UncertaintyMethod(Enum):
     CONSTANT = "constant"
     MC_DROPOUT = "mc_dropout"
     PROBABILISTIC = "probabilistic"
+    BINNED_RESIDUAL_STD = "binned_residual_std"
 
 
 class RegressionStrategy(Enum):

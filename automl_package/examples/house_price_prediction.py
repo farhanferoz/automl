@@ -1,12 +1,14 @@
+"""A showcase of the AutoML package on a house price prediction task."""
 import json
 import logging
 import os
 import shutil
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from automl_package.enums import DataSplitStrategy, TaskType, UncertaintyMethod
+from automl_package.enums import DataSplitStrategy, TaskType
 from automl_package.models.base import BaseModel
 from automl_package.models.catboost_model import CatBoostModel
 from automl_package.models.classifier_regression import ClassifierRegressionModel
@@ -22,14 +24,17 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 
 class NumpyEncoder(json.JSONEncoder):
-    def default(self, obj):
+    """Custom JSON encoder for NumPy types."""
+
+    def default(self, obj: Any) -> Any:
+        """Converts NumPy types to their Python equivalents."""
         if isinstance(obj, np.integer):
             return int(obj)
         if isinstance(obj, np.floating):
             return float(obj)
         if isinstance(obj, np.ndarray):
             return obj.tolist()
-        return super(NumpyEncoder, self).default(obj)
+        return super().default(obj)
 
 
 def load_house_price_data() -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
@@ -40,10 +45,10 @@ def load_house_price_data() -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     features = ["Floor", "Parking Spaces", "Size (sq ft)", "is Pan Peninsula", "is Wardian", "E14 Index Delta (Jan 2023)", "Bedrooms"]
     target = "Actual Price (GBP)"
 
-    X = df[features]
+    x = df[features]
     y = df[target]
 
-    return X, y, df
+    return x, y, df
 
 
 def get_linear_model_params(model: BaseModel, data_handler: DataHandler, feature_names: list[str], output_dir: str) -> None:
@@ -51,10 +56,7 @@ def get_linear_model_params(model: BaseModel, data_handler: DataHandler, feature
     params = {}
     internal_model = model.get_internal_model()
 
-    if hasattr(internal_model, "model"):
-        original_model = internal_model.model
-    else:
-        original_model = internal_model
+    original_model = internal_model.model if hasattr(internal_model, "model") else internal_model
 
     if hasattr(original_model, "coef_") and hasattr(original_model, "intercept_"):
         scaled_weights = np.array(original_model.coef_).flatten()
@@ -119,24 +121,30 @@ def run_house_price_prediction() -> None:
         shutil.rmtree(output_dir)
     os.makedirs(output_dir)
 
-    X, y, full_df = load_house_price_data()
+    x, y, full_df = load_house_price_data()
 
     # Feature Engineering
-    X["Size_per_Bedroom"] = X["Size (sq ft)"] / (X["Bedrooms"] + 1e-6)
+    x["Size_per_Bedroom"] = x["Size (sq ft)"] / (x["Bedrooms"] + 1e-6)
     full_df["Size_per_Bedroom"] = full_df["Size (sq ft)"] / (full_df["Bedrooms"] + 1e-6)
-    X = X.drop(columns=["Bedrooms"])
+    x = x.drop(columns=["Bedrooms"])
     full_df = full_df.drop(columns=["Bedrooms"])
 
     # Create a separate feature set for linear models
-    X_linear = X.copy()
-    X_linear["Floor^2"] = X["Floor"] ** 2
+    x_linear = x.copy()
+    x_linear["Floor^2"] = x["Floor"] ** 2
 
     # Data Splitting
     always_test_addresses = ["Flat 4304 LET"]
     force_to_test_indices = full_df[full_df["Address"].isin(always_test_addresses)].index.values
 
     train_indices, val_indices, test_indices = create_train_val_split(
-        x=X.values, validation_fraction=0.2, test_fraction=0.2, split_strategy=DataSplitStrategy.RANDOM, random_state=random_seed, timestamps=None, force_to_test_indices=force_to_test_indices
+        x=x.values,
+        validation_fraction=0.2,
+        test_fraction=0.2,
+        split_strategy=DataSplitStrategy.RANDOM,
+        random_state=random_seed,
+        timestamps=None,
+        force_to_test_indices=force_to_test_indices,
     )
     train_val_indices = np.concatenate((train_indices, val_indices))
 
@@ -163,7 +171,7 @@ def run_house_price_prediction() -> None:
             random_seed=random_seed,
         ),
         "PyTorchLinearRegression": PyTorchLinearRegression(
-            input_size=X_linear.shape[1],
+            input_size=x_linear.shape[1],
             n_epochs=500,
             learning_rate=0.01,
             split_strategy=DataSplitStrategy.RANDOM,
@@ -175,7 +183,7 @@ def run_house_price_prediction() -> None:
             positive_features=["Floor", "Parking Spaces", "Size (sq ft)"],
         ),
         "PyTorch_NN": PyTorchNeuralNetwork(
-            input_size=X.shape[1],
+            input_size=x.shape[1],
             hidden_layers=nn_hidden_layers,
             hidden_size=nn_hidden_size,
             n_epochs=500,
@@ -201,7 +209,7 @@ def run_house_price_prediction() -> None:
         "Classifier_Regression": ClassifierRegressionModel(
             base_classifier_class=PyTorchNeuralNetwork,
             base_classifier_params={
-                "input_size": X.shape[1],
+                "input_size": x.shape[1],
                 "output_size": 3,  # 3 classes for regression
                 "n_epochs": 500,
                 "hidden_layers": nn_hidden_layers,
@@ -228,12 +236,12 @@ def run_house_price_prediction() -> None:
 
         data_handler = DataHandler(scale_binary_features=False, log_transform_y=True)
         if "Linear" in name:
-            x_data = X_linear
+            x_data = x_linear
             x_train_val, y_train_val_log = data_handler.fit_transform(x_data.iloc[train_val_indices].values, y.iloc[train_val_indices].values)
             all_data_for_output = full_df.copy()
             all_data_for_output["Floor^2"] = all_data_for_output["Floor"] ** 2
         else:
-            x_data = X
+            x_data = x
             x_train_val, y_train_val_log = data_handler.fit_transform(x_data.iloc[train_val_indices].values, y.iloc[train_val_indices].values)
             all_data_for_output = full_df
 
@@ -253,7 +261,7 @@ def run_house_price_prediction() -> None:
 
         mape = mean_absolute_percentage_error(y.iloc[test_indices], y_pred)
         median_ape = median_absolute_percentage_error(y.iloc[test_indices], y_pred)
-        
+
         results[name] = {"MAPE": mape, "Median APE": median_ape}
         logging.info(f"  -> Test MAPE: {mape:.4f}%")
         logging.info(f"  -> Test Median APE: {median_ape:.4f}%")

@@ -11,21 +11,15 @@ import torch
 from automl_package.enums import RegressionStrategy
 
 
-def plot_feature_importance(
-    feature_importances: dict[str, float], file_path: str
-) -> None:
+def plot_feature_importance(feature_importances: dict[str, float], file_path: str) -> None:
     """Plots feature importances and saves the plot to a file.
 
     Args:
         feature_importances (Dict[str, float]): A dictionary of feature importances.
         file_path (str): The path to save the plot to.
     """
-    feature_importance_df = pd.DataFrame(
-        list(feature_importances.items()), columns=["Feature", "Importance"]
-    )
-    feature_importance_df = feature_importance_df.sort_values(
-        by="Importance", ascending=False
-    )
+    feature_importance_df = pd.DataFrame(list(feature_importances.items()), columns=["Feature", "Importance"])
+    feature_importance_df = feature_importance_df.sort_values(by="Importance", ascending=False)
 
     plt.figure(figsize=(10, 8))
     sns.barplot(x="Importance", y="Feature", data=feature_importance_df)
@@ -75,11 +69,16 @@ def plot_nn_probability_mappers(
                         probas_range[:, j] = remaining_p
 
             # Get predictions from the mapper
-            if regression_strategy == RegressionStrategy.SEPARATE_HEADS:
-                output_to_plot = mapper_model.heads[i](p_i.unsqueeze(1)).cpu().numpy()
+            if regression_strategy in [RegressionStrategy.SEPARATE_HEADS, RegressionStrategy.SINGLE_HEAD_N_OUTPUTS]:
+                all_head_outputs = mapper_model.forward_per_class(probas_range)
+                output_to_plot = all_head_outputs[:, i, :].cpu().numpy()
             else:
                 mapped_values = mapper_model(probas_range).cpu().numpy()
-                output_to_plot = mapped_values.mean(axis=1)
+                output_to_plot = mapped_values
+
+            # If output_to_plot has more than one dimension, take the mean
+            if output_to_plot.ndim > 1:
+                output_to_plot = output_to_plot.mean(axis=1)
 
             lower_bound_str = f"{class_boundaries[i]:.2f}"
             upper_bound_str = f"{class_boundaries[i+1]:.2f}"

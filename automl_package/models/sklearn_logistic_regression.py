@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, log_loss
 
-from automl_package.enums import Metric, Penalty, TaskType, ExplainerType
+from automl_package.enums import ExplainerType, Metric, Penalty, TaskType
 from automl_package.models.base import BaseModel
 
 
@@ -73,30 +73,13 @@ class SklearnLogisticRegression(BaseModel):
         elif self.penalty == Penalty.ELASTICNET:
             solver = "saga"  # Supports ElasticNet
 
-        use_early_stopping = (
-            self.early_stopping_rounds is not None and forced_iterations is None
-        )
+        use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
 
         if use_early_stopping:
             self.model = (
-                LogisticRegression(
-                    penalty=self.penalty,
-                    C=self.C,
-                    solver=solver,
-                    l1_ratio=self.l1_ratio,
-                    warm_start=True,
-                    max_iter=1,
-                    **self.params
-                )
+                LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, l1_ratio=self.l1_ratio, warm_start=True, max_iter=1, **self.params)
                 if self.penalty == Penalty.ELASTICNET
-                else LogisticRegression(
-                    penalty=self.penalty,
-                    C=self.C,
-                    solver=solver,
-                    warm_start=True,
-                    max_iter=1,
-                    **self.params
-                )
+                else LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, warm_start=True, max_iter=1, **self.params)
             )
 
             best_val_loss = float("inf")
@@ -138,22 +121,9 @@ class SklearnLogisticRegression(BaseModel):
         else:
             n_iterations = forced_iterations or self.params.get("max_iter", 1000)
             self.model = (
-                LogisticRegression(
-                    penalty=self.penalty,
-                    C=self.C,
-                    solver=solver,
-                    l1_ratio=self.l1_ratio,
-                    max_iter=n_iterations,
-                    **self.params
-                )
+                LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, l1_ratio=self.l1_ratio, max_iter=n_iterations, **self.params)
                 if self.penalty == Penalty.ELASTICNET
-                else LogisticRegression(
-                    penalty=self.penalty,
-                    C=self.C,
-                    solver=solver,
-                    max_iter=n_iterations,
-                    **self.params
-                )
+                else LogisticRegression(penalty=self.penalty, C=self.C, solver=solver, max_iter=n_iterations, **self.params)
             )
             self.model.fit(x_train, y_train)
             n_iterations = self.model.n_iter_[0]
@@ -207,9 +177,7 @@ class SklearnLogisticRegression(BaseModel):
             x = self._filter_predict_data(x)
         return self.model.predict(x.values)
 
-    def predict_uncertainty(
-        self, x: np.ndarray, filter_data: bool = True
-    ) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty for predictions.
 
         Args:
@@ -300,14 +268,10 @@ class SklearnLogisticRegression(BaseModel):
             return 0  # Or raise an error if model not fitted
         return self.model.coef_.size + self.model.intercept_.size
 
-    def get_classifier_predictions(
-        self, x: np.ndarray, y_true_original: np.ndarray
-    ) -> Never:
+    def get_classifier_predictions(self, x: np.ndarray, y_true_original: np.ndarray) -> Never:
         """Not implemented for SKLearnLogisticRegression.
 
         Raises:
             NotImplementedError: SKLearnLogisticRegression is not a composite model.
         """
-        raise NotImplementedError(
-            "SKLearnLogisticRegression is not a composite model and does not have an internal classifier for separate prediction."
-        )
+        raise NotImplementedError("SKLearnLogisticRegression is not a composite model and does not have an internal classifier for separate prediction.")
