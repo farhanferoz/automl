@@ -7,7 +7,8 @@ import torch
 import torch.nn as nn
 from models.base_pytorch import PyTorchModelBase
 
-from automl_package.enums import ExplainerType, TaskType
+from automl_package.enums import ExplainerType, TaskType, UncertaintyMethod
+from automl_package.utils.losses import nll_loss
 
 
 class PyTorchLinearRegression(PyTorchModelBase):
@@ -41,10 +42,11 @@ class PyTorchLinearRegression(PyTorchModelBase):
                 self.coef_ = coef
                 self.intercept_ = intercept
 
-        # Extract weights and bias from the linear layer
+        # For SHAP, we only explain the mean prediction.
+        # The weights for the mean are the first row of the weight matrix.
         linear_layer = self.model[0]
-        coef = linear_layer.weight.data.cpu().numpy().flatten()
-        intercept = linear_layer.bias.data.cpu().numpy()
+        coef = linear_layer.weight.data[0].cpu().numpy().flatten()
+        intercept = linear_layer.bias.data[0].cpu().numpy()
 
         return ShapModel(coef, intercept)
 
@@ -75,13 +77,8 @@ class PyTorchLinearRegression(PyTorchModelBase):
         """Builds the model architecture.
 
         For linear regression, this is a single linear layer.
+        If probabilistic uncertainty is used, the output size is 2 (mean and log_variance).
         """
-        # A linear regression is a single layer mapping inputs to outputs
-        self.model = nn.Sequential(nn.Linear(self.input_size, self.output_size)).to(self.device)
-
-        # The criterion is set in the base class based on task_type
-        if self.task_type == TaskType.REGRESSION:
-            self.criterion = nn.MSELoss()
-        else:
-            # This should not be reached due to the __init__ override
-            raise ValueError("PyTorchLinearRegression only supports 'regression' task_type.")
+        output_dim = 2 if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else 1
+        self.model = nn.Sequential(nn.Linear(self.input_size, output_dim)).to(self.device)
+        self.criterion = nll_loss if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else nn.MSELoss()

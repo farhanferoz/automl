@@ -6,7 +6,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import grad, jit
-from sklearn.metrics import mean_squared_error
 
 from automl_package.enums import ExplainerType, Metric, Penalty
 from automl_package.logger import logger
@@ -44,10 +43,6 @@ class LinearRegressionModel(BaseModel):
     def name(self) -> str:
         """Returns the name of the model."""
         return "JAXLinearRegression"
-
-    def _get_optimization_metric(self) -> Metric:
-        """Gets the optimization metric for the model."""
-        return Metric.RMSE
 
     def _loss_fn(self, weights: jnp.ndarray, bias: jnp.ndarray, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
         """Mean Squared Error loss function with L1 and L2 regularization."""
@@ -165,16 +160,6 @@ class LinearRegressionModel(BaseModel):
             self._train_residual_std = 0.0
 
         return iterations_to_return, val_loss_history
-
-    def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
-        """Evaluates a trial for hyperparameter optimization."""
-        return self._calculate_metric(y_true, y_pred, Metric.RMSE)
-
-    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
-        """Calculates a metric."""
-        if metric == Metric.RMSE:
-            return np.sqrt(mean_squared_error(y_true, y_pred))
-        raise ValueError(f"Unknown metric: {metric}")
 
     def _clone(self) -> "LinearRegressionModel":
         """Creates a new instance of the model with the same parameters."""

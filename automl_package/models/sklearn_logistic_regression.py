@@ -38,10 +38,6 @@ class SklearnLogisticRegression(BaseModel):
         """Returns the name of the model."""
         return "SKLearnLogisticRegression"
 
-    def _get_optimization_metric(self) -> Metric:
-        """Gets the optimization metric for the model."""
-        return Metric.ACCURACY
-
     def _fit_single(
         self,
         x_train: np.ndarray,
@@ -129,10 +125,6 @@ class SklearnLogisticRegression(BaseModel):
             n_iterations = self.model.n_iter_[0]
             loss_history = []
         return n_iterations, loss_history
-
-    def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
-        """Evaluates a trial for hyperparameter optimization."""
-        return accuracy_score(y_true, y_pred)
 
     def _clone(self) -> "SklearnLogisticRegression":
         """Creates a new instance of the model with the same parameters."""

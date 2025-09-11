@@ -4,7 +4,6 @@ from typing import Any, Never
 
 import numpy as np
 import xgboost as xgb
-from sklearn.metrics import accuracy_score, mean_squared_error
 
 from automl_package.enums import ExplainerType, Metric, TaskType
 from automl_package.models.base import BaseModel
@@ -46,17 +45,8 @@ class XGBoostModel(BaseModel):
         """Returns the name of the model."""
         return "XGBoostModel"
 
-    def _get_optimization_metric(self) -> Metric:
-        """Gets the optimization metric for the model."""
-        return Metric.RMSE if self.is_regression_model else Metric.ACCURACY
-
     def _fit_single(
-        self,
-        x_train: np.ndarray,
-        y_train: np.ndarray,
-        x_val: np.ndarray | None = None,
-        y_val: np.ndarray | None = None,
-        forced_iterations: int | None = None,
+        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -87,12 +77,7 @@ class XGBoostModel(BaseModel):
 
         model_instance = xgb.XGBClassifier if self.task_type == TaskType.CLASSIFICATION else xgb.XGBRegressor
         params.setdefault("n_estimators", 500)
-        self.model = model_instance(
-            objective=self.objective,
-            eval_metric=self.eval_metric,
-            random_state=self.random_seed,
-            **params,
-        )
+        self.model = model_instance(objective=self.objective, eval_metric=self.eval_metric, random_state=self.random_seed, **params)
 
         if forced_iterations is not None:
             self.model.n_estimators = forced_iterations
@@ -114,19 +99,6 @@ class XGBoostModel(BaseModel):
         loss_history = get_loss_history(self.model, use_early_stopping)
 
         return best_iteration, loss_history
-
-    def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
-        """Evaluates a trial for hyperparameter optimization."""
-        return self._calculate_metric(y_true, y_pred, Metric.RMSE if self.is_regression_model else Metric.ACCURACY)
-
-    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
-        """Calculates a metric."""
-        if metric == Metric.RMSE:
-            return np.sqrt(mean_squared_error(y_true, y_pred))
-        if metric == Metric.ACCURACY:
-            y_pred_labels = np.argmax(y_pred, axis=1) if y_pred.ndim == 2 else np.round(y_pred)
-            return accuracy_score(y_true, y_pred_labels)
-        raise ValueError(f"Unknown metric: {metric}")
 
     def _clone(self) -> "XGBoostModel":
         """Creates a new instance of the model with the same parameters."""
@@ -227,18 +199,8 @@ class XGBoostModel(BaseModel):
             "subsample": {"type": "float", "low": 0.6, "high": 1.0, "step": 0.1},
             "colsample_bytree": {"type": "float", "low": 0.6, "high": 1.0, "step": 0.1},
             "gamma": {"type": "float", "low": 0.0, "high": 0.2, "step": 0.05},
-            "reg_alpha": {
-                "type": "float",
-                "low": 1e-6,
-                "high": 1.0,
-                "log": True,
-            },  # L1 regularization
-            "reg_lambda": {
-                "type": "float",
-                "low": 1e-6,
-                "high": 1.0,
-                "log": True,
-            },  # L2 regularization
+            "reg_alpha": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L1 regularization
+            "reg_lambda": {"type": "float", "low": 1e-6, "high": 1.0, "log": True},  # L2 regularization
         }
         if self.early_stopping_rounds is None:
             space["n_estimators"] = {"type": "int", "low": 5, "high": 550, "step": 50}

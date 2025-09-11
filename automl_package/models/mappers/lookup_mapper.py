@@ -6,8 +6,9 @@ from typing import Any
 import numpy as np
 
 from automl_package.enums import MapperType, UncertaintyMethod
+from automl_package.logger import logger
 from automl_package.models.mappers.base_mapper import BaseMapper
-from automl_package.utils.numerics import create_bins
+from automl_package.utils.numerics import create_bins, calculate_binned_stats
 
 
 class LookupTableEntries(Enum):
@@ -21,45 +22,35 @@ class LookupTableEntries(Enum):
 class LookupMapper(BaseMapper):
     """Mapper that uses a lookup table to map probabilities to regression values."""
 
-    def __init__(self, mapper_type: MapperType, **kwargs: Any) -> None:
+    def __init__(self, mapper_type: MapperType, uncertainty_method: UncertaintyMethod | None = None, **kwargs: Any) -> None:
         """Initializes the LookupMapper."""
-        super().__init__(mapper_type, **kwargs)
+        super().__init__(mapper_type=mapper_type, uncertainty_method=uncertainty_method)
+
+        if self.uncertainty_method == UncertaintyMethod.BINNED_RESIDUAL_STD:
+            logger.warning(f"Uncertainty method '{self.uncertainty_method.value}' is not directly supported by {self.__class__.__name__}. Falling back to '{UncertaintyMethod.PROBABILISTIC.value}'.")
+            self.uncertainty_method = UncertaintyMethod.PROBABILISTIC
+
         self.lookup_table = None
         self.n_partitions_min = kwargs.get("n_partitions_min", 5)
         self.n_partitions_max = kwargs.get("n_partitions_max", np.inf)
         self._residual_variance = 0.0
 
     def _fit(self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG002
-        # For probabilistic uncertainty, calculate binned variance
         min_partitions = max(self.n_partitions_min, len(probas) // 2000)
         max_partitions = min(self.n_partitions_max, len(probas) // 100)
         num_partitions = max(1, min_partitions, max_partitions)
 
-        bin_edges, bin_indices = create_bins(data=probas, n_bins=num_partitions, min_value=0.0, max_value=1.0)
-        bin_edges = bin_edges[1:]
+        aggregation_func = np.mean if self._mapper_type == MapperType.LOOKUP_MEAN else np.median
+        aggregations = {"values": aggregation_func, "variances": np.var}
 
-        temp_lookup_keys = bin_edges
-        temp_lookup_values = []
-        temp_lookup_variances = []
-
-        for i in range(len(bin_edges)):
-            mask = bin_indices == i
-            partition_y = y_original[mask]
-            if len(partition_y) == 0:
-                partition_y = y_original
-            expected_y = np.mean(partition_y) if self._mapper_type == MapperType.LOOKUP_MEAN else np.median(partition_y)
-            partition_variance = np.var(partition_y)
-
-            if np.isnan(partition_variance):
-                partition_variance = 0.0
-
-            temp_lookup_values.append(expected_y)
-            temp_lookup_variances.append(partition_variance)
+        bin_edges, stats_lookups = calculate_binned_stats(
+            probas=probas, values=y_original, n_bins=num_partitions, aggregations=aggregations, min_value=0.0, max_value=1.0
+        )
 
         self.lookup_table = {
-            LookupTableEntries.KEYS: np.array(temp_lookup_keys),
-            LookupTableEntries.VALUES: np.array(temp_lookup_values),
-            LookupTableEntries.VARIANCES: np.array(temp_lookup_variances),
+            LookupTableEntries.KEYS: bin_edges[1:],
+            LookupTableEntries.VALUES: stats_lookups["values"],
+            LookupTableEntries.VARIANCES: stats_lookups["variances"],
         }
 
         # For constant uncertainty, calculate overall residual variance
@@ -114,8 +105,10 @@ class LookupMapper(BaseMapper):
 
         if self.uncertainty_method == UncertaintyMethod.CONSTANT:
             return np.full(probas_new.shape[0], self._residual_variance)
-
-        # Default to probabilistic (binned) uncertainty
-        variances = self.lookup_table[LookupTableEntries.VARIANCES]
-        indices = self._find_indices(probas_new=probas_new).astype(np.int64)
-        return variances[indices]
+        elif self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
+            # This is the mapper's own internal probabilistic method
+            variances = self.lookup_table[LookupTableEntries.VARIANCES]
+            indices = self._find_indices(probas_new=probas_new).astype(np.int64)
+            return variances[indices]
+        else:
+            raise NotImplementedError(f"Uncertainty method '{self.uncertainty_method}' is not directly supported by LookupMapper's internal _predict_variance method.")

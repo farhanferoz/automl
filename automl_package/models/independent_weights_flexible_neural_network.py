@@ -85,10 +85,6 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         }
         self.strategy = strategy_map[self.layer_selection_method](self)
 
-    def _get_optimization_metric(self) -> Metric:
-        """Gets the optimization metric for the model."""
-        return Metric.RMSE if self.is_regression_model else Metric.ACCURACY
-
     @property
     def name(self) -> str:
         """Returns the name of the model."""

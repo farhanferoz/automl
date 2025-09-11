@@ -4,7 +4,6 @@ from typing import Any, Never
 
 import numpy as np
 from catboost import CatBoostClassifier, CatBoostRegressor, Pool
-from sklearn.metrics import accuracy_score, mean_squared_error
 
 from automl_package.enums import ExplainerType, Metric, TaskType, UncertaintyMethod
 from automl_package.models.base import BaseModel
@@ -45,10 +44,6 @@ class CatBoostModel(BaseModel):
     def name(self) -> str:
         """Returns the name of the model."""
         return "CatBoostModel"
-
-    def _get_optimization_metric(self) -> Metric:
-        """Gets the optimization metric for the model."""
-        return Metric.RMSE if self.is_regression_model else Metric.ACCURACY
 
     def _fit_single(
         self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
@@ -106,28 +101,6 @@ class CatBoostModel(BaseModel):
         loss_history = get_loss_history(self.model, use_early_stopping)
 
         return best_iteration, loss_history
-
-    def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
-        """Evaluates a trial for hyperparameter optimization.
-
-        Args:
-            y_true (np.ndarray): The true target values.
-            y_pred (np.ndarray): The predicted target values.
-
-        Returns:
-            float: The evaluation score.
-        """
-        return self._calculate_metric(y_true, y_pred, Metric.RMSE if self.is_regression_model else Metric.ACCURACY)
-
-    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
-        """Calculates a metric."""
-        if metric == Metric.RMSE:
-            metric_value = np.sqrt(mean_squared_error(y_true, y_pred))
-        elif metric == Metric.ACCURACY:
-            metric_value = accuracy_score(y_true, np.round(y_pred))
-        else:
-            raise ValueError(f"Unknown metric: {metric}")
-        return metric_value
 
     def _clone(self) -> "CatBoostModel":
         """Creates a new instance of the model with the same parameters."""

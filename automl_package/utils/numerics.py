@@ -131,3 +131,52 @@ def ensure_proba_shape(y_proba: np.ndarray, n_classes: int) -> np.ndarray:
 
     # Case 4: Shape is already correct
     return y_proba
+
+def calculate_binned_stats(
+    probas: np.ndarray,
+    values: np.ndarray,
+    n_bins: int,
+    aggregations: dict[str, callable],
+    min_value: float | None = None,
+    max_value: float | None = None,
+) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """Bins probabilities and calculates aggregate statistics for corresponding values.
+
+    Args:
+        probas (np.ndarray): The probabilities to bin.
+        values (np.ndarray): The values to aggregate.
+        n_bins (int): The number of bins.
+        aggregations (dict[str, callable]): A dictionary where keys are stat names
+                                            and values are aggregation functions (e.g., np.mean).
+        min_value (Optional[float]): Minimum value for bin edges.
+        max_value (Optional[float]): Maximum value for bin edges.
+
+    Returns:
+        tuple[np.ndarray, dict[str, np.ndarray]]: A tuple containing:
+            - The bin edges used.
+            - A dictionary of lookup tables (numpy arrays), one for each aggregation.
+    """
+    probas = probas.flatten()
+    values = values.flatten()
+    bin_edges, bin_indices = create_bins(data=probas, n_bins=n_bins, min_value=min_value, max_value=max_value)
+
+    stats_lookups = {name: [] for name in aggregations}
+
+    for i in range(len(bin_edges)):
+        mask = bin_indices == i
+        partition_values = values[mask]
+
+        if len(partition_values) == 0:
+            # Handle empty bins, e.g., by using all values as a fallback
+            partition_values = values
+
+        for name, func in aggregations.items():
+            stat_value = func(partition_values)
+            if np.isnan(stat_value):
+                stat_value = 0.0  # Replace NaN with 0 or another suitable default
+            stats_lookups[name].append(stat_value)
+
+    # Convert lists to numpy arrays
+    final_lookups = {name: np.array(lookup) for name, lookup in stats_lookups.items()}
+
+    return bin_edges, final_lookups

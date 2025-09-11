@@ -4,7 +4,6 @@ from typing import Any, NoReturn
 
 import lightgbm as lgb
 import numpy as np
-from sklearn.metrics import accuracy_score, mean_squared_error
 
 from automl_package.enums import ExplainerType, Metric, TaskType
 from automl_package.models.base import BaseModel
@@ -37,10 +36,6 @@ class LightGBMModel(BaseModel):
     def name(self) -> str:
         """Returns the name of the model."""
         return "LightGBMModel"
-
-    def _get_optimization_metric(self) -> Metric:
-        """Gets the optimization metric for the model."""
-        return Metric.RMSE if self.is_regression_model else Metric.ACCURACY
 
     def _fit_single(
         self,
@@ -91,18 +86,6 @@ class LightGBMModel(BaseModel):
         loss_history = get_loss_history(self.model, use_early_stopping)
 
         return best_iteration, loss_history
-
-    def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
-        """Evaluates a trial for hyperparameter optimization."""
-        return self._calculate_metric(y_true, y_pred, Metric.RMSE if self.is_regression_model else Metric.ACCURACY)
-
-    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
-        """Calculates a metric."""
-        if metric == Metric.RMSE:
-            return np.sqrt(mean_squared_error(y_true, y_pred))
-        if metric == Metric.ACCURACY:
-            return accuracy_score(y_true, np.round(y_pred))
-        raise ValueError(f"Unknown metric: {metric}")
 
     def _clone(self) -> "LightGBMModel":
         """Creates a new instance of the model with the same parameters."""

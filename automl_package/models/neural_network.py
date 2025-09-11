@@ -78,10 +78,6 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
         """Returns the name of the model."""
         return "PyTorchNeuralNetwork"
 
-    def _get_optimization_metric(self) -> Metric:
-        """Gets the optimization metric for the model."""
-        return Metric.RMSE if self.is_regression_model else Metric.ACCURACY
-
     def build_model(self) -> None:
         """Dynamically builds the neural network architecture."""
         activation_function_map = get_activation_function_map()

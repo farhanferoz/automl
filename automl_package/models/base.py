@@ -1,11 +1,13 @@
 """Base classes for machine learning models."""
 
 import abc
+import math
 from typing import Any
 
 import numpy as np
 import optuna
 import pandas as pd
+from sklearn.metrics import mean_squared_error, log_loss, accuracy_score
 from sklearn.model_selection import KFold
 
 from automl_package.enums import DataSplitStrategy, Metric, TaskType, UncertaintyMethod
@@ -13,10 +15,8 @@ from automl_package.logger import logger
 from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
 from automl_package.utils.cv import TimeSeriesSplit
 from automl_package.utils.data_handler import create_train_val_split
-from automl_package.utils.feature_selection import (
-    select_features_by_cumulative_importance,
-)
-from automl_package.utils.metrics import Metrics
+from automl_package.utils.feature_selection import select_features_by_cumulative_importance
+from automl_package.utils.metrics import Metrics, calculate_performance_score
 from automl_package.utils.numerics import find_optimal_iterations
 from automl_package.utils.plotting import plot_feature_importance
 
@@ -338,7 +338,8 @@ class BaseModel(abc.ABC):
                 y_train_fold, y_val_fold = y[train_idx], y[val_idx]
                 best_iter, loss_history = model_instance._fit_single(x_train_fold, y_train_fold, x_val=x_val_fold, y_val=y_val_fold)
                 preds = model_instance.predict(x_val_fold)
-                score = self._evaluate_trial(y_val_fold, preds)
+                y_pred_std = model_instance.predict_uncertainty(x_val_fold)
+                score = self._evaluate_trial(y_val_fold, preds, y_pred_std=y_pred_std)
                 fold_results.append({"best_iter": best_iter, "loss_history": loss_history, "score": score})
 
             final_score = float(np.mean([res["score"] for res in fold_results]))
@@ -356,7 +357,8 @@ class BaseModel(abc.ABC):
             x_val, y_val = x[val_indices], y[val_indices]
             optimal_iterations, _ = model_instance._fit_single(x_train, y_train, x_val=x_val, y_val=y_val)
             preds = model_instance.predict(x_val)
-            final_score = self._evaluate_trial(y_val, preds)
+            y_pred_std = model_instance.predict_uncertainty(x_val)
+            final_score = self._evaluate_trial(y_val, preds, y_pred_std=y_pred_std)
         return final_score, optimal_iterations
 
     def _find_best_hyperparameters(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> tuple[dict[str, Any], int]:
@@ -387,10 +389,22 @@ class BaseModel(abc.ABC):
         best_iterations = study.best_trial.user_attrs["iterations"]
         return study.best_trial.params, best_iterations
 
-    @abc.abstractmethod
     def _get_optimization_metric(self) -> Metric:
         """Gets the optimization metric for the model."""
-        raise NotImplementedError
+        if self.task_type == TaskType.REGRESSION:
+            optimization_metric = Metric.NLL if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else Metric.MSE
+        else:
+            optimization_metric = Metric.LOG_LOSS
+        return optimization_metric
+
+    def _calculate_performance_score(self, y_true: np.ndarray, y_pred: np.ndarray, x_val: np.ndarray | None = None, y_pred_std: np.ndarray | None = None) -> float:
+        """Calculates the performance score based on the model's optimization metric."""
+        metric_to_use = self._get_optimization_metric()
+        if metric_to_use == Metric.NLL and y_pred_std is None:
+            if x_val is None:
+                raise ValueError("x_val must be provided to calculate NLL if y_pred_std is not given.")
+            y_pred_std = self.predict_uncertainty(x_val, filter_data=False)
+        return calculate_performance_score(metric=metric_to_use, y_true=y_true, y_pred=y_pred, y_pred_std=y_pred_std)
 
     def get_kfolds(self, timestamps: np.ndarray | None = None) -> TimeSeriesSplit | KFold:
         """Gets the cross-validation folds splitter."""
@@ -415,7 +429,8 @@ class BaseModel(abc.ABC):
             model_instance = self._clone()
             best_iter, loss_history = model_instance._fit_single(x_train_fold, y_train_fold, x_val=x_val_fold, y_val=y_val_fold)
             preds = model_instance.predict(x_val_fold)
-            score = self._evaluate_trial(y_val_fold, preds)
+            y_pred_std = model_instance.predict_uncertainty(x_val_fold)
+            score = self._evaluate_trial(y_val_fold, preds, y_pred_std=y_pred_std)
             fold_results.append({"best_iter": best_iter, "loss_history": loss_history, "score": score})
 
         scores = [res["score"] for res in fold_results]
@@ -425,10 +440,9 @@ class BaseModel(abc.ABC):
 
         return optimal_iterations, avg_score, std_score
 
-    @abc.abstractmethod
-    def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray, y_pred_std: np.ndarray | None = None) -> float:
         """Evaluates a trial for hyperparameter optimization."""
-        raise NotImplementedError
+        return self._calculate_performance_score(y_true=y_true, y_pred=y_pred, x_val=None, y_pred_std=y_pred_std)
 
     @abc.abstractmethod
     def _clone(self) -> "BaseModel":
@@ -441,7 +455,7 @@ class BaseModel(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def predict_uncertainty(self, x: np.ndarray) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates the uncertainty of predictions."""
         raise NotImplementedError
 

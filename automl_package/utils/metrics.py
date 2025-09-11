@@ -22,8 +22,7 @@ from sklearn.metrics import (
     roc_auc_score,
     roc_curve,
 )
-
-from automl_package.enums import RegressionStrategy, TaskType
+from automl_package.enums import RegressionStrategy, TaskType, Metric
 from automl_package.logger import logger
 from automl_package.utils.numerics import create_bins
 
@@ -642,3 +641,39 @@ class Metrics:
 
         if self.prob_reg_classifier_probabilities is not None:
             self.plot_prob_reg_internal_plots(save_path)
+
+
+def calculate_nll(y_true: np.ndarray, y_pred_mean: np.ndarray, y_pred_std: np.ndarray) -> float:
+    """Calculates the Gaussian Negative Log-Likelihood for NumPy arrays.
+
+    Args:
+        y_true: The true target values.
+        y_pred_mean: The predicted mean values.
+        y_pred_std: The predicted standard deviation values.
+
+    Returns:
+        The average Negative Log-Likelihood.
+    """
+    variances = y_pred_std**2
+    # Add a small epsilon to variance to avoid division by zero or log(0)
+    variances = np.maximum(variances, 1e-9)
+    nll = 0.5 * (np.log(2 * np.pi * variances) + ((y_true - y_pred_mean) ** 2) / variances)
+    return float(np.mean(nll))
+
+
+def calculate_performance_score(metric: Metric, y_true: np.ndarray, y_pred: np.ndarray, y_pred_std: np.ndarray | None = None) -> float:
+    """Calculates the performance score."""
+    if metric == Metric.NLL:
+        assert y_pred_std is not None
+        score = calculate_nll(y_true, y_pred, y_pred_std)
+    elif metric in [Metric.MSE, Metric.RMSE]:
+        score = mean_squared_error(y_true, y_pred)
+        if metric == Metric.RMSE:
+            score = math.sqrt(score)
+    elif metric == Metric.LOG_LOSS:
+        score = log_loss(y_true, y_pred)
+    elif metric == Metric.ACCURACY:
+        score = accuracy_score(y_true, y_pred)
+    else:
+        raise NotImplementedError(f"Metric {metric.value} not supported.")
+    return score

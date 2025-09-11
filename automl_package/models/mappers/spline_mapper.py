@@ -13,10 +13,14 @@ from automl_package.models.mappers.base_mapper import BaseMapper
 class SplineMapper(BaseMapper):
     """Mapper that uses a spline to map probabilities to regression values."""
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, uncertainty_method: UncertaintyMethod | None = None, **kwargs: Any) -> None:
         """Initializes the SplineMapper."""
-        uncertainty_method = kwargs.get("uncertainty_method", UncertaintyMethod.CONSTANT)
-        super().__init__(MapperType.SPLINE, uncertainty_method)
+        super().__init__(mapper_type=MapperType.SPLINE, uncertainty_method=uncertainty_method)
+
+        if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
+            logger.warning(f"Uncertainty method '{self.uncertainty_method.value}' is not directly supported by {self.__class__.__name__}. Falling back to '{UncertaintyMethod.BINNED_RESIDUAL_STD.value}'.")
+            self.uncertainty_method = UncertaintyMethod.BINNED_RESIDUAL_STD
+
         self.model = None
         self.spline_k = kwargs.get("spline_k", 3)
         self.spline_s = kwargs.get("spline_s")
@@ -79,6 +83,4 @@ class SplineMapper(BaseMapper):
         """
         if self.model is None:
             raise RuntimeError("Spline mapper has not been fitted yet.")
-        if self.uncertainty_method != UncertaintyMethod.CONSTANT:
-            logger.warning("SplineMapper only supports CONSTANT uncertainty. Falling back to constant variance.")
         return np.full(probas_new.shape[0], self._spline_residual_variance)

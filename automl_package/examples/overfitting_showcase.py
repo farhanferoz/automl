@@ -163,14 +163,15 @@ def run_showcase() -> None:
     n_samples = 2000
     user_defined_n_classes = 3
     early_stopping_rounds = 50
-    validation_fraction = 0.2
+    validation_fraction = None
     test_fraction = 0.2
-    cv_folds = None
+    cv_folds = 4
     n_epochs = 500
     hidden_layers = 2
     hidden_size = 64
     learning_rate = 0.005
     feature_selection_threshold = None
+    uncertainty_method = UncertaintyMethod.PROBABILISTIC
     optimize_hyperparameters = False
     n_trials = 50
     random_seed = 42
@@ -203,7 +204,7 @@ def run_showcase() -> None:
             hidden_size=hidden_size,
             n_epochs=n_epochs,
             learning_rate=learning_rate,
-            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            uncertainty_method=uncertainty_method,
             early_stopping_rounds=early_stopping_rounds,
             validation_fraction=validation_fraction,
             test_fraction=0.0,
@@ -221,7 +222,7 @@ def run_showcase() -> None:
             hidden_size=hidden_size,
             n_epochs=n_epochs,
             learning_rate=learning_rate,
-            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            uncertainty_method=uncertainty_method,
             early_stopping_rounds=early_stopping_rounds,
             validation_fraction=validation_fraction,
             test_fraction=0.0,
@@ -249,9 +250,9 @@ def run_showcase() -> None:
             validation_fraction=validation_fraction,
             test_fraction=0.0,
             cv_folds=cv_folds,
-            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            uncertainty_method=uncertainty_method,
             split_strategy=DataSplitStrategy.RANDOM,
-            mapper_type=MapperType.NN_SINGLE_HEAD_FINAL_OUTPUT,
+            mapper_type=MapperType.LINEAR,
             auto_include_nn_mappers=True,
             feature_selection_threshold=feature_selection_threshold,
             calculate_feature_importance=False,
@@ -263,7 +264,7 @@ def run_showcase() -> None:
         "CatBoost": CatBoostModel(
             n_estimators=n_epochs,
             learning_rate=learning_rate,
-            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            uncertainty_method=uncertainty_method,
             early_stopping_rounds=early_stopping_rounds,
             validation_fraction=validation_fraction,
             test_fraction=0.0,
@@ -278,6 +279,7 @@ def run_showcase() -> None:
         "LightGBM": LightGBMModel(
             n_estimators=n_epochs,
             learning_rate=learning_rate,
+            uncertainty_method=uncertainty_method,
             early_stopping_rounds=early_stopping_rounds,
             validation_fraction=validation_fraction,
             test_fraction=0.0,
@@ -297,18 +299,21 @@ def run_showcase() -> None:
             optimize_hyperparameters=optimize_hyperparameters,
             n_trials=n_trials,
             cv_folds=cv_folds,
+            uncertainty_method=uncertainty_method,
             output_dir=os.path.join(output_dir, "LinearRegression"),
         ),
         "NormalEquationLinearRegression": NormalEquationLinearRegression(
             feature_selection_threshold=feature_selection_threshold,
             optimize_hyperparameters=optimize_hyperparameters,
             n_trials=n_trials,
+            uncertainty_method=uncertainty_method,
             output_dir=os.path.join(output_dir, "NormalEquationLinearRegression"),
         ),
         "PyTorchLinearRegression": PyTorchLinearRegression(
             input_size=x_train_scaled.shape[1],
             n_epochs=n_epochs,
             learning_rate=learning_rate,
+            uncertainty_method=uncertainty_method,
             early_stopping_rounds=early_stopping_rounds,
             validation_fraction=validation_fraction,
             test_fraction=0.0,
@@ -322,6 +327,7 @@ def run_showcase() -> None:
         "XGBoost": XGBoostModel(
             n_estimators=n_epochs,
             learning_rate=learning_rate,
+            uncertainty_method=uncertainty_method,
             early_stopping_rounds=early_stopping_rounds,
             validation_fraction=validation_fraction,
             test_fraction=0.0,
@@ -365,6 +371,7 @@ def run_showcase() -> None:
             base_classifier_params={"hidden_layers": hidden_layers, "hidden_size": hidden_size, "random_seed": random_seed},
             n_epochs=n_epochs,
             learning_rate=learning_rate,
+            uncertainty_method=uncertainty_method,
             early_stopping_rounds=early_stopping_rounds,
             validation_fraction=validation_fraction,
             test_fraction=0.0,
@@ -383,8 +390,8 @@ def run_showcase() -> None:
 
     logging.info("--- Running Model Training and Evaluation ---")
     for name, model in models_to_test.items():
-        if not name.startswith("Classifier_Regression"):
-            continue
+        # if not name.startswith("Probabilistic_Regression_"):
+        #     continue
         logging.info(f"Training {name}...")
         model_output_dir = os.path.join(output_dir, name)
         os.makedirs(model_output_dir, exist_ok=True)

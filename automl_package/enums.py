@@ -106,6 +106,7 @@ class Metric(Enum):
 
     RMSE = ("rmse", True)
     MSE = ("mse", True)
+    NLL = ("nll", True)
     ACCURACY = ("accuracy", False)
     LOG_LOSS = ("log_loss", True)
 

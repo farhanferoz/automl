@@ -13,9 +13,14 @@ from automl_package.models.mappers.base_mapper import BaseMapper
 class LinearMapper(BaseMapper):
     """Linear mapper for probability mapping."""
 
-    def __init__(self, uncertainty_method: UncertaintyMethod = UncertaintyMethod.CONSTANT) -> None:
+    def __init__(self, uncertainty_method: UncertaintyMethod | None = None) -> None:
         """Initializes the LinearMapper."""
-        super().__init__(MapperType.LINEAR, uncertainty_method)
+        super().__init__(mapper_type=MapperType.LINEAR, uncertainty_method=uncertainty_method)
+
+        if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
+            logger.warning(f"Uncertainty method '{self.uncertainty_method.value}' is not directly supported by {self.__class__.__name__}. Falling back to '{UncertaintyMethod.BINNED_RESIDUAL_STD.value}'.")
+            self.uncertainty_method = UncertaintyMethod.BINNED_RESIDUAL_STD
+
         self.model = None
         self._linear_mapper_residual_variance = 0.0
 
@@ -56,6 +61,4 @@ class LinearMapper(BaseMapper):
         """
         if self.model is None:
             raise RuntimeError("Linear mapper has not been fitted yet.")
-        if self.uncertainty_method != UncertaintyMethod.CONSTANT:
-            logger.warning("LinearMapper only supports CONSTANT uncertainty. Falling back to constant variance.")
         return np.full(probas_new.shape[0], self._linear_mapper_residual_variance)

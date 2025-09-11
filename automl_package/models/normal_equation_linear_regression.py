@@ -3,7 +3,6 @@
 from typing import Any, ClassVar, Never
 
 import numpy as np
-from sklearn.metrics import mean_squared_error
 
 from automl_package.enums import ExplainerType, Metric
 from automl_package.models.base import BaseModel
@@ -41,10 +40,6 @@ class NormalEquationLinearRegression(BaseModel):
         """Returns the name of the model."""
         return "NormalEquationLinearRegression"
 
-    def _get_optimization_metric(self) -> Metric:
-        """Gets the optimization metric for the model."""
-        return Metric.RMSE
-
     def _fit_single(
         self,
         x_train: np.ndarray,
@@ -81,16 +76,6 @@ class NormalEquationLinearRegression(BaseModel):
             self._train_residual_std = 0.0
 
         return 1, []
-
-    def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
-        """Evaluates a trial for hyperparameter optimization."""
-        return self._calculate_metric(y_true, y_pred, Metric.RMSE)
-
-    def _calculate_metric(self, y_true: np.ndarray, y_pred: np.ndarray, metric: Metric) -> float:
-        """Calculates a metric."""
-        if metric == Metric.RMSE:
-            return np.sqrt(mean_squared_error(y_true, y_pred))
-        raise ValueError(f"Unknown metric: {metric}")
 
     def _clone(self) -> "NormalEquationLinearRegression":
         """Creates a new instance of the model with the same parameters."""

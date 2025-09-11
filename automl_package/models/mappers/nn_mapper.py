@@ -40,7 +40,7 @@ class NeuralNetworkMapper(BaseMapper):
             early_stopping_rounds: The number of epochs with no improvement after which training will be stopped.
             validation_fraction: The proportion of training data to set aside as validation data for early stopping.
         """
-        super().__init__()
+        super().__init__(uncertainty_method=uncertainty_method)
         self._bypass_sorting = True
         self.n_classes = n_classes
         self.regression_strategy = regression_strategy

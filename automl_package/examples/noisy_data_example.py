@@ -21,7 +21,7 @@ from automl_package.models.normal_equation_linear_regression import (
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
 from automl_package.models.pytorch_linear_regression import PyTorchLinearRegression
 from automl_package.models.xgboost_model import XGBoostModel
-from automl_package.utils.metrics_utils import calculate_metric
+from automl_package.utils.metrics import calculate_performance_score
 
 
 def generate_noisy_data(n_samples: int = 1000, noise_level: float = 0.5, random_seed: int | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -240,7 +240,7 @@ def run_experiment() -> None:
         y_pred_scaled = model.evaluate(x_test_scaled, y_test_scaled, save_path=f"{name}_metrics")
         y_pred = scaler_y.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
 
-        mse = calculate_metric(y_test, y_pred, Metric.MSE, TaskType.REGRESSION)
+        mse = calculate_performance_score(metric=Metric.MSE, y_true=y_test, y_pred=y_pred)
         results[name] = {"mse": mse, "predictions": y_pred}
         print(f"{name} MSE: {mse:.4f}")
         print(f"{name} Number of Parameters: {model.get_num_parameters()}")

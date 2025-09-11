@@ -1,23 +1,26 @@
 """Base mapper for probability mapping."""
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
 from automl_package.enums import MapperType, UncertaintyMethod
+from automl_package.utils.numerics import create_bins, calculate_binned_stats
 
 
 class BaseMapper(ABC):
     """Base class for probability mappers."""
 
-    def __init__(self, mapper_type: MapperType | None = None, uncertainty_method: UncertaintyMethod = UncertaintyMethod.CONSTANT) -> None:
+    def __init__(self, mapper_type: MapperType | None = None, uncertainty_method: Optional[UncertaintyMethod] = None) -> None:
         """Initializes the BaseMapper."""
         self._constant_prediction_value: float | None = None
         self._constant_variance_value: float | None = None
         self._mapper_type = mapper_type
         self.uncertainty_method = uncertainty_method
         self._bypass_sorting = False
+        self._binned_uncertainty_lookup: dict[int, float] = {}
+        self._binned_uncertainty_edges: np.ndarray | None = None
 
     def fit(self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any) -> Any:
         """Fits the mapper.
@@ -52,6 +55,25 @@ class BaseMapper(ABC):
         sorted_y_original = y_original[sort_indices]
         return self._fit(sorted_probas, sorted_y_original, **kwargs)
 
+    def calibrate_uncertainty(self, X: np.ndarray, y: np.ndarray, n_bins: int = 10) -> None:
+        """Calibrates the uncertainty model for the mapper.
+
+        Args:
+            X (np.ndarray): The input features (probabilities).
+            y (np.ndarray): The true target values.
+            n_bins (int): The number of bins to use for calibration.
+        """
+        if self.uncertainty_method == UncertaintyMethod.BINNED_RESIDUAL_STD:
+            predictions = self.predict(X)
+            residuals = y - predictions
+
+            bin_edges, stats = calculate_binned_stats(
+                probas=X, values=residuals, n_bins=n_bins, aggregations={"std": np.std}
+            )
+
+            self._binned_uncertainty_edges = bin_edges
+            self._binned_uncertainty_lookup = stats["std"]
+
     @abstractmethod
     def _fit(self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any) -> Any:
         raise NotImplementedError
@@ -85,7 +107,23 @@ class BaseMapper(ABC):
         Returns:
             np.ndarray: The predicted variances.
         """
-        return np.full(probas_new.shape[0], self._constant_variance_value) if self._constant_variance_value is not None else self._predict_variance(probas_new)
+        if self._constant_variance_value is not None:
+            return np.full(probas_new.shape[0], self._constant_variance_value)
+
+        if self.uncertainty_method == UncertaintyMethod.BINNED_RESIDUAL_STD:
+            if self._binned_uncertainty_edges is None or self._binned_uncertainty_lookup is None:
+                raise RuntimeError("Uncertainty model has not been calibrated. Call `calibrate_uncertainty` first.")
+
+            # Find which bin each new probability falls into
+            bin_indices = np.searchsorted(self._binned_uncertainty_edges[1:], probas_new, side="left")
+            bin_indices = np.clip(bin_indices, 0, len(self._binned_uncertainty_edges) - 2)
+
+            # Look up the standard deviation and square it to get variance
+            stds = self._binned_uncertainty_lookup[bin_indices]
+            variances = np.nan_to_num(stds, nan=np.nanmean(self._binned_uncertainty_lookup)) ** 2
+            return variances
+
+        return self._predict_variance(probas_new)
 
     @abstractmethod
     def _predict_variance(self, probas_new: np.ndarray) -> np.ndarray:
