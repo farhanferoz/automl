@@ -390,8 +390,8 @@ def run_showcase() -> None:
 
     logging.info("--- Running Model Training and Evaluation ---")
     for name, model in models_to_test.items():
-        # if not name.startswith("Probabilistic_Regression_"):
-        #     continue
+        if not name.startswith("LightGBM"):
+            continue
         logging.info(f"Training {name}...")
         model_output_dir = os.path.join(output_dir, name)
         os.makedirs(model_output_dir, exist_ok=True)

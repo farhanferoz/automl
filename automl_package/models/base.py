@@ -1,13 +1,11 @@
 """Base classes for machine learning models."""
 
 import abc
-import math
 from typing import Any
 
 import numpy as np
 import optuna
 import pandas as pd
-from sklearn.metrics import mean_squared_error, log_loss, accuracy_score
 from sklearn.model_selection import KFold
 
 from automl_package.enums import DataSplitStrategy, Metric, TaskType, UncertaintyMethod

@@ -5,7 +5,8 @@ from typing import Any, Never
 import numpy as np
 import xgboost as xgb
 
-from automl_package.enums import ExplainerType, Metric, TaskType
+from automl_package.logger import logger
+from automl_package.enums import ExplainerType, Metric, TaskType, UncertaintyMethod
 from automl_package.models.base import BaseModel
 from automl_package.models.common.common import get_loss_history
 from automl_package.utils.numerics import ensure_proba_shape
@@ -34,11 +35,18 @@ class XGBoostModel(BaseModel):
         self.params.setdefault("verbosity", 0)
 
         if self.task_type == TaskType.REGRESSION:
+            if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
+                logger.warning(
+                    f"The {UncertaintyMethod.PROBABILISTIC.name} uncertainty method is not supported by the scikit-learn API of XGBoost. "
+                    f"Falling back to {UncertaintyMethod.CONSTANT.name} uncertainty method."
+                )
+                self.uncertainty_method = UncertaintyMethod.CONSTANT
             self.objective = "reg:squarederror"
             self.eval_metric = Metric.RMSE.label
         elif self.task_type == TaskType.CLASSIFICATION:
-            self.objective = "binary:logistic"
-            self.eval_metric = Metric.LOG_LOSS.label
+            # Objective and metric will be set dynamically in _fit_single
+            self.objective = None
+            self.eval_metric = None
 
     @property
     def name(self) -> str:
@@ -46,7 +54,12 @@ class XGBoostModel(BaseModel):
         return "XGBoostModel"
 
     def _fit_single(
-        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None,
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        forced_iterations: int | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -74,6 +87,17 @@ class XGBoostModel(BaseModel):
                 del params["early_stopping_rounds"]
             self.train_indices = np.arange(x_train.shape[0])
             self.val_indices = None
+
+        # Dynamically set objective for classification
+        if self.task_type == TaskType.CLASSIFICATION:
+            num_classes = len(np.unique(y_train))
+            if num_classes > 2:
+                self.objective = "multi:softprob"
+                self.eval_metric = Metric.MLOGLOSS.label
+                params["num_class"] = num_classes
+            else:
+                self.objective = "binary:logistic"
+                self.eval_metric = Metric.LOG_LOSS.label
 
         model_instance = xgb.XGBClassifier if self.task_type == TaskType.CLASSIFICATION else xgb.XGBRegressor
         params.setdefault("n_estimators", 500)
@@ -121,51 +145,21 @@ class XGBoostModel(BaseModel):
         return {"test_score": self.cv_score_mean_}
 
     def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
-        """Makes predictions on new data.
-
-        Args:
-            x (np.ndarray): Feature matrix for prediction.
-            filter_data (bool): If True, filter the input data using the feature selection mask.
-
-        Returns:
-            np.ndarray: Predicted values.
-        """
+        """Makes predictions on new data."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
             x = self._filter_predict_data(x)
-        if self.objective in ["binary:logistic", "multi:softmax", "multi:softprob"]:
-            # For binary classification, predict_proba returns probabilities [:, 1] for positive class
-            # For multi-class, predict_proba returns (N, num_classes) array of probabilities
-            if self.objective == "binary:logistic":
-                predictions = self.model.predict_proba(x)[:, 1]
-            # For 'multi:softmax' or 'multi:softprob'
-            # .predict() for multi:softmax returns class labels, predict_proba gives probabilities
-            elif self.objective == "multi:softmax":
-                predictions = self.model.predict(x)
-            else:
-                predictions = self.model.predict_proba(x)
-        else:
-            predictions = self.model.predict(x)
-        return predictions
+        return self.model.predict(x)
 
     def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
-        """Estimates uncertainty for predictions.
-
-        Args:
-            x (np.ndarray): Feature matrix for uncertainty estimation.
-            filter_data (bool): If True, filter the input data using the feature selection mask.
-
-        Returns:
-            np.ndarray: Uncertainty estimates (e.g., standard deviation).
-        """
+        """Estimates uncertainty for predictions."""
         if not self.is_regression_model:
             raise ValueError("predict_uncertainty is only available for regression models.")
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
             x = self._filter_predict_data(x)
-        # For simplicity, return a constant uncertainty based on training residuals
         return np.full(x.shape[0], self._train_residual_std)
 
     def predict_proba(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:

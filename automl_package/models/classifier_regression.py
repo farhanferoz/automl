@@ -218,8 +218,6 @@ class ClassifierRegressionModel(BaseModel):
 
         return uncertainties
 
-    
-
     def _mapper_predict(self, probas: np.ndarray, mapper_type_to_test: MapperType, fitted_mappers: list[BaseMapper]) -> np.ndarray:
         if mapper_type_to_test.is_nn:
             predictions = fitted_mappers[0].predict(probas)

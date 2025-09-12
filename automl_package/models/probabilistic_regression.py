@@ -1,7 +1,6 @@
 # ruff: noqa: ERA001
 """Probabilistic Regression model implemented in PyTorch."""
 
-import math
 from typing import Any, ClassVar
 
 import numpy as np
