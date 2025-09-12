@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 
 def nll_loss(outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
@@ -16,6 +17,15 @@ def nll_loss(outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
 
     per_sample_nll = 0.5 * (math.log(2 * math.pi) + log_var + (targets - mean) ** 2 / variance)
     return torch.mean(per_sample_nll)
+
+
+def masked_cross_entropy_loss(logits: torch.Tensor, y_binned: torch.Tensor, k_values: torch.Tensor) -> torch.Tensor:
+    """Calculates cross-entropy loss with masking for valid class logits."""
+    max_k_in_batch = logits.shape[1]
+    col_indices = torch.arange(max_k_in_batch, device=logits.device)
+    mask = col_indices < k_values.unsqueeze(1)
+    masked_logits = torch.where(mask, logits, float("-inf"))
+    return F.cross_entropy(masked_logits, y_binned)
 
 
 def tree_model_gaussian_nll_objective(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
