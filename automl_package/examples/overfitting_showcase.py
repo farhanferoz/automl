@@ -30,7 +30,7 @@ from models.classifier_regression import ClassifierRegressionModel
 from models.neural_network import PyTorchNeuralNetwork
 from sklearn.metrics import mean_squared_error
 
-from automl_package.enums import DataSplitStrategy, MapperType, RegressionStrategy, TaskType, UncertaintyMethod
+from automl_package.enums import DataSplitStrategy, MapperType, RegressionStrategy, TaskType, UncertaintyMethod, ProbabilisticRegressionOptimizationStrategy
 from automl_package.models.base import BaseModel
 from automl_package.models.catboost_model import CatBoostModel
 from automl_package.models.lightgbm_model import LightGBMModel
@@ -163,9 +163,9 @@ def run_showcase() -> None:
     n_samples = 2000
     user_defined_n_classes = 3
     early_stopping_rounds = 50
-    validation_fraction = None
+    validation_fraction = 0.2
     test_fraction = 0.2
-    cv_folds = 4
+    cv_folds = None
     n_epochs = 500
     hidden_layers = 2
     hidden_size = 64
@@ -379,7 +379,9 @@ def run_showcase() -> None:
             split_strategy=DataSplitStrategy.RANDOM,
             feature_selection_threshold=feature_selection_threshold,
             optimize_hyperparameters=optimize_hyperparameters,
+            optimization_strategy=ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
             n_trials=n_trials,
+            add_classification_loss=True,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, f"Probabilistic_Regression_{strategy.value}"),
         )
@@ -390,7 +392,7 @@ def run_showcase() -> None:
 
     logging.info("--- Running Model Training and Evaluation ---")
     for name, model in models_to_test.items():
-        if not name.startswith("LightGBM"):
+        if not name.startswith("Probabilistic_Regression_"):
             continue
         logging.info(f"Training {name}...")
         model_output_dir = os.path.join(output_dir, name)

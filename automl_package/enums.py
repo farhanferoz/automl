@@ -187,3 +187,11 @@ class ExplainerType(Enum):
     LINEAR = "linear"
     KERNEL = "kernel"
     CATBOOST_PROBABILISTIC_PROXY = "catboost_probabilistic_proxy"
+
+
+class ProbabilisticRegressionOptimizationStrategy(Enum):
+    """Enum for different optimization strategies in ProbabilisticRegressionModel."""
+
+    REGRESSION_ONLY = "regression_only"
+    COMPOSITE_LOSS = "composite_loss"
+    GRADIENT_STOP = "gradient_stop"

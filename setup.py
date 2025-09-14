@@ -24,6 +24,8 @@ setup(
         "shap",
         "bokeh",
         "wandb==0.21.2",
+        "hessianfree",
+        "PyTorchHessianFree @ git+https://github.com/ltatzel/PyTorchHessianFree.git@main",
     ],
     python_requires=">=3.9",
 )

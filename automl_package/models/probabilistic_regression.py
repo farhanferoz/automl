@@ -8,22 +8,19 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
-from automl_package.enums import ExplainerType, NClassesSelectionMethod, RegressionStrategy, TaskType, UncertaintyMethod, Metric
+from automl_package.enums import ExplainerType, Metric, NClassesSelectionMethod, ProbabilisticRegressionOptimizationStrategy, RegressionStrategy, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.common.regression_heads import SeparateHeadsRegressionModule, SingleHeadFinalOutputRegressionModule, SingleHeadNOutputsRegressionModule
 from automl_package.models.neural_network import PyTorchNeuralNetwork
 from automl_package.models.selection_strategies.n_classes_strategies import GumbelSoftmaxStrategy, NoneStrategy, ReinforceStrategy, SoftGatingStrategy, SteStrategy
-from automl_package.utils.losses import nll_loss, masked_cross_entropy_loss
+from automl_package.utils.losses import masked_cross_entropy_loss, nll_loss
 from automl_package.utils.numerics import create_bins
 from automl_package.utils.plotting import plot_nn_probability_mappers
 
 
 class ProbabilisticRegressionModel(PyTorchModelBase):
-    """A PyTorch-based probabilistic regression model that directly learns both mean and variance.
-
-    Can use different strategies for outputting mean and variance.
-    """
+    """A PyTorch-based probabilistic regression model that directly learns both mean and variance."""
 
     _defaults: ClassVar[dict[str, Any]] = {
         "input_size": None,
@@ -37,7 +34,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
         "n_classes_selection_method": NClassesSelectionMethod.NONE,
         "gumbel_tau": 0.5,
         "n_classes_predictor_learning_rate": 0.001,
-        "add_classification_loss": False,
+        "optimization_strategy": ProbabilisticRegressionOptimizationStrategy.COMPOSITE_LOSS,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -45,9 +42,12 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
         for key, value in self._defaults.items():
             kwargs.setdefault(key, value)
 
-        if kwargs.get("add_classification_loss") and kwargs.get("uncertainty_method") != UncertaintyMethod.PROBABILISTIC:
+        if (
+            kwargs.get("optimization_strategy") != ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY
+            and kwargs.get("uncertainty_method") != UncertaintyMethod.PROBABILISTIC
+        ):
             logger.warning(
-                f"add_classification_loss=True requires a probabilistic uncertainty method. "
+                f"Selected optimization_strategy requires a probabilistic uncertainty method. "
                 f"Overriding uncertainty_method from {kwargs.get('uncertainty_method').value} to {UncertaintyMethod.PROBABILISTIC.value}."
             )
             kwargs["uncertainty_method"] = UncertaintyMethod.PROBABILISTIC
@@ -63,6 +63,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
             self.regression_strategy = RegressionStrategy[self.regression_strategy.upper()]
         if isinstance(self.n_classes_selection_method, str):
             self.n_classes_selection_method = NClassesSelectionMethod[self.n_classes_selection_method.upper()]
+        if isinstance(self.optimization_strategy, str):
+            self.optimization_strategy = ProbabilisticRegressionOptimizationStrategy[self.optimization_strategy.upper()]
 
         self.base_classifier_params = self.base_classifier_params if self.base_classifier_params is not None else {}
         self.regression_head_params = self.regression_head_params if self.regression_head_params is not None else {}
@@ -70,6 +72,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
 
         self.direct_regression = self.n_classes_selection_method == NClassesSelectionMethod.NONE and self.n_classes >= self.n_classes_inf
         self.is_composite_regression_model = not self.direct_regression
+
         if self.direct_regression:
             logger.info(f"Number of classes ({self.n_classes}) >= n_classes_inf ({self.n_classes_inf}). Using direct regression mode.")
         elif self.n_classes_selection_method == NClassesSelectionMethod.NONE:
@@ -77,42 +80,29 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
         else:
             logger.info(f"Using probabilistic regression mode with dynamic n_classes selection via {self.n_classes_selection_method.value}.")
 
-        # Validate regression strategy and uncertainty method
-        if self.regression_strategy not in [RegressionStrategy.SEPARATE_HEADS, RegressionStrategy.SINGLE_HEAD_N_OUTPUTS, RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT]:
-            raise ValueError(f"Unsupported regression_strategy: {self.regression_strategy.value}. Choose from enum values.")
-        if self.uncertainty_method not in [UncertaintyMethod.CONSTANT, UncertaintyMethod.MC_DROPOUT, UncertaintyMethod.PROBABILISTIC]:
-            raise ValueError(f"Unsupported uncertainty_method: {self.uncertainty_method.value}. Choose from enum values.")
-
     @property
     def name(self) -> str:
         """Returns the name of the model."""
         return f"ProbabilisticRegression_{self.regression_strategy.value}"
 
     def _calculate_custom_loss(self, model_outputs: tuple, y_true: torch.Tensor) -> torch.Tensor:
-        """Calculates the loss for the ProbabilisticRegressionModel.
-
-        This can be a composite loss including regression and classification components.
-        """
+        """Calculates the loss for the ProbabilisticRegressionModel."""
         final_predictions, classifier_logits_out, selected_k_values, _ = model_outputs
         y_true_squeezed = y_true.squeeze(-1) if y_true.ndim > 1 else y_true
 
-        # 1. Calculate Regression Loss based on the optimization metric
         metric_to_use = self._get_optimization_metric()
         if metric_to_use == Metric.NLL:
             mean = final_predictions[:, 0]
             log_var = torch.log(torch.clamp(final_predictions[:, 1], min=1e-6))
             regression_loss = nll_loss(torch.stack((mean, log_var), dim=1), y_true_squeezed)
         elif metric_to_use == Metric.MSE:
-            assert not self.add_classification_loss
             regression_loss = nn.MSELoss()(final_predictions.squeeze(), y_true_squeezed)
         else:
             raise NotImplementedError(f"Metric {metric_to_use} not implemented in _calculate_custom_loss.")
 
         total_loss = regression_loss
-
-        # 2. Optionally, add Classification Loss
-        if self.add_classification_loss:
-            # We only add classification loss for samples that went through the probabilistic path
+        if self.optimization_strategy != ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY:
+            total_loss = regression_loss
             probabilistic_indices = torch.where(selected_k_values < self.n_classes_inf)[0]
 
             if probabilistic_indices.numel() > 0:
@@ -120,7 +110,6 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
                 logits_prob = classifier_logits_out[probabilistic_indices]
                 k_values_prob = selected_k_values[probabilistic_indices]
 
-                # Discretize y_true based on the k value chosen for each sample
                 y_binned_prob = torch.zeros_like(y_true_prob, dtype=torch.long)
                 unique_k = torch.unique(k_values_prob)
 
@@ -138,19 +127,19 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
 
     def _calculate_performance_score(self, y_true: np.ndarray, y_pred: np.ndarray, x_val: np.ndarray | None = None, y_pred_std: np.ndarray | None = None) -> float:
         """Calculates the performance score, including the classification penalty if applicable."""
-        if not self.add_classification_loss:
-            return super()._calculate_performance_score(y_true, y_pred, x_val, y_pred_std)
+        if self.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY:
+            score = super()._calculate_performance_score(y_true, y_pred, x_val, y_pred_std)
+        else:
+            self.model.eval()
+            with torch.no_grad():
+                x_val_tensor = torch.tensor(x_val, dtype=torch.float32).to(self.device)
+                y_val_tensor = torch.tensor(y_true, dtype=torch.float32).to(self.device).unsqueeze(1)
 
-        # If we add classification loss, the performance score must be the full composite loss.
-        self.model.eval()
-        with torch.no_grad():
-            x_val_tensor = torch.tensor(x_val, dtype=torch.float32).to(self.device)
-            y_val_tensor = torch.tensor(y_true, dtype=torch.float32).to(self.device).unsqueeze(1)
+                model_outputs = self.model(x_val_tensor)
+                total_loss = self._calculate_custom_loss(model_outputs, y_val_tensor)
 
-            model_outputs = self.model(x_val_tensor)
-            total_loss = self._calculate_custom_loss(model_outputs, y_val_tensor)
-
-        return total_loss.item()
+            score = total_loss.item()
+        return score
 
     def build_model(self) -> None:
         """Builds the internal PyTorch nn.Module for the ProbabilisticRegressionModel."""
@@ -168,13 +157,13 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
             regression_strategy=self.regression_strategy,
             uncertainty_method=self.uncertainty_method,
             n_classes_selection_method=self.n_classes_selection_method,
+            optimization_strategy=self.optimization_strategy,
             gumbel_tau=self.gumbel_tau,
             n_classes_predictor_learning_rate=self.n_classes_predictor_learning_rate,
             device=self.device,
         )
         self.model.to(self.device)
 
-        # Set up criterion to our custom loss function
         self.criterion = self._calculate_custom_loss
 
     def get_hyperparameter_search_space(self) -> dict[str, Any]:
@@ -187,7 +176,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
         space.update(
             {
                 "regression_strategy": {"type": "categorical", "choices": [s.value for s in RegressionStrategy]},
-                # "n_classes_selection_method": {"type": "categorical", "choices": [s.value for s in NClassesSelectionMethod]},
+                "optimization_strategy": {"type": "categorical", "choices": [s.value for s in ProbabilisticRegressionOptimizationStrategy]},
                 "gumbel_tau": {"type": "float", "low": 1e-8, "high": 1.0, "log": True},
                 "n_classes_predictor_learning_rate": {"type": "float", "low": 1e-8, "high": 1e-2, "log": True},
                 "base_classifier_params__hidden_layers": {"type": "int", "low": 1, "high": 2},
@@ -235,12 +224,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
             self.model.n_classes_strategy.setup_optimizers(n_classes_predictor_params)
 
     def _fit_single(
-        self,
-        x_train: np.ndarray,
-        y_train: np.ndarray,
-        x_val: np.ndarray | None = None,
-        y_val: np.ndarray | None = None,
-        forced_iterations: int | None = None,
+        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -288,11 +272,12 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
                 param_name = key.split("__", 1)[1]
                 direct_regression_head_params[param_name] = value
             else:
-                # Handle enums and other direct attributes
                 if key == "regression_strategy" and isinstance(value, str):
                     setattr(self, key, RegressionStrategy[value.upper()])
                 elif key == "n_classes_selection_method" and isinstance(value, str):
                     setattr(self, key, NClassesSelectionMethod[value.upper()])
+                elif key == "optimization_strategy" and isinstance(value, str):
+                    setattr(self, key, ProbabilisticRegressionOptimizationStrategy[value.upper()])
                 else:
                     setattr(self, key, value)
 
@@ -326,7 +311,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase):
                 "n_classes_selection_method": self.n_classes_selection_method,
                 "gumbel_tau": self.gumbel_tau,
                 "n_classes_predictor_learning_rate": self.n_classes_predictor_learning_rate,
-                "add_classification_loss": self.add_classification_loss,
+                "optimization_strategy": self.optimization_strategy,
             }
         )
         return params
@@ -448,19 +433,21 @@ class _CombinedProbabilisticModel(nn.Module):
         regression_strategy: RegressionStrategy,
         uncertainty_method: UncertaintyMethod,
         n_classes_selection_method: NClassesSelectionMethod,
+        optimization_strategy: ProbabilisticRegressionOptimizationStrategy,
         gumbel_tau: float,
         n_classes_predictor_learning_rate: float,
-        device: torch.device,  # Add device parameter
+        device: torch.device,
     ) -> None:
         super().__init__()
         self.input_size = input_size
-        self.device = device  # Assign device to self
+        self.device = device
         self.n_classes_inf = n_classes_inf
         self.max_n_classes_for_probabilistic_path = max_n_classes_for_probabilistic_path
         self.regression_strategy = regression_strategy
         self.uncertainty_method = uncertainty_method
         self.regression_output_size = 2 if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else 1
         self.n_classes_selection_method = n_classes_selection_method
+        self.optimization_strategy = optimization_strategy
         self.gumbel_tau = gumbel_tau
         self.n_classes_predictor_learning_rate = n_classes_predictor_learning_rate
 
@@ -486,7 +473,7 @@ class _CombinedProbabilisticModel(nn.Module):
                 device=self.device,
                 **base_classifier_params,
             )
-            n_classes_predictor_instance.build_model()  # Explicitly build the model
+            n_classes_predictor_instance.build_model()
             self.n_classes_predictor = n_classes_predictor_instance.get_internal_model()
 
             # Direct regression head
@@ -497,7 +484,7 @@ class _CombinedProbabilisticModel(nn.Module):
                 device=self.device,
                 **direct_regression_head_params,
             )
-            direct_regression_head_instance.build_model()  # Explicitly build the model
+            direct_regression_head_instance.build_model()
             self.direct_regression_head = direct_regression_head_instance.get_internal_model()
         else:
             self.n_classes = n_classes
@@ -511,9 +498,9 @@ class _CombinedProbabilisticModel(nn.Module):
             output_size=classifier_output_size,
             task_type=TaskType.CLASSIFICATION,
             device=self.device,
-            **base_classifier_params,  # Pass device here as well
+            **base_classifier_params,
         )
-        temp_classifier_instance.build_model()  # Explicitly build the model
+        temp_classifier_instance.build_model()
         self.classifier_layers = temp_classifier_instance.get_internal_model()
 
         if self.regression_strategy == RegressionStrategy.SEPARATE_HEADS:
@@ -533,7 +520,7 @@ class _CombinedProbabilisticModel(nn.Module):
             )
         elif self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
             self.regression_module = SingleHeadFinalOutputRegressionModule(
-                input_size=self.n_classes,  # Changed from self.n_classes - 1
+                input_size=self.n_classes,
                 regression_head_params=regression_head_params,
                 uncertainty_method=self.uncertainty_method,
                 regression_output_size=self.regression_output_size,
@@ -547,6 +534,9 @@ class _CombinedProbabilisticModel(nn.Module):
         masked_classifier_logits[:, :k_val] = classifier_raw_logits[:, :k_val]
 
         probabilities = torch.softmax(masked_classifier_logits, dim=1)
+
+        if self.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP:
+            probabilities = probabilities.detach()
 
         if self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
             # The regression_module's head directly outputs the mean for each class.
