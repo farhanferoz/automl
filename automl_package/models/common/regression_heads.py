@@ -1,10 +1,12 @@
 """Shared regression head modules for neural network-based models."""
 
+from typing import Any
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
-from automl_package.enums import ActivationFunction, UncertaintyMethod
-from automl_package.utils.pytorch_utils import get_activation_function_map
+from automl_package.enums import ActivationFunction, Monotonicity, UncertaintyMethod
+from automl_package.utils.pytorch_utils import get_activation_function_map, monotonic_linear
 
 
 class BaseRegressionHead(nn.Module):
@@ -23,22 +25,13 @@ class BaseRegressionHead(nn.Module):
         dropout_rate: float,
         uncertainty_method: UncertaintyMethod,
         activation: nn.Module,
+        monotonic_constraint: Monotonicity = Monotonicity.NONE,
     ) -> None:
-        """Initializes the BaseRegressionHead.
-
-        Args:
-            input_size: The number of input features.
-            output_size: The number of output features.
-            hidden_layers: The number of hidden layers.
-            hidden_size: The size of the hidden layers.
-            use_batch_norm: Whether to use batch normalization.
-            dropout_rate: The dropout rate.
-            uncertainty_method: The uncertainty estimation method.
-            activation: The activation function to use.
-        """
+        """Initializes the BaseRegressionHead."""
         super().__init__()
         self.uncertainty_method = uncertainty_method
         self.output_size = output_size
+        self.monotonic_constraint = monotonic_constraint
 
         activation_map = get_activation_function_map()
         activation_module = activation_map.get(activation)
@@ -59,18 +52,37 @@ class BaseRegressionHead(nn.Module):
                 layers.append(nn.Dropout(dropout_rate))
 
         layers.append(nn.Linear(hidden_size, output_size))
-        self.layers = nn.Sequential(*layers)
+        self.layers = nn.ModuleList(layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Performs the forward pass.
+        """Performs the forward pass."""
+        output = x
+        for layer in self.layers:
+            output = monotonic_linear(output, layer, self.monotonic_constraint) if isinstance(layer, nn.Linear) else layer(output)
 
-        Args:
-            x: The input tensor.
+        if self.monotonic_constraint == Monotonicity.NEGATIVE:
+            output = -output
 
-        Returns:
-            The output tensor.
-        """
-        return self.layers(x)
+        return output
+
+
+class ConstantHead(nn.Module):
+    """A head that learns and returns a constant value."""
+
+    def __init__(self, uncertainty_method: UncertaintyMethod, regression_output_size: int) -> None:
+        super().__init__()
+        self.regression_output_size = regression_output_size
+        self.mean = nn.Parameter(torch.randn(1))
+        if uncertainty_method == UncertaintyMethod.PROBABILISTIC:
+            self.log_variance = nn.Parameter(torch.randn(1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size = x.size(0)
+        output_mean = self.mean.expand(batch_size, 1)
+        if self.regression_output_size == 2:
+            output_log_var = self.log_variance.expand(batch_size, 1)
+            return torch.cat([output_mean, output_log_var], dim=1)
+        return output_mean
 
 
 class SeparateHeadsRegressionModule(nn.Module):
@@ -83,46 +95,66 @@ class SeparateHeadsRegressionModule(nn.Module):
         uncertainty_method: UncertaintyMethod,
         regression_output_size: int,
         activation: ActivationFunction = ActivationFunction.RELU,
+        use_monotonic_constraints: bool = False,
+        constrain_middle_class: bool = True,
     ) -> None:
-        """Initializes the SeparateHeadsRegressionModule.
-
-        Args:
-            n_classes: The number of classes (and thus, heads).
-            regression_head_params: Parameters for the regression heads.
-            uncertainty_method: The uncertainty estimation method.
-            regression_output_size: The output size for each regression head.
-            activation: The activation function to use.
-        """
+        """Initializes the SeparateHeadsRegressionModule."""
         super().__init__()
         self.heads = nn.ModuleList()
-        for _ in range(n_classes):
+        self.n_classes = n_classes
+        self.regression_output_size = regression_output_size
+
+        for i in range(n_classes):
+            is_middle_class = use_monotonic_constraints and constrain_middle_class and i == (n_classes - 1) / 2.0
+
+            if is_middle_class:
+                self.heads.append(ConstantHead(uncertainty_method, regression_output_size))
+                continue
+
+            slope_type = Monotonicity.NONE
+            if use_monotonic_constraints:
+                middle_point = (n_classes - 1) / 2.0
+                if i < middle_point:
+                    slope_type = Monotonicity.NEGATIVE
+                elif i > middle_point:
+                    slope_type = Monotonicity.POSITIVE
+
             self.heads.append(
                 BaseRegressionHead(
                     input_size=1,
                     output_size=regression_output_size,
                     hidden_layers=regression_head_params.get("hidden_layers", 1),
                     hidden_size=regression_head_params.get("hidden_size", 32),
-                    use_batch_norm=regression_head_params.get("use_batch_norm", True),
+                    use_batch_norm=regression_head_params.get("use_batch_norm", False),
                     dropout_rate=regression_head_params.get("dropout_rate", 0.0),
                     uncertainty_method=uncertainty_method,
                     activation=activation,
+                    monotonic_constraint=slope_type,
                 )
             )
 
-    def forward(self, probabilities: torch.Tensor) -> torch.Tensor:
+    def forward(self, probabilities: torch.Tensor, return_head_outputs: bool = False) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """Performs the forward pass.
 
         Args:
             probabilities: A tensor of class probabilities.
+            return_head_outputs: If True, return per-head outputs alongside the final prediction.
 
         Returns:
-            The final prediction, which is a weighted sum of the head outputs.
+            The final prediction, or a tuple of (final_prediction, per_head_outputs).
         """
         final_predictions = torch.zeros(probabilities.size(0), self.heads[0].output_size).to(probabilities.device)
+        per_head_outputs = []
         for i in range(len(self.heads)):
             p_i = probabilities[:, i].unsqueeze(1)
             y_i_processed = self.heads[i](p_i)
             final_predictions += p_i * y_i_processed
+            per_head_outputs.append(y_i_processed)
+
+        per_head_outputs = torch.stack(per_head_outputs, dim=1)
+
+        if return_head_outputs:
+            return final_predictions, per_head_outputs
         return final_predictions
 
     def forward_per_class(self, probabilities: torch.Tensor) -> torch.Tensor:
@@ -132,8 +164,6 @@ class SeparateHeadsRegressionModule(nn.Module):
             p_i = probabilities[:, i].unsqueeze(1)
             head_outputs.append(self.heads[i](p_i))
         return torch.stack(head_outputs, dim=1)
-
-    
 
 
 class SingleHeadNOutputsRegressionModule(nn.Module):
@@ -166,24 +196,29 @@ class SingleHeadNOutputsRegressionModule(nn.Module):
             output_size=n_classes * regression_output_size,
             hidden_layers=regression_head_params.get("hidden_layers", 1),
             hidden_size=regression_head_params.get("hidden_size", 32),
-            use_batch_norm=regression_head_params.get("use_batch_norm", True),
+            use_batch_norm=regression_head_params.get("use_batch_norm", False),
             dropout_rate=regression_head_params.get("dropout_rate", 0.0),
             uncertainty_method=uncertainty_method,
             activation=activation,
         )
 
-    def forward(self, probabilities: torch.Tensor) -> torch.Tensor:
+    def forward(self, probabilities: torch.Tensor, return_head_outputs: bool = False) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """Performs the forward pass.
 
         Args:
             probabilities: A tensor of class probabilities.
+            return_head_outputs: If True, return per-head outputs alongside the final prediction.
 
         Returns:
-            The final prediction, which is a weighted sum of the reshaped head outputs.
+            The final prediction, or a tuple of (final_prediction, per_head_outputs).
         """
         y_output_all_classes = self.head(probabilities)
-        regression_outputs = y_output_all_classes.reshape(probabilities.shape[0], self.n_classes, self.regression_output_size)
-        return torch.sum(probabilities.unsqueeze(-1) * regression_outputs, dim=1)
+        per_head_outputs = y_output_all_classes.reshape(probabilities.shape[0], self.n_classes, self.regression_output_size)
+        final_predictions = torch.sum(probabilities.unsqueeze(-1) * per_head_outputs, dim=1)
+
+        if return_head_outputs:
+            return final_predictions, per_head_outputs
+        return final_predictions
 
     def forward_per_class(self, probabilities: torch.Tensor) -> torch.Tensor:
         """Performs the forward pass and returns the reshaped output of the head."""
@@ -209,13 +244,13 @@ class SingleHeadFinalOutputRegressionModule(nn.Module):
             output_size=regression_output_size,
             hidden_layers=regression_head_params.get("hidden_layers", 1),
             hidden_size=regression_head_params.get("hidden_size", 32),
-            use_batch_norm=regression_head_params.get("use_batch_norm", True),
+            use_batch_norm=regression_head_params.get("use_batch_norm", False),
             dropout_rate=regression_head_params.get("dropout_rate", 0.0),
             uncertainty_method=uncertainty_method,
             activation=regression_head_params.get("activation", ActivationFunction.RELU),
         )
 
-    def forward(self, head_input_probas: torch.Tensor) -> torch.Tensor:
+    def forward(self, head_input_probas: torch.Tensor, **_kwargs: Any) -> torch.Tensor:
         """Performs the forward pass.
 
         Args:

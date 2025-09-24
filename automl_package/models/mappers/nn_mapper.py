@@ -1,21 +1,24 @@
 """A mapper that uses a neural network to map class probabilities to a regression value."""
 
-import math
 from typing import Any
 
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
 
-from automl_package.enums import RegressionStrategy, UncertaintyMethod
+from automl_package.enums import LearnedRegularizationType, OptimizerType, RegressionStrategy, UncertaintyMethod
 from automl_package.logger import logger
+from automl_package.models.common.mixins import BoundaryLossMixin, RegularizationMixin
 from automl_package.models.common.regression_heads import SeparateHeadsRegressionModule, SingleHeadFinalOutputRegressionModule, SingleHeadNOutputsRegressionModule
+from automl_package.models.common.training import train_model
 from automl_package.models.mappers.base_mapper import BaseMapper
-from automl_package.utils.losses import nll_loss
+from automl_package.optimizers import get_optimizer_wrapper
+from automl_package.utils.losses import boundary_regularization_loss, nll_loss
+from automl_package.utils.numerics import create_bins
+from automl_package.utils.pytorch_utils import calculate_regularization_loss, get_device
 
 
-class NeuralNetworkMapper(BaseMapper):
+class NeuralNetworkMapper(BaseMapper, RegularizationMixin, BoundaryLossMixin):
     """A mapper that uses a neural network to map class probabilities to a regression value.
 
     This class encapsulates a PyTorch training loop to train the underlying regression head.
@@ -28,7 +31,19 @@ class NeuralNetworkMapper(BaseMapper):
         mapper_params: dict,
         uncertainty_method: UncertaintyMethod = UncertaintyMethod.CONSTANT,
         early_stopping_rounds: int | None = None,
-        validation_fraction: float | None = None,
+        use_boundary_regularization: bool = False,
+        boundary_loss_weight: float = 1.0,
+        class_value_ranges: torch.Tensor | None = None,
+        class_boundaries: np.ndarray | None = None,
+        optimizer_type: OptimizerType = OptimizerType.ADAM,
+        use_monotonic_constraints: bool = False,
+        constrain_middle_class: bool = True,
+        l1_lambda: float = 0.0,
+        l2_lambda: float = 0.0,
+        learn_regularization_lambdas: bool = False,
+        learned_regularization_type: LearnedRegularizationType = LearnedRegularizationType.L1_L2,
+        lambda_learning_rate: float = 1e-5,
+        apply_boundary_loss_during_validation: bool = False,
     ) -> None:
         """Initializes the NeuralNetworkMapper.
 
@@ -38,7 +53,11 @@ class NeuralNetworkMapper(BaseMapper):
             mapper_params: Parameters for the mapper, including training and model params.
             uncertainty_method: The uncertainty estimation method.
             early_stopping_rounds: The number of epochs with no improvement after which training will be stopped.
-            validation_fraction: The proportion of training data to set aside as validation data for early stopping.
+            use_boundary_regularization: Whether to use boundary regularization.
+            boundary_loss_weight: The weight of the boundary loss.
+            class_value_ranges: The value ranges for each class.
+            class_boundaries: The boundaries for each class.
+            optimizer_type: The type of optimizer to use.
         """
         super().__init__(uncertainty_method=uncertainty_method)
         self._bypass_sorting = True
@@ -47,13 +66,39 @@ class NeuralNetworkMapper(BaseMapper):
         self.mapper_params = mapper_params
         self.uncertainty_method = uncertainty_method
         self.early_stopping_rounds = early_stopping_rounds
-        self.validation_fraction = validation_fraction
-        self.device = self.mapper_params.get("device", torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        self.use_boundary_regularization = use_boundary_regularization
+        self.boundary_loss_weight = boundary_loss_weight
+        self.class_value_ranges = class_value_ranges
+        self.class_boundaries = class_boundaries
+        self.optimizer_type = optimizer_type
+        self.use_monotonic_constraints = use_monotonic_constraints
+        self.constrain_middle_class = constrain_middle_class
+        self.l1_lambda = l1_lambda
+        self.l2_lambda = l2_lambda
+        self.learn_regularization_lambdas = learn_regularization_lambdas
+        self.learned_regularization_type = learned_regularization_type
+        self.lambda_learning_rate = lambda_learning_rate
+        self.apply_boundary_loss_during_validation = apply_boundary_loss_during_validation
+
+        if self.use_monotonic_constraints and self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
+            logger.warning(
+                "PROBABILISTIC uncertainty is not recommended with monotonic constraints. "
+                "Overriding uncertainty_method to BINNED_RESIDUAL_STD for more robust uncertainty estimates."
+            )
+            self.uncertainty_method = UncertaintyMethod.BINNED_RESIDUAL_STD
+
+        if isinstance(self.learned_regularization_type, str):
+            self.learned_regularization_type = LearnedRegularizationType[self.learned_regularization_type.upper()]
+
+        self._setup_regularization_parameters()
+
+        self.device = self.mapper_params.get("device", get_device())
         self.epochs = self.mapper_params.get("epochs", 100)
         self.batch_size = self.mapper_params.get("batch_size", 32)
         self.learning_rate = self.mapper_params.get("learning_rate", 1e-3)
         self.regression_output_size = 2 if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else 1
         self._train_residual_std = [] if self.regression_strategy in [RegressionStrategy.SEPARATE_HEADS, RegressionStrategy.SINGLE_HEAD_N_OUTPUTS] else 0.0
+        self.optimizer_wrapper = get_optimizer_wrapper(self.optimizer_type)
 
         regression_head_params = self.mapper_params.get("regression_head_params", {})
 
@@ -63,6 +108,8 @@ class NeuralNetworkMapper(BaseMapper):
                 regression_head_params=regression_head_params,
                 uncertainty_method=self.uncertainty_method,
                 regression_output_size=self.regression_output_size,
+                use_monotonic_constraints=self.use_monotonic_constraints,
+                constrain_middle_class=self.constrain_middle_class,
             )
         elif self.regression_strategy == RegressionStrategy.SINGLE_HEAD_N_OUTPUTS:
             self.model = SingleHeadNOutputsRegressionModule(
@@ -92,6 +139,44 @@ class NeuralNetworkMapper(BaseMapper):
             probas = np.hstack((1 - probas, probas))
         return probas
 
+    def _calculate_main_regression_loss(self, final_pred: torch.Tensor, y_true_squeezed: torch.Tensor) -> torch.Tensor:
+        """Calculates the main regression loss (NLL or MSE) based on the uncertainty method."""
+        if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
+            mean = final_pred[:, 0]
+            log_var = torch.log(torch.clamp(final_pred[:, 1], min=1e-6))
+            return nll_loss(torch.stack((mean, log_var), dim=1), y_true_squeezed)
+        else:
+            return nn.MSELoss()(final_pred.squeeze(), y_true_squeezed)
+
+    def _calculate_multi_output_loss(self, predictions: tuple[torch.Tensor, torch.Tensor], y_true: torch.Tensor, include_boundary_loss: bool = True) -> torch.Tensor:
+        """Calculates loss for strategies that return multiple outputs (final_pred, per_head_outputs)."""
+        y_true_squeezed = y_true.squeeze(-1) if y_true.ndim > 1 else y_true
+        final_pred, per_head_outputs = predictions
+
+        total_loss = self._calculate_main_regression_loss(final_pred, y_true_squeezed)
+
+        # 2. Calculate boundary loss on per-head outputs if applicable
+        if self.use_boundary_regularization and include_boundary_loss:
+            if self.class_boundaries is None or self.class_value_ranges is None:
+                raise ValueError("class_boundaries and class_value_ranges must be provided for boundary regularization.")
+
+            _, y_binned_tensor = create_bins(data=y_true_squeezed.cpu().numpy(), unique_bin_edges=self.class_boundaries)
+            y_binned_tensor = torch.tensor(y_binned_tensor, dtype=torch.long, device=self.device)
+
+            total_loss += self.calculate_boundary_loss(
+                per_head_outputs=per_head_outputs,
+                y_true=y_true_squeezed,
+                y_binned_tensor=y_binned_tensor,
+                class_value_ranges=self.class_value_ranges,
+                boundary_loss_weight=self.boundary_loss_weight,
+            )
+        return total_loss
+
+    def _calculate_single_output_loss(self, predictions: torch.Tensor, y_true: torch.Tensor, **_kwargs: Any) -> torch.Tensor:
+        """Calculates loss for strategies that return a single final prediction tensor."""
+        y_true_squeezed = y_true.squeeze(-1) if y_true.ndim > 1 else y_true
+        return self._calculate_main_regression_loss(predictions, y_true_squeezed)
+
     def _fit(self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any) -> dict[str, Any]:
         """Fits the neural network mapper. This involves a full training loop."""
         train_indices = kwargs.get("train_indices")
@@ -100,8 +185,20 @@ class NeuralNetworkMapper(BaseMapper):
         probas = self._format_probas(probas=probas)
 
         self.model.train()
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
-        loss_fn = nll_loss if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else nn.MSELoss()
+        optimizer = self.optimizer_wrapper.create_optimizer(self.model.parameters(), lr=self.learning_rate)
+        self._setup_lambda_optimizer()
+
+        def regularization_fn(loss: torch.Tensor, model: nn.Module) -> torch.Tensor:
+            return calculate_regularization_loss(
+                base_loss=loss,
+                model=model,
+                learn_regularization=self.learn_regularization_lambdas,
+                learned_regularization_type=self.learned_regularization_type,
+                l1_lambda=self.l1_lambda,
+                l2_lambda=self.l2_lambda,
+                l1_log_lambda=self.l1_log_lambda,
+                l2_log_lambda=self.l2_log_lambda,
+            )
 
         use_early_stopping = self.early_stopping_rounds and self.early_stopping_rounds > 0 and train_indices is not None and val_indices is not None
 
@@ -115,50 +212,37 @@ class NeuralNetworkMapper(BaseMapper):
         else:
             logger.info("NNMapper: Not using early stopping. Training on all provided data.")
             probas_train, y_train = probas, y_original
+            probas_val_tensor, y_val_tensor = None, None
 
-        # Create DataLoader
         probas_tensor = torch.tensor(probas_train, dtype=torch.float32)
         y_tensor = torch.tensor(y_train, dtype=torch.float32).reshape(-1, 1)
-        dataset = TensorDataset(probas_tensor, y_tensor)
-        loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
-        best_val_loss = float("inf")
-        epochs_no_improve = 0
-        best_model_state = None
-        best_epoch = self.epochs
+        # Select the appropriate loss function and forward pass arguments based on the strategy
+        if self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
+            loss_fn = self._calculate_single_output_loss
+            forward_pass_kwargs = None
+        else:
+            loss_fn = self._calculate_multi_output_loss
+            forward_pass_kwargs = {"return_head_outputs": True} if self.use_boundary_regularization else None
 
-        for epoch in range(self.epochs):
-            self.model.train()
-            for probas_batch_cpu, y_batch_cpu in loader:
-                probas_batch = probas_batch_cpu.to(self.device)
-                y_batch = y_batch_cpu.to(self.device)
-
-                optimizer.zero_grad()
-                predictions = self.model(probas_batch)
-                loss = loss_fn(predictions, y_batch)
-                loss.backward()
-                optimizer.step()
-
-            if use_early_stopping:
-                self.model.eval()
-                with torch.no_grad():
-                    val_preds = self.model(probas_val_tensor)
-                    val_loss = loss_fn(val_preds, y_val_tensor)
-
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
-                    epochs_no_improve = 0
-                    best_model_state = self.model.state_dict()
-                    best_epoch = epoch + 1
-                else:
-                    epochs_no_improve += 1
-
-                if epochs_no_improve >= self.early_stopping_rounds:
-                    logger.info(f"NNMapper: Early stopping at epoch {epoch + 1}, best epoch was {best_epoch}")
-                    break
-
-        if use_early_stopping and best_model_state:
-            self.model.load_state_dict(best_model_state)
+        best_epoch, _ = train_model(
+            model=self.model,
+            optimizer=optimizer,
+            loss_fn=loss_fn,
+            probas_train=probas_tensor,
+            y_train=y_tensor,
+            probas_val=probas_val_tensor,
+            y_val=y_val_tensor,
+            epochs=self.epochs,
+            batch_size=self.batch_size,
+            early_stopping_rounds=self.early_stopping_rounds,
+            device=self.device,
+            optimizer_wrapper=self.optimizer_wrapper,
+            regularization_fn=regularization_fn,
+            lambda_optimizer=self.lambda_optimizer,
+            forward_pass_kwargs=forward_pass_kwargs,
+            apply_boundary_loss_during_validation=self.apply_boundary_loss_during_validation,
+        )
 
         if self.uncertainty_method == UncertaintyMethod.CONSTANT:
             if self.regression_strategy == RegressionStrategy.SEPARATE_HEADS:
@@ -175,7 +259,7 @@ class NeuralNetworkMapper(BaseMapper):
             else:
                 raise ValueError(f"Regression strategy {self.regression_strategy.value} is not supported.")
 
-        return {"epochs": best_epoch}
+        return {"epochs_used": best_epoch}
 
     def _fit_empty(self) -> None:
         """Handles fitting on empty data."""
@@ -188,9 +272,8 @@ class NeuralNetworkMapper(BaseMapper):
         with torch.no_grad():
             probas_tensor = torch.tensor(probas_new, dtype=torch.float32).to(self.device)
             predictions_tensor = self.model(probas_tensor)
-            if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
-                return predictions_tensor[:, 0].cpu().numpy()  # Return only the mean
-            return predictions_tensor.cpu().numpy()
+            # Return only the mean if uncertainty_method == PROBABILISTIC
+            return predictions_tensor[:, 0].cpu().numpy() if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else predictions_tensor.cpu().numpy()
 
     def _predict_variance(self, probas_new: np.ndarray) -> np.ndarray:
         """Predicts variance. For probabilistic models, this is the learned variance."""
@@ -227,15 +310,16 @@ class NeuralNetworkMapper(BaseMapper):
             mean_per_class = predictions_per_class[:, :, 0].cpu().numpy()
             if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
                 log_variance_per_class = predictions_per_class[:, :, 1].cpu().numpy()
-                return mean_per_class, np.exp(log_variance_per_class)
+                variance_per_class = np.exp(log_variance_per_class)
             elif self.uncertainty_method == UncertaintyMethod.CONSTANT:
                 if self.regression_strategy in [RegressionStrategy.SEPARATE_HEADS, RegressionStrategy.SINGLE_HEAD_N_OUTPUTS]:
-                    variances = np.array([self._train_residual_std[i]**2 for i in range(self.n_classes)])
-                    return mean_per_class, np.tile(variances, (mean_per_class.shape[0], 1))
+                    variances = np.array([self._train_residual_std[i] ** 2 for i in range(self.n_classes)])
+                    variance_per_class = np.tile(variances, (mean_per_class.shape[0], 1))
                 else:
-                    return mean_per_class, np.full_like(mean_per_class, self._train_residual_std**2)
+                    variance_per_class = np.full_like(mean_per_class, self._train_residual_std**2)
             else:
-                return mean_per_class, np.zeros_like(mean_per_class)
+                variance_per_class = np.zeros_like(mean_per_class)
+            return mean_per_class, variance_per_class
 
     def get_num_parameters(self) -> int:
         """Returns the total number of trainable parameters in the mapper's model."""

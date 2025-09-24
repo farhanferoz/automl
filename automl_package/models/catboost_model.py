@@ -163,12 +163,16 @@ class CatBoostModel(BaseModel):
         """
         if not self.is_regression_model:
             raise ValueError("predict_uncertainty is only available for regression models.")
+        if self.model is None:
+            raise RuntimeError("Model has not been fitted yet.")
+
+        if self.uncertainty_method == UncertaintyMethod.BINNED_RESIDUAL_STD:
+            return super().predict_uncertainty(x, filter_data)
+
         if filter_data:
             x = self._filter_predict_data(x)
 
         if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
-            if self.model is None:
-                raise RuntimeError("Model has not been fitted yet.")
             # Returns mean and variance
             predictions = self.model.predict(x)
             variance = predictions[:, 1]

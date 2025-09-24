@@ -6,12 +6,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import ActivationFunction, ExplainerType, LayerSelectionMethod, Metric, TaskType, UncertaintyMethod
+from automl_package.enums import ActivationFunction, ExplainerType, LayerSelectionMethod, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.selection_strategies.layer_selection_strategies import GumbelSoftmaxStrategy, NoneStrategy, ReinforceStrategy, SoftGatingStrategy, SteStrategy
 from automl_package.utils.losses import nll_loss
-from automl_package.utils.pytorch_utils import get_activation_function_map
+from automl_package.utils.pytorch_utils import get_activation_function_map, get_device
 
 
 class FlexibleHiddenLayersNN(PyTorchModelBase):
@@ -150,7 +150,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         if self.input_size is None:
             self.input_size = 1 if x_train.ndim == 1 else x_train.shape[1]
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
 
         if self.learn_regularization_lambdas:
             if self.using_l1_regularization:

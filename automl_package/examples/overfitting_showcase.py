@@ -30,7 +30,7 @@ from models.classifier_regression import ClassifierRegressionModel
 from models.neural_network import PyTorchNeuralNetwork
 from sklearn.metrics import mean_squared_error
 
-from automl_package.enums import DataSplitStrategy, MapperType, RegressionStrategy, TaskType, UncertaintyMethod, ProbabilisticRegressionOptimizationStrategy
+from automl_package.enums import DataSplitStrategy, MapperType, OptimizerType, ProbabilisticRegressionOptimizationStrategy, RegressionStrategy, TaskType, UncertaintyMethod
 from automl_package.models.base import BaseModel
 from automl_package.models.catboost_model import CatBoostModel
 from automl_package.models.lightgbm_model import LightGBMModel
@@ -146,7 +146,7 @@ def plot_time_series_results(y_data: np.ndarray, y_true: np.ndarray, predictions
     for i, (name, y_pred) in enumerate(predictions.items()):
         color = colors[i % len(colors)]
         y_pred_flat = y_pred.flatten()
-        p.line(time_steps, y_pred_flat, line_color=color, line_width=2.5, legend_label=f"{name} (MSE: {results[name]['rmse']**2:.4f})")
+        p.line(time_steps, y_pred_flat, line_color=color, line_width=2.5, legend_label=f"{name} (MSE: {results[name]['rmse'] ** 2:.4f})")
 
     p.legend.location = "top_right"
     p.legend.click_policy = "hide"
@@ -163,16 +163,17 @@ def run_showcase() -> None:
     n_samples = 2000
     user_defined_n_classes = 3
     early_stopping_rounds = 50
-    validation_fraction = 0.2
+    validation_fraction = None
     test_fraction = 0.2
-    cv_folds = None
+    cv_folds = 4
     n_epochs = 500
     hidden_layers = 2
     hidden_size = 64
     learning_rate = 0.005
     feature_selection_threshold = None
-    uncertainty_method = UncertaintyMethod.PROBABILISTIC
+    uncertainty_method = UncertaintyMethod.CONSTANT
     optimize_hyperparameters = False
+    optimizer_type = OptimizerType.ADAM
     n_trials = 50
     random_seed = 42
 
@@ -211,6 +212,7 @@ def run_showcase() -> None:
             cv_folds=cv_folds,
             split_strategy=DataSplitStrategy.RANDOM,
             feature_selection_threshold=feature_selection_threshold,
+            optimizer_type=optimizer_type,
             optimize_hyperparameters=optimize_hyperparameters,
             n_trials=n_trials,
             random_seed=random_seed,
@@ -229,6 +231,7 @@ def run_showcase() -> None:
             cv_folds=cv_folds,
             split_strategy=DataSplitStrategy.TIME_ORDERED,
             feature_selection_threshold=feature_selection_threshold,
+            optimizer_type=optimizer_type,
             optimize_hyperparameters=optimize_hyperparameters,
             n_trials=n_trials,
             random_seed=random_seed,
@@ -245,6 +248,7 @@ def run_showcase() -> None:
                 "learning_rate": learning_rate,
                 "random_seed": random_seed,
             },
+            nn_mapper_params={"epochs": n_epochs},  # Set the desired number of epochs
             n_classes=user_defined_n_classes,
             early_stopping_rounds=early_stopping_rounds,
             validation_fraction=validation_fraction,
@@ -252,10 +256,15 @@ def run_showcase() -> None:
             cv_folds=cv_folds,
             uncertainty_method=uncertainty_method,
             split_strategy=DataSplitStrategy.RANDOM,
-            mapper_type=MapperType.LINEAR,
+            mapper_type=MapperType.AUTO,
             auto_include_nn_mappers=True,
+            use_boundary_regularization=True,
+            apply_boundary_loss_during_validation=False,
+            use_monotonic_constraints=True,
+            constrain_middle_class=True,
             feature_selection_threshold=feature_selection_threshold,
-            calculate_feature_importance=False,
+            calculate_feature_importance=True,
+            optimizer_type=optimizer_type,
             optimize_hyperparameters=optimize_hyperparameters,
             n_trials=n_trials,
             random_seed=random_seed,
@@ -296,6 +305,7 @@ def run_showcase() -> None:
             validation_fraction=validation_fraction,
             test_fraction=0.0,
             feature_selection_threshold=feature_selection_threshold,
+            optimizer_type=optimizer_type,
             optimize_hyperparameters=optimize_hyperparameters,
             n_trials=n_trials,
             cv_folds=cv_folds,
@@ -319,6 +329,7 @@ def run_showcase() -> None:
             test_fraction=0.0,
             cv_folds=cv_folds,
             feature_selection_threshold=feature_selection_threshold,
+            optimizer_type=optimizer_type,
             optimize_hyperparameters=optimize_hyperparameters,
             n_trials=n_trials,
             random_seed=random_seed,
@@ -378,10 +389,12 @@ def run_showcase() -> None:
             cv_folds=cv_folds,
             split_strategy=DataSplitStrategy.RANDOM,
             feature_selection_threshold=feature_selection_threshold,
+            optimizer_type=optimizer_type,
             optimize_hyperparameters=optimize_hyperparameters,
-            optimization_strategy=ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
+            optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
             n_trials=n_trials,
-            add_classification_loss=True,
+            add_classification_loss=False,
+            use_boundary_regularization=False,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, f"Probabilistic_Regression_{strategy.value}"),
         )
@@ -392,17 +405,12 @@ def run_showcase() -> None:
 
     logging.info("--- Running Model Training and Evaluation ---")
     for name, model in models_to_test.items():
-        if not name.startswith("Probabilistic_Regression_"):
-            continue
         logging.info(f"Training {name}...")
         model_output_dir = os.path.join(output_dir, name)
         os.makedirs(model_output_dir, exist_ok=True)
 
         model.fit(x_train_scaled, y_train_scaled, timestamps=timestamps_train)
-        y_pred_scaled, y_std_scaled = model.evaluate(x_test_scaled, y_test_scaled, "test", model_output_dir)
-
-        y_pred = data_handler.inverse_transform_y(y_pred_scaled)
-        y_std = y_std_scaled * data_handler.y_scaler.scale_ if y_std_scaled is not None else None
+        y_pred, y_std = model.evaluate(x_test_scaled, y_test.values, "test", model_output_dir, y_scaler=data_handler.y_scaler)
 
         predictions[name] = y_pred
         uncertainties[name] = y_std
@@ -413,7 +421,7 @@ def run_showcase() -> None:
 
         unscaled_mse = mean_squared_error(y_test, y_pred)
         results[name]["unscaled_mse"] = unscaled_mse
-        logging.info(f"  -> Test MSE (scaled): {results[name]['rmse']**2:.4f}")
+        logging.info(f"  -> Test MSE (scaled): {results[name]['rmse'] ** 2:.4f}")
         logging.info(f"  -> Test MSE (unscaled): {unscaled_mse:.4f}")
         if "nll" in results[name]:
             logging.info(f"  -> Test NLL: {results[name]['nll']:.4f}")

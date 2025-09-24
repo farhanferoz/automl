@@ -15,7 +15,6 @@ def get_loss_history(model: Any, use_early_stopping: bool) -> list[float]:
     """
     loss_history = []
     if use_early_stopping:
-
         validation_strs = [
             "validation_0",
             "valid_0",

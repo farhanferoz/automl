@@ -3,6 +3,7 @@
 import re
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 
@@ -132,6 +133,7 @@ def ensure_proba_shape(y_proba: np.ndarray, n_classes: int) -> np.ndarray:
     # Case 4: Shape is already correct
     return y_proba
 
+
 def calculate_binned_stats(
     probas: np.ndarray,
     values: np.ndarray,
@@ -180,3 +182,31 @@ def calculate_binned_stats(
     final_lookups = {name: np.array(lookup) for name, lookup in stats_lookups.items()}
 
     return bin_edges, final_lookups
+
+
+def calculate_class_value_ranges(y_flat: np.ndarray, y_binned: np.ndarray, k: int, y_min: float, y_max: float, device: str) -> torch.Tensor:
+    """Calculates the value ranges for each class based on the sophisticated bounding logic."""
+    df = pd.DataFrame({"y": y_flat, "bin": y_binned})
+    agg = df.groupby("bin")["y"].agg(["min", "max"])
+    per_class_ranges = torch.tensor(agg.values, dtype=torch.float32)
+
+    # Apply the sophisticated bounding logic
+    final_bounds = torch.zeros_like(per_class_ranges)
+    mid_point = k / 2
+
+    for i in range(k):
+        class_min, class_max = per_class_ranges[i]
+        if i < mid_point:  # Lower half
+            final_bounds[i, 0] = class_min
+            final_bounds[i, 1] = y_max
+        else:  # Upper half
+            final_bounds[i, 0] = y_min
+            final_bounds[i, 1] = class_max
+
+    # Special case for the middle class if k is odd
+    if k % 2 != 0:
+        middle_class_idx = int(mid_point)
+        final_bounds[middle_class_idx, 0] = per_class_ranges[middle_class_idx, 0]
+        final_bounds[middle_class_idx, 1] = per_class_ranges[middle_class_idx, 1]
+
+    return final_bounds.to(device)

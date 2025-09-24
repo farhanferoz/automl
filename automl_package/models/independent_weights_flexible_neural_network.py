@@ -1,6 +1,5 @@
 """This module defines the IndependentWeightsFlexibleNN model."""
 
-import math
 from typing import Any, ClassVar
 
 import numpy as np
@@ -11,7 +10,6 @@ from automl_package.enums import (
     ActivationFunction,
     ExplainerType,
     LayerSelectionMethod,
-    Metric,
     TaskType,
     UncertaintyMethod,
 )
@@ -25,7 +23,7 @@ from automl_package.models.selection_strategies.independent_weights_strategies i
     IndependentWeightsSteStrategy,
 )
 from automl_package.utils.losses import nll_loss
-from automl_package.utils.pytorch_utils import get_activation_function_map
+from automl_package.utils.pytorch_utils import get_activation_function_map, get_device
 
 
 class IndependentWeightsFlexibleNN(PyTorchModelBase):
@@ -201,7 +199,6 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
 
         if self.task_type == TaskType.REGRESSION:
             if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
-
                 self.criterion = nll_loss
             else:
                 self.criterion = nn.MSELoss()
@@ -238,7 +235,7 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         if self.input_size is None:
             self.input_size = 1 if x_train.ndim == 1 else x_train.shape[1]
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
 
         if self.learn_regularization_lambdas:
             if self.using_l1_regularization:

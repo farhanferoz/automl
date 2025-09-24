@@ -10,6 +10,7 @@ from sklearn.model_selection import KFold
 
 from automl_package.enums import DataSplitStrategy, Metric, TaskType, UncertaintyMethod
 from automl_package.logger import logger
+from automl_package.models.common.mixins import BinnedUncertaintyMixin
 from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
 from automl_package.utils.cv import TimeSeriesSplit
 from automl_package.utils.data_handler import create_train_val_split
@@ -19,7 +20,7 @@ from automl_package.utils.numerics import find_optimal_iterations
 from automl_package.utils.plotting import plot_feature_importance
 
 
-class BaseModel(abc.ABC):
+class BaseModel(abc.ABC, BinnedUncertaintyMixin):
     """Abstract base class for all machine learning models in the package.
 
     Defines a common interface for fitting, predicting, and hyperparameter search.
@@ -80,6 +81,8 @@ class BaseModel(abc.ABC):
         self.train_indices: np.ndarray | None = None
         self.val_indices: np.ndarray | None = None
         self.test_indices: np.ndarray | None = None
+
+        self._init_binned_uncertainty()
 
     def get_params(self) -> dict[str, Any]:
         """Gets the parameters of the model."""
@@ -235,6 +238,10 @@ class BaseModel(abc.ABC):
         x_train_val_final = x_train_val[self.selected_features_] if self.selected_features_ else x_train_val
         self._fit_final_model(x_train=x_train_val_final.values, y_train=y_train_val)
 
+        if self.uncertainty_method == UncertaintyMethod.BINNED_RESIDUAL_STD:
+            logger.info("--- Calibrating uncertainty model ---")
+            self.calibrate_uncertainty(x=x_train_val_final.values, y=y_train_val)
+
         if self.calculate_feature_importance:
             self._calculate_and_save_feature_importance(model_instance=self, x_background=x_train_val_final)
 
@@ -250,7 +257,9 @@ class BaseModel(abc.ABC):
                 self.evaluate(x_test, y_test, "test", self.output_dir)
             logger.info("--- Final evaluation finished ---")
 
-    def _prepare_data_partitions(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> tuple[
+    def _prepare_data_partitions(
+        self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None
+    ) -> tuple[
         np.ndarray,
         np.ndarray,
         np.ndarray | None,
@@ -421,7 +430,7 @@ class BaseModel(abc.ABC):
         kf = self.get_kfolds(timestamps=timestamps)
         fold_results = []
         for i, (train_idx, val_idx) in enumerate(kf.split(x, y)):
-            logger.info(f"--- Training CV fold {i+1}/{self.cv_folds} ---")
+            logger.info(f"--- Training CV fold {i + 1}/{self.cv_folds} ---")
             x_train_fold, x_val_fold = x[train_idx], x[val_idx]
             y_train_fold, y_val_fold = y[train_idx], y[val_idx]
             model_instance = self._clone()
@@ -452,10 +461,13 @@ class BaseModel(abc.ABC):
         """Makes predictions on new data."""
         raise NotImplementedError
 
-    @abc.abstractmethod
     def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates the uncertainty of predictions."""
-        raise NotImplementedError
+        if self.uncertainty_method == UncertaintyMethod.BINNED_RESIDUAL_STD:
+            if filter_data:
+                x = self._filter_predict_data(x)
+            return self.predict_binned_uncertainty(x)
+        raise NotImplementedError(f"Uncertainty method {self.uncertainty_method} not supported by this model.")
 
     @abc.abstractmethod
     def get_hyperparameter_search_space(self) -> dict[str, Any]:
@@ -488,45 +500,42 @@ class BaseModel(abc.ABC):
         """Returns the number of trainable parameters in the model."""
         raise NotImplementedError
 
-    def evaluate(self, x: pd.DataFrame | np.ndarray, y: np.ndarray, partition_name: str, save_path: str) -> tuple[np.ndarray, np.ndarray | None]:
+    def evaluate(self, x: pd.DataFrame | np.ndarray, y: np.ndarray, partition_name: str, save_path: str, y_scaler: Any | None = None) -> tuple[np.ndarray, np.ndarray | None]:
         """Evaluates the model on a given dataset and saves the metrics."""
         x_eval = x.values if isinstance(x, pd.DataFrame) else x
 
-        y_pred = self.predict(x_eval)
-        y_std = self.predict_uncertainty(x_eval) if self.is_regression_model else None
+        y_pred_scaled = self.predict(x_eval)
+        y_std_scaled = self.predict_uncertainty(x_eval) if self.is_regression_model else None
+
+        # Inverse transform predictions and uncertainty if a scaler is provided
+        y_pred_unscaled = y_scaler.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten() if y_scaler is not None else y_pred_scaled
+
+        y_std_unscaled = y_std_scaled
+        if y_scaler is not None and y_std_scaled is not None:
+            scale_ = getattr(y_scaler, "scale_", None)
+            if scale_ is not None:
+                y_std_unscaled = y_std_scaled * scale_[0]
+
         y_proba = self.predict_proba(x_eval) if self.task_type == TaskType.CLASSIFICATION else None
+
+        # Calculate metrics using the unscaled values
         metrics_calculator = Metrics(
             task_type=self.task_type,
             model_name=self.name,
             x_data=x_eval,
             y_true=y,
-            y_pred=y_pred.flatten(),
+            y_pred=y_pred_unscaled.flatten(),
             y_proba=y_proba,
-            y_std=y_std.flatten() if y_std is not None else None,
+            y_std=y_std_unscaled.flatten() if y_std_unscaled is not None else None,
             partition_name=partition_name,
         )
         metrics_calculator.save_metrics(save_path)
 
-        if self.is_composite_regression_model:
-            try:
-                y_pred_internal, y_proba_internal, y_true_discretized = self.get_classifier_predictions(x_eval, y)
-                classification_metrics = Metrics(
-                    task_type=TaskType.CLASSIFICATION,
-                    model_name=f"{self.name}_internal_classifier",
-                    x_data=x_eval,
-                    y_true=y_true_discretized,
-                    y_pred=y_pred_internal,
-                    y_proba=y_proba_internal,
-                    partition_name=f"{partition_name}_classification",
-                )
-                classification_metrics.save_metrics(save_path)
-            except NotImplementedError:
-                pass
-
         if hasattr(self, "plot_probability_mappers") and callable(self.plot_probability_mappers):
             self.plot_probability_mappers(plot_path=f"{save_path}/{partition_name}_probability_mappers.png")
 
-        return y_pred, y_std
+        # Return the unscaled predictions and uncertainty
+        return y_pred_unscaled, y_std_unscaled
 
     def get_internal_model(self) -> Any:
         """Returns the internal model."""

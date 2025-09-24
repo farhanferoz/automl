@@ -1,4 +1,5 @@
 """A showcase of the AutoML package on a house price prediction task."""
+
 import json
 import logging
 import os

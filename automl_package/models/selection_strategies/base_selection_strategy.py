@@ -20,7 +20,9 @@ class BaseSelectionStrategy(ABC):
         self.mode_selection_probs: torch.Tensor | None = None  # To store probabilities for external use (e.g., classifier_logits_out)
 
     @abstractmethod
-    def forward(self, x_input: torch.Tensor, logits: torch.Tensor | None) -> tuple[
+    def forward(
+        self, x_input: torch.Tensor, logits: torch.Tensor | None
+    ) -> tuple[
         torch.Tensor,
         torch.Tensor,
         torch.Tensor | None,

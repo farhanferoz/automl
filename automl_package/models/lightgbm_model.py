@@ -61,6 +61,9 @@ class LightGBMModel(BaseModel):
             eval_set = [(x_val, y_val)]
             callbacks.append(lgb.early_stopping(self.early_stopping_rounds, verbose=False))
 
+        params = self.params.copy()
+        params.setdefault("n_estimators", 500)
+
         # Dynamically set objective for classification
         if self.task_type == TaskType.CLASSIFICATION:
             num_classes = len(np.unique(y_train))
@@ -73,8 +76,6 @@ class LightGBMModel(BaseModel):
                 self.metric = Metric.LOG_LOSS.label
 
         model_instance = lgb.LGBMClassifier if self.task_type == TaskType.CLASSIFICATION else lgb.LGBMRegressor
-        params = self.params.copy()
-        params.setdefault("n_estimators", 500)
         self.model = model_instance(
             objective=self.objective,
             metric=self.metric,
@@ -140,6 +141,10 @@ class LightGBMModel(BaseModel):
             raise ValueError("predict_uncertainty is only available for regression models.")
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
+
+        if self.uncertainty_method == UncertaintyMethod.BINNED_RESIDUAL_STD:
+            return super().predict_uncertainty(x, filter_data)
+
         if filter_data:
             x = self._filter_predict_data(x)
 

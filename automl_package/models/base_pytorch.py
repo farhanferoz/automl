@@ -9,13 +9,16 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from automl_package.enums import LearnedRegularizationType, Metric, TaskType, UncertaintyMethod
+from automl_package.enums import LearnedRegularizationType, OptimizerType, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
+from automl_package.models.common.mixins import RegularizationMixin
+from automl_package.optimizers import get_optimizer_wrapper
 from automl_package.utils.numerics import aggregate_stats, ensure_proba_shape, log_erfc
+from automl_package.utils.pytorch_utils import calculate_regularization_loss, get_device
 
 
-class PyTorchModelBase(BaseModel, ABC):
+class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
     """Base class for PyTorch-based neural network models."""
 
     _defaults: ClassVar[dict[str, Any]] = {
@@ -24,15 +27,16 @@ class PyTorchModelBase(BaseModel, ABC):
         "learning_rate": 0.001,
         "n_epochs": 50,
         "batch_size": 32,
-        "use_batch_norm": True,
+        "use_batch_norm": False,
         "n_mc_dropout_samples": 100,
-        "dropout_rate": 0.1,
+        "dropout_rate": 0.0,
         "learn_regularization_lambdas": False,
         "learned_regularization_type": LearnedRegularizationType.L1_L2,
         "l1_lambda": 0.0,
         "l2_lambda": 0.0,
         "lambda_learning_rate": 1e-5,
         "random_seed": None,
+        "optimizer_type": OptimizerType.ADAM,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -60,8 +64,9 @@ class PyTorchModelBase(BaseModel, ABC):
         self.criterion: nn.Module | None = None
         self.optimizer: optim.Optimizer | None = None
         self.lambda_optimizer: optim.Optimizer | None = None
-        self.device: torch.device | None = None
+        self.device: torch.device | None = get_device()
         self._train_residual_std = 0.0
+        self.optimizer_wrapper = get_optimizer_wrapper(self.optimizer_type)
 
     @property
     @abstractmethod
@@ -76,43 +81,24 @@ class PyTorchModelBase(BaseModel, ABC):
 
     def _setup_optimizers(self, model: nn.Module) -> None:
         """Sets up the optimizers for the model."""
-        self.optimizer = optim.Adam(model.parameters(), lr=self.learning_rate)
-        if self.learn_regularization_lambdas:
-            lambda_params = [p for p in [self.l1_log_lambda, self.l2_log_lambda] if p is not None]
-            if lambda_params:
-                self.lambda_optimizer = optim.Adam(lambda_params, lr=self.lambda_learning_rate)
-        elif self.l2_lambda > 0:
-            for group in self.optimizer.param_groups:
-                group["weight_decay"] = self.l2_lambda
+        self.optimizer = self.optimizer_wrapper.create_optimizer(model.parameters(), lr=self.learning_rate)
+        self._setup_lambda_optimizer()
 
     def _calculate_regularization_loss(self, base_loss: torch.Tensor, model: torch.nn.Module) -> torch.Tensor:
-        """Calculates the regularization loss."""
-        loss = base_loss
-        d, l1_sum, l2_sum = aggregate_stats(model=model, include_bias=False)
-        if self.learn_regularization_lambdas:
-            l1_lambda_val = torch.exp(self.l1_log_lambda) if self.using_l1_regularization and self.l1_log_lambda is not None else None
-            l2_lambda_val = torch.exp(self.l2_log_lambda) if self.using_l2_regularization and self.l2_log_lambda is not None else None
-
-            if self.learned_regularization_type == LearnedRegularizationType.L1_ONLY and l1_lambda_val is not None:
-                loss = loss - d * torch.log(l1_lambda_val / 2.0) + l1_lambda_val * l1_sum
-            elif self.learned_regularization_type == LearnedRegularizationType.L2_ONLY and l2_lambda_val is not None:
-                loss = loss - (d / 2.0) * torch.log(l2_lambda_val / torch.pi) + l2_lambda_val * l2_sum
-            elif l1_lambda_val is not None and l2_lambda_val is not None:
-                log_z = (
-                    torch.log(torch.pi / l2_lambda_val) / 2.0 + torch.square(l1_lambda_val) / (4.0 * l2_lambda_val) + log_erfc(l1_lambda_val / (2.0 * torch.sqrt(l2_lambda_val)))
-                )
-                loss = loss + d * log_z + l1_lambda_val * l1_sum + l2_lambda_val * l2_sum
-        elif self.l1_lambda > 0:
-            loss = loss + self.l1_lambda * l1_sum
-        return loss
+        """Calculates the regularization loss by calling the utility function."""
+        return calculate_regularization_loss(
+            base_loss=base_loss,
+            model=model,
+            learn_regularization=self.learn_regularization_lambdas,
+            learned_regularization_type=self.learned_regularization_type,
+            l1_lambda=self.l1_lambda,
+            l2_lambda=self.l2_lambda,
+            l1_log_lambda=self.l1_log_lambda,
+            l2_log_lambda=self.l2_log_lambda,
+        )
 
     def _fit_single(
-        self,
-        x_train: np.ndarray,
-        y_train: np.ndarray,
-        x_val: np.ndarray | None = None,
-        y_val: np.ndarray | None = None,
-        forced_iterations: int | None = None,
+        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -143,11 +129,7 @@ class PyTorchModelBase(BaseModel, ABC):
             torch.manual_seed(self.random_seed)
             np.random.seed(self.random_seed)
         self.build_model()
-        if self.learn_regularization_lambdas:
-            if self.using_l1_regularization:
-                self.l1_log_lambda = nn.Parameter(torch.tensor(np.log(1e-4), dtype=torch.float32))
-            if self.using_l2_regularization:
-                self.l2_log_lambda = nn.Parameter(torch.tensor(np.log(1e-4), dtype=torch.float32))
+        self._setup_regularization_parameters()
         self._setup_optimizers(self.model)
 
         use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
@@ -184,14 +166,13 @@ class PyTorchModelBase(BaseModel, ABC):
         for epoch in range(int(n_epochs)):
             self.model.train()
             for batch_x, batch_y in train_dataloader:
-                self.optimizer.zero_grad()
                 if self.lambda_optimizer:
                     self.lambda_optimizer.zero_grad()
-                outputs = self.model(batch_x)
-                loss = self.criterion(outputs, batch_y)
-                loss = self._calculate_regularization_loss(loss, self.model)
-                loss.backward()
-                self.optimizer.step()
+
+                self.optimizer_wrapper.step(
+                    model=self.model, loss_fn=self.criterion, regularization_fn=self._calculate_regularization_loss, optimizer=self.optimizer, batch_x=batch_x, batch_y=batch_y
+                )
+
                 if self.lambda_optimizer:
                     self.lambda_optimizer.step()
                 self._after_step()
@@ -247,6 +228,7 @@ class PyTorchModelBase(BaseModel, ABC):
                 "l2_lambda": self.l2_lambda,
                 "lambda_learning_rate": self.lambda_learning_rate,
                 "random_seed": self.random_seed,
+                "optimizer_type": self.optimizer_type,
             }
         )
         return params
@@ -314,6 +296,10 @@ class PyTorchModelBase(BaseModel, ABC):
         """Estimates the uncertainty of predictions."""
         if not self.is_regression_model:
             raise ValueError("predict_uncertainty is only available for regression models.")
+
+        if self.uncertainty_method == UncertaintyMethod.BINNED_RESIDUAL_STD:
+            return super().predict_uncertainty(x, filter_data=filter_data)
+
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
 

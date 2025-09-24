@@ -1,11 +1,10 @@
 """Loss functions."""
 
 import math
-from typing import Any
 
 import numpy as np
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as F  # noqa: N812
 
 
 def nll_loss(outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
@@ -79,3 +78,34 @@ def tree_model_gaussian_nll_eval_metric(y_true: np.ndarray, y_pred: np.ndarray) 
     nll = 0.5 * (np.log(2 * np.pi) + log_var + ((y_true - mean) ** 2) / variance)
     # The metric name, the result, and whether higher is better
     return [("nll", np.mean(nll), False)]
+
+
+def boundary_regularization_loss(predictions: torch.Tensor, boundaries: torch.Tensor) -> torch.Tensor:
+    """Calculates a penalty for predictions that fall outside the given boundaries.
+
+    Args:
+        predictions: The predictions from the model, shape (batch_size, 1) or (batch_size, 2).
+        boundaries: A tensor of shape (batch_size, 2) where each row is [min_val, max_val].
+
+    Returns:
+        The mean boundary penalty loss.
+    """
+    # If predictions have more than one dimension (e.g., mean and variance), only use the mean for boundary loss
+    if predictions.shape[1] > 1:
+        predictions = predictions[:, 0]
+
+    min_vals = boundaries[:, 0]
+    max_vals = boundaries[:, 1]
+
+    # Penalty for predictions below the minimum boundary
+    lower_violation = torch.clamp(min_vals - predictions.squeeze(), min=0)
+    # Penalty for predictions above the maximum boundary
+    upper_violation = torch.clamp(predictions.squeeze() - max_vals, min=0)
+
+    # The total violation is the sum of lower and upper violations (only one can be non-zero)
+    total_violation = lower_violation + upper_violation
+
+    # We use the squared violation as the penalty
+    penalty = torch.square(total_violation)
+
+    return torch.mean(penalty)

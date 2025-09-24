@@ -1,6 +1,7 @@
 """Metrics calculation and plotting utilities."""
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,8 @@ from sklearn.metrics import (
     roc_auc_score,
     roc_curve,
 )
-from automl_package.enums import RegressionStrategy, TaskType, Metric
+
+from automl_package.enums import Metric, RegressionStrategy, TaskType
 from automl_package.logger import logger
 from automl_package.utils.numerics import create_bins
 
@@ -72,10 +74,10 @@ class Metrics:
         self.task_type = task_type
         self.model_name = model_name
         self.x_data = x_data
-        self.y_true = y_true
-        self.y_pred = y_pred
+        self.y_true = np.array(y_true)
+        self.y_pred = np.array(y_pred)
         self.y_proba = y_proba
-        self.y_std = y_std
+        self.y_std = np.array(y_std) if y_std is not None else None
         self.partition_name = kwargs.get("partition_name")
 
         if self.task_type == TaskType.REGRESSION and self.y_pred.ndim > 1 and self.y_pred.shape[1] > 1:
@@ -472,7 +474,7 @@ class Metrics:
         # Plot 2: Logits for each layer vs. Input Feature
         colors = plt.cm.get_cmap("viridis", max_hidden_layers)
         for i in range(max_hidden_layers):
-            axs[1].scatter(x_original, n_logits[:, i], label=f"Layer {i+1} Logit", alpha=0.6, color=colors(i))
+            axs[1].scatter(x_original, n_logits[:, i], label=f"Layer {i + 1} Logit", alpha=0.6, color=colors(i))
         axs[1].set_xlabel("Input Feature")
         axs[1].set_ylabel("Logit Value")
         axs[1].set_title(f"Flexible NN ({self.model_name}) - Layer Logits vs. Input Feature")

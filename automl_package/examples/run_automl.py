@@ -13,7 +13,6 @@ from automl_package.enums import Metric, ModelName, TaskType
 from automl_package.logger import logger
 
 if __name__ == "__main__":
-
     # Configure the root logger for example output
     logging.basicConfig(
         level=logging.INFO,

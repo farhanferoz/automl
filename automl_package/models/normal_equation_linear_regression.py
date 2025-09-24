@@ -4,7 +4,8 @@ from typing import Any, ClassVar, Never
 
 import numpy as np
 
-from automl_package.enums import ExplainerType, Metric
+from automl_package.enums import ExplainerType, UncertaintyMethod
+from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 
 
@@ -30,6 +31,13 @@ class NormalEquationLinearRegression(BaseModel):
                 "L1 regularization (Lasso) is not supported by NormalEquationLinearRegression due to non-differentiability at zero. "
                 "Use iterative solvers for L1 e.g. JAXLinearRegression."
             )
+
+        if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
+            logger.warning(
+                f"The {UncertaintyMethod.PROBABILISTIC.name} uncertainty method is not supported by NormalEquationLinearRegression. "
+                f"Falling back to {UncertaintyMethod.BINNED_RESIDUAL_STD.name} uncertainty method."
+            )
+            self.uncertainty_method = UncertaintyMethod.BINNED_RESIDUAL_STD
 
         self.weights: np.ndarray | None = None
         self.bias: np.ndarray | None = None
@@ -125,6 +133,10 @@ class NormalEquationLinearRegression(BaseModel):
             raise ValueError("predict_uncertainty is only available for regression models.")
         if self.weights is None or self.bias is None:
             raise RuntimeError("Model has not been fitted yet.")
+
+        if self.uncertainty_method == UncertaintyMethod.BINNED_RESIDUAL_STD:
+            return super().predict_uncertainty(x, filter_data)
+
         if filter_data:
             x = self._filter_predict_data(x)
         return np.full(x.shape[0], self._train_residual_std)

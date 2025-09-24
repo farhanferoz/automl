@@ -195,3 +195,18 @@ class ProbabilisticRegressionOptimizationStrategy(Enum):
     REGRESSION_ONLY = "regression_only"
     COMPOSITE_LOSS = "composite_loss"
     GRADIENT_STOP = "gradient_stop"
+
+
+class OptimizerType(Enum):
+    """Enum for different optimizer types."""
+
+    ADAM = "adam"
+    HESSIAN_FREE = "hessian_free"
+
+
+class Monotonicity(Enum):
+    """Enum for different monotonicity constraints."""
+
+    NONE = "none"
+    POSITIVE = "positive"
+    NEGATIVE = "negative"

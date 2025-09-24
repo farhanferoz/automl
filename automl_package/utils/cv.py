@@ -21,16 +21,16 @@ class TimeSeriesSplit(BaseCrossValidator):
             raise ValueError(f"n_splits={n_splits} cannot be smaller than 2.")
         self.n_splits = n_splits
 
-    def get_n_splits(self, x: np.ndarray = None, _y: np.ndarray = None, _groups: np.ndarray = None) -> int:
+    def get_n_splits(self, _x: np.ndarray = None, _y: np.ndarray = None, _groups: np.ndarray = None) -> int:
         """Returns the number of splitting iterations in the cross-validator.
 
         Parameters
         ----------
-        x : object
+        _x : object
             Always ignored, exists for compatibility.
-        y : object
+        _y : object
             Always ignored, exists for compatibility.
-        groups : object
+        _groups : object
             Always ignored, exists for compatibility.
 
         Returns:

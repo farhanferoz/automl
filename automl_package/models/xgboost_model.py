@@ -5,8 +5,8 @@ from typing import Any, Never
 import numpy as np
 import xgboost as xgb
 
-from automl_package.logger import logger
 from automl_package.enums import ExplainerType, Metric, TaskType, UncertaintyMethod
+from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 from automl_package.models.common.common import get_loss_history
 from automl_package.utils.numerics import ensure_proba_shape
@@ -38,9 +38,9 @@ class XGBoostModel(BaseModel):
             if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
                 logger.warning(
                     f"The {UncertaintyMethod.PROBABILISTIC.name} uncertainty method is not supported by the scikit-learn API of XGBoost. "
-                    f"Falling back to {UncertaintyMethod.CONSTANT.name} uncertainty method."
+                    f"Falling back to {UncertaintyMethod.BINNED_RESIDUAL_STD.name} uncertainty method."
                 )
-                self.uncertainty_method = UncertaintyMethod.CONSTANT
+                self.uncertainty_method = UncertaintyMethod.BINNED_RESIDUAL_STD
             self.objective = "reg:squarederror"
             self.eval_metric = Metric.RMSE.label
         elif self.task_type == TaskType.CLASSIFICATION:
@@ -158,6 +158,11 @@ class XGBoostModel(BaseModel):
             raise ValueError("predict_uncertainty is only available for regression models.")
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
+
+        if self.uncertainty_method == UncertaintyMethod.BINNED_RESIDUAL_STD:
+            return super().predict_uncertainty(x, filter_data)
+
+        # Default to CONSTANT uncertainty
         if filter_data:
             x = self._filter_predict_data(x)
         return np.full(x.shape[0], self._train_residual_std)

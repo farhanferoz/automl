@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import grad, jit
 
-from automl_package.enums import ExplainerType, Metric, Penalty
+from automl_package.enums import ExplainerType, Penalty
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 

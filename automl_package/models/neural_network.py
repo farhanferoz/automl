@@ -1,13 +1,12 @@
 # ruff: noqa: ERA001
 """Neural Network model implemented in PyTorch."""
 
-import math
 from typing import Any, ClassVar
 
 import torch
 import torch.nn as nn
 
-from automl_package.enums import ActivationFunction, ExplainerType, Metric, TaskType, UncertaintyMethod
+from automl_package.enums import ActivationFunction, ExplainerType, TaskType, UncertaintyMethod
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.utils.losses import nll_loss
 from automl_package.utils.pytorch_utils import get_activation_function_map

@@ -18,7 +18,10 @@ class LinearMapper(BaseMapper):
         super().__init__(mapper_type=MapperType.LINEAR, uncertainty_method=uncertainty_method)
 
         if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
-            logger.warning(f"Uncertainty method '{self.uncertainty_method.value}' is not directly supported by {self.__class__.__name__}. Falling back to '{UncertaintyMethod.BINNED_RESIDUAL_STD.value}'.")
+            logger.warning(
+                f"Uncertainty method '{self.uncertainty_method.value}' is not directly supported by {self.__class__.__name__}. "
+                f"Falling back to '{UncertaintyMethod.BINNED_RESIDUAL_STD.value}'."
+            )
             self.uncertainty_method = UncertaintyMethod.BINNED_RESIDUAL_STD
 
         self.model = None

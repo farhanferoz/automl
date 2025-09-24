@@ -29,7 +29,7 @@ class DataHandler:
         self.y_was_log_transformed = False
         self.smearing_factor = None
 
-    def _detect_binary_features(self, x: np.ndarray):
+    def _detect_binary_features(self, x: np.ndarray) -> None:
         if not self.scale_binary_features:
             self.binary_feature_indices_ = [i for i in range(x.shape[1]) if np.all(np.isin(x[:, i], [0, 1]))]
             self.non_binary_feature_indices_ = [i for i in range(x.shape[1]) if i not in self.binary_feature_indices_]
@@ -67,6 +67,7 @@ class DataHandler:
 
     def inverse_transform_y(self, y_pred: np.ndarray) -> np.ndarray:
         """Inverse transforms the predictions.
+
         This method assumes y_pred is on the same scale as the transformed y from fit_transform.
         It will inverse scale and inverse log transform if they were applied.
         """
@@ -90,24 +91,28 @@ class DataHandler:
         are_logs_scaled: bool = True,
     ) -> None:
         """Calculates and stores the smearing factor for correction."""
-        if self.y_was_log_transformed:
-            # Determine the predicted log values
-            if y_train_pred_log is None:
-                if model is None or x_train is None:
-                    raise ValueError("Either (model, x_train) or y_train_pred_log must be provided.")
-                # Predictions from the model are always scaled
-                y_train_pred_log_scaled = model.predict(x_train)
-                y_train_pred_log_unscaled_log = self.y_scaler.inverse_transform(y_train_pred_log_scaled.reshape(-1, 1)).flatten() if self.scale_y else y_train_pred_log_scaled
-            else:  # y_train_pred_log is provided
-                y_train_pred_log_unscaled_log = (
-                    self.y_scaler.inverse_transform(y_train_pred_log.reshape(-1, 1)).flatten() if self.scale_y else y_train_pred_log if are_logs_scaled else y_train_pred_log
-                )
+        if not self.y_was_log_transformed:
+            return
 
-            # Determine the true log values
-            y_train_log_unscaled_log = self.y_scaler.inverse_transform(y_train_log.reshape(-1, 1)).flatten() if self.scale_y else y_train_log if are_logs_scaled else y_train_log
+        # --- Determine the unscaled, log-space predicted values ---
+        if y_train_pred_log is None:
+            if model is None or x_train is None:
+                raise ValueError("Either (model, x_train) or y_train_pred_log must be provided.")
+            # Predictions from the model are always on the scaled log space (if scaling is enabled)
+            y_train_pred_log_scaled = model.predict(x_train)
 
-            residuals = y_train_log_unscaled_log - y_train_pred_log_unscaled_log
-            self.smearing_factor = np.mean(np.exp(residuals))
+            # Unscale them if necessary
+            y_train_pred_log_unscaled = self.y_scaler.inverse_transform(y_train_pred_log_scaled.reshape(-1, 1)).flatten() if self.scale_y else y_train_pred_log_scaled
+        else:
+            # A prediction log is provided directly. Check if we need to unscale it.
+            y_train_pred_log_unscaled = self.y_scaler.inverse_transform(y_train_pred_log.reshape(-1, 1)).flatten() if self.scale_y and are_logs_scaled else y_train_pred_log
+
+        # --- Determine the unscaled, log-space true values ---
+        y_train_log_unscaled = self.y_scaler.inverse_transform(y_train_log.reshape(-1, 1)).flatten() if self.scale_y and are_logs_scaled else y_train_log
+
+        # --- Calculate smearing factor ---
+        residuals = y_train_log_unscaled - y_train_pred_log_unscaled
+        self.smearing_factor = np.mean(np.exp(residuals))
 
 
 def create_train_val_split(

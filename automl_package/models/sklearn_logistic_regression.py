@@ -4,9 +4,9 @@ from typing import Any, ClassVar, Never
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, log_loss
+from sklearn.metrics import log_loss
 
-from automl_package.enums import ExplainerType, Metric, Penalty, TaskType
+from automl_package.enums import ExplainerType, Penalty, TaskType
 from automl_package.models.base import BaseModel
 
 

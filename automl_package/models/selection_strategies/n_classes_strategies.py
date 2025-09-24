@@ -5,9 +5,8 @@ from typing import Any
 import torch
 import torch.nn.functional as f
 
-from automl_package.models.selection_strategies.base_selection_strategy import (
-    BaseSelectionStrategy,
-)
+from automl_package.enums import RegressionStrategy
+from automl_package.models.selection_strategies.base_selection_strategy import BaseSelectionStrategy
 
 
 class NoneStrategy(BaseSelectionStrategy):
@@ -37,16 +36,16 @@ class NoneStrategy(BaseSelectionStrategy):
         masked_classifier_logits[:, : self.model.n_classes] = classifier_raw_logits[:, : self.model.n_classes]
 
         probabilities = torch.softmax(masked_classifier_logits, dim=1)
-        final_predictions_contribution = self.model.regression_module(probabilities)
+
+        if self.model.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
+            final_predictions_contribution = self.model.regression_module(probabilities, return_head_outputs=True)
+            per_head_outputs = None  # This strategy doesn't have per-head outputs
+        else:
+            final_predictions_contribution, per_head_outputs = self.model.regression_module(probabilities, return_head_outputs=True)
 
         selected_k_values_for_logging = torch.full((x_input.size(0),), self.model.n_classes, dtype=torch.long).to(x_input.device)
 
-        return (
-            final_predictions_contribution,
-            selected_k_values_for_logging,
-            None,
-            classifier_raw_logits,
-        )
+        return final_predictions_contribution, selected_k_values_for_logging, None, classifier_raw_logits, per_head_outputs
 
 
 class GumbelSoftmaxStrategy(BaseSelectionStrategy):
@@ -70,17 +69,8 @@ class GumbelSoftmaxStrategy(BaseSelectionStrategy):
         """
         mode_selection_probs = f.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=False, dim=-1)
         self.mode_selection_probs = mode_selection_probs  # Store for classifier_logits_out in _CombinedProbabilisticModel
-        (
-            final_predictions_contribution,
-            selected_k_values_for_logging,
-            classifier_raw_logits,
-        ) = self._weighted_average_logic(x_input, mode_selection_probs)
-        return (
-            final_predictions_contribution,
-            selected_k_values_for_logging,
-            None,
-            classifier_raw_logits,
-        )
+        final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._weighted_average_logic(x_input, mode_selection_probs)
+        return final_predictions_contribution, selected_k_values_for_logging, None, classifier_raw_logits
 
 
 class SoftGatingStrategy(BaseSelectionStrategy):
@@ -104,17 +94,8 @@ class SoftGatingStrategy(BaseSelectionStrategy):
         """
         mode_selection_probs = f.softmax(logits, dim=-1)
         self.mode_selection_probs = mode_selection_probs  # Store for classifier_logits_out in _CombinedProbabilisticModel
-        (
-            final_predictions_contribution,
-            selected_k_values_for_logging,
-            classifier_raw_logits,
-        ) = self._weighted_average_logic(x_input, mode_selection_probs)
-        return (
-            final_predictions_contribution,
-            selected_k_values_for_logging,
-            None,
-            classifier_raw_logits,
-        )
+        final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._weighted_average_logic(x_input, mode_selection_probs)
+        return final_predictions_contribution, selected_k_values_for_logging, None, classifier_raw_logits
 
 
 class SteStrategy(BaseSelectionStrategy):
@@ -138,17 +119,8 @@ class SteStrategy(BaseSelectionStrategy):
         """
         mode_selection_one_hot = f.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=True, dim=-1)
         self.mode_selection_probs = mode_selection_one_hot  # Store for classifier_logits_out in _CombinedProbabilisticModel
-        (
-            final_predictions_contribution,
-            selected_k_values_for_logging,
-            classifier_raw_logits,
-        ) = self._hard_selection_logic(x_input, mode_selection_one_hot)
-        return (
-            final_predictions_contribution,
-            selected_k_values_for_logging,
-            None,
-            classifier_raw_logits,
-        )
+        final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._hard_selection_logic(x_input, mode_selection_one_hot)
+        return final_predictions_contribution, selected_k_values_for_logging, None, classifier_raw_logits
 
 
 class ReinforceStrategy(BaseSelectionStrategy):
@@ -179,17 +151,8 @@ class ReinforceStrategy(BaseSelectionStrategy):
 
         mode_selection_one_hot = f.one_hot(action, num_classes=logits.size(-1)).float()
         self.mode_selection_probs = mode_selection_one_hot  # Store for classifier_logits_out in _CombinedProbabilisticModel
-        (
-            final_predictions_contribution,
-            selected_k_values_for_logging,
-            classifier_raw_logits,
-        ) = self._hard_selection_logic(x_input, mode_selection_one_hot)
-        return (
-            final_predictions_contribution,
-            selected_k_values_for_logging,
-            log_prob,
-            classifier_raw_logits,
-        )
+        final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._hard_selection_logic(x_input, mode_selection_one_hot)
+        return final_predictions_contribution, selected_k_values_for_logging, log_prob, classifier_raw_logits
 
     def on_epoch_end(self, **kwargs: Any) -> None:
         """Performs operations at the end of each training epoch.
@@ -200,11 +163,9 @@ class ReinforceStrategy(BaseSelectionStrategy):
         validation_loss = kwargs.get("validation_loss")
         epoch_log_probs = kwargs.get("epoch_log_probs")
 
-        if validation_loss is None or not epoch_log_probs:
-            return
-
-        reward = -validation_loss
-        self.policy_optimizer.zero_grad()
-        policy_loss = -torch.stack(epoch_log_probs).mean() * reward
-        policy_loss.backward()
-        self.policy_optimizer.step()
+        if not (validation_loss is None or not epoch_log_probs):
+            reward = -validation_loss
+            self.policy_optimizer.zero_grad()
+            policy_loss = -torch.stack(epoch_log_probs).mean() * reward
+            policy_loss.backward()
+            self.policy_optimizer.step()
