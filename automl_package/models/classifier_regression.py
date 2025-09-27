@@ -7,9 +7,8 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import torch
 
-from automl_package.enums import MapperType, ModelName, RegressionStrategy, TaskType, UncertaintyMethod, Metric
+from automl_package.enums import BoundaryRegularizationMethod, MapperType, Metric, ModelName, RegressionStrategy, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 from automl_package.models.mappers.base_mapper import BaseMapper
@@ -17,10 +16,10 @@ from automl_package.models.mappers.nn_mapper import NeuralNetworkMapper
 from automl_package.models.probability_mapper import ClassProbabilityMapper
 from automl_package.utils.data_handler import create_train_val_split
 from automl_package.utils.feature_selection import select_features_by_cumulative_importance
+from automl_package.utils.metrics import Metrics
 from automl_package.utils.numerics import calculate_class_value_ranges, create_bins
 from automl_package.utils.plotting import plot_nn_probability_mappers
 from automl_package.utils.pytorch_utils import get_device
-from automl_package.utils.metrics import Metrics
 
 
 class ClassifierRegressionModel(BaseModel):
@@ -41,11 +40,19 @@ class ClassifierRegressionModel(BaseModel):
         self.mapper_params: dict | None = kwargs.pop("mapper_params", None)
         self.nn_mapper_params: dict | None = kwargs.pop("nn_mapper_params", None)
         self.regression_strategy: RegressionStrategy | None = kwargs.pop("regression_strategy", None)
-        self.use_boundary_regularization: bool = kwargs.pop("use_boundary_regularization", False)
+        self.boundary_regularization_method: BoundaryRegularizationMethod = kwargs.pop("boundary_regularization_method", BoundaryRegularizationMethod.NONE)
         self.boundary_loss_weight: float = kwargs.pop("boundary_loss_weight", 1.0)
         self.use_monotonic_constraints: bool = kwargs.pop("use_monotonic_constraints", False)
+        self.constrain_middle_class: bool = kwargs.pop("constrain_middle_class", False)
         self.apply_boundary_loss_during_validation: bool = kwargs.pop("apply_boundary_loss_during_validation", False)
+        self.use_middle_class_nll_penalty: bool = kwargs.pop("use_middle_class_nll_penalty", False)
+        self.optimizer_type: bool = kwargs.pop("optimizer_type", False)
         self.device = get_device()
+
+        if self.boundary_regularization_method == BoundaryRegularizationMethod.PENALTY and kwargs.get("uncertainty_method") == UncertaintyMethod.PROBABILISTIC:
+            raise ValueError(
+                "The PENALTY boundary method is not compatible with the PROBABILISTIC uncertainty method from a pure statistical perspective. Use the HARDSIGMOID method instead."
+            )
 
         self.mapper_to_strategy_map = {
             MapperType.NN_SEPARATE_HEADS: RegressionStrategy.SEPARATE_HEADS,
@@ -78,6 +85,7 @@ class ClassifierRegressionModel(BaseModel):
         self.optimal_mapper_params_ = {}
         self.task_type = TaskType.REGRESSION
         self._train_residual_std = 0.0
+        self.middle_class_dist_params_ = None
 
         if self.n_classes < 2:
             raise ValueError("n_classes must be at least 2 for classification-regression strategy.")
@@ -115,6 +123,8 @@ class ClassifierRegressionModel(BaseModel):
         if forced_mapper_params:
             current_nn_params.update(forced_mapper_params)
 
+        current_nn_params["middle_class_dist_params"] = self.middle_class_dist_params_
+
         if mapper_type.is_nn:
             nn_mapper = NeuralNetworkMapper(
                 n_classes=self.n_classes,
@@ -122,12 +132,15 @@ class ClassifierRegressionModel(BaseModel):
                 mapper_params=current_nn_params,
                 uncertainty_method=self.uncertainty_method,
                 early_stopping_rounds=self.early_stopping_rounds,
-                use_boundary_regularization=self.use_boundary_regularization,
+                boundary_regularization_method=self.boundary_regularization_method,
                 boundary_loss_weight=self.boundary_loss_weight,
                 class_value_ranges=self.class_value_ranges_,
                 class_boundaries=self.class_boundaries,
                 use_monotonic_constraints=self.use_monotonic_constraints,
+                constrain_middle_class=self.constrain_middle_class,
+                optimizer_type=self.optimizer_type,
                 apply_boundary_loss_during_validation=self.apply_boundary_loss_during_validation,
+                use_middle_class_nll_penalty=self.use_middle_class_nll_penalty,
             )
 
             # The NN mapper handles the train/val split internally if val_probas is provided
@@ -263,6 +276,16 @@ class ClassifierRegressionModel(BaseModel):
             params["output_size"] = classifier_output_size
         return params
 
+    def _calculate_middle_class_dist_params(self, y_flat: np.ndarray, y_binned: np.ndarray) -> None:
+        """Calculates and stores the mean and std of the y values for the middle class."""
+        if self.use_middle_class_nll_penalty and self.n_classes % 2 != 0:
+            middle_class_idx = int(self.n_classes / 2)
+            middle_class_mask = y_binned == middle_class_idx
+            middle_class_y = y_flat[middle_class_mask]
+            self.middle_class_dist_params_ = {"mean": np.mean(middle_class_y), "std": np.std(middle_class_y)}
+        else:
+            self.middle_class_dist_params_ = None
+
     def _perform_feature_selection(self, x_train_val: pd.DataFrame, y_train_val: np.ndarray, iterations: int | None) -> None:
         """Performs feature selection on the base classifier."""
         temp_model = self._clone()
@@ -284,7 +307,7 @@ class ClassifierRegressionModel(BaseModel):
         """Evaluates a trial's performance and returns the score and optimal iterations."""
         # Set the class boundaries for the trial based on the trial's n_classes
         model_instance.class_boundaries = self.precomputed_boundaries_[model_instance.n_classes]
-        if self.use_boundary_regularization:
+        if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE:
             model_instance.class_value_ranges_ = self.precomputed_class_value_ranges_[model_instance.n_classes]
 
         if self.cv_folds:
@@ -434,6 +457,7 @@ class ClassifierRegressionModel(BaseModel):
 
         y_flat = y_train.flatten() if y_train.ndim > 1 else y_train
         _, y_clf = create_bins(data=y_flat, unique_bin_edges=self.class_boundaries)
+        self._calculate_middle_class_dist_params(y_flat, y_clf)
 
         y_val_clf = None
         if y_val is not None:
@@ -542,14 +566,15 @@ class ClassifierRegressionModel(BaseModel):
             for n in range(n_classes_space["low"], n_classes_space["high"] + 1):
                 boundaries, y_binned = create_bins(data=y_train_val, n_bins=n, min_value=-np.inf, max_value=np.inf)
                 self.precomputed_boundaries_[n] = boundaries
-                if self.use_boundary_regularization:
+                self._calculate_middle_class_dist_params(y_train_val, y_binned)
+                if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE:
                     self.precomputed_class_value_ranges_[n] = calculate_class_value_ranges(y_flat=y_train_val, y_binned=y_binned, k=n, y_min=y_min, y_max=y_max, device=self.device)
 
             best_params, best_iterations = self._find_best_hyperparameters(x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val)
             self._update_params(best_params)
             self.num_iterations_used = best_iterations
             self.class_boundaries = self.precomputed_boundaries_[self.n_classes]
-            if self.use_boundary_regularization:
+            if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE:
                 self.class_value_ranges_ = self.precomputed_class_value_ranges_[self.n_classes]
 
             logger.info(f"--- Hyperparameter optimization finished. Best params: {self.get_params()} ---")
@@ -557,7 +582,8 @@ class ClassifierRegressionModel(BaseModel):
         elif self.early_stopping_rounds is not None:
             y_flat = y_train_val.flatten() if y_train_val.ndim > 1 else y_train_val
             self.class_boundaries, y_binned = create_bins(data=y_flat, n_bins=self.n_classes, min_value=-np.inf, max_value=np.inf)
-            if self.use_boundary_regularization:
+            self._calculate_middle_class_dist_params(y_flat, y_binned)
+            if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE:
                 y_min, y_max = np.min(y_flat), np.max(y_flat)
                 self.class_value_ranges_ = calculate_class_value_ranges(y_flat=y_flat, y_binned=y_binned, k=self.n_classes, y_min=y_min, y_max=y_max, device=self.device)
 
@@ -634,9 +660,10 @@ class ClassifierRegressionModel(BaseModel):
                 "mapper_params": self.mapper_params,
                 "nn_mapper_params": self.nn_mapper_params,
                 "auto_include_nn_mappers": self.auto_include_nn_mappers,
-                "use_boundary_regularization": self.use_boundary_regularization,
+                "boundary_regularization_method": self.boundary_regularization_method,
                 "boundary_loss_weight": self.boundary_loss_weight,
                 "use_monotonic_constraints": self.use_monotonic_constraints,
+                "use_middle_class_nll_penalty": self.use_middle_class_nll_penalty,
             }
         )
         return params
@@ -670,7 +697,7 @@ class ClassifierRegressionModel(BaseModel):
         """Defines the hyperparameter search space for the ClassifierRegressionModel."""
         space = {
             "n_classes": {"type": "int", "low": 2, "high": 10},
-            "use_boundary_regularization": {"type": "categorical", "choices": [True, False]},
+            "boundary_regularization_method": {"type": "categorical", "choices": [e.value for e in BoundaryRegularizationMethod]},
             "boundary_loss_weight": {"type": "float", "low": 0.1, "high": 10.0, "log": True},
         }
 
@@ -818,6 +845,7 @@ class ClassifierRegressionModel(BaseModel):
 
     def evaluate(self, x: pd.DataFrame | np.ndarray, y: np.ndarray, partition_name: str, save_path: str, y_scaler: Any | None = None) -> tuple[np.ndarray, np.ndarray | None]:
         """First, performs standard regression evaluation by calling the parent method.
+
         Then, adds specialized evaluation for the internal classifier.
         """
         # Call parent method to get standard regression evaluation and results

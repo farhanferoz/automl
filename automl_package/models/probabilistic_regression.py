@@ -7,13 +7,20 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
-from automl_package.enums import ExplainerType, NClassesSelectionMethod, ProbabilisticRegressionOptimizationStrategy, RegressionStrategy, UncertaintyMethod
+from automl_package.enums import (
+    BoundaryRegularizationMethod,
+    ExplainerType,
+    NClassesSelectionMethod,
+    ProbabilisticRegressionOptimizationStrategy,
+    RegressionStrategy,
+    UncertaintyMethod,
+)
 from automl_package.logger import logger
 from automl_package.models.architectures.probabilistic_regression_net import ProbabilisticRegressionNet
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.common.losses import calculate_combined_loss
 from automl_package.models.common.mixins import BoundaryLossMixin
-from automl_package.utils.losses import boundary_regularization_loss, masked_cross_entropy_loss
+from automl_package.utils.losses import masked_cross_entropy_loss
 from automl_package.utils.numerics import calculate_class_value_ranges, create_bins
 from automl_package.utils.plotting import plot_nn_probability_mappers
 
@@ -34,7 +41,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
         "gumbel_tau": 0.5,
         "n_classes_predictor_learning_rate": 0.001,
         "optimization_strategy": ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
-        "use_boundary_regularization": False,
+        "boundary_regularization_method": BoundaryRegularizationMethod.NONE,
         "boundary_loss_weight": 1.0,
         "use_monotonic_constraints": False,
         "constrain_middle_class": True,
@@ -44,6 +51,11 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
         """Initializes the ProbabilisticRegressionModel."""
         for key, value in self._defaults.items():
             kwargs.setdefault(key, value)
+
+        if kwargs.get("boundary_regularization_method") == BoundaryRegularizationMethod.PENALTY and kwargs.get("uncertainty_method") == UncertaintyMethod.PROBABILISTIC:
+            raise ValueError(
+                "The PENALTY boundary method is not compatible with the PROBABILISTIC uncertainty method from a pure statistical perspective. Use the HARDSIGMOID method instead."
+            )
 
         if (
             kwargs.get("optimization_strategy") != ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY
@@ -107,17 +119,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
         y_true_squeezed = y_true.squeeze(-1) if y_true.ndim > 1 else y_true
 
         # 1. Calculate main regression loss
-        regression_loss = calculate_combined_loss(
-            predictions=final_predictions,
-            y_true=y_true,
-            uncertainty_method=self.uncertainty_method,
-            use_boundary_regularization=False,  # Boundary loss is handled separately
-            class_boundaries=None,
-            class_value_ranges=None,
-            boundary_loss_weight=self.boundary_loss_weight,
-            device=self.device,
-            include_boundary_loss=False,
-        )
+        regression_loss = calculate_combined_loss(predictions=final_predictions, y_true=y_true, uncertainty_method=self.uncertainty_method, include_boundary_loss=False)
 
         total_loss = regression_loss
         unique_k = torch.tensor([])
@@ -146,7 +148,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
                 total_loss += classification_loss
 
         # 3. Apply Boundary Regularization Loss using the mixin
-        if self.use_boundary_regularization and include_boundary_loss and per_head_outputs is not None:
+        if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE and include_boundary_loss and per_head_outputs is not None:
             # Ensure we only consider samples that went through the probabilistic path
             if probabilistic_indices.numel() == 0:
                 probabilistic_indices = torch.where(selected_k_values < self.n_classes_inf)[0]
@@ -178,6 +180,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
 
                     # Use the mixin to calculate loss for this group
                     boundary_loss += self.calculate_boundary_loss(
+                        heads=self.model.regression_module.heads,
                         per_head_outputs=per_head_outputs_prob[k_mask],
                         y_true=y_true_prob[k_mask],
                         y_binned_tensor=y_binned_k_tensor,
@@ -255,7 +258,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
                 "regression_head_params__hidden_size": {"type": "int", "low": 16, "high": 32, "step": 16},
                 "regression_head_params__use_batch_norm": {"type": "categorical", "choices": [True, False]},
                 "regression_head_params__dropout_rate": {"type": "float", "low": 0.0, "high": 0.5, "step": 0.1},
-                "use_boundary_regularization": {"type": "categorical", "choices": [True, False]},
+                "boundary_regularization_method": {"type": "categorical", "choices": [e.value for e in BoundaryRegularizationMethod]},
                 "boundary_loss_weight": {"type": "float", "low": 0.1, "high": 10.0, "log": True},
             }
         )
@@ -294,7 +297,13 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
             self.model.n_classes_strategy.setup_optimizers(n_classes_predictor_params)
 
     def _fit_single(
-        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        forced_iterations: int | None = None,
+        forward_pass_kwargs: dict | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -304,6 +313,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
             x_val (np.ndarray | None): The validation features.
             y_val (np.ndarray | None): The validation targets.
             forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
+            forward_pass_kwargs (dict | None): Keyword arguments to pass to the model's forward pass.
 
         Returns:
             tuple[int, list[float]]: A tuple containing:
@@ -323,10 +333,18 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
                 boundaries, y_binned = create_bins(data=y_flat, n_bins=k, min_value=-np.inf, max_value=np.inf)
                 self.precomputed_class_boundaries[k] = boundaries
 
-                if self.use_boundary_regularization:
+                if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE:
                     self.class_value_ranges_[k] = calculate_class_value_ranges(y_flat=y_flat, y_binned=y_binned, k=k, y_min=y_min, y_max=y_max, device=self.device)
 
-        return super()._fit_single(x_train, y_train, x_val, y_val, forced_iterations)
+        forward_pass_kwargs = None
+        if self.boundary_regularization_method == BoundaryRegularizationMethod.HARDSIGMOID:
+            if not self.class_value_ranges_:
+                raise ValueError("class_value_ranges must be pre-calculated for the HARDSIGMOID boundary method.")
+            # This is a simplification. A more robust solution would handle multiple k values.
+            k = next(iter(self.class_value_ranges_))
+            forward_pass_kwargs = {"boundaries": self.class_value_ranges_[k].to(self.device)}
+
+        return super()._fit_single(x_train, y_train, x_val, y_val, forced_iterations, forward_pass_kwargs=forward_pass_kwargs)
 
     def _update_params(self, params: dict[str, Any]) -> None:
         """Updates the model's parameters from a given dictionary."""
@@ -387,7 +405,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
                 "gumbel_tau": self.gumbel_tau,
                 "n_classes_predictor_learning_rate": self.n_classes_predictor_learning_rate,
                 "optimization_strategy": self.optimization_strategy,
-                "use_boundary_regularization": self.use_boundary_regularization,
+                "boundary_regularization_method": self.boundary_regularization_method,
                 "boundary_loss_weight": self.boundary_loss_weight,
                 "use_monotonic_constraints": self.use_monotonic_constraints,
                 "constrain_middle_class": self.constrain_middle_class,

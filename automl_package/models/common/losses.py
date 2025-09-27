@@ -12,12 +12,11 @@ def calculate_combined_loss(
     predictions: torch.Tensor,
     y_true: torch.Tensor,
     uncertainty_method: UncertaintyMethod,
-    use_boundary_regularization: bool,
-    class_boundaries: torch.Tensor | None,
-    class_value_ranges: torch.Tensor | None,
-    boundary_loss_weight: float,
-    device: torch.device,
-    include_boundary_loss: bool = True,
+    class_boundaries: torch.Tensor | None = None,
+    class_value_ranges: torch.Tensor | None = None,
+    boundary_loss_weight: float | None = None,
+    device: torch.device | None = None,
+    include_boundary_loss: bool = False,
 ) -> torch.Tensor:
     """Calculates the combined loss for a regression model.
 
@@ -46,7 +45,7 @@ def calculate_combined_loss(
 
     total_loss = regression_loss
 
-    if use_boundary_regularization and include_boundary_loss:
+    if include_boundary_loss:
         if class_boundaries is None or class_value_ranges is None:
             raise ValueError("class_boundaries and class_value_ranges must be provided for boundary regularization.")
 

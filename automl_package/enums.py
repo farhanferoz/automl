@@ -27,6 +27,14 @@ class RegressionStrategy(Enum):
     SINGLE_HEAD_FINAL_OUTPUT = "single_head_final_output"
 
 
+class BoundaryRegularizationMethod(Enum):
+    """Enum for boundary enforcement methods."""
+
+    NONE = "none"
+    PENALTY = "penalty"
+    HARDSIGMOID = "hardsigmoid"
+
+
 class MapperType(Enum):
     """Enum for different probability mapping strategies."""
 

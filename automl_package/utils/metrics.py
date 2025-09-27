@@ -134,11 +134,7 @@ class Metrics:
         """Calculates the Negative Log-Likelihood for probabilistic forecasts."""
         if self.y_std is None:
             return np.nan
-        # Ensure y_std is not zero to avoid division by zero or log(0)
-        y_std = np.maximum(self.y_std, 1e-9)
-        # Gaussian NLL formula: 0.5 * log(2 * pi * sigma^2) + (y_true - y_pred)^2 / (2 * sigma^2)
-        nll = 0.5 * (np.log(2 * np.pi * y_std**2) + ((self.y_true - self.y_pred) ** 2) / (y_std**2))
-        return np.mean(nll)
+        return calculate_nll(self.y_true, self.y_pred, self.y_std)
 
     def calculate_standardized_residuals(self) -> np.ndarray | None:
         """Calculates the standardized residuals (prediction_error / predicted_std)."""

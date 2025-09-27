@@ -17,7 +17,16 @@ class AdamWrapper(OptimizerWrapper):
         """Creates an Adam optimizer instance."""
         return optim.Adam(model_params, lr=lr)
 
-    def step(self, model: nn.Module, loss_fn: Callable, regularization_fn: Callable, optimizer: torch.optim.Optimizer, batch_x: torch.Tensor, batch_y: torch.Tensor, forward_pass_kwargs: dict | None = None) -> None:
+    def step(
+        self,
+        model: nn.Module,
+        loss_fn: Callable,
+        regularization_fn: Callable,
+        optimizer: torch.optim.Optimizer,
+        batch_x: torch.Tensor,
+        batch_y: torch.Tensor,
+        forward_pass_kwargs: dict | None = None,
+    ) -> None:
         """Performs a single optimization step for Adam."""
         optimizer.zero_grad()
         loss, _ = self._calculate_total_loss(model, loss_fn, regularization_fn, batch_x, batch_y, forward_pass_kwargs)
@@ -33,7 +42,16 @@ class HessianFreeWrapper(OptimizerWrapper):
         # Note: learning rate is not used by this optimizer
         return HessianFree(model_params, verbose=False)
 
-    def step(self, model: nn.Module, loss_fn: Callable, regularization_fn: Callable, optimizer: torch.optim.Optimizer, batch_x: torch.Tensor, batch_y: torch.Tensor, forward_pass_kwargs: dict | None = None) -> None:
+    def step(
+        self,
+        model: nn.Module,
+        loss_fn: Callable,
+        regularization_fn: Callable,
+        optimizer: torch.optim.Optimizer,
+        batch_x: torch.Tensor,
+        batch_y: torch.Tensor,
+        forward_pass_kwargs: dict | None = None,
+    ) -> None:
         """Performs a single optimization step for Hessian-free."""
 
         def forward() -> tuple[torch.Tensor, torch.Tensor]:

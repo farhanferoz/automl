@@ -6,14 +6,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import LearnedRegularizationType, OptimizerType, RegressionStrategy, UncertaintyMethod
+from automl_package.enums import BoundaryRegularizationMethod, LearnedRegularizationType, OptimizerType, RegressionStrategy, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.common.mixins import BoundaryLossMixin, RegularizationMixin
 from automl_package.models.common.regression_heads import SeparateHeadsRegressionModule, SingleHeadFinalOutputRegressionModule, SingleHeadNOutputsRegressionModule
 from automl_package.models.common.training import train_model
 from automl_package.models.mappers.base_mapper import BaseMapper
 from automl_package.optimizers import get_optimizer_wrapper
-from automl_package.utils.losses import boundary_regularization_loss, nll_loss
+from automl_package.utils.losses import nll_loss
 from automl_package.utils.numerics import create_bins
 from automl_package.utils.pytorch_utils import calculate_regularization_loss, get_device
 
@@ -31,7 +31,7 @@ class NeuralNetworkMapper(BaseMapper, RegularizationMixin, BoundaryLossMixin):
         mapper_params: dict,
         uncertainty_method: UncertaintyMethod = UncertaintyMethod.CONSTANT,
         early_stopping_rounds: int | None = None,
-        use_boundary_regularization: bool = False,
+        boundary_regularization_method: BoundaryRegularizationMethod = BoundaryRegularizationMethod.NONE,
         boundary_loss_weight: float = 1.0,
         class_value_ranges: torch.Tensor | None = None,
         class_boundaries: np.ndarray | None = None,
@@ -44,6 +44,7 @@ class NeuralNetworkMapper(BaseMapper, RegularizationMixin, BoundaryLossMixin):
         learned_regularization_type: LearnedRegularizationType = LearnedRegularizationType.L1_L2,
         lambda_learning_rate: float = 1e-5,
         apply_boundary_loss_during_validation: bool = False,
+        use_middle_class_nll_penalty: bool = False,
     ) -> None:
         """Initializes the NeuralNetworkMapper.
 
@@ -53,11 +54,20 @@ class NeuralNetworkMapper(BaseMapper, RegularizationMixin, BoundaryLossMixin):
             mapper_params: Parameters for the mapper, including training and model params.
             uncertainty_method: The uncertainty estimation method.
             early_stopping_rounds: The number of epochs with no improvement after which training will be stopped.
-            use_boundary_regularization: Whether to use boundary regularization.
+            boundary_regularization_method: The method to use for boundary regularization.
             boundary_loss_weight: The weight of the boundary loss.
             class_value_ranges: The value ranges for each class.
             class_boundaries: The boundaries for each class.
             optimizer_type: The type of optimizer to use.
+            use_monotonic_constraints: Whether to use monotonic constraints.
+            constrain_middle_class: Whether to constrain the middle class.
+            l1_lambda: L1 regularization strength.
+            l2_lambda: L2 regularization strength.
+            learn_regularization_lambdas: Whether to learn the regularization lambdas.
+            learned_regularization_type: The type of learned regularization to use.
+            lambda_learning_rate: The learning rate for the lambda optimizer.
+            apply_boundary_loss_during_validation: Whether to apply boundary loss during validation.
+            use_middle_class_nll_penalty: Whether to use a normal distribution penalty for the middle class.
         """
         super().__init__(uncertainty_method=uncertainty_method)
         self._bypass_sorting = True
@@ -66,7 +76,7 @@ class NeuralNetworkMapper(BaseMapper, RegularizationMixin, BoundaryLossMixin):
         self.mapper_params = mapper_params
         self.uncertainty_method = uncertainty_method
         self.early_stopping_rounds = early_stopping_rounds
-        self.use_boundary_regularization = use_boundary_regularization
+        self.boundary_regularization_method = boundary_regularization_method
         self.boundary_loss_weight = boundary_loss_weight
         self.class_value_ranges = class_value_ranges
         self.class_boundaries = class_boundaries
@@ -79,6 +89,8 @@ class NeuralNetworkMapper(BaseMapper, RegularizationMixin, BoundaryLossMixin):
         self.learned_regularization_type = learned_regularization_type
         self.lambda_learning_rate = lambda_learning_rate
         self.apply_boundary_loss_during_validation = apply_boundary_loss_during_validation
+        self.use_middle_class_nll_penalty = use_middle_class_nll_penalty
+        self.middle_class_dist_params = self.mapper_params.get("middle_class_dist_params")
 
         if self.use_monotonic_constraints and self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
             logger.warning(
@@ -145,25 +157,36 @@ class NeuralNetworkMapper(BaseMapper, RegularizationMixin, BoundaryLossMixin):
             mean = final_pred[:, 0]
             log_var = torch.log(torch.clamp(final_pred[:, 1], min=1e-6))
             return nll_loss(torch.stack((mean, log_var), dim=1), y_true_squeezed)
-        else:
-            return nn.MSELoss()(final_pred.squeeze(), y_true_squeezed)
+        return nn.MSELoss()(final_pred.squeeze(), y_true_squeezed)
 
     def _calculate_multi_output_loss(self, predictions: tuple[torch.Tensor, torch.Tensor], y_true: torch.Tensor, include_boundary_loss: bool = True) -> torch.Tensor:
         """Calculates loss for strategies that return multiple outputs (final_pred, per_head_outputs)."""
         y_true_squeezed = y_true.squeeze(-1) if y_true.ndim > 1 else y_true
+
         final_pred, per_head_outputs = predictions
 
         total_loss = self._calculate_main_regression_loss(final_pred, y_true_squeezed)
 
-        # 2. Calculate boundary loss on per-head outputs if applicable
-        if self.use_boundary_regularization and include_boundary_loss:
+        # Create the binned tensor once, as it might be used by both loss types
+        _, y_binned_tensor = create_bins(data=y_true_squeezed.cpu().numpy(), unique_bin_edges=self.class_boundaries)
+        y_binned_tensor = torch.tensor(y_binned_tensor, dtype=torch.long, device=self.device)
+
+        # Apply middle class NLL penalty if specified
+        if self.use_middle_class_nll_penalty:
+            total_loss += self.calculate_middle_class_nll_penalty(
+                heads=self.model.heads,
+                per_head_outputs=per_head_outputs,
+                y_binned_tensor=y_binned_tensor,
+                middle_class_dist_params=self.middle_class_dist_params,
+            )
+
+        # Apply boundary loss only for the PENALTY method
+        if self.boundary_regularization_method == BoundaryRegularizationMethod.PENALTY and include_boundary_loss:
             if self.class_boundaries is None or self.class_value_ranges is None:
                 raise ValueError("class_boundaries and class_value_ranges must be provided for boundary regularization.")
 
-            _, y_binned_tensor = create_bins(data=y_true_squeezed.cpu().numpy(), unique_bin_edges=self.class_boundaries)
-            y_binned_tensor = torch.tensor(y_binned_tensor, dtype=torch.long, device=self.device)
-
             total_loss += self.calculate_boundary_loss(
+                heads=self.model.heads,
                 per_head_outputs=per_head_outputs,
                 y_true=y_true_squeezed,
                 y_binned_tensor=y_binned_tensor,
@@ -220,10 +243,19 @@ class NeuralNetworkMapper(BaseMapper, RegularizationMixin, BoundaryLossMixin):
         # Select the appropriate loss function and forward pass arguments based on the strategy
         if self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
             loss_fn = self._calculate_single_output_loss
-            forward_pass_kwargs = None
+            forward_pass_kwargs = {}
         else:
             loss_fn = self._calculate_multi_output_loss
-            forward_pass_kwargs = {"return_head_outputs": True} if self.use_boundary_regularization else None
+            forward_pass_kwargs = {"return_head_outputs": True}
+
+        if self.boundary_regularization_method == BoundaryRegularizationMethod.HARDSIGMOID:
+            if self.class_value_ranges is None:
+                raise ValueError("class_value_ranges must be provided for the HARDSIGMOID boundary method.")
+
+            _, y_binned_tensor = create_bins(data=y_train, unique_bin_edges=self.class_boundaries)
+            y_binned_tensor = torch.tensor(y_binned_tensor, dtype=torch.long, device=self.device)
+            forward_pass_kwargs["y_binned_tensor"] = y_binned_tensor
+            forward_pass_kwargs["class_value_ranges"] = self.class_value_ranges
 
         best_epoch, _ = train_model(
             model=self.model,
@@ -242,6 +274,7 @@ class NeuralNetworkMapper(BaseMapper, RegularizationMixin, BoundaryLossMixin):
             lambda_optimizer=self.lambda_optimizer,
             forward_pass_kwargs=forward_pass_kwargs,
             apply_boundary_loss_during_validation=self.apply_boundary_loss_during_validation,
+            y_binned_train=forward_pass_kwargs.get("y_binned_tensor"),
         )
 
         if self.uncertainty_method == UncertaintyMethod.CONSTANT:
@@ -271,7 +304,9 @@ class NeuralNetworkMapper(BaseMapper, RegularizationMixin, BoundaryLossMixin):
         self.model.eval()
         with torch.no_grad():
             probas_tensor = torch.tensor(probas_new, dtype=torch.float32).to(self.device)
-            predictions_tensor = self.model(probas_tensor)
+            predictions_tensor = self.model(probas_tensor, return_head_outputs=False)
+            if isinstance(predictions_tensor, tuple):
+                predictions_tensor = predictions_tensor[0]
             # Return only the mean if uncertainty_method == PROBABILISTIC
             return predictions_tensor[:, 0].cpu().numpy() if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else predictions_tensor.cpu().numpy()
 

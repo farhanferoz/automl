@@ -7,7 +7,6 @@ import numpy as np
 
 from automl_package.enums import MapperType, UncertaintyMethod
 from automl_package.models.common.mixins import BinnedUncertaintyMixin
-from automl_package.utils.numerics import calculate_binned_stats
 
 
 class BaseMapper(ABC, BinnedUncertaintyMixin):

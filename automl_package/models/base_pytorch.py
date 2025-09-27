@@ -14,7 +14,7 @@ from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 from automl_package.models.common.mixins import RegularizationMixin
 from automl_package.optimizers import get_optimizer_wrapper
-from automl_package.utils.numerics import aggregate_stats, ensure_proba_shape, log_erfc
+from automl_package.utils.numerics import ensure_proba_shape
 from automl_package.utils.pytorch_utils import calculate_regularization_loss, get_device
 
 
@@ -98,7 +98,13 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         )
 
     def _fit_single(
-        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        forced_iterations: int | None = None,
+        forward_pass_kwargs: dict | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -108,6 +114,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
             x_val (np.ndarray | None): The validation features.
             y_val (np.ndarray | None): The validation targets.
             forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
+            forward_pass_kwargs (dict | None): Keyword arguments to pass to the model's forward pass.
 
         Returns:
             tuple[int, list[float]]: A tuple containing:
@@ -170,7 +177,13 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
                     self.lambda_optimizer.zero_grad()
 
                 self.optimizer_wrapper.step(
-                    model=self.model, loss_fn=self.criterion, regularization_fn=self._calculate_regularization_loss, optimizer=self.optimizer, batch_x=batch_x, batch_y=batch_y
+                    model=self.model,
+                    loss_fn=self.criterion,
+                    regularization_fn=self._calculate_regularization_loss,
+                    optimizer=self.optimizer,
+                    batch_x=batch_x,
+                    batch_y=batch_y,
+                    forward_pass_kwargs=forward_pass_kwargs,
                 )
 
                 if self.lambda_optimizer:

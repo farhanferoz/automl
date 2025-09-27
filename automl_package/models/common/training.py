@@ -26,33 +26,10 @@ def train_model(
     lambda_optimizer: torch.optim.Optimizer | None = None,
     forward_pass_kwargs: dict | None = None,
     apply_boundary_loss_during_validation: bool = False,
+    y_binned_train: torch.Tensor | None = None,
 ) -> tuple[int, float | None]:
-    """Trains a PyTorch model.
-
-    Args:
-        model: The model to train.
-        optimizer: The optimizer to use.
-        loss_fn: The loss function to use.
-        probas_train: The training probabilities.
-        y_train: The training labels.
-        probas_val: The validation probabilities.
-        y_val: The validation labels.
-        epochs: The number of epochs to train for.
-        batch_size: The batch size to use.
-        early_stopping_rounds: The number of epochs with no improvement after which training will be stopped.
-        device: The device to train on.
-        optimizer_wrapper: The optimizer wrapper to use.
-        regularization_fn: An optional function to apply regularization.
-        lambda_optimizer: An optional optimizer for learnable regularization lambdas.
-        forward_pass_kwargs: Optional keyword arguments to pass to the model's forward pass.
-        apply_boundary_loss_during_validation: If True, include boundary loss in validation.
-
-    Returns:
-        A tuple containing:
-            - The number of epochs the model was trained for.
-            - The best validation loss.
-    """
-    dataset = TensorDataset(probas_train, y_train)
+    """Trains a PyTorch model."""
+    dataset = TensorDataset(probas_train, y_train, y_binned_train) if y_binned_train is not None else TensorDataset(probas_train, y_train)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     best_val_loss = float("inf")
@@ -62,21 +39,42 @@ def train_model(
 
     use_early_stopping = early_stopping_rounds and early_stopping_rounds > 0 and probas_val is not None and y_val is not None
 
-    # If no regularization function is provided, use a default one that does nothing.
     if regularization_fn is None:
-        regularization_fn = lambda loss, model: loss
+
+        def regularization_fn(loss: torch.Tensor, _: torch.nn.Module) -> torch.Tensor:
+            return loss
 
     for epoch in range(epochs):
         model.train()
-        for probas_batch_cpu, y_batch_cpu in loader:
+        for batch in loader:
+            if y_binned_train is not None:
+                probas_batch_cpu, y_batch_cpu, y_binned_batch_cpu = batch
+                y_binned_batch = y_binned_batch_cpu.to(device)
+            else:
+                probas_batch_cpu, y_batch_cpu = batch
+                y_binned_batch = None
+
             probas_batch = probas_batch_cpu.to(device)
             y_batch = y_batch_cpu.to(device)
+
+            batch_forward_pass_kwargs = forward_pass_kwargs.copy() if forward_pass_kwargs else {}
+            if y_binned_batch is not None and "class_value_ranges" in batch_forward_pass_kwargs:
+                class_value_ranges = batch_forward_pass_kwargs.pop("class_value_ranges")
+                if "y_binned_tensor" in batch_forward_pass_kwargs:
+                    del batch_forward_pass_kwargs["y_binned_tensor"]
+                batch_forward_pass_kwargs["boundaries"] = class_value_ranges[y_binned_batch]
 
             if lambda_optimizer:
                 lambda_optimizer.zero_grad()
 
             optimizer_wrapper.step(
-                model=model, loss_fn=loss_fn, optimizer=optimizer, batch_x=probas_batch, batch_y=y_batch, regularization_fn=regularization_fn, forward_pass_kwargs=forward_pass_kwargs
+                model=model,
+                loss_fn=loss_fn,
+                optimizer=optimizer,
+                batch_x=probas_batch,
+                batch_y=y_batch,
+                regularization_fn=regularization_fn,
+                forward_pass_kwargs=batch_forward_pass_kwargs,
             )
 
             if lambda_optimizer:
@@ -85,7 +83,12 @@ def train_model(
         if use_early_stopping:
             model.eval()
             with torch.no_grad():
-                val_preds = model(probas_val, **(forward_pass_kwargs or {}))
+                val_forward_pass_kwargs = forward_pass_kwargs.copy() if forward_pass_kwargs else {}
+                if "y_binned_tensor" in val_forward_pass_kwargs:
+                    del val_forward_pass_kwargs["y_binned_tensor"]
+                if "class_value_ranges" in val_forward_pass_kwargs:
+                    del val_forward_pass_kwargs["class_value_ranges"]
+                val_preds = model(probas_val, **(val_forward_pass_kwargs or {}))
                 val_loss = loss_fn(val_preds, y_val, include_boundary_loss=apply_boundary_loss_during_validation)
 
             if val_loss < best_val_loss:

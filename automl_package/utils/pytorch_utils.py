@@ -2,9 +2,9 @@
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import torch.nn.functional as f
 
-from automl_package.enums import ActivationFunction, Monotonicity, LearnedRegularizationType
+from automl_package.enums import ActivationFunction, LearnedRegularizationType, Monotonicity
 from automl_package.utils.numerics import aggregate_stats, log_erfc
 
 
@@ -19,7 +19,6 @@ def calculate_regularization_loss(
     l2_log_lambda: nn.Parameter | None,
 ) -> torch.Tensor:
     """Calculates the regularization loss for a model, supporting both fixed and learnable lambdas."""
-
     loss = base_loss
     d, l1_sum, l2_sum = aggregate_stats(model=model, include_bias=False)
 
@@ -83,8 +82,7 @@ def get_activation_function_map() -> dict[ActivationFunction, nn.Module]:
 
 
 def monotonic_linear(input_tensor: torch.Tensor, layer: nn.Linear, monotonic_constraint: Monotonicity) -> torch.Tensor:
-    """
-    Performs a linear operation with an optional monotonic constraint.
+    """Performs a linear operation with an optional monotonic constraint.
 
     Args:
         input_tensor: The input tensor to the linear layer.
@@ -94,7 +92,6 @@ def monotonic_linear(input_tensor: torch.Tensor, layer: nn.Linear, monotonic_con
     Returns:
         The result of the linear operation.
     """
-
     # Apply softplus to weights to make them non-negative if monotonic constraint needs to be applied
-    weight = layer.weight if monotonic_constraint == Monotonicity.NONE else F.softplus(layer.weight)
-    return F.linear(input_tensor, weight, layer.bias)
+    weight = layer.weight if monotonic_constraint == Monotonicity.NONE else f.softplus(layer.weight)
+    return f.linear(input_tensor, weight, layer.bias)

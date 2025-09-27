@@ -18,12 +18,15 @@ class NoneStrategy(BaseSelectionStrategy):
     def on_epoch_end(self, **kwargs: Any) -> None:
         """This method is called at the end of each epoch (no-op for this strategy)."""
 
-    def forward(self, x_input: torch.Tensor, _logits: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
+    def forward(
+        self, x_input: torch.Tensor, _logits: torch.Tensor | None, boundaries: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None]:
         """Performs forward pass without n_classes selection.
 
         Args:
             x_input (torch.Tensor): Input tensor.
             _logits (torch.Tensor | None): Logits from the n_classes_predictor (ignored in this strategy).
+            boundaries (torch.Tensor | None): Optional boundaries for the sigmoid transformation.
 
         Returns:
             tuple: A tuple containing final predictions, selected k values, log_prob_for_reinforce, and classifier_raw_logits.
@@ -38,10 +41,10 @@ class NoneStrategy(BaseSelectionStrategy):
         probabilities = torch.softmax(masked_classifier_logits, dim=1)
 
         if self.model.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
-            final_predictions_contribution = self.model.regression_module(probabilities, return_head_outputs=True)
+            final_predictions_contribution = self.model.regression_module(probabilities, return_head_outputs=True, boundaries=boundaries)
             per_head_outputs = None  # This strategy doesn't have per-head outputs
         else:
-            final_predictions_contribution, per_head_outputs = self.model.regression_module(probabilities, return_head_outputs=True)
+            final_predictions_contribution, per_head_outputs = self.model.regression_module(probabilities, return_head_outputs=True, boundaries=boundaries)
 
         selected_k_values_for_logging = torch.full((x_input.size(0),), self.model.n_classes, dtype=torch.long).to(x_input.device)
 
