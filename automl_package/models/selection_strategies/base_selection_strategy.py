@@ -44,15 +44,22 @@ class BaseSelectionStrategy(ABC):
         """Hook for epoch-end operations (e.g., REINFORCE policy updates)."""
         # Default implementation does nothing
 
+    # Sentinel value for direct regression mode (must exceed any valid n_classes_inf).
+    # Loss function checks `selected_k_values < n_classes_inf` to identify probabilistic samples.
+    _DIRECT_REGRESSION_K_SENTINEL = 2**30
+
     # Helper for weighted average logic (common to GumbelSoftmax and SoftGating)
-    def _weighted_average_logic(self, x_input: torch.Tensor, mode_selection_probs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def _weighted_average_logic(self, x_input: torch.Tensor, mode_selection_probs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # Compute classifier logits once (Bug 4 fix: pass logits, not raw features, to _compute_predictions_for_k)
+        classifier_raw_logits = self.model.classifier_layers(x_input)
         final_predictions_contribution = torch.zeros(x_input.size(0), self.model.regression_output_size).to(x_input.device)
 
         # Determine the selected k values based on the argmax of probabilities
+        inf_sentinel = self._DIRECT_REGRESSION_K_SENTINEL
         selected_k_indices = torch.argmax(mode_selection_probs, dim=1)
         selected_k_values = torch.where(
             selected_k_indices == mode_selection_probs.size(1) - 1,  # If it's the last mode (direct regression)
-            torch.tensor(self.model.n_classes_inf, dtype=torch.long).to(x_input.device),
+            torch.tensor(inf_sentinel, dtype=torch.long).to(x_input.device),
             selected_k_indices + 2,  # Otherwise, it's k_val = index + 2
         )
 
@@ -65,11 +72,11 @@ class BaseSelectionStrategy(ABC):
                 predictions_for_mode = self.model.direct_regression_head(x_input)
             else:  # This is a probabilistic path with k_val = i + 2
                 k_val = i + 2
-                predictions_for_mode = self.model._compute_predictions_for_k(x_input, k_val)
+                predictions_for_mode = self.model._compute_predictions_for_k(classifier_raw_logits, k_val)
 
             final_predictions_contribution += prob_i * predictions_for_mode
 
-        return final_predictions_contribution, selected_k_values
+        return final_predictions_contribution, selected_k_values, classifier_raw_logits
 
     # Helper for hard selection logic (common to STE and REINFORCE)
     def _hard_selection_logic(self, x_input: torch.Tensor, mode_selection_one_hot: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -80,10 +87,11 @@ class BaseSelectionStrategy(ABC):
         classifier_raw_logits = self.model.classifier_layers(x_input)
         final_predictions_contribution = torch.zeros(x_input.size(0), self.model.regression_output_size).to(x_input.device)
 
+        inf_sentinel = self._DIRECT_REGRESSION_K_SENTINEL
         selected_k_indices = torch.argmax(mode_selection_one_hot, dim=1)
         selected_k_values = torch.where(
             selected_k_indices == mode_selection_one_hot.size(1) - 1,  # If it's the last mode (direct regression)
-            torch.tensor(self.model.n_classes_inf, dtype=torch.long).to(x_input.device),
+            torch.tensor(inf_sentinel, dtype=torch.long).to(x_input.device),
             selected_k_indices + 2,  # Otherwise, it's k_val = index + 2
         )
 

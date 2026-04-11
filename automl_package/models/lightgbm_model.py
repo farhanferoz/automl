@@ -69,7 +69,7 @@ class LightGBMModel(BaseModel):
             num_classes = len(np.unique(y_train))
             if num_classes > 2:
                 self.objective = "multiclass"
-                self.metric = Metric.MLOGLOSS.label
+                self.metric = "multi_logloss"
                 params["num_class"] = num_classes
             else:
                 self.objective = "binary"

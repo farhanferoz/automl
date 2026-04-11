@@ -92,6 +92,22 @@ class LayerSelectionMethod(Enum):
     REINFORCE = "reinforce"
 
 
+class DepthRegularization(Enum):
+    """Enum for depth complexity control in flexible neural networks."""
+
+    NONE = "none"
+    DEPTH_PENALTY = "depth_penalty"
+    ELBO = "elbo"
+
+
+class NClassesRegularization(Enum):
+    """Enum for n_classes complexity control in probabilistic regression."""
+
+    NONE = "none"
+    K_PENALTY = "k_penalty"
+    ELBO = "elbo"
+
+
 class NClassesSelectionMethod(Enum):
     """Enum for different n_classes selection methods in probabilistic regression."""
 

@@ -7,10 +7,12 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import torch
 
-from automl_package.enums import BoundaryRegularizationMethod, MapperType, Metric, ModelName, RegressionStrategy, TaskType, UncertaintyMethod
+from automl_package.enums import BoundaryRegularizationMethod, MapperType, Metric, ModelName, OptimizerType, RegressionStrategy, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
+from automl_package.models.common.middle_class_penalty_mixin import MiddleClassPenaltyMixin
 from automl_package.models.mappers.base_mapper import BaseMapper
 from automl_package.models.mappers.nn_mapper import NeuralNetworkMapper
 from automl_package.models.probability_mapper import ClassProbabilityMapper
@@ -19,10 +21,10 @@ from automl_package.utils.feature_selection import select_features_by_cumulative
 from automl_package.utils.metrics import Metrics
 from automl_package.utils.numerics import calculate_class_value_ranges, create_bins
 from automl_package.utils.plotting import plot_nn_probability_mappers
-from automl_package.utils.pytorch_utils import get_device
+from automl_package.utils.pytorch_utils import apply_law_of_total_variance, get_device
 
 
-class ClassifierRegressionModel(BaseModel):
+class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
     """A composite model that combines a classification model with a probability mapper.
 
     to perform regression. It first discretizes the target into N classes,
@@ -46,7 +48,7 @@ class ClassifierRegressionModel(BaseModel):
         self.constrain_middle_class: bool = kwargs.pop("constrain_middle_class", False)
         self.apply_boundary_loss_during_validation: bool = kwargs.pop("apply_boundary_loss_during_validation", False)
         self.use_middle_class_nll_penalty: bool = kwargs.pop("use_middle_class_nll_penalty", False)
-        self.optimizer_type: bool = kwargs.pop("optimizer_type", False)
+        self.optimizer_type: OptimizerType = kwargs.pop("optimizer_type", OptimizerType.ADAM)
         self.device = get_device()
 
         if self.boundary_regularization_method == BoundaryRegularizationMethod.PENALTY and kwargs.get("uncertainty_method") == UncertaintyMethod.PROBABILISTIC:
@@ -61,6 +63,7 @@ class ClassifierRegressionModel(BaseModel):
         }
 
         super().__init__(**kwargs)
+        MiddleClassPenaltyMixin.__init__(self, **kwargs)
         assert self.is_regression_model
 
         if isinstance(self.mapper_type, str):
@@ -85,10 +88,36 @@ class ClassifierRegressionModel(BaseModel):
         self.optimal_mapper_params_ = {}
         self.task_type = TaskType.REGRESSION
         self._train_residual_std = 0.0
-        self.middle_class_dist_params_ = None
 
         if self.n_classes < 2:
             raise ValueError("n_classes must be at least 2 for classification-regression strategy.")
+
+        self._validate_configuration()
+
+    def _validate_configuration(self) -> None:
+        """Validates the combination of parameters provided to the model."""
+        # This validation logic is moved from NeuralNetworkMapper to fail early.
+        if self.mapper_type.is_nn:
+            if self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT and self.boundary_regularization_method == BoundaryRegularizationMethod.HARDSIGMOID:
+                raise ValueError("The HARDSIGMOID boundary regularization method cannot be used with the SingleHeadFinalOutput strategy, as boundaries are defined per class.")
+
+            if self.use_monotonic_constraints and self.regression_strategy != RegressionStrategy.SEPARATE_HEADS:
+                raise ValueError(f"Monotonic constraints are only supported for the SEPARATE_HEADS strategy, but strategy is set to {self.regression_strategy.name}.")
+
+            middle_class_options = self.constrain_middle_class or self.use_middle_class_nll_penalty
+            if middle_class_options:
+                if self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
+                    if self.constrain_middle_class:
+                        raise ValueError(f"The `constrain_middle_class` option is not supported for the SINGLE_HEAD_FINAL_OUTPUT strategy.")
+
+                    if self.use_middle_class_nll_penalty:
+                        raise ValueError(f"The `use_middle_class_nll_penalty` option is not supported for the SINGLE_HEAD_FINAL_OUTPUT strategy.")
+
+                if self.n_classes % 2 == 0:
+                    logger.warning(
+                        f"The `constrain_middle_class` or `use_middle_class_nll_penalty` options are enabled, but n_classes is {self.n_classes} (an even number). "
+                        f"These options will have no effect."
+                    )
 
     @property
     def name(self) -> str:
@@ -136,16 +165,16 @@ class ClassifierRegressionModel(BaseModel):
                 boundary_loss_weight=self.boundary_loss_weight,
                 class_value_ranges=self.class_value_ranges_,
                 class_boundaries=self.class_boundaries,
-                use_monotonic_constraints=self.use_monotonic_constraints,
-                constrain_middle_class=self.constrain_middle_class,
                 optimizer_type=self.optimizer_type,
                 apply_boundary_loss_during_validation=self.apply_boundary_loss_during_validation,
                 use_middle_class_nll_penalty=self.use_middle_class_nll_penalty,
+                use_monotonic_constraints=self.use_monotonic_constraints,
+                constrain_middle_class=self.constrain_middle_class,
             )
 
             # The NN mapper handles the train/val split internally if val_probas is provided
             train_indices = np.arange(probas.shape[0])
-            val_indices = np.arange(val_probas.shape[0]) if val_probas is not None else None
+            val_indices = np.arange(probas.shape[0], probas.shape[0] + val_probas.shape[0]) if val_probas is not None else None
             combined_probas = np.vstack((probas, val_probas)) if val_probas is not None else probas
             combined_y = np.concatenate((y, val_y)) if val_y is not None else y
 
@@ -172,7 +201,10 @@ class ClassifierRegressionModel(BaseModel):
     ) -> None:
         """Checks the uncertainty method and calibrates the mappers if required."""
         active_mapper = mappers[0]
-        mapper_to_check = active_mapper.mapper if not mapper_type.is_nn else active_mapper
+        if isinstance(active_mapper, NeuralNetworkMapper):
+            mapper_to_check = active_mapper
+        else:
+            mapper_to_check = active_mapper.mapper
 
         if mapper_to_check and mapper_to_check.uncertainty_method == UncertaintyMethod.BINNED_RESIDUAL_STD:
             x_full = np.vstack((x_train, x_val)) if x_val is not None else x_train
@@ -205,7 +237,10 @@ class ClassifierRegressionModel(BaseModel):
 
         # Check the actual uncertainty method of the active mapper, which may have been remapped.
         active_mapper = self.class_mappers[0]
-        active_uncertainty_method = active_mapper.mapper.uncertainty_method if not self.mapper_type.is_nn else active_mapper.uncertainty_method
+        if isinstance(active_mapper, NeuralNetworkMapper):
+            active_uncertainty_method = active_mapper.uncertainty_method
+        else:
+            active_uncertainty_method = active_mapper.mapper.uncertainty_method
 
         uncertainties = None
         if active_uncertainty_method == UncertaintyMethod.CONSTANT:
@@ -215,32 +250,37 @@ class ClassifierRegressionModel(BaseModel):
             if filter_data:
                 x = self._filter_predict_data(x)
             probas = self.base_classifier.predict_proba(x, filter_data=False)
+            active_mapper = self.class_mappers[0]
 
-            if self.mapper_type.is_nn and self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
-                total_variance = self.class_mappers[0].predict_variance(probas)
-            else:
-                # Apply the Law of Total Variance
-                if self.mapper_type.is_nn:
-                    mapper = self.class_mappers[0]
-                    mapper_means, mapper_variances = mapper.predict_mean_and_variance_per_class(probas)
+            if isinstance(active_mapper, NeuralNetworkMapper):
+                if active_mapper.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
+                    total_variance = active_mapper.predict_variance(probas)
+                    uncertainties = np.sqrt(total_variance)
                 else:
-                    mapper_means = np.zeros_like(probas)
-                    mapper_variances = np.zeros_like(probas)
-                    for c in range(self.n_classes):
-                        if self.class_mappers[c] is not None:
-                            class_probas = probas[:, c].reshape(-1, 1)
-                            mapper_means[:, c] = self.class_mappers[c].predict(class_probas).flatten()
-                            mapper_variances[:, c] = self.class_mappers[c].predict_variance_contribution(class_probas).flatten()
+                    # Apply the Law of Total Variance
+                    mapper_means, mapper_variances = active_mapper.predict_mean_and_variance_per_class(probas)
+                    probas_tensor = torch.from_numpy(probas).float().to(self.device)
+                    means_tensor = torch.from_numpy(mapper_means).float().to(self.device).unsqueeze(-1)
+                    log_vars_tensor = torch.log(torch.from_numpy(mapper_variances).float().to(self.device).clamp(min=1e-9)).unsqueeze(-1)
+                    per_head_outputs = torch.cat([means_tensor, log_vars_tensor], dim=-1)
+                    final_predictions = apply_law_of_total_variance(probas_tensor, per_head_outputs)
+                    uncertainties = np.sqrt(torch.exp(final_predictions[:, 1]).cpu().numpy())
+            else:
+                # Logic for non-NN mappers
+                mapper_means = np.zeros_like(probas)
+                mapper_variances = np.zeros_like(probas)
+                for c in range(self.n_classes):
+                    if self.class_mappers[c] is not None:
+                        class_probas = probas[:, c].reshape(-1, 1)
+                        mapper_means[:, c] = self.class_mappers[c].predict(class_probas).flatten()
+                        mapper_variances[:, c] = self.class_mappers[c].predict_variance_contribution(class_probas).flatten()
 
-                # E[Y|X] = sum(P(C=i|X) * E[Y|X, C=i])
-                total_mean = np.sum(probas * mapper_means, axis=1)
-                # E[Var(Y|X)] = sum(P(C=i|X) * Var(Y|X, C=i))
-                expected_variance = np.sum(probas * mapper_variances, axis=1)
-                # Var(E[Y|X]) = sum(P(C=i|X) * (E[Y|X, C=i] - E[Y|X])^2)
-                variance_of_expectation = np.sum(probas * np.square(mapper_means - total_mean[:, np.newaxis]), axis=1)
-                # Total Variance = E[Var(Y|X)] + Var(E[Y|X])
-                total_variance = expected_variance + variance_of_expectation
-            uncertainties = np.sqrt(total_variance)
+                probas_tensor = torch.from_numpy(probas).float().to(self.device)
+                means_tensor = torch.from_numpy(mapper_means).float().to(self.device).unsqueeze(-1)
+                log_vars_tensor = torch.log(torch.from_numpy(mapper_variances).float().to(self.device).clamp(min=1e-9)).unsqueeze(-1)
+                per_head_outputs = torch.cat([means_tensor, log_vars_tensor], dim=-1)
+                final_predictions = apply_law_of_total_variance(probas_tensor, per_head_outputs)
+                uncertainties = np.sqrt(torch.exp(final_predictions[:, 1]).cpu().numpy())
 
         if uncertainties is None:
             raise NotImplementedError(f"Uncertainty method '{active_uncertainty_method}' is not implemented in predict_uncertainty.")
@@ -275,16 +315,6 @@ class ClassifierRegressionModel(BaseModel):
             params["input_size"] = input_size
             params["output_size"] = classifier_output_size
         return params
-
-    def _calculate_middle_class_dist_params(self, y_flat: np.ndarray, y_binned: np.ndarray) -> None:
-        """Calculates and stores the mean and std of the y values for the middle class."""
-        if self.use_middle_class_nll_penalty and self.n_classes % 2 != 0:
-            middle_class_idx = int(self.n_classes / 2)
-            middle_class_mask = y_binned == middle_class_idx
-            middle_class_y = y_flat[middle_class_mask]
-            self.middle_class_dist_params_ = {"mean": np.mean(middle_class_y), "std": np.std(middle_class_y)}
-        else:
-            self.middle_class_dist_params_ = None
 
     def _perform_feature_selection(self, x_train_val: pd.DataFrame, y_train_val: np.ndarray, iterations: int | None) -> None:
         """Performs feature selection on the base classifier."""
@@ -378,8 +408,12 @@ class ClassifierRegressionModel(BaseModel):
         # Temporarily set the classifier and mappers on the instance for score calculation
         original_classifier = self.base_classifier
         original_mappers = self.class_mappers
+        original_uncertainty_method = self.uncertainty_method
         self.base_classifier = temp_classifier
         self.class_mappers = fitted_mappers
+
+        # Force MSE for mapper evaluation
+        self.uncertainty_method = UncertaintyMethod.CONSTANT
 
         self._calibrate_mappers_if_needed(
             mapper_type=mapper_type, mappers=fitted_mappers, classifier=temp_classifier, x_train=x_train_fold, y_train=y_train_fold, x_val=x_val_fold, y_val=y_val_fold
@@ -390,6 +424,7 @@ class ClassifierRegressionModel(BaseModel):
         # Restore the original state
         self.base_classifier = original_classifier
         self.class_mappers = original_mappers
+        self.uncertainty_method = original_uncertainty_method
 
         return score
 
@@ -566,7 +601,7 @@ class ClassifierRegressionModel(BaseModel):
             for n in range(n_classes_space["low"], n_classes_space["high"] + 1):
                 boundaries, y_binned = create_bins(data=y_train_val, n_bins=n, min_value=-np.inf, max_value=np.inf)
                 self.precomputed_boundaries_[n] = boundaries
-                self._calculate_middle_class_dist_params(y_train_val, y_binned)
+                self._calculate_middle_class_dist_params(y_train_val, y_binned, n_classes=n)
                 if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE:
                     self.precomputed_class_value_ranges_[n] = calculate_class_value_ranges(y_flat=y_train_val, y_binned=y_binned, k=n, y_min=y_min, y_max=y_max, device=self.device)
 
@@ -876,7 +911,12 @@ class ClassifierRegressionModel(BaseModel):
 
     def _get_optimization_metric(self) -> Metric:
         """Gets the optimization metric, considering the mapper's potentially overridden uncertainty method."""
-        # Determine the effective uncertainty method
+        # If self.uncertainty_method has been temporarily set to CONSTANT,
+        # it means we are in the mapper evaluation phase and should force MSE.
+        if self.uncertainty_method == UncertaintyMethod.CONSTANT:
+            return Metric.MSE
+
+        # Otherwise, proceed with the normal logic to determine the effective uncertainty method.
         effective_uncertainty_method = self.uncertainty_method
         if self.class_mappers:
             # For composite models, the mapper's uncertainty method is the source of truth

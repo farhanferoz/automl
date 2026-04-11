@@ -93,7 +93,7 @@ class XGBoostModel(BaseModel):
             num_classes = len(np.unique(y_train))
             if num_classes > 2:
                 self.objective = "multi:softprob"
-                self.eval_metric = Metric.MLOGLOSS.label
+                self.eval_metric = "mlogloss"
                 params["num_class"] = num_classes
             else:
                 self.objective = "binary:logistic"

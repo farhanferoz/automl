@@ -8,6 +8,7 @@ import torch.nn as nn
 
 from automl_package.enums import (
     ActivationFunction,
+    DepthRegularization,
     ExplainerType,
     LayerSelectionMethod,
     TaskType,
@@ -47,6 +48,8 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         "gumbel_tau_anneal_rate": 0.99,
         "n_predictor_learning_rate": 0.001,
         "layer_selection_method": LayerSelectionMethod.GUMBEL_SOFTMAX,
+        "depth_regularization": DepthRegularization.NONE,
+        "depth_penalty_weight": 0.01,
     }
 
     def __init__(
@@ -189,12 +192,12 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
 
     def build_model(self) -> None:
         """Builds the internal PyTorch nn.Module for the IndependentWeightsFlexibleNN."""
-        activation_function_map = get_activation_function_map()
-        self.activation = activation_function_map.get(self.activation)
-        if self.activation is None:
-            raise ValueError(f"Unsupported activation function: {self.activation}")
+        if isinstance(self.activation, ActivationFunction):
+            activation_function_map = get_activation_function_map()
+            self.activation = activation_function_map.get(self.activation)
+            if self.activation is None:
+                raise ValueError(f"Unsupported activation function: {self.activation}")
 
-        self.model = self.IndependentWeightsFlexibleNNModule(self).to(self.device)
         self.model = self.IndependentWeightsFlexibleNNModule(self).to(self.device)
 
         if self.task_type == TaskType.REGRESSION:
@@ -289,27 +292,28 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                 if self.lambda_optimizer:
                     self.lambda_optimizer.zero_grad()
 
-                final_output, _, _, _, log_prob = self.model(_batch_x)
+                final_output, _, n_probs, _, log_prob = self.model(_batch_x)
 
                 # Calculate main loss
                 main_loss = self.criterion(final_output, batch_y)
                 main_loss = self._calculate_regularization_loss(main_loss, self.model)
 
-                if self.layer_selection_method == LayerSelectionMethod.REINFORCE and log_prob is not None:
-                    # Calculate policy loss (REINFORCE)
-                    # The reward signal is typically the negative of the validation loss,
-                    # but for batch-wise updates, we can use the negative of the current batch's main_loss
-                    # or a baseline. For simplicity, let's use negative main_loss as a reward.
-                    # We need to ensure the reward is detached to prevent gradients flowing back through it
-                    # to the main network parameters.
-                    reward = -main_loss.detach()
-                    policy_loss = -log_prob * reward  # Multiply by reward
+                # Depth regularization
+                if self.depth_regularization == DepthRegularization.ELBO and n_probs is not None:
+                    depth_prior_logits = torch.arange(self.max_hidden_layers, 0, -1, dtype=torch.float, device=_batch_x.device)
+                    depth_prior = torch.distributions.Categorical(logits=depth_prior_logits)
+                    q_depth = torch.distributions.Categorical(probs=n_probs + 1e-8)
+                    kl_div = torch.distributions.kl_divergence(q_depth, depth_prior).mean()
+                    main_loss = main_loss + kl_div
+                elif self.depth_regularization == DepthRegularization.DEPTH_PENALTY and n_probs is not None:
+                    depth_indices = torch.arange(1, self.max_hidden_layers + 1, dtype=torch.float, device=_batch_x.device)
+                    expected_depth = torch.sum(n_probs * depth_indices, dim=1)
+                    main_loss = main_loss + self.depth_penalty_weight * expected_depth.mean()
 
-                    # Combine losses
-                    # The policy loss is typically added to the main loss.
-                    # The weighting of policy_loss can be a hyperparameter.
-                    # For now, let's add it directly.
-                    loss = main_loss + policy_loss.mean()  # Use .mean() if log_prob is per-sample
+                if self.layer_selection_method == LayerSelectionMethod.REINFORCE and log_prob is not None:
+                    reward = -main_loss.detach()
+                    policy_loss = -log_prob * reward
+                    loss = main_loss + policy_loss.mean()
                 else:
                     loss = main_loss
 
@@ -375,7 +379,8 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
             x = self._filter_predict_data(x)
-        x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
+        x_array = x.values if hasattr(x, "values") else x
+        x_tensor = torch.tensor(x_array, dtype=torch.float32).to(self.device)
 
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
             self.model.train()
@@ -426,7 +431,8 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
             x = self._filter_predict_data(x)
-        x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
+        x_array = x.values if hasattr(x, "values") else x
+        x_tensor = torch.tensor(x_array, dtype=torch.float32).to(self.device)
 
         if self.uncertainty_method == UncertaintyMethod.CONSTANT:
             return np.full(x.shape[0], self._train_residual_std)
@@ -478,7 +484,8 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         if filter_data:
             x = self._filter_predict_data(x)
         self.model.eval()
-        x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
+        x_array = x.values if hasattr(x, "values") else x
+        x_tensor = torch.tensor(x_array, dtype=torch.float32).to(self.device)
         with torch.no_grad():
             # Need to get n_actual for each sample
             n_logits = self.model.n_predictor(x_tensor) if self.model.n_predictor else None
@@ -546,6 +553,24 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         if model.n_predictor:
             policy_params = model.n_predictor.parameters()
             self.strategy.setup_optimizers(policy_params)
+
+    def get_internal_model(self) -> Any:
+        """Returns a wrapper around the internal model that returns only the prediction tensor.
+
+        ``IndependentWeightsFlexibleNNModule.forward`` returns a 5-tuple for training
+        (auxiliary tensors for ELBO/REINFORCE/penalty losses). ``shap.DeepExplainer``
+        only supports modules that return a single tensor, so we wrap.
+        """
+
+        class _ShapModelWrapper(nn.Module):
+            def __init__(self, model: nn.Module) -> None:
+                super().__init__()
+                self.model = model
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return self.model(x)[0]
+
+        return _ShapModelWrapper(self.model)
 
     def get_shap_explainer_info(self) -> dict[str, Any]:
         """Gets the SHAP explainer type and the model to be explained."""

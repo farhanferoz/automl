@@ -1,0 +1,36 @@
+[project]
+name = "automl-package"
+version = "0.1.0"
+description = "Automated Machine Learning framework with probabilistic regression and dynamic neural architectures"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy>=2.2",
+    "pandas",
+    "scikit-learn",
+    "optuna>=4.5",
+    "joblib",
+    "torch>=2.6",
+    "matplotlib>=3.10",
+    "seaborn",
+    "jax>=0.7",
+    "jaxlib>=0.7",
+    "catboost",
+    "xgboost",
+    "lightgbm",
+    "scipy",
+    "shap",
+    "bokeh",
+    "wandb>=0.21",
+    "hessianfree @ git+https://github.com/ltatzel/PyTorchHessianFree.git@main",
+]
+
+[project.optional-dependencies]
+xpu = ["triton-xpu>=3.6.0"]
+dev = ["pytest>=9.0", "ruff"]
+
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["automl_package*"]

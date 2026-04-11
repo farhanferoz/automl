@@ -1,0 +1,16 @@
+target-version = "py311"
+line-length = 180
+
+[lint]
+select = ["E", "F", "W", "I", "N", "D", "UP", "ANN", "ASYNC", "B", "C4", "DTZ", "ERA", "FA", "ISC", "ICN", "PIE", "PT", "Q", "RSE", "RET", "SIM", "TID", "ARG", "PLC", "PLE", "PLW", "PGH", "RUF"]
+ignore = ["ANN401"]
+
+[lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**" = ["ANN", "D", "PLC0415"]
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.mccabe]
+max-complexity = 10

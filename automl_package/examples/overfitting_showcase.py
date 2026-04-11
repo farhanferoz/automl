@@ -30,7 +30,16 @@ from models.classifier_regression import ClassifierRegressionModel
 from models.neural_network import PyTorchNeuralNetwork
 from sklearn.metrics import mean_squared_error
 
-from automl_package.enums import DataSplitStrategy, MapperType, OptimizerType, ProbabilisticRegressionOptimizationStrategy, RegressionStrategy, TaskType, UncertaintyMethod
+from automl_package.enums import (
+    BoundaryRegularizationMethod,
+    DataSplitStrategy,
+    MapperType,
+    OptimizerType,
+    ProbabilisticRegressionOptimizationStrategy,
+    RegressionStrategy,
+    TaskType,
+    UncertaintyMethod,
+)
 from automl_package.models.base import BaseModel
 from automl_package.models.catboost_model import CatBoostModel
 from automl_package.models.lightgbm_model import LightGBMModel
@@ -163,9 +172,9 @@ def run_showcase() -> None:
     n_samples = 2000
     user_defined_n_classes = 3
     early_stopping_rounds = 50
-    validation_fraction = None
+    validation_fraction = 0.2
     test_fraction = 0.2
-    cv_folds = 4
+    cv_folds = None
     n_epochs = 500
     hidden_layers = 2
     hidden_size = 64
@@ -256,14 +265,15 @@ def run_showcase() -> None:
             cv_folds=cv_folds,
             uncertainty_method=uncertainty_method,
             split_strategy=DataSplitStrategy.RANDOM,
-            mapper_type=MapperType.AUTO,
+            mapper_type=MapperType.NN_SINGLE_HEAD_N_OUTPUTS,
             auto_include_nn_mappers=True,
-            use_boundary_regularization=True,
+            boundary_regularization_method=BoundaryRegularizationMethod.NONE,
             apply_boundary_loss_during_validation=False,
-            use_monotonic_constraints=True,
+            use_monotonic_constraints=False,
             constrain_middle_class=True,
+            use_middle_class_nll_penalty=True,
             feature_selection_threshold=feature_selection_threshold,
-            calculate_feature_importance=True,
+            calculate_feature_importance=False,
             optimizer_type=optimizer_type,
             optimize_hyperparameters=optimize_hyperparameters,
             n_trials=n_trials,
@@ -388,13 +398,16 @@ def run_showcase() -> None:
             test_fraction=0.0,
             cv_folds=cv_folds,
             split_strategy=DataSplitStrategy.RANDOM,
+            use_monotonic_constraints=True,
+            constrain_middle_class=True,
+            use_middle_class_nll_penalty=True,
+            calculate_feature_importance=False,
             feature_selection_threshold=feature_selection_threshold,
             optimizer_type=optimizer_type,
             optimize_hyperparameters=optimize_hyperparameters,
             optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
             n_trials=n_trials,
             add_classification_loss=False,
-            use_boundary_regularization=False,
             random_seed=random_seed,
             output_dir=os.path.join(output_dir, f"Probabilistic_Regression_{strategy.value}"),
         )
@@ -405,6 +418,8 @@ def run_showcase() -> None:
 
     logging.info("--- Running Model Training and Evaluation ---")
     for name, model in models_to_test.items():
+        if not name.startswith("Classifier_Regression"):
+            continue
         logging.info(f"Training {name}...")
         model_output_dir = os.path.join(output_dir, name)
         os.makedirs(model_output_dir, exist_ok=True)

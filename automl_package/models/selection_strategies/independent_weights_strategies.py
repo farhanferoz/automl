@@ -190,11 +190,9 @@ class IndependentWeightsSteStrategy(BaseSelectionStrategy):
         if n_logits is None:
             raise ValueError("n_logits cannot be None for STE strategy.")
 
-        n_probs = f.softmax(n_logits, dim=-1)
-        n_actual_one_hot = f.gumbel_softmax(n_logits, hard=True)
-        n_actual = torch.argmax(n_actual_one_hot, dim=-1) + 1
-        log_prob = (n_actual_one_hot - n_probs).detach() + n_probs
-        log_prob = torch.log(log_prob.max(dim=-1).values)
+        n_probs = f.gumbel_softmax(n_logits, hard=True)
+        n_actual = torch.argmax(n_probs, dim=-1) + 1
+        log_prob = torch.tensor(0.0, device=n_logits.device)
         return n_actual, n_probs, n_logits, log_prob
 
     def forward(self, x_input: torch.Tensor, n_logits: torch.Tensor) -> ForwardOutput:

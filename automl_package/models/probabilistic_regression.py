@@ -10,6 +10,7 @@ import torch.nn as nn
 from automl_package.enums import (
     BoundaryRegularizationMethod,
     ExplainerType,
+    NClassesRegularization,
     NClassesSelectionMethod,
     ProbabilisticRegressionOptimizationStrategy,
     RegressionStrategy,
@@ -19,13 +20,16 @@ from automl_package.logger import logger
 from automl_package.models.architectures.probabilistic_regression_net import ProbabilisticRegressionNet
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.common.losses import calculate_combined_loss
+from automl_package.models.common.middle_class_penalty_mixin import MiddleClassPenaltyMixin
+from automl_package.models.common.penalties import apply_additional_penalties
 from automl_package.models.common.mixins import BoundaryLossMixin
 from automl_package.utils.losses import masked_cross_entropy_loss
 from automl_package.utils.numerics import calculate_class_value_ranges, create_bins
 from automl_package.utils.plotting import plot_nn_probability_mappers
+from automl_package.utils.transforms import symexp, symlog
 
 
-class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
+class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleClassPenaltyMixin):
     """A PyTorch-based probabilistic regression model that directly learns both mean and variance."""
 
     _defaults: ClassVar[dict[str, Any]] = {
@@ -45,6 +49,12 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
         "boundary_loss_weight": 1.0,
         "use_monotonic_constraints": False,
         "constrain_middle_class": True,
+        "use_middle_class_nll_penalty": False,
+        "n_classes_regularization": NClassesRegularization.NONE,
+        "k_penalty_weight": 0.01,
+        "loss_type": "nll",
+        "beta": 0.5,
+        "target_transform": None,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -80,16 +90,23 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
             self.n_classes_selection_method = NClassesSelectionMethod[self.n_classes_selection_method.upper()]
         if isinstance(self.optimization_strategy, str):
             self.optimization_strategy = ProbabilisticRegressionOptimizationStrategy[self.optimization_strategy.upper()]
-
-        if self.use_monotonic_constraints and self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
-            logger.warning(
-                "PROBABILISTIC uncertainty is not recommended with monotonic constraints. "
-                "Overriding uncertainty_method to BINNED_RESIDUAL_STD for more robust uncertainty estimates."
-            )
-            self.uncertainty_method = UncertaintyMethod.BINNED_RESIDUAL_STD
+        if isinstance(self.n_classes_regularization, str):
+            self.n_classes_regularization = NClassesRegularization[self.n_classes_regularization.upper()]
 
         if self.use_monotonic_constraints and self.regression_strategy != RegressionStrategy.SEPARATE_HEADS:
-            raise ValueError("Monotonic constraints are only supported for the 'SEPARATE_HEADS' regression strategy.")
+            logger.warning("Monotonic constraints are only supported for the 'SEPARATE_HEADS' regression strategy.")
+            self.use_monotonic_constraints = False
+
+        if self.constrain_middle_class and self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
+            logger.warning("The `constrain_middle_class` option is not supported for the SINGLE_HEAD_FINAL_OUTPUT strategy.")
+            self.constrain_middle_class = False
+
+        if self.use_middle_class_nll_penalty:
+            if self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
+                logger.warning("The `use_middle_class_nll_penalty` option is not supported for the SINGLE_HEAD_FINAL_OUTPUT strategy.")
+                self.use_middle_class_nll_penalty = False
+            elif self.n_classes % 2 == 0:
+                logger.warning(f"The `use_middle_class_nll_penalty` option is enabled, but n_classes is {self.n_classes} (an even number). This option will have no effect.")
 
         self.base_classifier_params = self.base_classifier_params if self.base_classifier_params is not None else {}
         self.regression_head_params = self.regression_head_params if self.regression_head_params is not None else {}
@@ -113,13 +130,18 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
         """Returns the name of the model."""
         return f"ProbabilisticRegression_{self.regression_strategy.value}"
 
+    @property
+    def regression_heads(self):
+        """Returns the regression heads module list."""
+        return self.model.regression_module.heads
+
     def _calculate_custom_loss(self, model_outputs: tuple, y_true: torch.Tensor, include_boundary_loss: bool = True) -> torch.Tensor:
         """Calculates the loss for the ProbabilisticRegressionModel."""
         final_predictions, classifier_logits_out, selected_k_values, log_prob_for_reinforce, per_head_outputs = model_outputs
         y_true_squeezed = y_true.squeeze(-1) if y_true.ndim > 1 else y_true
 
         # 1. Calculate main regression loss
-        regression_loss = calculate_combined_loss(predictions=final_predictions, y_true=y_true, uncertainty_method=self.uncertainty_method, include_boundary_loss=False)
+        regression_loss = calculate_combined_loss(predictions=final_predictions, y_true=y_true, uncertainty_method=self.uncertainty_method, include_boundary_loss=False, loss_type=self.loss_type, beta=self.beta)
 
         total_loss = regression_loss
         unique_k = torch.tensor([])
@@ -147,9 +169,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
                 classification_loss = masked_cross_entropy_loss(logits_prob, y_binned_prob, k_values_prob)
                 total_loss += classification_loss
 
-        # 3. Apply Boundary Regularization Loss using the mixin
-        if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE and include_boundary_loss and per_head_outputs is not None:
-            # Ensure we only consider samples that went through the probabilistic path
+        # 3. Apply additional penalties (Middle Class NLL, Boundary Regularization)
+        if per_head_outputs is not None and (self.use_middle_class_nll_penalty or (self.boundary_regularization_method != BoundaryRegularizationMethod.NONE and include_boundary_loss)):
             if probabilistic_indices.numel() == 0:
                 probabilistic_indices = torch.where(selected_k_values < self.n_classes_inf)[0]
 
@@ -158,56 +179,65 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
                 per_head_outputs_prob = per_head_outputs[probabilistic_indices]
                 k_values_prob = selected_k_values[probabilistic_indices]
 
-                y_binned_prob = torch.zeros_like(y_true_prob, dtype=torch.long)
                 if not torch.is_tensor(unique_k) or unique_k.numel() == 0:
                     unique_k = torch.unique(k_values_prob)
 
-                boundary_loss = 0
-                num_k_groups = 0
-
                 for k in unique_k:
                     k_int = int(k.item())
-                    if k_int not in self.class_value_ranges_:
-                        continue
-
                     k_mask = k_values_prob == k
                     if not torch.any(k_mask):
                         continue
 
-                    # Bin the true values for this specific k
-                    _, y_binned_k = create_bins(data=y_true_prob[k_mask].cpu().numpy(), unique_bin_edges=self.precomputed_class_boundaries[k_int])
-                    y_binned_k_tensor = torch.tensor(y_binned_k, dtype=torch.long, device=self.device)
-
-                    # Use the mixin to calculate loss for this group
-                    boundary_loss += self.calculate_boundary_loss(
-                        heads=self.model.regression_module.heads,
+                    total_loss = apply_additional_penalties(
+                        total_loss=total_loss,
                         per_head_outputs=per_head_outputs_prob[k_mask],
-                        y_true=y_true_prob[k_mask],
-                        y_binned_tensor=y_binned_k_tensor,
-                        class_value_ranges=self.class_value_ranges_[k_int].to(self.device),
-                        boundary_loss_weight=1.0,  # Weight is applied at the end
+                        y_true_squeezed=y_true_prob[k_mask],
+                        model_instance=self,
+                        include_boundary_loss=include_boundary_loss,
+                        class_boundaries=self.precomputed_class_boundaries[k_int],
+                        class_value_ranges=self.class_value_ranges_.get(k_int),
+                        middle_class_dist_params=self.middle_class_dist_params_.get(k_int),
                     )
-                    num_k_groups += 1
 
-                if num_k_groups > 0:
-                    total_loss += self.boundary_loss_weight * (boundary_loss / num_k_groups)
+
+        # 4. ELBO / k-penalty regularization for dynamic n_classes
+        if self.n_classes_selection_method != NClassesSelectionMethod.NONE and self.n_classes_regularization != NClassesRegularization.NONE:
+            k_probs = self.model.n_classes_strategy.mode_selection_probs
+            if k_probs is not None:
+                n_modes = k_probs.size(1)
+                if self.n_classes_regularization == NClassesRegularization.ELBO:
+                    # Prior favoring low k, normalized to fixed logit range [1, 3] regardless of n_modes.
+                    # Without normalization, arange(n_modes, 0, -1) creates a prior whose steepness
+                    # scales with n_modes (KL cost k=2→k=10 = 8 nats for 10 modes vs 1.8 for 3 modes),
+                    # making the prior unbeatable for high k. linspace keeps the same steepness as
+                    # the FlexibleNN ELBO depth prior (3 modes, range [3,1]).
+                    prior_logits = torch.linspace(3.0, 1.0, n_modes, device=k_probs.device)
+                    k_prior = torch.distributions.Categorical(logits=prior_logits)
+                    q_k = torch.distributions.Categorical(probs=k_probs + 1e-8)
+                    kl_div = torch.distributions.kl_divergence(q_k, k_prior).mean()
+                    total_loss = total_loss + kl_div
+                elif self.n_classes_regularization == NClassesRegularization.K_PENALTY:
+                    # Weighted expected k: penalize selecting higher k values
+                    k_indices = torch.arange(1, n_modes + 1, dtype=torch.float, device=k_probs.device)
+                    expected_k = torch.sum(k_probs * k_indices, dim=1)
+                    total_loss = total_loss + self.k_penalty_weight * expected_k.mean()
 
         return total_loss
 
     def _calculate_performance_score(self, y_true: np.ndarray, y_pred: np.ndarray, x_val: np.ndarray | None = None, y_pred_std: np.ndarray | None = None) -> float:
         """Calculates the performance score, including the classification penalty if applicable."""
-        if self.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY:
-            score = super()._calculate_performance_score(y_true, y_pred, x_val, y_pred_std)
-        else:
+        score = super()._calculate_performance_score(y_true, y_pred, x_val, y_pred_std)
+
+        if self.optimization_strategy != ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY:
             self.model.eval()
             with torch.no_grad():
                 x_val_tensor = torch.tensor(x_val, dtype=torch.float32).to(self.device)
                 y_val_tensor = torch.tensor(y_true, dtype=torch.float32).to(self.device).unsqueeze(1)
 
                 model_outputs = self.model(x_val_tensor)
-                total_loss = self._calculate_custom_loss(model_outputs, y_val_tensor, include_boundary_loss=False)
+                # Add the classification/boundary loss to the regression score
+                score += self._calculate_custom_loss(model_outputs, y_val_tensor, include_boundary_loss=False).item()
 
-            score = total_loss.item()
         return score
 
     def build_model(self) -> None:
@@ -320,21 +350,35 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
                 - The number of iterations the model was trained for.
                 - A list of the validation loss values for each epoch.
         """
+        if self.target_transform == "symlog":
+            y_train = symlog(torch.tensor(y_train, dtype=torch.float32)).numpy()
+            if y_val is not None:
+                y_val = symlog(torch.tensor(y_val, dtype=torch.float32)).numpy()
+
         if not self.direct_regression:
             self.precomputed_class_boundaries = {}
             self.class_value_ranges_ = {}
+            middle_class_params_per_k = {}
             y_flat = y_train.flatten() if y_train.ndim > 1 else y_train
             y_min, y_max = np.min(y_flat), np.max(y_flat)
 
             max_k = self.max_n_classes_for_probabilistic_path if self.n_classes_selection_method != NClassesSelectionMethod.NONE else self.n_classes
+            k_values = range(2, max_k + 1) if self.n_classes_selection_method != NClassesSelectionMethod.NONE else [max_k]
 
-            # Pre-calculate and store boundaries for all possible k values
-            for k in [max_k] if self.n_classes_selection_method == NClassesSelectionMethod.NONE else range(2, max_k + 1):
+            for k in k_values:
                 boundaries, y_binned = create_bins(data=y_flat, n_bins=k, min_value=-np.inf, max_value=np.inf)
                 self.precomputed_class_boundaries[k] = boundaries
 
+                if self.use_middle_class_nll_penalty:
+                    # The mixin stores result in self.middle_class_dist_params_ as a flat dict.
+                    # Capture it per k before the next iteration overwrites it.
+                    self._calculate_middle_class_dist_params(y_flat, y_binned, n_classes=k)
+                    middle_class_params_per_k[k] = self.middle_class_dist_params_
+
                 if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE:
                     self.class_value_ranges_[k] = calculate_class_value_ranges(y_flat=y_flat, y_binned=y_binned, k=k, y_min=y_min, y_max=y_max, device=self.device)
+
+            self.middle_class_dist_params_ = middle_class_params_per_k
 
         forward_pass_kwargs = None
         if self.boundary_regularization_method == BoundaryRegularizationMethod.HARDSIGMOID:
@@ -345,6 +389,53 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
             forward_pass_kwargs = {"boundaries": self.class_value_ranges_[k].to(self.device)}
 
         return super()._fit_single(x_train, y_train, x_val, y_val, forced_iterations, forward_pass_kwargs=forward_pass_kwargs)
+
+    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
+        """Predicts on x, applying inverse target transform if configured.
+
+        For symlog, predictions are computed as the MC mean of ``symexp(samples)`` so
+        that the reported point estimate is consistent with the std produced by
+        :meth:`predict_uncertainty` (both come from the same posterior sample).
+        """
+        predictions = super().predict(x, filter_data=filter_data)
+        if self.target_transform == "symlog":
+            std_symlog = super().predict_uncertainty(x, filter_data=filter_data)
+            mean_orig, _ = self._symlog_mc_moments(predictions, std_symlog)
+            return mean_orig
+        return predictions
+
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+        """Estimates uncertainty, converting from symlog space if configured.
+
+        For symlog targets the linearized Jacobian (``exp(|μ|)``) is inaccurate
+        near zero crossings and underestimates spread when ``σ_symlog`` is large.
+        We instead push samples from ``N(μ_symlog, σ_symlog²)`` through ``symexp``
+        and report the empirical std — this is exact in the limit of many samples
+        and adds negligible cost (~one extra forward of arithmetic).
+        """
+        std = super().predict_uncertainty(x, filter_data=filter_data)
+        if self.target_transform == "symlog":
+            mean_symlog = super().predict(x, filter_data=filter_data)
+            _, std_orig = self._symlog_mc_moments(mean_symlog, std)
+            return std_orig
+        return std
+
+    @staticmethod
+    def _symlog_mc_moments(mean_symlog: np.ndarray, std_symlog: np.ndarray, n_samples: int = 200, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+        """Monte Carlo mean/std in original space for a Gaussian in symlog space.
+
+        Samples ``n_samples`` points from ``N(mean_symlog, std_symlog²)``, applies
+        ``symexp``, and returns the empirical (mean, std) in original space.
+        """
+        rng = np.random.default_rng(seed)
+        mean_t = torch.from_numpy(np.asarray(mean_symlog, dtype=np.float32))
+        std_t = torch.from_numpy(np.asarray(std_symlog, dtype=np.float32))
+        noise = torch.from_numpy(rng.standard_normal((n_samples, *mean_t.shape)).astype(np.float32))
+        samples_symlog = mean_t.unsqueeze(0) + std_t.unsqueeze(0) * noise
+        samples_orig = symexp(samples_symlog)
+        mean_orig = samples_orig.mean(dim=0).numpy()
+        std_orig = samples_orig.std(dim=0).numpy()
+        return mean_orig, std_orig
 
     def _update_params(self, params: dict[str, Any]) -> None:
         """Updates the model's parameters from a given dictionary."""
@@ -382,7 +473,15 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
             self.direct_regression_head_params.update(direct_regression_head_params)
 
     def get_shap_explainer_info(self) -> dict[str, Any]:
-        """Gets the SHAP explainer type and the model to be explained."""
+        """Gets the SHAP explainer type and the model to be explained.
+
+        Dynamic n_classes strategies dispatch per-input through different heads
+        (gather/scatter ops, batch repartitioning), which breaks ``shap.DeepExplainer``'s
+        DeepLIFT gradient tracing. Fall back to ``KernelExplainer`` (model-agnostic,
+        slower but correct) when dynamic-k selection is enabled.
+        """
+        if self.n_classes_selection_method != NClassesSelectionMethod.NONE:
+            return {"explainer_type": ExplainerType.KERNEL, "model": self.predict}
         return {"explainer_type": ExplainerType.DEEP, "model": self.get_internal_model()}
 
     def _clone(self) -> "ProbabilisticRegressionModel":
@@ -437,7 +536,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
         x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
         with torch.no_grad():
             # The model's forward pass now returns predictions, classifier_logits_out, and selected_k_values
-            _, returned_classifier_logits, selected_k_values_tensor, _ = self.model(x_tensor)
+            _, returned_classifier_logits, selected_k_values_tensor, _, _ = self.model(x_tensor)
 
             selected_k_values = selected_k_values_tensor.cpu().numpy()
             probabilistic_indices = np.where(selected_k_values < self.n_classes_inf)[0]
@@ -529,14 +628,6 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin):
         else:
             preds = self.regression_module(probabilities)
         return preds
-
-    def forward(self, x_input: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]:
-        """Performs the forward pass through the model."""
-        n_classes_predictor_logits = self.n_classes_predictor(x_input) if self.n_classes_selection_method != NClassesSelectionMethod.NONE else None
-
-        final_predictions, selected_k_values, log_prob_for_reinforce, classifier_logits_out = self.n_classes_strategy.forward(x_input, n_classes_predictor_logits)
-
-        return final_predictions, classifier_logits_out, selected_k_values, log_prob_for_reinforce
 
     def get_num_parameters(self) -> int:
         """Returns the total number of trainable parameters in the model.

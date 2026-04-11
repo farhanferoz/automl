@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import ActivationFunction, ExplainerType, LayerSelectionMethod, TaskType, UncertaintyMethod
+from automl_package.enums import ActivationFunction, DepthRegularization, ExplainerType, LayerSelectionMethod, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.selection_strategies.layer_selection_strategies import GumbelSoftmaxStrategy, NoneStrategy, ReinforceStrategy, SoftGatingStrategy, SteStrategy
@@ -34,6 +34,8 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         "gumbel_tau_anneal_rate": 0.99,
         "n_predictor_learning_rate": 0.001,
         "layer_selection_method": LayerSelectionMethod.GUMBEL_SOFTMAX,
+        "depth_regularization": DepthRegularization.NONE,
+        "depth_penalty_weight": 0.01,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -114,12 +116,46 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             n_logits = self.n_predictor(x_input) if self.n_predictor else None
             return self.outer.strategy.forward(x_input, n_logits)
 
+        def hard_forward(self, x_input: torch.Tensor) -> torch.Tensor:
+            """Inference-only hard forward: runs only the argmax depth per sample.
+
+            Genuine compute savings — samples with depth=1 only execute layer 0,
+            samples with depth=k execute layers 0..k-1. Groups samples by depth
+            for batched execution per depth bucket.
+            """
+            if self.n_predictor is None:
+                # No depth selection, run all layers
+                current = x_input
+                for block in self.hidden_layers_blocks:
+                    current = block(current)
+                return self.output_layer(current)
+
+            n_logits = self.n_predictor(x_input)
+            n_actual = torch.argmax(n_logits, dim=1)  # 0-indexed: 0 = depth 1
+            output_features = self.output_layer.out_features
+            result = torch.zeros(x_input.size(0), output_features, device=x_input.device, dtype=x_input.dtype)
+
+            for depth_idx in range(self.outer.max_hidden_layers):
+                mask = (n_actual == depth_idx)
+                if not torch.any(mask):
+                    continue
+                x_subset = x_input[mask]
+                current = x_subset
+                # depth_idx=0 means depth 1 → run blocks[0], so range(depth_idx + 1)
+                for layer_i in range(depth_idx + 1):
+                    current = self.hidden_layers_blocks[layer_i](current)
+                out_subset = self.output_layer(current)
+                result[mask] = out_subset
+
+            return result
+
     def build_model(self) -> None:
         """Builds the internal PyTorch nn.Module for the FlexibleHiddenLayersNN."""
-        activation_function_map = get_activation_function_map()
-        self.activation = activation_function_map.get(self.activation)
-        if self.activation is None:
-            raise ValueError(f"Unsupported activation function: {self.activation}")
+        if isinstance(self.activation, ActivationFunction):
+            activation_function_map = get_activation_function_map()
+            self.activation = activation_function_map.get(self.activation)
+            if self.activation is None:
+                raise ValueError(f"Unsupported activation function: {self.activation}")
 
         self.model = self.FlexibleNNModule(self).to(self.device)
 
@@ -206,20 +242,25 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                 if self.lambda_optimizer:
                     self.lambda_optimizer.zero_grad()
 
-                final_output, _, _, n_logits, log_prob = self.model(_batch_x)
+                final_output, _, n_probs, n_logits, log_prob = self.model(_batch_x)
                 loss = self.criterion(final_output, batch_y)
                 loss = self._calculate_regularization_loss(loss, self.model)
 
+                if self.depth_regularization == DepthRegularization.ELBO and n_probs is not None:
+                    depth_prior_logits = torch.arange(self.max_hidden_layers, 0, -1, dtype=torch.float, device=_batch_x.device)
+                    depth_prior = torch.distributions.Categorical(logits=depth_prior_logits)
+                    q_depth = torch.distributions.Categorical(probs=n_probs + 1e-8)
+                    kl_div = torch.distributions.kl_divergence(q_depth, depth_prior).mean()
+                    loss = loss + kl_div
+                elif self.depth_regularization == DepthRegularization.DEPTH_PENALTY and n_probs is not None:
+                    depth_indices = torch.arange(1, self.max_hidden_layers + 1, dtype=torch.float, device=_batch_x.device)
+                    expected_depth = torch.sum(n_probs * depth_indices, dim=1)
+                    loss = loss + self.depth_penalty_weight * expected_depth.mean()
+
                 if self.layer_selection_method == LayerSelectionMethod.REINFORCE and log_prob is not None:
-                    # Calculate policy loss (REINFORCE)
-                    # The reward signal is typically the negative of the validation loss,
-                    # but for batch-wise updates, we can use the negative of the current batch's main_loss
-                    # or a baseline. For simplicity, let's use negative main_loss as a reward.
-                    # We need to ensure the reward is detached to prevent gradients flowing back through it
-                    # to the main network parameters.
                     reward = -loss.detach()
-                    policy_loss = -log_prob * reward  # Multiply by reward
-                    loss += policy_loss.mean()  # Add to main loss
+                    policy_loss = -log_prob * reward
+                    loss = loss + policy_loss.mean()
 
                 loss.backward()
 
@@ -269,13 +310,21 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
 
         return best_epoch + 1, val_loss_history
 
-    def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
-        """Makes predictions with the FlexibleHiddenLayersNN."""
+    def predict(self, x: np.ndarray, filter_data: bool = True, inference_mode: str = "soft") -> np.ndarray:
+        """Makes predictions with the FlexibleHiddenLayersNN.
+
+        Args:
+            x: Input features.
+            filter_data: Whether to filter input columns to those seen at fit time.
+            inference_mode: "soft" uses the trained selection strategy (full forward pass).
+                "hard" runs only the argmax-selected depth per sample for compute savings.
+        """
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
             x = self._filter_predict_data(x)
-        x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
+        x_array = x.values if hasattr(x, "values") else x
+        x_tensor = torch.tensor(x_array, dtype=torch.float32).to(self.device)
 
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
             self.model.train()
@@ -289,7 +338,10 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
 
         self.model.eval()
         with torch.no_grad():
-            final_output, _, _, _, _ = self.model(x_tensor)
+            if inference_mode == "hard":
+                final_output = self.model.hard_forward(x_tensor)
+            else:
+                final_output, _, _, _, _ = self.model(x_tensor)
             if self.task_type == TaskType.CLASSIFICATION:
                 predictions = (torch.sigmoid(final_output) > 0.5).cpu().numpy().astype(int) if self.output_size == 1 else torch.argmax(final_output, dim=1).cpu().numpy()
             else:
@@ -304,7 +356,8 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
             x = self._filter_predict_data(x)
-        x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
+        x_array = x.values if hasattr(x, "values") else x
+        x_tensor = torch.tensor(x_array, dtype=torch.float32).to(self.device)
 
         if self.uncertainty_method == UncertaintyMethod.CONSTANT:
             return np.full(x.shape[0], self._train_residual_std)
@@ -336,7 +389,8 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         if filter_data:
             x = self._filter_predict_data(x)
         self.model.eval()
-        x_tensor = torch.tensor(x.values, dtype=torch.float32).to(self.device)
+        x_array = x.values if hasattr(x, "values") else x
+        x_tensor = torch.tensor(x_array, dtype=torch.float32).to(self.device)
         with torch.no_grad():
             final_output, _, _, _, _ = self.model(x_tensor)
             if self.output_size == 1:
@@ -394,6 +448,25 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         for key in self._defaults:
             params[key] = getattr(self, key)
         return params
+
+    def get_internal_model(self) -> Any:
+        """Returns a wrapper around the internal model that returns only the prediction tensor.
+
+        The underlying ``FlexibleNNModule.forward`` returns a 5-tuple
+        ``(final_output, _, n_probs, n_logits, log_prob)`` because training needs
+        the auxiliary tensors for ELBO/REINFORCE/penalty losses. ``shap.DeepExplainer``
+        only supports modules that return a single tensor, so we wrap.
+        """
+
+        class _ShapModelWrapper(nn.Module):
+            def __init__(self, model: nn.Module) -> None:
+                super().__init__()
+                self.model = model
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return self.model(x)[0]
+
+        return _ShapModelWrapper(self.model)
 
     def get_shap_explainer_info(self) -> dict[str, Any]:
         """Gets the SHAP explainer type and the model to be explained."""

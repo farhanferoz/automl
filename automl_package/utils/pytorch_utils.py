@@ -43,8 +43,12 @@ def calculate_regularization_loss(
 
 
 def get_device() -> torch.device:
-    """Returns the device to use for PyTorch models."""
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    """Returns the best available device: CUDA > XPU > CPU."""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if hasattr(torch, "xpu") and torch.xpu.is_available():
+        return torch.device("xpu")
+    return torch.device("cpu")
 
 
 def get_activation_function_map() -> dict[ActivationFunction, nn.Module]:
@@ -94,4 +98,44 @@ def monotonic_linear(input_tensor: torch.Tensor, layer: nn.Linear, monotonic_con
     """
     # Apply softplus to weights to make them non-negative if monotonic constraint needs to be applied
     weight = layer.weight if monotonic_constraint == Monotonicity.NONE else f.softplus(layer.weight)
-    return f.linear(input_tensor, weight, layer.bias)
+    output = f.linear(input_tensor, weight, layer.bias)
+
+    if monotonic_constraint == Monotonicity.NEGATIVE:
+        output = -output
+
+    return output
+
+def apply_law_of_total_variance(probabilities: torch.Tensor, per_head_outputs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Applies the Law of Total Variance to compute the final mean and log_variance.
+
+    Args:
+        probabilities: A tensor of class probabilities, shape (batch_size, n_classes).
+        per_head_outputs: A tensor of predictions from each head, shape (batch_size, n_classes, 2).
+
+    Returns:
+        A tuple containing:
+            - final_mean: The final mean prediction, shape (batch_size, 1).
+            - final_log_var: The final log_variance prediction, shape (batch_size, 1).
+    """
+    per_head_means = per_head_outputs[..., 0]
+    per_head_vars = torch.exp(per_head_outputs[..., 1])
+
+    # 1. Final Mean (E[Y]) = E[E[Y|C]] = sum(P(C=i) * E[Y|C=i])
+    final_mean = torch.sum(probabilities * per_head_means, dim=1)
+
+    # 2. Final Variance (Var(Y)) = E[Var(Y|C)] + Var(E[Y|C])
+    # E[Var(Y|C)] = sum(P(C=i) * Var(Y|C=i))
+    expected_variance = torch.sum(probabilities * per_head_vars, dim=1)
+
+    # Var(E[Y|C]) = E[(E[Y|C] - E[E[Y|C]])^2] = sum(P(C=i) * (E[Y|C=i] - E[Y])^2)
+    variance_of_expectation = torch.sum(probabilities * torch.square(per_head_means - final_mean.unsqueeze(1)), dim=1)
+
+    final_variance = expected_variance + variance_of_expectation
+
+    # Clamp final_variance to avoid log(0)
+    final_log_var = torch.log(torch.clamp(final_variance, min=1e-9))
+
+    # Combine final mean and log_var into a single tensor
+    final_predictions = torch.stack([final_mean, final_log_var], dim=1)
+
+    return final_predictions

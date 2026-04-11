@@ -12,11 +12,17 @@ A versatile Automated Machine Learning (AutoML) framework built in Python, desig
    * [Neural Networks](#neural-networks)
    * [Common Neural Network Features](#common-neural-network-features)
    * [Dynamic Architecture: The `LayerSelectionMethod`](#dynamic-architecture-the-layerselectionmethod)
+   * [Depth Regularization (`DepthRegularization`)](#depth-regularization-depthregularization)
+   * [Inference Modes (Hard vs Soft)](#inference-modes-hard-vs-soft)
    * [Probabilistic Regression Models](#probabilistic-regression-models)
+   * [Dynamic `n_classes` Regularization (`NClassesRegularization`)](#dynamic-n_classes-regularization-nclassesregularization)
+   * [Loss Variants: NLL and β-NLL](#loss-variants-nll-and-β-nll)
    * [Composite Models](#composite-models)
 4. [Uncertainty Quantification](#4-uncertainty-quantification)
+   * [Conformal Prediction Wrapper](#conformal-prediction-wrapper)
 5. [Lambda Estimation (Automatic Regularization Learning)](#5-lambda-estimation-automatic-regularization-learning)
 6. [Data Preprocessing](#6-data-preprocessing)
+   * [Target Transforms (Symlog)](#target-transforms-symlog)
    * [Feature Scaling](#feature-scaling)
    * [Target Scaling](#target-scaling)
    * [Categorical Feature Handling](#categorical-feature-handling)
@@ -41,9 +47,10 @@ A versatile Automated Machine Learning (AutoML) framework built in Python, desig
     * [Feature Importance](#feature-importance)
     * [Retraining with Selected Features](#retraining-with-selected-features)
     * [Remaining Usage Examples (Classification, Save/Load)](#remaining-usage-examples-classification-saveload)
-16. [Project Structure](#16-project-structure)
-17. [Contributing](#17-contributing)
-18. [License](#18-license)
+16. [Benchmarks](#16-benchmarks)
+17. [Project Structure](#17-project-structure)
+18. [Contributing](#18-contributing)
+19. [License](#19-license)
 
 ## **1. Introduction**
 
@@ -57,8 +64,9 @@ This AutoML package aims to automate significant portions of the machine learnin
 *   **Lambda Estimation:** Automatically learns optimal L1/L2 regularization strengths for PyTorch-based models.
 *   **Regression & Classification:** Supports both common machine learning task types.
 *   **Pluggable Architecture:** Easy to add new custom models adhering to the `BaseModel` interface.
-*   **Dynamic Neural Networks:** Includes a novel `FlexibleNeuralNetwork` that adapts its depth based on input using a variety of advanced techniques.
-*   **Uncertainty Quantification:** Provides methods to estimate prediction uncertainty for regression tasks.
+*   **Dynamic Neural Networks:** Includes a novel `FlexibleNeuralNetwork` that adapts its depth based on input using a variety of advanced techniques, with optional ELBO/penalty depth regularization and hard/soft inference modes.
+*   **Dynamic Probabilistic Regression:** `ProbabilisticRegressionModel` with dynamic `n_classes` selection, ELBO/k-penalty regularization, β-NLL loss variant for stable variance learning, and `symlog` target transform for wide-range targets.
+*   **Uncertainty Quantification:** Provides methods to estimate prediction uncertainty for regression tasks, including a distribution-free `ConformalWrapper` for prediction intervals with coverage guarantees.
 *   **Data Scaling Integration:** Seamlessly integrates feature and target scaling into the pipeline.
 *   **Categorical Feature Transformers:** Provides `OrderedTargetEncoder` and `OneHotEncoder` for preprocessing categorical data.
 *   **Model Explainability:** Leverages SHAP (SHapley Additive exPlanations) for interpreting model predictions and for feature selection.
@@ -321,6 +329,33 @@ $$        The final output is a weighted sum: $Y_{\text{pred}} = \sum_{i=1}^{K} 
             $$\nabla_\theta J(\theta) \approx R \cdot \nabla_\theta \log \pi(a|s; \theta)$$
             Where $J(\theta)$ is the policy objective, and $\pi(a|s; \theta)$ is the policy (the `n_predictor`).
 
+### **Depth Regularization (`DepthRegularization`)**
+
+The `FlexibleNeuralNetwork`'s `depth_regularization` parameter controls how the model is encouraged
+to prefer shallower architectures when they suffice. Without regularization, the `n_predictor` will
+typically drift toward using `max_hidden_layers` (no incentive to be efficient). Three modes are available:
+
+*   **`DepthRegularization.NONE`** — No regularization on depth selection. The `n_predictor` learns purely from the prediction loss.
+
+*   **`DepthRegularization.DEPTH_PENALTY`** — Adds a linear penalty on the expected depth:
+    $$L_{\text{depth}} = w \cdot \mathbb{E}_{q}[d] = w \cdot \sum_{i=1}^{K} p_i \cdot i$$
+    Where $p_i$ is the probability of depth $i$ from the n-predictor and $w$ is `depth_penalty_weight`.
+
+*   **`DepthRegularization.ELBO`** — Treats depth selection as a variational problem. Adds the KL divergence between the learned posterior $q(d|X)$ and a normalized prior $p(d)$ favoring shallower depths:
+    $$L_{\text{ELBO}} = \text{KL}\left( q(d|X) \,\|\, p(d) \right)$$
+    The prior is `Categorical(logits=linspace(3.0, 1.0, max_hidden_layers))`. This range is fixed regardless of `max_hidden_layers` so the prior steepness does not scale with depth count (otherwise the KL cost can become unbeatable for deep configurations).
+    Use case: lets the model learn to use shallower depth on simple inputs and deeper depth on complex ones. Verified on the piecewise dataset (linear half → shallow, sinusoidal half → deep).
+
+### **Inference Modes (Hard vs Soft)**
+
+`FlexibleNeuralNetwork.predict()` accepts an `inference_mode` parameter:
+
+*   **`inference_mode="soft"` (default)** — Uses the trained selection strategy's full forward pass (e.g., weighted sum across all depths for `GUMBEL_SOFTMAX` / `SOFT_GATING`). Predictions are smooth blends.
+
+*   **`inference_mode="hard"`** — Computes the n-predictor logits, takes `argmax` per sample, then groups samples by their selected depth and runs **only** the chosen depth's hidden blocks for each group. No layers above the selected depth are executed.
+    *   **When it pays off:** Larger networks (deeper `max_hidden_layers`, wider `hidden_size`) — the per-bucket execution avoids redundant compute. On tiny networks (e.g., max=4, hidden=64), the bucket-grouping overhead can cancel the savings.
+    *   **Quality:** Predictions track the soft mode within ~0.02 MSE on the piecewise dataset; no measurable accuracy loss in tested configurations.
+
 ### **Probabilistic Regression Models**
 
 These models are designed for regression tasks where quantifying the uncertainty of a prediction is as important as the prediction itself. Instead of just predicting a single value, they predict an entire probability distribution.
@@ -554,6 +589,49 @@ L'_i = \begin{cases} l_i & \text{if } i < k \ -
 \nabla_\theta J(\theta) \approx R \cdot \nabla_\theta \log \pi(a|s; \theta)$
                 Where $J(\theta)$ is the policy objective, and $\pi(a|s; \theta)$ is the policy (the `n_classes_predictor`).
 
+### **Dynamic `n_classes` Regularization (`NClassesRegularization`)**
+
+The `ProbabilisticRegressionModel`'s `n_classes_regularization` parameter controls how dynamic-k
+selection is encouraged to prefer smaller `k` (fewer modes) when the data does not require fine
+granularity. Without regularization, the `n_classes_predictor` typically drifts toward
+`max_n_classes_for_probabilistic_path` (no incentive to be selective).
+
+*   **`NClassesRegularization.NONE`** — No regularization on k selection.
+
+*   **`NClassesRegularization.K_PENALTY`** — Linear penalty on the expected `k`:
+    $$L_{k} = w_k \cdot \mathbb{E}_{q}[k] = w_k \cdot \sum_{i=1}^{K} p_i \cdot i$$
+    where $w_k$ is `k_penalty_weight`.
+
+*   **`NClassesRegularization.ELBO`** — Variational ELBO objective. Adds KL divergence between $q(k|X)$ and a normalized prior $p(k)$ favoring lower k:
+    $$L_{\text{ELBO}} = \text{KL}\left( q(k|X) \,\|\, p(k) \right)$$
+    The prior is `Categorical(logits=linspace(3.0, 1.0, n_modes))`. The fixed prior range
+    (independent of `n_modes`) is critical: an unnormalized prior like `arange(n_modes, 0, -1)`
+    would scale steepness with `n_modes` and produce an unbeatable KL cost for high k
+    (8 nats vs 1.8 nats for 10 vs 3 modes).
+
+**Recommended combination: `ELBO` + `SOFT_GATING`.** This pairing matches the best fixed-k MSE
+on heteroscedastic data while running with `mean k = 2`, and achieves the best correlation
+between predicted variance and true noise (r = 0.99). See [Benchmarks](#16-benchmarks) for
+the full table.
+
+**Why not ELBO + GumbelSoftmax?** Gumbel sampling noise during training corrupts the KL
+gradient estimate and prevents `q(k|X)` from converging. SoftGating's deterministic softmax
+produces stable training. The same logic applies to `DepthRegularization.ELBO` for FlexibleNN.
+
+### **Loss Variants: NLL and β-NLL**
+
+The `ProbabilisticRegressionModel` exposes a `loss_type` parameter for the regression loss:
+
+*   **`loss_type="nll"` (default)** — Standard Gaussian negative log-likelihood:
+    $$L_{\text{NLL}} = \frac{1}{2}\left( \log(2\pi) + \log(\sigma^2) + \frac{(y - \mu)^2}{\sigma^2} \right)$$
+    Trains $\mu(X)$ and $\sigma^2(X)$ jointly. Susceptible to *variance collapse* on noisy datasets — the model can trivially reduce loss by inflating variance.
+
+*   **`loss_type="beta_nll"`** — β-NLL (Seitzer et al., 2022). Reweights the per-sample NLL by the **detached** variance raised to a power $\beta$:
+    $$L_{\text{β-NLL}} = \left( \sigma^2 \right)^{\beta}_{\text{stop-grad}} \cdot \frac{1}{2}\left( \log(\sigma^2) + \frac{(y - \mu)^2}{\sigma^2} \right)$$
+    The detached weighting prevents the gradient from chasing high variance, which stabilizes training and mitigates variance collapse. Set via `beta` parameter (default 0.5).
+    *   **When to use**: datasets where standard NLL collapses or fails to learn input-dependent variance. On well-behaved heteroscedastic data, β=0.5 is approximately neutral (slightly better calibration), and β=1.0 over-corrects.
+    *   **Tradeoff**: heavier β reweighting → more stable variance learning but possibly worse mean fit. β ∈ [0.5, 1.0] is the typical range.
+
 
 ### **Composite Models**
 
@@ -657,6 +735,38 @@ $$
         $$\text{Uncertainty}(X) = \sqrt{\text{TotalVariance}(X)}
 $$
 
+### **Conformal Prediction Wrapper**
+
+While the methods above produce a single point of uncertainty (`σ(X)`), `ConformalWrapper`
+(`automl_package/models/conformal.py`) wraps **any fitted regression model** with **distribution-free
+prediction intervals** that come with a coverage guarantee on exchangeable data.
+
+*   **Mechanism (Split Conformal)**:
+    1.  Train a model on a training set.
+    2.  On a held-out **calibration set**, compute residuals $r_i = |y_i - \hat{y}_i|$.
+    3.  Take the empirical quantile $\hat{q}$ at level $\lceil (n+1)(1-\alpha) \rceil / n$ (the finite-sample correction). For a target coverage of $1-\alpha$:
+        $$\hat{q} = \text{Quantile}_{\lceil (n+1)(1-\alpha)\rceil/n}\left(\{|y_i - \hat{y}_i|\}_{i=1}^{n_{\text{cal}}}\right)$$
+    4.  At prediction time, return the interval $[\hat{y}(x) - \hat{q},\, \hat{y}(x) + \hat{q}]$.
+
+*   **Coverage Guarantee**: For any model and any data distribution, if calibration and test
+    points are exchangeable, then $\Pr(y \in [\hat{y} - \hat{q}, \hat{y} + \hat{q}]) \ge 1 - \alpha$.
+
+*   **Usage**:
+    ```python
+    from automl_package.models.conformal import ConformalWrapper
+
+    model.fit(x_train, y_train)
+    cw = ConformalWrapper(model)
+    cw.calibrate(x_cal, y_cal, alpha=0.1)   # target 90% coverage
+    lower, upper = cw.predict_interval(x_test)
+    ```
+
+*   **Verified coverage** on heteroscedastic data (see [Benchmarks](#16-benchmarks)): empirical coverage tracks the target almost exactly across α = 0.05, 0.10, 0.20.
+
+*   **Limitations**: Intervals are constant-width (the same `±q` for every input). For input-adaptive
+    width, combine with a model that learns `σ(X)` directly (e.g., `ProbabilisticRegressionModel`)
+    and use that as the conformity score base.
+
 ## **5. Lambda Estimation (Automatic Regularization Learning)**
 
 For PyTorch-based neural networks (`PyTorchNeuralNetwork`, `FlexibleNeuralNetwork`, and `ProbabilisticRegressionModel`), the package supports the automatic learning of regularization strengths (L1 and L2 lambdas).
@@ -707,6 +817,31 @@ For regression tasks, the target variable (y) can also be scaled using a `target
 *   **Models that Benefit Most**: 
     *   **Neural Networks**: (`PyTorchNeuralNetwork`, `FlexibleNeuralNetwork`, `ProbabilisticRegressionModel`).
     *   Models that are sensitive to the magnitude of the output, particularly when using certain activation functions in the output layer or specific loss functions.
+
+### **Target Transforms (Symlog)**
+
+For targets spanning multiple orders of magnitude (e.g., exponential growth, power-law data),
+linear scalers are insufficient — a `StandardScaler` cannot meaningfully compress targets that
+span 5+ orders of magnitude. The `ProbabilisticRegressionModel` exposes a `target_transform`
+parameter that applies a non-linear element-wise transform to the target before binning and
+training, then reverses it at prediction time.
+
+*   **`target_transform="symlog"`** — Symmetric log transform (defined in `automl_package/utils/transforms.py`):
+    $$\text{symlog}(x) = \text{sign}(x) \cdot \log(1 + |x|)$$
+    The inverse is `symexp`:
+    $$\text{symexp}(x) = \text{sign}(x) \cdot (\exp(|x|) - 1)$$
+    Symlog compresses large magnitudes (`symlog(1000) ≈ 6.9`) while remaining smooth and signed
+    (unlike `log(1+|x|)`, which loses sign information).
+
+*   **Mechanism inside ProbReg**:
+    1.  In `_fit_single`, `y_train` and `y_val` are transformed via `symlog` **before** target binning, so the classifier learns over a compressed target distribution.
+    2.  Loss is computed in symlog space (the model's output `μ(X)` is interpreted as `symlog(y)`).
+    3.  In `predict()`, the output is passed through `symexp` to return predictions on the original scale.
+    4.  In `predict_uncertainty()`, the symlog-space `σ` is converted to original-scale `σ` using a linearized Jacobian: $|dy/du| = \exp(|\mu_{\text{symlog}}|)$. This is a local linear approximation — accurate away from zero, less so near the zero-crossing.
+
+*   **When to use**: Targets like `y = exp(x)`, prices, file sizes, particle counts, anything with heavy right tails. **Not** useful for already-Gaussian or already-bounded targets — use a regular scaler instead.
+
+*   **Empirical**: ~5× MSE improvement on `y = exp(x) + ε` compared to no transform (see [Benchmarks](#16-benchmarks)).
 
 ### **Categorical Feature Handling**
 The package provides transformers for handling categorical features, which should be applied *before* passing data to the AutoML pipeline (e.g., as part of a `sklearn.pipeline.Pipeline`). While tree-based models like CatBoost have built-in capabilities for categorical data, other models require explicit encoding.
@@ -1233,7 +1368,26 @@ if loaded_automl_clf:
 logger.info("\n===== AutoML Package Demonstration Complete =====")
 ```
 
-## **16. Project Structure**
+## **16. Benchmarks**
+
+Empirical performance numbers across designed problems (heteroscedastic data, dynamic-k strategies,
+piecewise depth selection, exponential targets, conformal coverage, and more) live in
+**[`docs/benchmarks.md`](docs/benchmarks.md)**. The benchmarks document is the source of truth for
+"how well does this work?" — it includes the ProbReg vs ClassReg vs tree-model comparisons, the
+dynamic-k strategy table, and the Phase 4 feature evaluations.
+
+**Headline results:**
+
+| Win | Where |
+|---|---|
+| Best NLL on heteroscedastic data | **`ProbabilisticRegressionModel` k=5** (NLL = 1.38) |
+| Best dynamic-k strategy | **`ELBO` + `SOFT_GATING`** (matches best fixed-k with `mean k = 2`) |
+| Biggest single-feature win | **Symlog** on exponential targets (~5× MSE improvement) |
+| Distribution-free intervals | **`ConformalWrapper`** — coverage tracks target across α = 0.05 / 0.10 / 0.20 |
+
+See `docs/benchmarks.md` for the full tables, dataset definitions, and takeaways.
+
+## **17. Project Structure**
 The project is organized as follows:
 
 *   `automl_package/`: The core package containing the AutoML framework.
@@ -1245,9 +1399,10 @@ The project is organized as follows:
     -   `models/`: Directory for all the machine learning model implementations.
         -   `base.py`: Defines the abstract `BaseModel` class.
         -   `base_pytorch.py`: Provides a base class for PyTorch-based models, handling common training loops and regularization.
-        -   `flexible_neural_network.py`: Contains the novel `FlexibleNeuralNetwork`.
+        -   `flexible_neural_network.py`: Contains the novel `FlexibleNeuralNetwork` with `DepthRegularization` and hard/soft inference modes.
         -   `neural_network.py`: Implements the standard `PyTorchNeuralNetwork`.
-        -   `probabilistic_regression.py`: Implements the `ProbabilisticRegressionModel`.
+        -   `probabilistic_regression.py`: Implements the `ProbabilisticRegressionModel` with `NClassesRegularization`, `loss_type` (NLL / β-NLL), and `target_transform` (symlog).
+        -   `conformal.py`: Implements the `ConformalWrapper` for distribution-free prediction intervals.
         -   `classifier_regression.py`: Implements the `ClassifierRegressionModel`.
         -   `linear_regression.py`: Implements `JAXLinearRegression`.
         -   `normal_equation_linear_regression.py`: Implements `NormalEquationLinearRegression`.
@@ -1263,15 +1418,18 @@ The project is organized as follows:
             -   `layer_selection_strategies.py`: Contains strategy classes for dynamic layer selection.
     -   `optimizers/`: Directory for hyperparameter optimization logic (e.g., `optuna_optimizer.py`).
     -   `explainers/`: Directory for model explainability features (e.g., `feature_explainer.py`).
-    -   `utils/`: Directory for utility functions (e.g., `metrics.py`, `numerics.py`, `probability_mapper.py`).
+    -   `utils/`: Directory for utility functions (e.g., `metrics.py`, `numerics.py`, `probability_mapper.py`, `losses.py`, `transforms.py`).
 *   `docs/`: Contains documentation files.
+    -   `benchmarks.md`: Empirical performance results across designed problems.
+    -   `architecture_analysis.md`, `implementation_plan.md`: Internal design notes.
+*   `tests/`: Pytest suite covering all phases of the implementation plan.
 *   `requirements.txt`: Lists the Python packages required to run the project.
 *   `README.md`: The main README file for the project.
 
-## **17. Contributing**
+## **18. Contributing**
 
 Contributions are welcome! Please feel free to open issues or submit pull requests.
 
-## **18. License**
+## **19. License**
 
 This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.

@@ -14,8 +14,29 @@ def nll_loss(outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     variance = torch.exp(log_var)
     targets = targets.squeeze(-1) if targets.ndim > 1 else targets
 
-    per_sample_nll = 0.5 * (math.log(2 * math.pi) + log_var + (targets - mean) ** 2 / variance)
+    per_sample_nll = 0.5 * (math.log(2 * math.pi) + log_var + ((targets - mean) ** 2) / variance)
     return torch.mean(per_sample_nll)
+
+
+def beta_nll_loss(outputs: torch.Tensor, targets: torch.Tensor, beta: float = 0.5) -> torch.Tensor:
+    """β-NLL loss (Seitzer et al., 2022) that stabilizes variance learning.
+
+    Weights the NLL by detached variance^β, preventing the model from trivially
+    increasing variance to reduce loss (variance collapse).
+
+    Args:
+        outputs: Shape (N, 2) with columns [mean, log_variance].
+        targets: Shape (N,) or (N, 1).
+        beta: Weighting exponent. 0.0 = standard NLL, 1.0 = full reweighting.
+    """
+    mean = outputs[:, 0]
+    log_var = outputs[:, 1]
+    variance = torch.exp(log_var)
+    targets = targets.squeeze(-1) if targets.ndim > 1 else targets
+
+    per_sample_nll = 0.5 * (log_var + ((targets - mean) ** 2) / variance)
+    weighted_nll = (variance.detach() ** beta) * per_sample_nll
+    return weighted_nll.mean()
 
 
 def masked_cross_entropy_loss(logits: torch.Tensor, y_binned: torch.Tensor, k_values: torch.Tensor) -> torch.Tensor:

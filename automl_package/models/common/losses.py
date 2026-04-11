@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from automl_package.enums import UncertaintyMethod
-from automl_package.utils.losses import boundary_regularization_loss, nll_loss
+from automl_package.utils.losses import beta_nll_loss, boundary_regularization_loss, nll_loss
 from automl_package.utils.numerics import create_bins
 
 
@@ -17,6 +17,8 @@ def calculate_combined_loss(
     boundary_loss_weight: float | None = None,
     device: torch.device | None = None,
     include_boundary_loss: bool = False,
+    loss_type: str = "nll",
+    beta: float = 0.5,
 ) -> torch.Tensor:
     """Calculates the combined loss for a regression model.
 
@@ -38,8 +40,12 @@ def calculate_combined_loss(
 
     if uncertainty_method == UncertaintyMethod.PROBABILISTIC:
         mean = predictions[:, 0]
-        log_var = torch.log(torch.clamp(predictions[:, 1], min=1e-6))
-        regression_loss = nll_loss(torch.stack((mean, log_var), dim=1), y_true_squeezed)
+        log_var = predictions[:, 1]
+        stacked = torch.stack((mean, log_var), dim=1)
+        if loss_type == "beta_nll":
+            regression_loss = beta_nll_loss(stacked, y_true_squeezed, beta=beta)
+        else:
+            regression_loss = nll_loss(stacked, y_true_squeezed)
     else:
         regression_loss = nn.MSELoss()(predictions.squeeze(), y_true_squeezed)
 

@@ -130,7 +130,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
             self.input_size = new_input_size
             self.build_model()
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
         logger.info(f"Using device: {self.device}")
         if self.random_seed is not None:
             torch.manual_seed(self.random_seed)
