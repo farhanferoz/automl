@@ -122,13 +122,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
                 - A list of the validation loss values for each epoch.
         """
         new_input_size = 1 if x_train.ndim == 1 else x_train.shape[1]
-        if self.input_size != new_input_size:
-            self.input_size = new_input_size
-            self.build_model()
-
-        if self.model is None:
-            self.input_size = new_input_size
-            self.build_model()
+        self.input_size = new_input_size
 
         self.device = get_device()
         logger.info(f"Using device: {self.device}")

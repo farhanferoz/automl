@@ -34,7 +34,7 @@ def beta_nll_loss(outputs: torch.Tensor, targets: torch.Tensor, beta: float = 0.
     variance = torch.exp(log_var)
     targets = targets.squeeze(-1) if targets.ndim > 1 else targets
 
-    per_sample_nll = 0.5 * (log_var + ((targets - mean) ** 2) / variance)
+    per_sample_nll = 0.5 * (math.log(2 * math.pi) + log_var + ((targets - mean) ** 2) / variance)
     weighted_nll = (variance.detach() ** beta) * per_sample_nll
     return weighted_nll.mean()
 
@@ -70,8 +70,8 @@ def tree_model_gaussian_nll_objective(y_true: np.ndarray, y_pred: np.ndarray) ->
 
     # Hessian of NLL w.r.t. mean
     hess_mean = 1.0 / variance
-    # Hessian of NLL w.r.t. log_var
-    hess_log_var = 0.5 * (((y_true - mean) ** 2) / variance)
+    # Fisher information for log_var (constant 0.5, always positive, more stable than observed Hessian)
+    hess_log_var = np.full_like(y_true, 0.5)
 
     # Stack gradients and hessians to match y_pred's shape: (n_samples, 2)
     grad = np.stack([grad_mean, grad_log_var], axis=1)

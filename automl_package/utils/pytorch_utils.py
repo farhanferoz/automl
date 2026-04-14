@@ -43,12 +43,42 @@ def calculate_regularization_loss(
 
 
 def get_device() -> torch.device:
-    """Returns the best available device: CUDA > XPU > CPU."""
+    """Returns the best available device: CUDA > XPU > CPU.
+
+    On first call, disables a broken triton-xpu stub that crashes torch._dynamo.
+    """
+    _disable_broken_triton()
     if torch.cuda.is_available():
         return torch.device("cuda")
     if hasattr(torch, "xpu") and torch.xpu.is_available():
         return torch.device("xpu")
     return torch.device("cpu")
+
+
+def _disable_broken_triton() -> None:
+    """Disables triton if it's a broken namespace stub (triton-xpu >=3.6 issue).
+
+    triton-xpu ships a namespace package without real module contents.
+    torch._dynamo imports it and crashes accessing triton.language.dtype,
+    triton.backends.compiler, etc. Since we don't use Triton kernels,
+    the fix is to make torch think triton isn't installed by patching
+    has_triton_package() to return False.
+    """
+    if getattr(_disable_broken_triton, "_done", False):
+        return
+    _disable_broken_triton._done = True  # type: ignore[attr-defined]
+
+    try:
+        import triton.language as tl
+
+        if not hasattr(tl, "dtype"):
+            # Broken stub — disable triton detection in torch
+            import torch.utils._triton
+
+            torch.utils._triton.has_triton_package.cache_clear()
+            torch.utils._triton.has_triton_package = lambda: False  # type: ignore[assignment]
+    except ImportError:
+        pass  # No triton installed — nothing to patch
 
 
 def get_activation_function_map() -> dict[ActivationFunction, nn.Module]:

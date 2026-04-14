@@ -15,10 +15,11 @@ This project is part of the uv workspace at `~/dev/`. Always use the workspace v
 # Install/sync (from workspace root, installs XPU torch on this machine)
 cd ~/dev && uv sync --package automl-package
 
-# Standalone install (any machine — gets default PyPI torch for that platform)
-uv pip install -e .                    # CPU/CUDA auto-detected
-uv pip install -e ".[xpu]"            # Intel XPU (adds triton-xpu)
-uv pip install -e ".[dev]"            # Dev tools (pytest, ruff)
+# Standalone install (auto-detects CUDA > XPU > CPU)
+./install.sh                           # auto-detect best backend
+./install.sh --dev                     # auto-detect + dev tools
+./install.sh --cpu                     # force CPU
+./install.sh --xpu                     # force Intel XPU
 ```
 
 ## Code Style
@@ -93,3 +94,5 @@ PyTorch >=2.6 (XPU), JAX, Optuna, XGBoost, LightGBM, CatBoost, SHAP, W&B.
 - **Next steps**: see `RESUME.md` (always loaded, keep concise)
 - **Completed work, model history, bug audit**: see `ARCHIVE.md` (read when needed)
 - **Research findings & past experiments**: see `docs/architecture_analysis.md` and `docs/implementation_plan.md` (read when needed)
+- **Publication roadmap**: see `docs/research_plan.md` (two-paper structure, benchmarks, baselines, astrophysics applications)
+- **Mathematical reference**: see `docs/mathematical_guide.tex` (compile with `pdflatex` × 3 passes; 24-page guide covering all models, losses, strategies, UQ methods)

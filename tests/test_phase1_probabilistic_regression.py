@@ -355,8 +355,7 @@ class TestModelComparison:
         multimodal_mse = float(np.mean((y_test - y_pred) ** 2))
 
         # On bimodal data (delta=1.5), even a perfect model predicting the conditional
-        # mean gets MSE ~= delta^2 = 2.25. With limited data and a spline mapper,
-        # higher MSE is expected. We verify the model trains without catastrophic failure.
+        # mean gets MSE ~= delta^2 = 2.25. We verify the model trains without catastrophic failure.
         assert multimodal_mse < 20.0, (
             f"ClassifierRegression MSE ({multimodal_mse:.4f}) is unreasonably high "
             f"on bimodal data -- model may have failed to train."

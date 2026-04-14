@@ -80,9 +80,11 @@ class BaseSelectionStrategy(ABC):
 
     # Helper for hard selection logic (common to STE and REINFORCE)
     def _hard_selection_logic(self, x_input: torch.Tensor, mode_selection_one_hot: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Applies hard selection based on one-hot encoded choices.
+        """Applies hard selection using weighted-sum pattern to preserve STE gradients.
 
-        Assumes self.model has methods/attributes similar to _weighted_average_logic.
+        Uses prob * output for each mode so that gradients flow through mode_selection_one_hot
+        back to the n_classes_predictor, matching the pattern in _weighted_average_logic and
+        the layer_selection SteStrategy.
         """
         classifier_raw_logits = self.model.classifier_layers(x_input)
         final_predictions_contribution = torch.zeros(x_input.size(0), self.model.regression_output_size).to(x_input.device)
@@ -95,17 +97,18 @@ class BaseSelectionStrategy(ABC):
             selected_k_indices + 2,  # Otherwise, it's k_val = index + 2
         )
 
+        # Use weighted-sum pattern (prob * output) to preserve gradient flow through
+        # mode_selection_one_hot. Forward: only one mode contributes (one-hot).
+        # Backward: STE gradients flow through all modes via the soft distribution.
         for i in range(mode_selection_one_hot.size(1)):
-            # Get indices where this mode is selected
-            selected_indices = torch.where(selected_k_indices == i)[0]
+            prob_i = mode_selection_one_hot[:, i].unsqueeze(1)  # (B, 1)
 
-            if len(selected_indices) > 0:
-                if i == mode_selection_one_hot.size(1) - 1:  # Direct regression mode
-                    predictions_for_mode = self.model.direct_regression_head(x_input[selected_indices])
-                else:  # Probabilistic path with k_val = i + 2
-                    k_val = i + 2
-                    predictions_for_mode = self.model._compute_predictions_for_k(classifier_raw_logits[selected_indices], k_val)
+            if i == mode_selection_one_hot.size(1) - 1:  # Direct regression mode
+                predictions_for_mode = self.model.direct_regression_head(x_input)
+            else:  # Probabilistic path with k_val = i + 2
+                k_val = i + 2
+                predictions_for_mode = self.model._compute_predictions_for_k(classifier_raw_logits, k_val)
 
-                final_predictions_contribution[selected_indices] = predictions_for_mode
+            final_predictions_contribution += prob_i * predictions_for_mode
 
         return final_predictions_contribution, selected_k_values, classifier_raw_logits

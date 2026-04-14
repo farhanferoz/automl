@@ -40,7 +40,7 @@ class NoneStrategy(BaseSelectionStrategy):
             device=x_input.device,
             dtype=torch.long,
         )
-        n_probs = torch.zeros(x_input.size(0), self.model.max_hidden_layers + 1, device=x_input.device)
+        n_probs = torch.zeros(x_input.size(0), self.model.max_hidden_layers, device=x_input.device)
         if self.model.max_hidden_layers > 0:
             n_probs[:, -1] = 1.0
 

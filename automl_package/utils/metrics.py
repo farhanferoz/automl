@@ -153,24 +153,27 @@ class Metrics:
         return np.mean((self.y_true >= lower_bound) & (self.y_true <= upper_bound))
 
     def calculate_ece(self, n_bins: int = 10) -> float:
-        """Calculates the Expected Calibration Error (ECE) for regression."""
+        """Calculates the Expected Calibration Error (ECE) for regression using PIT.
+
+        Uses the Probability Integral Transform (Kuleshov, Fenner & Ermon, 2018):
+        for each test point compute PIT value p_i = Φ((y_true - μ) / σ), then check
+        whether empirical quantile coverage matches target coverage at evenly spaced
+        confidence levels. ECE is the mean absolute deviation from the diagonal.
+        """
         if self.y_std is None:
             return np.nan
 
-        # Convert std dev to confidence probabilities using the CDF
-        z_scores = np.abs(self.y_true - self.y_pred) / np.maximum(self.y_std, 1e-9)
-        confidences = 2 * (1 - norm.cdf(z_scores))  # Confidence is the probability of being within the predicted interval
+        y_std = np.maximum(self.y_std, 1e-9)
+        # PIT values: CDF of true values under the predicted Gaussian
+        pit_values = norm.cdf(self.y_true, loc=self.y_pred, scale=y_std)
 
-        bin_boundaries = np.linspace(0, 1, n_bins + 1)
+        # Evaluate calibration at n_bins evenly spaced target coverage levels
+        target_levels = np.linspace(1.0 / (n_bins + 1), n_bins / (n_bins + 1), n_bins)
         ece = 0.0
-        for i in range(n_bins):
-            in_bin = (confidences > bin_boundaries[i]) & (confidences <= bin_boundaries[i + 1])
-            if np.sum(in_bin) > 0:
-                # Accuracy in this bin is the proportion of times the true value was within the predicted interval
-                accuracy_in_bin = np.mean(z_scores[in_bin] <= 1)  # A z-score <= 1 means it's within 1 std dev
-                confidence_in_bin = np.mean(confidences[in_bin])
-                ece += np.abs(accuracy_in_bin - confidence_in_bin) * (np.sum(in_bin) / len(self.y_true))
-        return ece
+        for p in target_levels:
+            observed_coverage = np.mean(pit_values <= p)
+            ece += np.abs(observed_coverage - p)
+        return ece / n_bins
 
     def calculate_classification_metrics(self) -> dict[str, float]:
         """Calculates classification-specific metrics.

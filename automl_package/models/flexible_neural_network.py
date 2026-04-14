@@ -247,7 +247,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                 loss = self._calculate_regularization_loss(loss, self.model)
 
                 if self.depth_regularization == DepthRegularization.ELBO and n_probs is not None:
-                    depth_prior_logits = torch.arange(self.max_hidden_layers, 0, -1, dtype=torch.float, device=_batch_x.device)
+                    depth_prior_logits = torch.linspace(3.0, 1.0, self.max_hidden_layers, dtype=torch.float, device=_batch_x.device)
                     depth_prior = torch.distributions.Categorical(logits=depth_prior_logits)
                     q_depth = torch.distributions.Categorical(probs=n_probs + 1e-8)
                     kl_div = torch.distributions.kl_divergence(q_depth, depth_prior).mean()
