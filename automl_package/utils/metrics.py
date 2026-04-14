@@ -167,13 +167,11 @@ class Metrics:
         # PIT values: CDF of true values under the predicted Gaussian
         pit_values = norm.cdf(self.y_true, loc=self.y_pred, scale=y_std)
 
-        # Evaluate calibration at n_bins evenly spaced target coverage levels
+        # Evaluate calibration at n_bins evenly spaced target coverage levels.
+        # Vectorised: broadcast (N,) against (n_bins,) to get (N, n_bins) comparisons.
         target_levels = np.linspace(1.0 / (n_bins + 1), n_bins / (n_bins + 1), n_bins)
-        ece = 0.0
-        for p in target_levels:
-            observed_coverage = np.mean(pit_values <= p)
-            ece += np.abs(observed_coverage - p)
-        return ece / n_bins
+        observed_coverages = np.mean(pit_values[:, np.newaxis] <= target_levels[np.newaxis, :], axis=0)
+        return float(np.mean(np.abs(observed_coverages - target_levels)))
 
     def calculate_classification_metrics(self) -> dict[str, float]:
         """Calculates classification-specific metrics.

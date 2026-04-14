@@ -100,14 +100,17 @@ class BaseSelectionStrategy(ABC):
         # Use weighted-sum pattern (prob * output) to preserve gradient flow through
         # mode_selection_one_hot. Forward: only one mode contributes (one-hot).
         # Backward: STE gradients flow through all modes via the soft distribution.
+        # Skip modes where no sample in the batch selected that mode (saves K-1
+        # unnecessary forward passes per step, especially important for REINFORCE).
         for i in range(mode_selection_one_hot.size(1)):
-            prob_i = mode_selection_one_hot[:, i].unsqueeze(1)  # (B, 1)
+            prob_i = mode_selection_one_hot[:, i].unsqueeze(1)
+            if not torch.any(prob_i > 0):
+                continue
 
-            if i == mode_selection_one_hot.size(1) - 1:  # Direct regression mode
+            if i == mode_selection_one_hot.size(1) - 1:  # Last index is the direct regression bypass
                 predictions_for_mode = self.model.direct_regression_head(x_input)
-            else:  # Probabilistic path with k_val = i + 2
-                k_val = i + 2
-                predictions_for_mode = self.model._compute_predictions_for_k(classifier_raw_logits, k_val)
+            else:
+                predictions_for_mode = self.model._compute_predictions_for_k(classifier_raw_logits, i + 2)
 
             final_predictions_contribution += prob_i * predictions_for_mode
 

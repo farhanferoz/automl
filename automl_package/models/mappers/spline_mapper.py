@@ -29,6 +29,8 @@ class SplineMapper(BaseMapper):
         self.spline_s = kwargs.get("spline_s")
         self._spline_residual_variance = 0.0
         self._fallback_value = 0.0
+        self._y_min = 0.0
+        self._y_max = 1.0
 
     def _fit(self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG002
         self._fallback_value = np.mean(y_original)
