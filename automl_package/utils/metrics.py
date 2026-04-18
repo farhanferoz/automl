@@ -26,7 +26,15 @@ from sklearn.metrics import (
 
 from automl_package.enums import Metric, RegressionStrategy, TaskType
 from automl_package.logger import logger
+from automl_package.utils.calibration import (
+    calculate_mpiw,
+    calculate_picp_at_alphas,
+    calculate_sharpness_from_std,
+    miscalibration_area,
+)
+from automl_package.utils.distributions import GaussianDistribution
 from automl_package.utils.numerics import create_bins
+from automl_package.utils.scoring import calculate_crps_gaussian, calculate_winkler_from_gaussian
 
 
 def mean_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -115,7 +123,8 @@ class Metrics:
         """Calculates regression-specific metrics.
 
         Returns:
-            dict: A dictionary of regression metrics.
+            dict: A dictionary of regression metrics including proper scoring rules,
+            calibration metrics, and interval scores when uncertainty is available.
         """
         metrics = {
             "mae": mean_absolute_error(self.y_true, self.y_pred),
@@ -126,8 +135,15 @@ class Metrics:
         }
         if self.y_std is not None:
             metrics["nll"] = self.calculate_nll()
-            metrics["picp"] = self.calculate_picp()
             metrics["ece"] = self.calculate_ece()
+            metrics["crps"] = calculate_crps_gaussian(self.y_true, self.y_pred, self.y_std)
+            metrics["winkler@95"] = calculate_winkler_from_gaussian(self.y_true, self.y_pred, self.y_std, alpha=0.05)
+            dist = GaussianDistribution(self.y_pred, self.y_std)
+            metrics["miscalibration_area"] = miscalibration_area(self.y_true, dist)
+            metrics["sharpness"] = calculate_sharpness_from_std(self.y_std)
+            metrics["mpiw@95"] = calculate_mpiw(self.y_std, alpha=0.05)
+            picp_dict = calculate_picp_at_alphas(self.y_true, self.y_pred, self.y_std)
+            metrics.update(picp_dict)
         return metrics
 
     def calculate_nll(self) -> float:
@@ -198,7 +214,6 @@ class Metrics:
                 metrics["roc_auc"] = roc_auc_score(self.y_true, self.y_proba, multi_class="ovr", average="weighted")
 
             # log_loss expects y_proba to be (n_samples, n_classes) for multi-class, or (n_samples,) for binary
-            # If binary and y_proba is (n_samples, 2), log_loss handles it.
             # If binary and y_proba is (n_samples, 2), log_loss handles it.
             metrics["log_loss"] = log_loss(self.y_true, self.y_proba)
         return metrics
@@ -458,7 +473,7 @@ class Metrics:
         layer_indices = np.arange(1, max_hidden_layers + 1)
         weighted_layers = np.sum(n_probs * layer_indices, axis=1)
 
-        fig, axs = plt.subplots(3, 1, figsize=(10, 18))
+        _, axs = plt.subplots(3, 1, figsize=(10, 18))
 
         # Plot 1: Distribution of chosen active layers (n_actual)
         axs[0].hist(n_actual, bins=np.arange(1, max_hidden_layers + 2), align="left", rwidth=0.8, color="navy")
@@ -663,12 +678,19 @@ def calculate_nll(y_true: np.ndarray, y_pred_mean: np.ndarray, y_pred_std: np.nd
 def calculate_performance_score(metric: Metric, y_true: np.ndarray, y_pred: np.ndarray, y_pred_std: np.ndarray | None = None) -> float:
     """Calculates the performance score."""
     if metric == Metric.NLL:
-        assert y_pred_std is not None
+        if y_pred_std is None:
+            raise ValueError(f"Metric {metric.value} requires y_pred_std.")
         score = calculate_nll(y_true, y_pred, y_pred_std)
     elif metric in [Metric.MSE, Metric.RMSE]:
         score = mean_squared_error(y_true, y_pred)
         if metric == Metric.RMSE:
             score = math.sqrt(score)
+    elif metric == Metric.MAE:
+        score = mean_absolute_error(y_true, y_pred)
+    elif metric == Metric.CRPS:
+        if y_pred_std is None:
+            raise ValueError(f"Metric {metric.value} requires y_pred_std.")
+        score = calculate_crps_gaussian(y_true, y_pred, y_pred_std)
     elif metric == Metric.LOG_LOSS:
         score = log_loss(y_true, y_pred)
     elif metric == Metric.ACCURACY:

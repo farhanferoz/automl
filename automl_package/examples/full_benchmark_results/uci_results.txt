@@ -1,0 +1,408 @@
+
+==========================================================================================
+  UCI-Energy(768x8)
+==========================================================================================
+Model                          MSE      NLL     CRPS     ECE PICP@95 MPIW@95    Time
+------------------------------------------------------------------------------------------
+2026-04-16 06:38:35,961 - automl_package - INFO - Using probabilistic regression mode with fixed 5 classes.
+2026-04-16 06:38:35,961 - automl_package - WARNING - The `constrain_middle_class` option is not supported for the SINGLE_HEAD_FINAL_OUTPUT strategy.
+2026-04-16 06:38:35,961 - automl_package - INFO - Using probabilistic regression mode with fixed 5 classes.
+2026-04-16 06:38:35,961 - automl_package - INFO - Using probabilistic regression mode with dynamic n_classes selection via soft_gating.
+2026-04-16 06:38:35,962 - automl_package - INFO - --- Starting training for JAXLinearRegression ---
+2026-04-16 06:38:35,963 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:38:36,844 - automl_package - INFO - --- Optimal iterations found: 1000 ---
+2026-04-16 06:38:36,845 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:38:37,023 - automl_package - INFO - --- Final model training finished ---
+LinearReg                    0.398    0.961    0.298  0.0838   0.961   2.374    1.1s
+2026-04-16 06:38:37,080 - automl_package - INFO - --- Starting training for XGBoostModel ---
+2026-04-16 06:38:37,082 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:38:37,219 - automl_package - INFO - --- Optimal iterations found: 23 ---
+2026-04-16 06:38:37,219 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:38:37,250 - automl_package - INFO - --- Final model training finished ---
+XGBoost                      0.003   -0.518    0.033  0.0767   0.662   0.104    0.2s
+2026-04-16 06:38:37,253 - automl_package - INFO - --- Starting training for LightGBMModel ---
+2026-04-16 06:38:37,254 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+/home/ff235/dev/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+2026-04-16 06:38:37,499 - automl_package - INFO - --- Optimal iterations found: 199 ---
+2026-04-16 06:38:37,500 - automl_package - INFO - --- Training final model with optimal parameters ---
+/home/ff235/dev/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+2026-04-16 06:38:37,565 - automl_package - INFO - --- Final model training finished ---
+/home/ff235/dev/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+LightGBM                     0.065    0.139    0.116  0.0822   0.896   0.762    0.3s
+2026-04-16 06:38:37,567 - automl_package - INFO - --- Starting training for CatBoostModel ---
+2026-04-16 06:38:37,568 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:38:37,669 - automl_package - INFO - --- Optimal iterations found: 198 ---
+2026-04-16 06:38:37,669 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:38:37,716 - automl_package - INFO - --- Final model training finished ---
+CatBoost                     0.003   -0.602    0.031  0.0818   0.675   0.099    0.1s
+2026-04-16 06:38:37,717 - automl_package - INFO - --- Starting training for CatBoostModel ---
+2026-04-16 06:38:37,719 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:38:37,770 - automl_package - INFO - --- Optimal iterations found: 200 ---
+2026-04-16 06:38:37,770 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:38:37,819 - automl_package - INFO - --- Final model training finished ---
+CatBoost+UQ                  0.030   -0.850    0.071  0.0379   0.970   0.437    0.1s
+2026-04-16 06:38:37,821 - automl_package - INFO - --- Starting training for GP(Matern-2.5) ---
+2026-04-16 06:38:37,822 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:38:41,802 - automl_package - INFO - --- Final model training finished ---
+GP(Matern)                   0.128    0.234    0.132  0.0917   0.983   1.125    4.0s
+2026-04-16 06:38:41,811 - automl_package - INFO - --- Starting training for ProbabilisticRegression_separate_heads ---
+2026-04-16 06:38:41,813 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:38:41,813 - automl_package - INFO - Using device: xpu
+2026-04-16 06:38:49,512 - automl_package - INFO - Early stopping at epoch 35
+2026-04-16 06:38:49,512 - automl_package - INFO - --- Optimal iterations found: 35 ---
+2026-04-16 06:38:49,512 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:38:49,512 - automl_package - INFO - Using device: xpu
+2026-04-16 06:38:54,048 - automl_package - INFO - --- Final model training finished ---
+ProbReg(k=5)                 0.178    0.047    0.173  0.0447   0.974   1.348   12.3s
+2026-04-16 06:38:54,086 - automl_package - INFO - --- Starting training for ProbabilisticRegression_single_head_final_output ---
+2026-04-16 06:38:54,087 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:38:54,087 - automl_package - INFO - Using device: xpu
+2026-04-16 06:38:55,825 - automl_package - INFO - Early stopping at epoch 18
+2026-04-16 06:38:55,825 - automl_package - INFO - --- Optimal iterations found: 18 ---
+2026-04-16 06:38:55,826 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:38:55,826 - automl_package - INFO - Using device: xpu
+2026-04-16 06:38:56,828 - automl_package - INFO - --- Final model training finished ---
+ProbReg(k=5,SINGLE_FINAL)    0.288   -0.085    0.174  0.0357   0.948   1.182    2.7s
+2026-04-16 06:38:56,831 - automl_package - INFO - --- Starting training for ProbabilisticRegression_separate_heads ---
+2026-04-16 06:38:56,832 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:38:56,833 - automl_package - INFO - Using device: xpu
+2026-04-16 06:39:49,504 - automl_package - INFO - Early stopping at epoch 50
+2026-04-16 06:39:49,505 - automl_package - INFO - --- Optimal iterations found: 50 ---
+2026-04-16 06:39:49,505 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:39:49,506 - automl_package - INFO - Using device: xpu
+2026-04-16 06:40:39,931 - automl_package - INFO - --- Final model training finished ---
+ProbReg(dyn,K_PEN)           0.041   -0.013    0.097  0.2372   0.758   0.424  103.1s
+2026-04-16 06:40:39,969 - automl_package - INFO - --- Starting training for FlexibleNeuralNetwork ---
+2026-04-16 06:40:39,971 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:40:39,974 - automl_package - INFO - Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.
+2026-04-16 06:40:42,282 - automl_package - INFO - Early stopping at epoch 14
+2026-04-16 06:40:42,288 - automl_package - INFO - --- Optimal iterations found: 14 ---
+2026-04-16 06:40:42,288 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:40:42,291 - automl_package - INFO - Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.
+2026-04-16 06:40:43,729 - automl_package - INFO - --- Final model training finished ---
+FlexNN(CONST)                0.067    0.070    0.123  0.0672   0.987   1.039    3.8s
+2026-04-16 06:40:43,733 - automl_package - INFO - --- Starting training for FlexibleNeuralNetwork ---
+2026-04-16 06:40:43,734 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:40:43,737 - automl_package - INFO - Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.
+2026-04-16 06:40:49,005 - automl_package - INFO - Early stopping at epoch 54
+2026-04-16 06:40:49,005 - automl_package - INFO - --- Optimal iterations found: 54 ---
+2026-04-16 06:40:49,005 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:40:49,007 - automl_package - INFO - Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.
+2026-04-16 06:40:54,567 - automl_package - INFO - --- Final model training finished ---
+FlexNN(PROB)                 0.046   -0.815    0.069  0.1114   0.952   0.502   10.8s
+2026-04-16 06:40:54,573 - automl_package - INFO - --- Starting training for MDN(K=5) ---
+2026-04-16 06:40:54,574 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:40:55,486 - automl_package - INFO - --- Optimal iterations found: 100 ---
+2026-04-16 06:40:55,486 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:40:55,778 - automl_package - INFO - --- Final model training finished ---
+MDN(K=5)                     0.071   -0.470    0.104  0.0526   0.991   0.995    1.2s
+2026-04-16 06:40:55,781 - automl_package - INFO - --- Starting training for QR-NN(Q=9) ---
+2026-04-16 06:40:55,782 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:40:56,045 - automl_package - INFO - --- Optimal iterations found: 100 ---
+2026-04-16 06:40:56,045 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:40:56,247 - automl_package - INFO - --- Final model training finished ---
+QR-NN                        0.100   -0.246    0.140  0.0457   0.991   1.269    0.5s
+2026-04-16 06:40:56,251 - automl_package - INFO - --- Starting training for FT-Transformer(d=32,L=2) ---
+2026-04-16 06:40:56,252 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:40:57,847 - automl_package - INFO - --- Optimal iterations found: 100 ---
+2026-04-16 06:40:57,847 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:40:59,187 - automl_package - INFO - --- Final model training finished ---
+FT-Transformer               0.712    1.130    0.459  0.0499   0.974   3.505    3.0s
+
+==========================================================================================
+  UCI-Yacht(308x6)
+==========================================================================================
+Model                          MSE      NLL     CRPS     ECE PICP@95 MPIW@95    Time
+------------------------------------------------------------------------------------------
+2026-04-16 06:40:59,277 - automl_package - INFO - Using probabilistic regression mode with fixed 5 classes.
+2026-04-16 06:40:59,277 - automl_package - WARNING - The `constrain_middle_class` option is not supported for the SINGLE_HEAD_FINAL_OUTPUT strategy.
+2026-04-16 06:40:59,277 - automl_package - INFO - Using probabilistic regression mode with fixed 5 classes.
+2026-04-16 06:40:59,277 - automl_package - INFO - Using probabilistic regression mode with dynamic n_classes selection via soft_gating.
+2026-04-16 06:40:59,277 - automl_package - INFO - --- Starting training for JAXLinearRegression ---
+2026-04-16 06:40:59,278 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:40:59,796 - automl_package - INFO - Early stopping at iteration 120
+2026-04-16 06:40:59,839 - automl_package - INFO - --- Optimal iterations found: 120 ---
+2026-04-16 06:40:59,839 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:40:59,940 - automl_package - INFO - --- Final model training finished ---
+LinearReg                    0.303    0.825    0.302  0.0727   0.946   2.266    0.7s
+2026-04-16 06:40:59,987 - automl_package - INFO - --- Starting training for XGBoostModel ---
+2026-04-16 06:40:59,988 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:00,020 - automl_package - INFO - --- Optimal iterations found: 40 ---
+2026-04-16 06:41:00,020 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:00,033 - automl_package - INFO - --- Final model training finished ---
+XGBoost                      0.003  500.995    0.021  0.1322   0.398   0.007    0.0s
+2026-04-16 06:41:00,036 - automl_package - INFO - --- Starting training for LightGBMModel ---
+2026-04-16 06:41:00,037 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+/home/ff235/dev/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+2026-04-16 06:41:00,045 - automl_package - INFO - --- Optimal iterations found: 26 ---
+2026-04-16 06:41:00,045 - automl_package - INFO - --- Training final model with optimal parameters ---
+/home/ff235/dev/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+2026-04-16 06:41:00,050 - automl_package - INFO - --- Final model training finished ---
+/home/ff235/dev/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+LightGBM                     0.049   -0.078    0.103  0.1756   0.935   0.956    0.0s
+2026-04-16 06:41:00,052 - automl_package - INFO - --- Starting training for CatBoostModel ---
+2026-04-16 06:41:00,053 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:00,097 - automl_package - INFO - --- Optimal iterations found: 200 ---
+2026-04-16 06:41:00,097 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:00,142 - automl_package - INFO - --- Final model training finished ---
+CatBoost                     0.008   83.842    0.035  0.1117   0.527   0.027    0.1s
+2026-04-16 06:41:00,143 - automl_package - INFO - --- Starting training for CatBoostModel ---
+2026-04-16 06:41:00,144 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:00,199 - automl_package - INFO - --- Optimal iterations found: 200 ---
+2026-04-16 06:41:00,199 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:00,250 - automl_package - INFO - --- Final model training finished ---
+CatBoost+UQ                  0.035   -1.687    0.053  0.1429   0.946   0.237    0.1s
+2026-04-16 06:41:00,252 - automl_package - INFO - --- Starting training for GP(Matern-2.5) ---
+2026-04-16 06:41:00,252 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:00,536 - automl_package - INFO - --- Final model training finished ---
+GP(Matern)                   0.006   -1.854    0.028  0.1053   0.925   0.230    0.3s
+2026-04-16 06:41:00,539 - automl_package - INFO - --- Starting training for ProbabilisticRegression_separate_heads ---
+2026-04-16 06:41:00,541 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:00,541 - automl_package - INFO - Using device: xpu
+2026-04-16 06:41:02,956 - automl_package - INFO - Early stopping at epoch 45
+2026-04-16 06:41:02,957 - automl_package - INFO - --- Optimal iterations found: 45 ---
+2026-04-16 06:41:02,957 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:02,957 - automl_package - INFO - Using device: xpu
+2026-04-16 06:41:05,314 - automl_package - INFO - --- Final model training finished ---
+ProbReg(k=5)                 0.442    1.031    0.406  0.2721   0.978   1.832    4.8s
+2026-04-16 06:41:05,320 - automl_package - INFO - --- Starting training for ProbabilisticRegression_single_head_final_output ---
+2026-04-16 06:41:05,321 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:05,321 - automl_package - INFO - Using device: xpu
+2026-04-16 06:41:06,579 - automl_package - INFO - Early stopping at epoch 46
+2026-04-16 06:41:06,579 - automl_package - INFO - --- Optimal iterations found: 46 ---
+2026-04-16 06:41:06,579 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:06,580 - automl_package - INFO - Using device: xpu
+2026-04-16 06:41:07,799 - automl_package - INFO - --- Final model training finished ---
+ProbReg(k=5,SINGLE_FINAL)    0.029   -1.459    0.051  0.1464   1.000   0.493    2.5s
+2026-04-16 06:41:07,802 - automl_package - INFO - --- Starting training for ProbabilisticRegression_separate_heads ---
+2026-04-16 06:41:07,804 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:07,804 - automl_package - INFO - Using device: xpu
+2026-04-16 06:41:23,319 - automl_package - INFO - Early stopping at epoch 29
+2026-04-16 06:41:23,319 - automl_package - INFO - --- Optimal iterations found: 29 ---
+2026-04-16 06:41:23,319 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:23,320 - automl_package - INFO - Using device: xpu
+2026-04-16 06:41:37,568 - automl_package - INFO - --- Final model training finished ---
+ProbReg(dyn,K_PEN)           0.009   -1.194    0.046  0.3018   0.914   0.281   29.8s
+2026-04-16 06:41:37,610 - automl_package - INFO - --- Starting training for FlexibleNeuralNetwork ---
+2026-04-16 06:41:37,611 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:37,614 - automl_package - INFO - Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.
+2026-04-16 06:41:39,453 - automl_package - INFO - Early stopping at epoch 37
+2026-04-16 06:41:39,456 - automl_package - INFO - --- Optimal iterations found: 37 ---
+2026-04-16 06:41:39,456 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:39,459 - automl_package - INFO - Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.
+2026-04-16 06:41:41,079 - automl_package - INFO - --- Final model training finished ---
+FlexNN(CONST)                0.014   -0.641    0.055  0.0712   0.914   0.346    3.5s
+2026-04-16 06:41:41,083 - automl_package - INFO - --- Starting training for FlexibleNeuralNetwork ---
+2026-04-16 06:41:41,084 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:41,087 - automl_package - INFO - Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.
+2026-04-16 06:41:42,093 - automl_package - INFO - Early stopping at epoch 13
+2026-04-16 06:41:42,094 - automl_package - INFO - --- Optimal iterations found: 13 ---
+2026-04-16 06:41:42,094 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:42,096 - automl_package - INFO - Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.
+2026-04-16 06:41:42,770 - automl_package - INFO - --- Final model training finished ---
+FlexNN(PROB)                 0.035   -0.366    0.094  0.0829   0.957   0.831    1.7s
+2026-04-16 06:41:42,775 - automl_package - INFO - --- Starting training for MDN(K=5) ---
+2026-04-16 06:41:42,776 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:43,154 - automl_package - INFO - --- Optimal iterations found: 100 ---
+2026-04-16 06:41:43,154 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:43,553 - automl_package - INFO - --- Final model training finished ---
+MDN(K=5)                     0.015   -1.325    0.044  0.1338   0.989   0.454    0.8s
+2026-04-16 06:41:43,556 - automl_package - INFO - --- Starting training for QR-NN(Q=9) ---
+2026-04-16 06:41:43,557 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:43,773 - automl_package - INFO - --- Optimal iterations found: 100 ---
+2026-04-16 06:41:43,773 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:43,988 - automl_package - INFO - --- Final model training finished ---
+QR-NN                        0.012   -1.551    0.038  0.0770   0.989   0.319    0.4s
+2026-04-16 06:41:43,991 - automl_package - INFO - --- Starting training for FT-Transformer(d=32,L=2) ---
+2026-04-16 06:41:43,993 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:44,882 - automl_package - INFO - --- Optimal iterations found: 100 ---
+2026-04-16 06:41:44,882 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:45,575 - automl_package - INFO - --- Final model training finished ---
+FT-Transformer               0.670    0.655    0.384  0.0863   0.925   2.825    1.7s
+
+==========================================================================================
+  UCI-Kin8nm(8192x8)
+==========================================================================================
+Model                          MSE      NLL     CRPS     ECE PICP@95 MPIW@95    Time
+------------------------------------------------------------------------------------------
+2026-04-16 06:41:45,680 - automl_package - INFO - Using probabilistic regression mode with fixed 5 classes.
+2026-04-16 06:41:45,680 - automl_package - WARNING - The `constrain_middle_class` option is not supported for the SINGLE_HEAD_FINAL_OUTPUT strategy.
+2026-04-16 06:41:45,680 - automl_package - INFO - Using probabilistic regression mode with fixed 5 classes.
+2026-04-16 06:41:45,680 - automl_package - INFO - Using probabilistic regression mode with dynamic n_classes selection via soft_gating.
+2026-04-16 06:41:45,681 - automl_package - INFO - --- Starting training for JAXLinearRegression ---
+2026-04-16 06:41:45,682 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:45,908 - automl_package - INFO - Early stopping at iteration 104
+2026-04-16 06:41:45,947 - automl_package - INFO - --- Optimal iterations found: 104 ---
+2026-04-16 06:41:45,947 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:46,047 - automl_package - INFO - --- Final model training finished ---
+LinearReg                    0.594    1.158    0.436  0.0173   0.952   3.020    0.4s
+2026-04-16 06:41:46,092 - automl_package - INFO - --- Starting training for XGBoostModel ---
+2026-04-16 06:41:46,093 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:46,205 - automl_package - INFO - --- Optimal iterations found: 129 ---
+2026-04-16 06:41:46,206 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:46,298 - automl_package - INFO - --- Final model training finished ---
+XGBoost                      0.243    8.428    0.332  0.1539   0.359   0.439    0.2s
+2026-04-16 06:41:46,301 - automl_package - INFO - --- Starting training for LightGBMModel ---
+2026-04-16 06:41:46,302 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+/home/ff235/dev/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+2026-04-16 06:41:46,459 - automl_package - INFO - --- Optimal iterations found: 198 ---
+2026-04-16 06:41:46,459 - automl_package - INFO - --- Training final model with optimal parameters ---
+/home/ff235/dev/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+2026-04-16 06:41:46,614 - automl_package - INFO - --- Final model training finished ---
+/home/ff235/dev/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+LightGBM                     0.194    1.358    0.260  0.0819   0.699   0.878    0.3s
+2026-04-16 06:41:46,620 - automl_package - INFO - --- Starting training for CatBoostModel ---
+2026-04-16 06:41:46,622 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:46,806 - automl_package - INFO - --- Optimal iterations found: 197 ---
+2026-04-16 06:41:46,806 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:46,998 - automl_package - INFO - --- Final model training finished ---
+CatBoost                     0.168    0.787    0.233  0.0501   0.812   1.039    0.4s
+2026-04-16 06:41:47,000 - automl_package - INFO - --- Starting training for CatBoostModel ---
+2026-04-16 06:41:47,001 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:47,277 - automl_package - INFO - --- Optimal iterations found: 200 ---
+2026-04-16 06:41:47,277 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:41:47,539 - automl_package - INFO - --- Final model training finished ---
+CatBoost+UQ                  0.303    0.748    0.303  0.0255   0.950   1.945    0.5s
+2026-04-16 06:41:47,545 - automl_package - INFO - --- Starting training for ProbabilisticRegression_separate_heads ---
+2026-04-16 06:41:47,547 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:41:47,548 - automl_package - INFO - Using device: xpu
+2026-04-16 06:43:07,498 - automl_package - INFO - Early stopping at epoch 59
+2026-04-16 06:43:07,498 - automl_package - INFO - --- Optimal iterations found: 59 ---
+2026-04-16 06:43:07,498 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:43:07,498 - automl_package - INFO - Using device: xpu
+2026-04-16 06:44:28,939 - automl_package - INFO - --- Final model training finished ---
+ProbReg(k=5)                 0.117    0.323    0.188  0.0222   0.963   1.466  161.5s
+2026-04-16 06:44:29,033 - automl_package - INFO - --- Starting training for ProbabilisticRegression_single_head_final_output ---
+2026-04-16 06:44:29,034 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:44:29,035 - automl_package - INFO - Using device: xpu
+2026-04-16 06:45:02,079 - automl_package - INFO - Early stopping at epoch 40
+2026-04-16 06:45:02,079 - automl_package - INFO - --- Optimal iterations found: 40 ---
+2026-04-16 06:45:02,079 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:45:02,080 - automl_package - INFO - Using device: xpu
+2026-04-16 06:45:36,727 - automl_package - INFO - --- Final model training finished ---
+ProbReg(k=5,SINGLE_FINAL)    0.101    0.189    0.170  0.0475   0.914   1.063   67.7s
+2026-04-16 06:45:36,735 - automl_package - INFO - --- Starting training for ProbabilisticRegression_separate_heads ---
+2026-04-16 06:45:36,737 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:45:36,741 - automl_package - INFO - Using device: xpu
+2026-04-16 06:50:50,027 - automl_package - INFO - Early stopping at epoch 22
+2026-04-16 06:50:50,028 - automl_package - INFO - --- Optimal iterations found: 22 ---
+2026-04-16 06:50:50,028 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:50:50,030 - automl_package - INFO - Using device: xpu
+2026-04-16 06:54:49,070 - automl_package - INFO - --- Final model training finished ---
+ProbReg(dyn,K_PEN)           0.104    0.232    0.176  0.0907   0.924   1.142  552.4s
+2026-04-16 06:54:49,110 - automl_package - INFO - --- Starting training for FlexibleNeuralNetwork ---
+2026-04-16 06:54:49,111 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:54:49,114 - automl_package - INFO - Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.
+2026-04-16 06:55:22,146 - automl_package - INFO - Early stopping at epoch 27
+2026-04-16 06:55:22,293 - automl_package - INFO - --- Optimal iterations found: 27 ---
+2026-04-16 06:55:22,293 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:55:22,296 - automl_package - INFO - Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.
+2026-04-16 06:55:48,979 - automl_package - INFO - --- Final model training finished ---
+FlexNN(CONST)                0.087    0.260    0.166  0.0651   0.886   0.922   59.9s
+2026-04-16 06:55:48,984 - automl_package - INFO - --- Starting training for FlexibleNeuralNetwork ---
+2026-04-16 06:55:48,986 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:55:48,991 - automl_package - INFO - Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.
+2026-04-16 06:56:21,558 - automl_package - INFO - Early stopping at epoch 23
+2026-04-16 06:56:21,558 - automl_package - INFO - --- Optimal iterations found: 23 ---
+2026-04-16 06:56:21,558 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:56:21,561 - automl_package - INFO - Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.
+2026-04-16 06:56:47,064 - automl_package - INFO - --- Final model training finished ---
+FlexNN(PROB)                 0.085    0.124    0.160  0.0383   0.953   1.126   58.1s
+2026-04-16 06:56:47,073 - automl_package - INFO - --- Starting training for MDN(K=5) ---
+2026-04-16 06:56:47,074 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:56:47,566 - automl_package - INFO - --- Optimal iterations found: 100 ---
+2026-04-16 06:56:47,566 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:56:48,123 - automl_package - INFO - --- Final model training finished ---
+MDN(K=5)                     0.092    0.161    0.165  0.0240   0.974   1.282    1.1s
+2026-04-16 06:56:48,127 - automl_package - INFO - --- Starting training for QR-NN(Q=9) ---
+2026-04-16 06:56:48,128 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:56:48,433 - automl_package - INFO - --- Optimal iterations found: 100 ---
+2026-04-16 06:56:48,433 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:56:48,753 - automl_package - INFO - --- Final model training finished ---
+QR-NN                        0.145    0.322    0.200  0.0244   0.982   1.597    0.6s
+2026-04-16 06:56:48,766 - automl_package - INFO - --- Starting training for FT-Transformer(d=32,L=2) ---
+2026-04-16 06:56:48,767 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:56:53,334 - automl_package - INFO - --- Optimal iterations found: 100 ---
+2026-04-16 06:56:53,334 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:56:58,900 - automl_package - INFO - --- Final model training finished ---
+FT-Transformer               0.913    1.371    0.544  0.0091   0.957   3.740   10.2s
+
+==========================================================================================
+  California(20640x8)
+==========================================================================================
+Model                          MSE      NLL     CRPS     ECE PICP@95 MPIW@95    Time
+------------------------------------------------------------------------------------------
+2026-04-16 06:56:58,957 - automl_package - INFO - Using probabilistic regression mode with fixed 5 classes.
+2026-04-16 06:56:58,957 - automl_package - WARNING - The `constrain_middle_class` option is not supported for the SINGLE_HEAD_FINAL_OUTPUT strategy.
+2026-04-16 06:56:58,957 - automl_package - INFO - Using probabilistic regression mode with fixed 5 classes.
+2026-04-16 06:56:58,957 - automl_package - INFO - Using probabilistic regression mode with dynamic n_classes selection via soft_gating.
+2026-04-16 06:56:58,958 - automl_package - INFO - --- Starting training for JAXLinearRegression ---
+2026-04-16 06:56:58,959 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:56:59,423 - automl_package - INFO - --- Optimal iterations found: 1000 ---
+2026-04-16 06:56:59,423 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:56:59,627 - automl_package - INFO - --- Final model training finished ---
+LinearReg                    0.395    0.955    0.336  0.0482   0.944   2.456    0.7s
+2026-04-16 06:56:59,673 - automl_package - INFO - --- Starting training for XGBoostModel ---
+2026-04-16 06:56:59,675 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:56:59,768 - automl_package - INFO - --- Optimal iterations found: 85 ---
+2026-04-16 06:56:59,768 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:56:59,965 - automl_package - INFO - --- Final model training finished ---
+XGBoost                      0.166    1.004    0.210  0.0432   0.826   0.907    0.3s
+2026-04-16 06:56:59,969 - automl_package - INFO - --- Starting training for LightGBMModel ---
+2026-04-16 06:56:59,972 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+/home/ff235/dev/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+2026-04-16 06:57:00,193 - automl_package - INFO - --- Optimal iterations found: 196 ---
+2026-04-16 06:57:00,193 - automl_package - INFO - --- Training final model with optimal parameters ---
+/home/ff235/dev/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+2026-04-16 06:57:00,381 - automl_package - INFO - --- Final model training finished ---
+/home/ff235/dev/.venv/lib/python3.12/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+LightGBM                     0.151    0.594    0.198  0.0313   0.887   1.113    0.4s
+2026-04-16 06:57:00,393 - automl_package - INFO - --- Starting training for CatBoostModel ---
+2026-04-16 06:57:00,396 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:57:00,659 - automl_package - INFO - --- Optimal iterations found: 198 ---
+2026-04-16 06:57:00,659 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:57:00,944 - automl_package - INFO - --- Final model training finished ---
+CatBoost                     0.153    0.541    0.200  0.0319   0.905   1.225    0.6s
+2026-04-16 06:57:00,947 - automl_package - INFO - --- Starting training for CatBoostModel ---
+2026-04-16 06:57:00,949 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:57:01,306 - automl_package - INFO - --- Optimal iterations found: 200 ---
+2026-04-16 06:57:01,306 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:57:01,606 - automl_package - INFO - --- Final model training finished ---
+CatBoost+UQ                  0.250    0.588    0.255  0.0352   0.948   1.722    0.7s
+2026-04-16 06:57:01,611 - automl_package - INFO - --- Starting training for ProbabilisticRegression_separate_heads ---
+2026-04-16 06:57:01,613 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 06:57:01,613 - automl_package - INFO - Using device: xpu
+2026-04-16 06:59:49,623 - automl_package - INFO - Early stopping at epoch 52
+2026-04-16 06:59:49,623 - automl_package - INFO - --- Optimal iterations found: 52 ---
+2026-04-16 06:59:49,623 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 06:59:49,624 - automl_package - INFO - Using device: xpu
+2026-04-16 07:03:18,744 - automl_package - INFO - --- Final model training finished ---
+ProbReg(k=5)                 0.281    0.623    0.267  0.0265   0.961   2.090  377.1s
+2026-04-16 07:03:18,761 - automl_package - INFO - --- Starting training for ProbabilisticRegression_single_head_final_output ---
+2026-04-16 07:03:18,763 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 07:03:18,764 - automl_package - INFO - Using device: xpu
+2026-04-16 07:04:57,458 - automl_package - INFO - Early stopping at epoch 47
+2026-04-16 07:04:57,458 - automl_package - INFO - --- Optimal iterations found: 47 ---
+2026-04-16 07:04:57,458 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 07:04:57,459 - automl_package - INFO - Using device: xpu
+2026-04-16 07:06:37,903 - automl_package - INFO - --- Final model training finished ---
+ProbReg(k=5,SINGLE_FINAL)    0.221    0.437    0.230  0.0383   0.953   1.669  199.1s
+2026-04-16 07:06:37,911 - automl_package - INFO - --- Starting training for ProbabilisticRegression_separate_heads ---
+2026-04-16 07:06:37,915 - automl_package - INFO - --- Finding optimal iterations with train/validation split ---
+2026-04-16 07:06:37,920 - automl_package - INFO - Using device: xpu
+2026-04-16 07:28:30,532 - automl_package - INFO - Early stopping at epoch 28
+2026-04-16 07:28:30,533 - automl_package - INFO - --- Optimal iterations found: 28 ---
+2026-04-16 07:28:30,533 - automl_package - INFO - --- Training final model with optimal parameters ---
+2026-04-16 07:28:30,537 - automl_package - INFO - Using device: xpu

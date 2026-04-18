@@ -272,7 +272,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
             if self.task_type == TaskType.CLASSIFICATION:
                 predictions = (torch.sigmoid(model_output) > 0.5).cpu().numpy().astype(int) if self.output_size == 1 else torch.argmax(model_output, dim=1).cpu().numpy()
             else:  # Regression case
-                predictions = (model_output[:, 0] if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else model_output).cpu().numpy()
+                predictions = (model_output[:, 0] if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else model_output.squeeze(-1)).cpu().numpy()
         return predictions
 
     def predict_proba(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:

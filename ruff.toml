@@ -3,7 +3,7 @@ line-length = 180
 
 [lint]
 select = ["E", "F", "W", "I", "N", "D", "UP", "ANN", "ASYNC", "B", "C4", "DTZ", "ERA", "FA", "ISC", "ICN", "PIE", "PT", "Q", "RSE", "RET", "SIM", "TID", "ARG", "PLC", "PLE", "PLW", "PGH", "RUF"]
-ignore = ["ANN401"]
+ignore = ["ANN401", "RUF002", "RUF003"]
 
 [lint.per-file-ignores]
 "__init__.py" = ["F401"]
