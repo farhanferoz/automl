@@ -327,7 +327,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
                     outputs = self.model(x_tensor)
                     model_output = outputs[0] if isinstance(outputs, tuple) else outputs
                     predictions.append(model_output.cpu().numpy())
-            uncertainty_std = np.std(np.array(predictions), axis=0)
+            uncertainty_std = np.std(np.array(predictions), axis=0).ravel()
         elif self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
             self.model.eval()
             with torch.no_grad():

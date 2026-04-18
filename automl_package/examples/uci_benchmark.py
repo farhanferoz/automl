@@ -13,6 +13,7 @@ Usage:
     ~/dev/.venv/bin/python -m automl_package.examples.uci_benchmark
 """
 
+import concurrent.futures
 import time
 from pathlib import Path
 
@@ -67,14 +68,17 @@ def _uci_california() -> dict:
 # --- Model factory (feature importance disabled everywhere, fewer ProbReg variants) ---
 
 def _make_models(input_size: int, n_samples: int) -> list[tuple[str, object]]:
+    from automl_package.enums import MapperType
     from automl_package.models.baselines.ft_transformer import FTTransformerModel
     from automl_package.models.baselines.gaussian_process import GaussianProcessModel
     from automl_package.models.baselines.mixture_density_network import MixtureDensityNetwork
     from automl_package.models.baselines.quantile_regression_nn import QuantileRegressionNN
     from automl_package.models.catboost_model import CatBoostModel
+    from automl_package.models.classifier_regression import ClassifierRegressionModel
     from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
     from automl_package.models.lightgbm_model import LightGBMModel
     from automl_package.models.linear_regression import LinearRegressionModel
+    from automl_package.models.neural_network import PyTorchNeuralNetwork
     from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
     from automl_package.models.xgboost_model import XGBoostModel
 
@@ -137,6 +141,13 @@ def _make_models(input_size: int, n_samples: int) -> list[tuple[str, object]]:
             depth_regularization=DepthRegularization.ELBO,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC, **common_nn,
         )),
+        ("ClassReg(k=7)", ClassifierRegressionModel(
+            base_classifier_class=PyTorchNeuralNetwork, n_classes=7, mapper_type=MapperType.LOOKUP_MEDIAN,
+            base_classifier_params={"input_size": input_size, "hidden_layers": 2, "hidden_size": 64,
+                                    "learning_rate": 0.01, "n_epochs": 100},
+            early_stopping_rounds=15, uncertainty_method=UncertaintyMethod.BINNED_RESIDUAL_STD,
+            validation_fraction=0.2, random_seed=42, calculate_feature_importance=False,
+        )),
         ("MDN(K=5)", MixtureDensityNetwork(n_components=5, hidden_size=64, n_hidden=2, **common_nn)),
         ("QR-NN", QuantileRegressionNN(hidden_size=64, n_hidden=2, **common_nn)),
         ("FT-Transformer", FTTransformerModel(d_model=32, n_heads=4, n_layers=2, **common_nn)),
@@ -192,13 +203,27 @@ def main():
         print(f"{'Model':<25} {'MSE':>8} {'NLL':>8} {'CRPS':>8} {'ECE':>7} {'PICP@95':>7} {'MPIW@95':>7} {'Time':>7}", flush=True)
         print("-" * 90, flush=True)
 
+        per_model_timeout_s = 300  # 5 minutes; large datasets (e.g. California) can exceed this
         for name, model in _make_models(input_size=x.shape[1], n_samples=len(x)):
             try:
                 t0 = time.time()
-                if hasattr(model, "fit"):
-                    model.fit(x_train, y_train)
-                else:
-                    model._fit_single(x_train, y_train)
+
+                def _fit_call(m=model, xt=x_train, yt=y_train):
+                    if hasattr(m, "fit"):
+                        m.fit(xt, yt)
+                    else:
+                        m._fit_single(xt, yt)
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                    fut = ex.submit(_fit_call)
+                    try:
+                        fut.result(timeout=per_model_timeout_s)
+                    except concurrent.futures.TimeoutError:
+                        # NOTE: ThreadPoolExecutor cannot interrupt the GPU thread; the
+                        # worker continues in the background. Tracked in memory/project_future_work.md
+                        # until we migrate to multiprocessing.
+                        print(f"{name:<25} TIMEOUT after {per_model_timeout_s}s (thread still running)", flush=True)
+                        continue
                 try:
                     y_pred = np.asarray(model.predict(x_test, filter_data=False)).ravel()
                 except TypeError:

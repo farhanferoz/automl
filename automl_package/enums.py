@@ -98,6 +98,7 @@ class DepthRegularization(Enum):
     NONE = "none"
     DEPTH_PENALTY = "depth_penalty"
     ELBO = "elbo"
+    COST_AWARE_ELBO = "cost_aware_elbo"
 
 
 class NClassesRegularization(Enum):

@@ -39,6 +39,51 @@ class TestBugs1to4DynamicStrategiesNoCrash:
         assert not np.any(np.isnan(y_pred))
 
 
+class TestBugN2SteGradientPath:
+    """N2: STE strategy must propagate gradients to n_classes_predictor.
+
+    Uses weighted-sum pattern (prob * output) with the STE trick from
+    f.gumbel_softmax(hard=True) which returns `y_hard - y_soft.detach() + y_soft`.
+    """
+
+    def test_ste_gradients_reach_n_classes_predictor(self, heteroscedastic_data):
+        """After a backward pass under STE, n_classes_predictor params must have non-zero grads."""
+        x, y, _, _ = heteroscedastic_data
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.STE,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            n_epochs=2, learning_rate=0.01, random_seed=42,
+            calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+
+        x_t = torch.tensor(x[:16], dtype=torch.float32).to(model.device)
+        y_t = torch.tensor(y[:16], dtype=torch.float32).to(model.device)
+        model.model.train()
+        for p in model.model.parameters():
+            if p.grad is not None:
+                p.grad.zero_()
+        preds, _, _, _, _ = model.model(x_t)
+        # preds is (N, regression_output_size) — use column 0 (mean) for loss.
+        mean_pred = preds[:, 0] if preds.dim() == 2 else preds.ravel()
+        loss = ((mean_pred - y_t) ** 2).mean()
+        loss.backward()
+
+        predictor = model.model.n_classes_predictor
+        grad_norms = [
+            p.grad.detach().abs().sum().item()
+            for p in predictor.parameters()
+            if p.grad is not None
+        ]
+        assert grad_norms, "n_classes_predictor has no grads at all — STE path is severed."
+        assert max(grad_norms) > 0, (
+            f"All n_classes_predictor gradients are zero under STE: {grad_norms}. "
+            "Bug N2 regression — _hard_selection_logic must preserve gradient via weighted-sum."
+        )
+
+
 class TestBug4ClassifierLogits:
     """Verify _weighted_average_logic receives classifier logits, not raw features."""
 

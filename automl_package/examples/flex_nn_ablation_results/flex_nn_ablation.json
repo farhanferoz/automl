@@ -1,0 +1,342 @@
+[
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "soft_gating",
+    "depth_reg": "none",
+    "mse": 0.2783096432685852,
+    "mean_depth": 1.0265231132507324,
+    "seconds": 4.831328850938007
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "gumbel_softmax",
+    "depth_reg": "none",
+    "mse": 0.27858054637908936,
+    "mean_depth": 1.010671854019165,
+    "seconds": 4.732755003031343
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "ste",
+    "depth_reg": "none",
+    "mse": 0.27460724115371704,
+    "mean_depth": 1.1166666746139526,
+    "seconds": 8.511997068999335
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "reinforce",
+    "depth_reg": "none",
+    "mse": 0.26028063893318176,
+    "mean_depth": NaN,
+    "error": "Dimension out of range (expected to be in range of [-1, 0], but got 1)",
+    "seconds": 7.260356893995777
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "soft_gating",
+    "depth_reg": "elbo",
+    "mse": 0.26098501682281494,
+    "mean_depth": 2.005707263946533,
+    "seconds": 5.950669156969525
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "gumbel_softmax",
+    "depth_reg": "elbo",
+    "mse": 0.2649121582508087,
+    "mean_depth": 1.3726778030395508,
+    "seconds": 11.141809521941468
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "ste",
+    "depth_reg": "elbo",
+    "mse": 0.302133709192276,
+    "mean_depth": 2.441666841506958,
+    "seconds": 7.721397805027664
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "reinforce",
+    "depth_reg": "elbo",
+    "mse": 0.2656213641166687,
+    "mean_depth": NaN,
+    "error": "Dimension out of range (expected to be in range of [-1, 0], but got 1)",
+    "seconds": 7.452397312968969
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "soft_gating",
+    "depth_reg": "depth_penalty",
+    "mse": 0.2782627046108246,
+    "mean_depth": 1.020269513130188,
+    "seconds": 4.274514696095139
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "gumbel_softmax",
+    "depth_reg": "depth_penalty",
+    "mse": 0.27848753333091736,
+    "mean_depth": 1.0076855421066284,
+    "seconds": 4.321539842057973
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "ste",
+    "depth_reg": "depth_penalty",
+    "mse": 0.27781206369400024,
+    "mean_depth": 1.0208333730697632,
+    "seconds": 3.8831052109599113
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "layer_method": "reinforce",
+    "depth_reg": "depth_penalty",
+    "error": "Dimension out of range (expected to be in range of [-1, 0], but got 1)"
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "soft_gating",
+    "depth_reg": "cost_aware_elbo",
+    "mse": 0.29484811425209045,
+    "mean_depth": 1.6943299770355225,
+    "seconds": 12.03147883003112
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "gumbel_softmax",
+    "depth_reg": "cost_aware_elbo",
+    "mse": 0.2898927628993988,
+    "mean_depth": 1.135400652885437,
+    "seconds": 12.144473877036944
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "ste",
+    "depth_reg": "cost_aware_elbo",
+    "mse": 0.2733980715274811,
+    "mean_depth": 2.491666793823242,
+    "seconds": 5.947227580938488
+  },
+  {
+    "dataset": "piecewise",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "reinforce",
+    "depth_reg": "cost_aware_elbo",
+    "mse": 0.3075614273548126,
+    "mean_depth": NaN,
+    "error": "Dimension out of range (expected to be in range of [-1, 0], but got 1)",
+    "seconds": 7.00137047492899
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "soft_gating",
+    "depth_reg": "none",
+    "mse": 0.09064171463251114,
+    "mean_depth": 1.5785651206970215,
+    "seconds": 35.50811918010004
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "gumbel_softmax",
+    "depth_reg": "none",
+    "mse": 0.08712078630924225,
+    "mean_depth": 2.9271373748779297,
+    "seconds": 64.51184592500795
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "ste",
+    "depth_reg": "none",
+    "mse": 0.08625848591327667,
+    "mean_depth": 2.8946666717529297,
+    "seconds": 59.79505485203117
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "layer_method": "reinforce",
+    "depth_reg": "none",
+    "error": "The size of tensor a (32) must match the size of tensor b (12) at non-singleton dimension 1"
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "soft_gating",
+    "depth_reg": "elbo",
+    "mse": 0.08497697860002518,
+    "mean_depth": 2.0892536640167236,
+    "seconds": 139.04985466599464
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "gumbel_softmax",
+    "depth_reg": "elbo",
+    "mse": 0.08663921803236008,
+    "mean_depth": 1.4565517902374268,
+    "seconds": 88.9264840639662
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "ste",
+    "depth_reg": "elbo",
+    "mse": 0.08500205725431442,
+    "mean_depth": 2.628000020980835,
+    "seconds": 150.74256948707625
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "layer_method": "reinforce",
+    "depth_reg": "elbo",
+    "error": "The size of tensor a (32) must match the size of tensor b (12) at non-singleton dimension 1"
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "soft_gating",
+    "depth_reg": "depth_penalty",
+    "mse": 0.09749442338943481,
+    "mean_depth": 1.2477551698684692,
+    "seconds": 46.49094509403221
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "gumbel_softmax",
+    "depth_reg": "depth_penalty",
+    "mse": 0.08481157571077347,
+    "mean_depth": 1.4756232500076294,
+    "seconds": 107.24374018190429
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "ste",
+    "depth_reg": "depth_penalty",
+    "mse": 0.08654952794313431,
+    "mean_depth": 1.343666672706604,
+    "seconds": 100.24567425996065
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "layer_method": "reinforce",
+    "depth_reg": "depth_penalty",
+    "error": "The size of tensor a (32) must match the size of tensor b (12) at non-singleton dimension 1"
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "soft_gating",
+    "depth_reg": "cost_aware_elbo",
+    "mse": 0.08234844356775284,
+    "mean_depth": 1.7717618942260742,
+    "seconds": 125.22937894403003
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "gumbel_softmax",
+    "depth_reg": "cost_aware_elbo",
+    "mse": 0.08566457033157349,
+    "mean_depth": 1.2286090850830078,
+    "seconds": 107.39924605702981
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "uq": "constant",
+    "layer_method": "ste",
+    "depth_reg": "cost_aware_elbo",
+    "mse": 0.08822571486234665,
+    "mean_depth": 2.369333267211914,
+    "seconds": 146.08507698599715
+  },
+  {
+    "dataset": "b3_two_phase",
+    "weights": "shared",
+    "max_layers": 5,
+    "layer_method": "reinforce",
+    "depth_reg": "cost_aware_elbo",
+    "error": "The size of tensor a (32) must match the size of tensor b (12) at non-singleton dimension 1"
+  }
+]

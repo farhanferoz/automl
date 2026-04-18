@@ -91,7 +91,7 @@ class BinnedUncertaintyMixin:
 
     def _init_binned_uncertainty(self) -> None:
         """Initializes the attributes for binned uncertainty."""
-        self._binned_uncertainty_lookup: dict[int, float] = {}
+        self._binned_uncertainty_lookup: np.ndarray | None = None
         self._binned_uncertainty_edges: np.ndarray | None = None
 
     def calibrate_uncertainty(self, x: np.ndarray, y: np.ndarray, n_bins: int = 10) -> None:
@@ -106,17 +106,16 @@ class BinnedUncertaintyMixin:
 
     def predict_binned_uncertainty(self, x: np.ndarray) -> np.ndarray:
         """Predicts uncertainty by looking up the calibrated binned standard deviations."""
-        if self._binned_uncertainty_edges is None or not self._binned_uncertainty_lookup:
+        if self._binned_uncertainty_edges is None or self._binned_uncertainty_lookup is None or len(self._binned_uncertainty_lookup) == 0:
             raise RuntimeError("Uncertainty model has not been calibrated. Call `calibrate_uncertainty` first.")
 
         predictions = self.predict(x)
-        # Find which bin each new prediction falls into
         bin_indices = np.searchsorted(self._binned_uncertainty_edges[1:], predictions.flatten(), side="left")
         bin_indices = np.clip(bin_indices, 0, len(self._binned_uncertainty_edges) - 2)
 
-        # Look up the standard deviation
-        stds = np.array([self._binned_uncertainty_lookup[i] for i in bin_indices])
-        return np.nan_to_num(stds, nan=np.nanmean(list(self._binned_uncertainty_lookup.values())))
+        stds = self._binned_uncertainty_lookup[bin_indices]
+        fallback = float(np.nanmean(self._binned_uncertainty_lookup)) if np.any(~np.isnan(self._binned_uncertainty_lookup)) else 0.0
+        return np.nan_to_num(stds, nan=fallback)
 
 
 class RegularizationMixin:

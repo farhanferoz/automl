@@ -1,0 +1,10 @@
+dataset,strategy,selection,regularization,loss,beta,target_transform,opt_strategy,mse,nll,crps,nll_mixture,mean_k,seconds,error
+b1_gravitational,single_head_final_output,none,none,nll,0.5,none,regression_only,0.06562093645334244,-0.47682008147239685,0.11642152236752978,,,8.798514881986193,
+b1_gravitational,separate_heads,none,none,nll,0.5,none,regression_only,0.11901714652776718,0.06317982822656631,0.1804997964519246,0.4907386377668081,,9.182471431908198,
+b1_gravitational,separate_heads,reinforce,elbo,nll,0.5,none,regression_only,0.29337480664253235,0.600906252861023,0.1918526074420874,,45335768.0,36.0760235079797,
+heteroscedastic,separate_heads,none,none,nll,0.5,none,regression_only,1.5920642614364624,1.3517481088638306,0.6351162866110532,1.6885290038860261,,9.135689066024497,
+heteroscedastic,separate_heads,soft_gating,elbo,nll,0.5,none,regression_only,1.6230677366256714,1.3775367736816406,0.6385403330636432,,2.0,48.043979077017866,
+heteroscedastic,separate_heads,soft_gating,none,nll,0.5,none,regression_only,1.633374571800232,1.4048477411270142,0.645435633059914,,210274448.0,45.712911913054995,
+bimodal,single_head_final_output,none,none,nll,0.5,none,regression_only,2.3409488201141357,1.8449314832687378,0.9203606505862835,,,4.139462883002125,
+bimodal,separate_heads,reinforce,elbo,nll,0.5,none,regression_only,2.3275535106658936,1.8473180532455444,0.9147590816296514,,143165584.0,46.291201333049685,
+bimodal,separate_heads,soft_gating,elbo,nll,0.5,none,regression_only,2.3581039905548096,1.8482747077941895,0.9214565878755442,,2.0,20.704169392003678,

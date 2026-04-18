@@ -215,11 +215,13 @@ class ReinforceStrategy(BaseSelectionStrategy):
                 current_output = torch.where(active_mask, block_output, current_output)
 
         final_output = self.model.model.output_layer(current_output)
+        # Tuple order matches the other layer strategies: (output, n_actual, _unused, n_probs, log_prob).
+        # Putting n_probs at position 3 lets depth regularisation pick it up uniformly.
         return (
             final_output,
             n_actual,
+            None,
             self.mode_selection_probs,
-            torch.zeros(1, device=x_input.device),
             log_prob,
         )
 

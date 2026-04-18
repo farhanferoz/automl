@@ -195,9 +195,15 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             logger.info(f"--- Optimal iterations found: {self.num_iterations_used} ---")
 
     def _fit_final_model(self, x_train: np.ndarray, y_train: np.ndarray) -> None:
-        """Retrain on the full training + validation set with the optimal number of iterations."""
+        """Retrain on the full training + validation set with the optimal number of iterations.
+
+        ``num_iterations_used`` is 0 until HPO or an early-stopping pass sets it. Passing
+        0 to tree models treats it as literal "train 0 rounds" and crashes. When no
+        optimisation pass has run we hand ``None`` (use the model's configured default).
+        """
         logger.info("--- Training final model with optimal parameters ---")
-        self._fit_single(x_train, y_train, forced_iterations=self.num_iterations_used)
+        forced = self.num_iterations_used if self.num_iterations_used and self.num_iterations_used > 0 else None
+        self._fit_single(x_train, y_train, forced_iterations=forced)
         logger.info("--- Final model training finished ---")
 
     def fit(self, x: np.ndarray | pd.DataFrame, y: np.ndarray | pd.DataFrame | pd.Series, timestamps: np.ndarray | None = None) -> None:

@@ -252,3 +252,69 @@ Coverage matches target almost exactly across all α values. Finite-sample corre
 - `models/flexible_neural_network.py` — `hard_forward()` + `inference_mode` param on `predict()`
 - `tests/test_phase4_regression.py` — **NEW** (17 tests)
 - `examples/phase4_comparison.py` — **NEW** comparison script
+
+---
+
+## Phase 9 fix log (added April 2026 — autonomous pass)
+
+### N2 (STE gradient path) — **verified already fixed in Phase 6**
+`_hard_selection_logic` uses the weighted-sum pattern; `f.gumbel_softmax(hard=True)`
+bakes in the STE trick so gradients flow back to `n_classes_predictor`. Regression
+test `TestBugN2SteGradientPath` (tests/test_phase3_dynamic_k.py) now guards this.
+
+### N11 — PyTorchNeuralNetwork uncertainty shape (new)
+- `predict_uncertainty` under `MC_DROPOUT` returned `(N, 1)` instead of `(N,)`.
+  Fixed by raveling `np.std(..., axis=0)`.
+- `BINNED_RESIDUAL_STD` mixin stored stats as a NumPy array but treated it as a
+  dict; `not array` then threw `ValueError`. Replaced dict-indexed lookup with
+  direct array indexing and guarded with length check.
+- `TestPredictShapes` (tests/test_phase4_regression.py) covers all four methods.
+
+### FlexNN n_predictor was excluded from the main optimizer (new, severe)
+`FlexibleHiddenLayersNN._setup_optimizers` filtered `"n_predictor" not in n`,
+delegated to `strategy.setup_optimizers`. Non-REINFORCE strategies have a no-op
+`setup_optimizers`, so the n_predictor weights stayed frozen at initialization
+for SOFT_GATING, GUMBEL_SOFTMAX, STE, and NoneStrategy. **Depth regularisation
+(ELBO, DEPTH_PENALTY) never affected training.** Same bug in
+`IndependentWeightsFlexibleNN._setup_optimizers`.
+
+Fix: include n_predictor in the main optimizer when the strategy does not use a
+policy optimizer (REINFORCE only). Test `TestNPredictorInMainOptimizer`
+(tests/test_phase2_flexible_nn.py) locks this in.
+
+### FlexNN training-loop tuple unpacking (new)
+`final_output, _, n_probs, n_logits, log_prob = self.model(_batch_x)` mis-unpacked
+the strategy return — position 2 is always `None` (legacy slot), position 3 is
+`n_probs`. All depth-regularisation branches checked `if n_probs is not None`
+which was silently `False`, so the KL term never fired even once trainable
+parameters had been set up correctly. Fixed both branches; `IndependentWeights`
+uses a different tuple order (position 2 is n_probs) and was already correct.
+
+### Base.fit `forced_iterations=0` crashed tree models (new)
+`_fit_final_model` passed `forced_iterations=self.num_iterations_used`. Default
+value 0 (no HPO, no early-stopping) crashes LightGBM ("Number of boosting rounds
+must be > 0"). Fixed to pass `None` when `num_iterations_used <= 0`.
+
+### Cost-aware ELBO for FlexNN (feature)
+Added `DepthRegularization.COST_AWARE_ELBO` and `cost_aware_lambda`. Prior logits
+are `linspace(3,1) - lambda * normalised_depth_cost`, so the KL now prefers
+shallower depths as a function of the FLOPs cost parameter. Applies to both
+shared-weight and independent-weight FlexNN variants.
+
+### FT-Transformer training recipe (fragility fix)
+The previous full-batch no-warmup implementation lost every UCI dataset.
+Updated to:
+- norm_first=True (pre-norm)
+- AdamW with configurable weight_decay
+- Linear warmup over `warmup_epochs`
+- Mini-batching with random permutation per epoch
+- Gradient clipping at `grad_clip_norm`
+- Validation-driven early stopping via `early_stopping_rounds`
+
+### predict_distribution (feature)
+`ProbabilisticRegressionModel.predict_distribution(x)` returns the full mixture-of-
+Gaussians predictive distribution built from per-class (mu, log_var) weighted by
+softmax classifier probabilities. Supports NONE selection, SEPARATE_HEADS and
+SINGLE_HEAD_N_OUTPUTS strategies; raises NotImplementedError for
+SINGLE_HEAD_FINAL_OUTPUT / dynamic-k / symlog. On the bimodal toy, mixture-NLL
+is ~7% better than the collapsed-Gaussian NLL (tests/test_phase1_probabilistic_regression.py::TestPredictDistribution).

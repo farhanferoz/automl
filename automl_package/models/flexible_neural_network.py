@@ -36,6 +36,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         "layer_selection_method": LayerSelectionMethod.GUMBEL_SOFTMAX,
         "depth_regularization": DepthRegularization.NONE,
         "depth_penalty_weight": 0.01,
+        "cost_aware_lambda": 1.0,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -242,12 +243,25 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                 if self.lambda_optimizer:
                     self.lambda_optimizer.zero_grad()
 
-                final_output, _, n_probs, n_logits, log_prob = self.model(_batch_x)
+                # Strategy tuple order: (output, n_actual, _unused, n_probs, log_prob).
+                final_output, _, _unused, n_probs, log_prob = self.model(_batch_x)
                 loss = self.criterion(final_output, batch_y)
                 loss = self._calculate_regularization_loss(loss, self.model)
 
                 if self.depth_regularization == DepthRegularization.ELBO and n_probs is not None:
                     depth_prior_logits = torch.linspace(3.0, 1.0, self.max_hidden_layers, dtype=torch.float, device=_batch_x.device)
+                    depth_prior = torch.distributions.Categorical(logits=depth_prior_logits)
+                    q_depth = torch.distributions.Categorical(probs=n_probs + 1e-8)
+                    kl_div = torch.distributions.kl_divergence(q_depth, depth_prior).mean()
+                    loss = loss + kl_div
+                elif self.depth_regularization == DepthRegularization.COST_AWARE_ELBO and n_probs is not None:
+                    # Cost-aware prior: base linspace(3,1) shifted by -lambda * normalized FLOPs(depth).
+                    # FLOPs at depth d (d = 1..max_hidden_layers) are approx linear in d for a fixed
+                    # hidden_size, so we normalise a linear cost to [0,1] and subtract from logits.
+                    base = torch.linspace(3.0, 1.0, self.max_hidden_layers, dtype=torch.float, device=_batch_x.device)
+                    depth_idx = torch.arange(self.max_hidden_layers, dtype=torch.float, device=_batch_x.device)
+                    cost = depth_idx / max(self.max_hidden_layers - 1, 1)
+                    depth_prior_logits = base - float(self.cost_aware_lambda) * cost
                     depth_prior = torch.distributions.Categorical(logits=depth_prior_logits)
                     q_depth = torch.distributions.Categorical(probs=n_probs + 1e-8)
                     kl_div = torch.distributions.kl_divergence(q_depth, depth_prior).mean()
@@ -434,11 +448,22 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         return space
 
     def _setup_optimizers(self, model: torch.nn.Module) -> None:
-        """Sets up the optimizers for FlexibleHiddenLayersNN, handling n_predictor and REINFORCE separately."""
-        main_params = [p for n, p in model.named_parameters() if "n_predictor" not in n]
+        """Sets up the optimizers for FlexibleHiddenLayersNN.
+
+        REINFORCE uses a separate policy optimizer for the n_predictor (score-function
+        gradient estimator requires an explicit policy update). All other strategies
+        (SoftGating, GumbelSoftmax, STE, NoneStrategy) train the n_predictor via
+        backprop through the relaxed selection, so its parameters must sit in the
+        main optimizer.
+        """
+        uses_policy_optimizer = self.layer_selection_method == LayerSelectionMethod.REINFORCE
+        if uses_policy_optimizer:
+            main_params = [p for n, p in model.named_parameters() if "n_predictor" not in n]
+        else:
+            main_params = list(model.parameters())
         self.optimizer = torch.optim.Adam(main_params, lr=self.learning_rate)
 
-        if model.n_predictor:
+        if uses_policy_optimizer and model.n_predictor:
             policy_params = model.n_predictor.parameters()
             self.strategy.setup_optimizers(policy_params)
 

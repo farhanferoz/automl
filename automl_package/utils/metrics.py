@@ -656,6 +656,80 @@ class Metrics:
         if self.prob_reg_classifier_probabilities is not None:
             self.plot_prob_reg_internal_plots(save_path)
 
+        # Self-contained Markdown report stitches metrics + plots + dataset stats.
+        try:
+            self.save_markdown_report(save_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Markdown report generation failed: {exc}")
+
+    def save_markdown_report(self, save_path: str) -> None:
+        """Produces a self-contained per-(model, partition) Markdown report.
+
+        The report embeds dataset stats, the metrics table, and links to all plots
+        produced by ``save_metrics`` so a reviewer can read a single file per run.
+        """
+        from pathlib import Path as _Path
+
+        out_dir = _Path(save_path)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        partition = self.partition_name or "partition"
+        md_path = out_dir / f"{partition}_report.md"
+
+        metrics = self.calculate_all_metrics()
+        n = len(self.y_true)
+        d = self.x_data.shape[1] if self.x_data.ndim == 2 else 1
+
+        def fmt(v: float) -> str:
+            return f"{v:.6g}" if isinstance(v, (int, float)) and np.isfinite(v) else str(v)
+
+        y = np.asarray(self.y_true).ravel()
+        y_stats = {
+            "n": n,
+            "d": d,
+            "y_mean": float(np.mean(y)),
+            "y_std": float(np.std(y)),
+            "y_min": float(np.min(y)),
+            "y_max": float(np.max(y)),
+        }
+        if self.task_type == TaskType.REGRESSION and self.y_std is not None:
+            y_stats["mean_pred_sigma"] = float(np.mean(np.asarray(self.y_std).ravel()))
+
+        lines = [
+            f"# {self.model_name} — {partition}",
+            "",
+            f"- Task: **{self.task_type.value}**",
+            f"- Samples: **{n}**, Features: **{d}**",
+        ]
+        if self.task_type == TaskType.REGRESSION:
+            lines += [
+                f"- Target range: [{y_stats['y_min']:.4g}, {y_stats['y_max']:.4g}]  "
+                f"(mean={y_stats['y_mean']:.4g}, std={y_stats['y_std']:.4g})",
+            ]
+            if "mean_pred_sigma" in y_stats:
+                lines.append(f"- Mean predicted sigma: {y_stats['mean_pred_sigma']:.4g}")
+        lines += ["", "## Metrics", "", "| Metric | Value |", "|---|---:|"]
+        for k, v in metrics.items():
+            lines.append(f"| {k} | {fmt(v)} |")
+
+        plots = []
+        for cand in (
+            f"{partition}_scatter.png", f"{partition}_residuals.png",
+            f"{partition}_standardized_residuals_histogram.png",
+            f"{partition}_calibration_curve.png", f"{partition}_sharpness_histogram.png",
+            "prob_reg_internal_classifier_probabilities.png",
+            "prob_reg_regression_head_outputs.png",
+            f"{partition}_flexible_nn_architecture.png",
+            f"{partition}_probability_mappers.png",
+        ):
+            if (out_dir / cand).exists():
+                plots.append(cand)
+        if plots:
+            lines += ["", "## Plots", ""]
+            for p in plots:
+                lines.append(f"![{p}]({p})")
+
+        md_path.write_text("\n".join(lines) + "\n")
+
 
 def calculate_nll(y_true: np.ndarray, y_pred_mean: np.ndarray, y_pred_std: np.ndarray) -> float:
     """Calculates the Gaussian Negative Log-Likelihood for NumPy arrays.

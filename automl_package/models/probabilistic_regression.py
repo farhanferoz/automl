@@ -404,6 +404,71 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             return mean_orig
         return predictions
 
+    def predict_distribution(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> "MixtureOfGaussiansDistribution":
+        """Returns the full per-input mixture-of-Gaussians predictive distribution.
+
+        The classification bottleneck IS a mixture: each class k contributes a
+        Gaussian (mu_k(x), sigma_k^2(x)) weighted by p(class=k | x). This method
+        exposes that full distribution for proper evaluation (NLL, CRPS on the
+        mixture, PIT histograms) rather than the collapsed Gaussian that
+        ``predict`` + ``predict_uncertainty`` return via the law of total variance.
+
+        Only supported for ``uncertainty_method=PROBABILISTIC`` with
+        ``regression_strategy in {SEPARATE_HEADS, SINGLE_HEAD_N_OUTPUTS}`` and
+        ``n_classes_selection_method=NONE``. Dynamic-k is not yet supported
+        because per_head_outputs are not exposed by the weighted-sum path;
+        ``SINGLE_HEAD_FINAL_OUTPUT`` does not produce per-class parameters.
+
+        Raises:
+            NotImplementedError: for unsupported configurations.
+            RuntimeError: if the model has not been fitted.
+        """
+        from automl_package.utils.distributions import MixtureOfGaussiansDistribution
+
+        if self.model is None:
+            raise RuntimeError("Model has not been fitted yet.")
+        if self.uncertainty_method != UncertaintyMethod.PROBABILISTIC:
+            raise NotImplementedError(
+                f"predict_distribution requires uncertainty_method=PROBABILISTIC, got {self.uncertainty_method}."
+            )
+        if self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
+            raise NotImplementedError(
+                "predict_distribution is not available for SINGLE_HEAD_FINAL_OUTPUT; no per-class (mu, sigma) is produced."
+            )
+        if self.n_classes_selection_method != NClassesSelectionMethod.NONE:
+            raise NotImplementedError(
+                "predict_distribution with dynamic-k is not yet implemented (per_head_outputs not exposed by dynamic strategies)."
+            )
+        if self.target_transform == "symlog":
+            raise NotImplementedError(
+                "predict_distribution with target_transform='symlog' is not supported; "
+                "the mixture is in symlog space and would need MC push-through symexp to be meaningful."
+            )
+
+        if filter_data:
+            x = self._filter_predict_data(x)
+        if isinstance(x, pd.DataFrame):
+            x = x.values
+        x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
+
+        self.model.eval()
+        with torch.no_grad():
+            classifier_raw_logits = self.model.classifier_layers(x_tensor)
+            masked = torch.full_like(classifier_raw_logits, float("-inf"))
+            masked[:, : self.n_classes] = classifier_raw_logits[:, : self.n_classes]
+            probabilities = torch.softmax(masked, dim=1)[:, : self.n_classes]
+            # SeparateHeads / SingleHeadNOutputs both honor return_head_outputs=True.
+            _, per_head_outputs = self.model.regression_module(
+                torch.softmax(masked, dim=1), return_head_outputs=True,
+            )
+            # per_head_outputs: (N, n_classes, 2) — col 0 mean, col 1 log_var.
+            per_head_outputs = per_head_outputs[:, : self.n_classes, :]
+            means = per_head_outputs[:, :, 0].cpu().numpy()
+            log_var = per_head_outputs[:, :, 1].cpu().numpy()
+        weights = probabilities.cpu().numpy()
+        stds = np.sqrt(np.exp(log_var))
+        return MixtureOfGaussiansDistribution(weights=weights, means=means, stds=stds)
+
     def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty, converting from symlog space if configured.
 

@@ -431,3 +431,70 @@ class TestModelComparison:
 
         # For y=2x+1+noise(0.3), irreducible MSE ~= 0.09. LR should be close.
         assert lr_mse < 0.5, f"LinearRegression MSE={lr_mse:.4f} too high for y=2x+1 data"
+
+
+class TestPredictDistribution:
+    """ProbReg should expose the full mixture-of-Gaussians predictive distribution."""
+
+    def test_mixture_mean_matches_predict(self, multimodal_data):
+        """Mixture mean from predict_distribution must agree with predict()."""
+        import numpy as np
+        from automl_package.enums import NClassesSelectionMethod, RegressionStrategy, UncertaintyMethod
+        from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+
+        x, y = multimodal_data
+        m = ProbabilisticRegressionModel(
+            input_size=1, n_classes=2, max_n_classes_for_probabilistic_path=5,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.NONE,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            n_epochs=20, learning_rate=0.01, random_seed=42,
+            calculate_feature_importance=False,
+        )
+        m.fit(x, y)
+        dist = m.predict_distribution(x)
+        p = m.predict(x)
+        assert dist.mean.shape == (len(x),)
+        assert np.allclose(p, dist.mean, atol=1e-4)
+
+    def test_mixture_nll_finite_on_multimodal(self, multimodal_data):
+        """log_prob on held-out multimodal data should be finite and reasonable."""
+        import numpy as np
+        from automl_package.enums import NClassesSelectionMethod, RegressionStrategy, UncertaintyMethod
+        from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+
+        x, y = multimodal_data
+        m = ProbabilisticRegressionModel(
+            input_size=1, n_classes=2, max_n_classes_for_probabilistic_path=5,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.NONE,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            n_epochs=60, learning_rate=0.01, random_seed=42,
+            calculate_feature_importance=False,
+        )
+        m.fit(x, y)
+        dist = m.predict_distribution(x)
+        lp = dist.log_prob(y)
+        assert np.all(np.isfinite(lp))
+
+    def test_unsupported_configs_raise(self):
+        """Dynamic-k, SINGLE_HEAD_FINAL_OUTPUT, and symlog should raise NotImplementedError."""
+        import numpy as np
+        import pytest
+        from automl_package.enums import NClassesSelectionMethod, RegressionStrategy, UncertaintyMethod
+        from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+
+        np.random.seed(0)
+        x = np.random.randn(60, 1).astype(np.float32)
+        y = np.random.randn(60).astype(np.float32)
+
+        m = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.SOFT_GATING,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            n_epochs=5, random_seed=42, calculate_feature_importance=False,
+        )
+        m.fit(x, y)
+        with pytest.raises(NotImplementedError):
+            m.predict_distribution(x)

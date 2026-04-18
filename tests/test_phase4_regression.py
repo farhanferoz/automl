@@ -497,3 +497,30 @@ class TestSymlogMCUncertainty:
         assert np.all(y_std > 0), "Uncertainty must be strictly positive"
         # Both outputs should be in original (non-symlog) scale: positive for exp(x) targets
         assert np.mean(y_pred) > 0, "Mean predictions should be positive for exp(x) targets"
+
+
+class TestPredictShapes:
+    """N11: regression models must return predict(x) shape (N,) and predict_uncertainty(x) shape (N,)."""
+
+    @pytest.mark.parametrize("uncertainty_method", [
+        UncertaintyMethod.CONSTANT,
+        UncertaintyMethod.PROBABILISTIC,
+        UncertaintyMethod.MC_DROPOUT,
+        UncertaintyMethod.BINNED_RESIDUAL_STD,
+    ])
+    def test_pytorch_nn_shapes(self, uncertainty_method):
+        """PyTorchNeuralNetwork.predict / predict_uncertainty must return (N,)."""
+        np.random.seed(0)
+        x = np.random.randn(80, 3).astype(np.float32)
+        y = np.random.randn(80).astype(np.float32)
+        model = PyTorchNeuralNetwork(
+            input_size=3, output_size=1,
+            uncertainty_method=uncertainty_method,
+            n_epochs=5, dropout_rate=0.1,
+            calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+        y_pred = model.predict(x)
+        y_std = model.predict_uncertainty(x)
+        assert y_pred.shape == (80,), f"predict shape {y_pred.shape} for {uncertainty_method.value}"
+        assert y_std.shape == (80,), f"predict_uncertainty shape {y_std.shape} for {uncertainty_method.value}"

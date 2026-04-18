@@ -1,0 +1,8 @@
+dataset,weights,max_layers,uq,layer_method,depth_reg,mse,mean_depth,seconds,error
+b3_two_phase,shared,5,constant,soft_gating,cost_aware_elbo,0.08234844356775284,1.7717618942260742,125.22937894403003,
+b3_two_phase,shared,5,constant,gumbel_softmax,depth_penalty,0.08481157571077347,1.4756232500076294,107.24374018190429,
+b3_two_phase,shared,5,constant,ste,elbo,0.08500205725431442,2.628000020980835,150.74256948707625,
+piecewise,shared,5,constant,reinforce,none,0.26028063893318176,,7.260356893995777,"Dimension out of range (expected to be in range of [-1, 0], but got 1)"
+piecewise,shared,5,constant,soft_gating,elbo,0.26098501682281494,2.005707263946533,5.950669156969525,
+piecewise,shared,5,constant,gumbel_softmax,elbo,0.2649121582508087,1.3726778030395508,11.141809521941468,
+piecewise,shared,5,constant,ste,cost_aware_elbo,0.2733980715274811,2.491666793823242,5.947227580938488,

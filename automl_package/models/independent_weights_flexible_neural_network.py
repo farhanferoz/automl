@@ -50,6 +50,7 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         "layer_selection_method": LayerSelectionMethod.GUMBEL_SOFTMAX,
         "depth_regularization": DepthRegularization.NONE,
         "depth_penalty_weight": 0.01,
+        "cost_aware_lambda": 1.0,
     }
 
     def __init__(
@@ -305,6 +306,15 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                     q_depth = torch.distributions.Categorical(probs=n_probs + 1e-8)
                     kl_div = torch.distributions.kl_divergence(q_depth, depth_prior).mean()
                     main_loss = main_loss + kl_div
+                elif self.depth_regularization == DepthRegularization.COST_AWARE_ELBO and n_probs is not None:
+                    base = torch.linspace(3.0, 1.0, self.max_hidden_layers, dtype=torch.float, device=_batch_x.device)
+                    depth_idx = torch.arange(self.max_hidden_layers, dtype=torch.float, device=_batch_x.device)
+                    cost = depth_idx / max(self.max_hidden_layers - 1, 1)
+                    depth_prior_logits = base - float(self.cost_aware_lambda) * cost
+                    depth_prior = torch.distributions.Categorical(logits=depth_prior_logits)
+                    q_depth = torch.distributions.Categorical(probs=n_probs + 1e-8)
+                    kl_div = torch.distributions.kl_divergence(q_depth, depth_prior).mean()
+                    main_loss = main_loss + kl_div
                 elif self.depth_regularization == DepthRegularization.DEPTH_PENALTY and n_probs is not None:
                     depth_indices = torch.arange(1, self.max_hidden_layers + 1, dtype=torch.float, device=_batch_x.device)
                     expected_depth = torch.sum(n_probs * depth_indices, dim=1)
@@ -542,15 +552,23 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         return space
 
     def _setup_optimizers(self, model: torch.nn.Module) -> None:
-        """Sets up the optimizers for IndependentWeightsFlexibleNN, handling n_predictor separately."""
-        # Collect parameters for the main networks (all independent_networks)
-        main_params = []
+        """Sets up the optimizers for IndependentWeightsFlexibleNN.
+
+        REINFORCE keeps the n_predictor on a separate policy optimizer; all other
+        strategies train it via backprop through the relaxed/STE-gated outputs and
+        so its parameters must be included in the main optimizer.
+        """
+        main_params: list[torch.nn.Parameter] = []
         for net in model.independent_networks:
             main_params.extend(list(net.parameters()))
 
+        uses_policy_optimizer = self.layer_selection_method == LayerSelectionMethod.REINFORCE
+        if not uses_policy_optimizer and model.n_predictor is not None:
+            main_params.extend(list(model.n_predictor.parameters()))
+
         self.optimizer = torch.optim.Adam(main_params, lr=self.learning_rate)
 
-        if model.n_predictor:
+        if uses_policy_optimizer and model.n_predictor is not None:
             policy_params = model.n_predictor.parameters()
             self.strategy.setup_optimizers(policy_params)
 
