@@ -265,6 +265,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         )
         self.model.to(self.device)
 
+        init_val = getattr(self, "_constant_head_init_value", None)
+        if init_val is not None:
+            self.model.regression_module.init_middle_class_mean(init_val)
+
         self.criterion = self._calculate_custom_loss
 
     def get_hyperparameter_search_space(self) -> dict[str, Any]:
@@ -379,6 +383,13 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                     self.class_value_ranges_[k] = calculate_class_value_ranges(y_flat=y_flat, y_binned=y_binned, k=k, y_min=y_min, y_max=y_max, device=self.device)
 
             self.middle_class_dist_params_ = middle_class_params_per_k
+
+            # y_binned here is from the last loop iteration (k == max_k); reuse to avoid a second create_bins call.
+            if self.constrain_middle_class and max_k % 2 == 1:
+                mid_mask = y_binned == max_k // 2
+                self._constant_head_init_value = float(y_flat[mid_mask].mean()) if mid_mask.any() else 0.0
+            else:
+                self._constant_head_init_value = None
 
         forward_pass_kwargs = None
         if self.boundary_regularization_method == BoundaryRegularizationMethod.HARDSIGMOID:

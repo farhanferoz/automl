@@ -16,6 +16,7 @@ from automl_package.enums import (
     UncertaintyMethod,
 )
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+from automl_package.models.selection_strategies.base_selection_strategy import DIRECT_REGRESSION_K_SENTINEL
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -47,7 +48,8 @@ def get_mean_k(model, x):
     model.model.eval()
     with torch.no_grad():
         _, _, k_actual, _, _ = model.model(x_t)
-    return float(k_actual.float().mean().item())
+    k_valid = k_actual[k_actual < DIRECT_REGRESSION_K_SENTINEL]
+    return float(k_valid.float().mean().item()) if k_valid.numel() > 0 else float("nan")
 
 
 def run_comparison():

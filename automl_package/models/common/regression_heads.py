@@ -158,10 +158,15 @@ class ConstantHead(nn.Module):
         """Initializes the ConstantHead."""
         super().__init__()
         self.regression_output_size = regression_output_size
-        self.mean = nn.Parameter(torch.randn(1))
+        self.mean = nn.Parameter(torch.zeros(1))
         self.monotonic_constraint = Monotonicity.NONE
         if uncertainty_method == UncertaintyMethod.PROBABILISTIC:
-            self.log_variance = nn.Parameter(torch.randn(1))
+            self.log_variance = nn.Parameter(torch.zeros(1))
+
+    def init_mean(self, value: float) -> None:
+        """Warm-start the constant mean from a data-driven centroid."""
+        with torch.no_grad():
+            self.mean.fill_(value)
 
     def forward(self, x: torch.Tensor, boundaries: torch.Tensor | None = None) -> torch.Tensor:
         """Returns the learned constant value, expanded to the batch size."""
@@ -184,7 +189,7 @@ class ProbabilisticMiddleClassHead(nn.Module):
     def __init__(self, regression_head_params: dict, activation: ActivationFunction = ActivationFunction.RELU) -> None:
         """Initializes the ProbabilisticMiddleClassHead."""
         super().__init__()
-        self.mean = nn.Parameter(torch.randn(1))  # Learnable constant mean
+        self.mean = nn.Parameter(torch.zeros(1))
         self.monotonic_constraint = Monotonicity.NONE
 
         # Network to learn log_variance from probability input
@@ -204,6 +209,11 @@ class ProbabilisticMiddleClassHead(nn.Module):
         layers.append(nn.Linear(hidden_size, 1))  # Output is log_var
 
         self.variance_net = nn.Sequential(*layers)
+
+    def init_mean(self, value: float) -> None:
+        """Warm-start the constant mean from a data-driven centroid."""
+        with torch.no_grad():
+            self.mean.fill_(value)
 
     def forward(self, x: torch.Tensor, boundaries: torch.Tensor | None = None) -> torch.Tensor:
         """Forward pass for the probabilistic middle class head."""
@@ -266,6 +276,12 @@ class SeparateHeadsRegressionModule(nn.Module):
                         monotonic_constraint=slope_type,
                     )
                 )
+
+    def init_middle_class_mean(self, value: float) -> None:
+        """Warm-start all constant/probabilistic-middle heads from a data-driven centroid."""
+        for head in self.heads:
+            if isinstance(head, (ConstantHead, ProbabilisticMiddleClassHead)):
+                head.init_mean(value)
 
     def forward(self, probabilities: torch.Tensor, return_head_outputs: bool = False, boundaries: torch.Tensor | None = None) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """Performs the forward pass.
@@ -337,9 +353,15 @@ class SingleHeadNOutputsRegressionModule(nn.Module):
         )
 
         if self.constrain_middle_class and self.n_classes % 2 != 0:
-            self.middle_class_mean = nn.Parameter(torch.randn(1))
+            self.middle_class_mean = nn.Parameter(torch.zeros(1))
             if self.regression_output_size == 2:
-                self.middle_class_log_var = nn.Parameter(torch.randn(1))
+                self.middle_class_log_var = nn.Parameter(torch.zeros(1))
+
+    def init_middle_class_mean(self, value: float) -> None:
+        """Warm-start the constant middle-class mean from a data-driven centroid."""
+        if hasattr(self, "middle_class_mean"):
+            with torch.no_grad():
+                self.middle_class_mean.fill_(value)
 
     def _get_per_head_outputs(self, probabilities: torch.Tensor, boundaries: torch.Tensor | None = None) -> torch.Tensor:
         y_output_all_classes = self.head(probabilities, boundaries=boundaries)
@@ -398,6 +420,9 @@ class SingleHeadFinalOutputRegressionModule(nn.Module):
             uncertainty_method=uncertainty_method,
             activation=regression_head_params.get("activation", ActivationFunction.RELU),
         )
+
+    def init_middle_class_mean(self, value: float) -> None:  # noqa: ARG002
+        """No-op: this module has no middle-class constant head."""
 
     def forward(self, head_input_probas: torch.Tensor, boundaries: torch.Tensor | None = None, **_kwargs: Any) -> torch.Tensor:
         """Performs the forward pass.

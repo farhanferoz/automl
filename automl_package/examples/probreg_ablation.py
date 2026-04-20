@@ -33,6 +33,7 @@ from automl_package.enums import (
     UncertaintyMethod,
 )
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+from automl_package.models.selection_strategies.base_selection_strategy import DIRECT_REGRESSION_K_SENTINEL
 from automl_package.utils.distributions import GaussianDistribution
 from automl_package.utils.scoring import calculate_crps
 from automl_package.utils.synthetic_datasets import load_fixture
@@ -111,7 +112,8 @@ def run_one(ds_name: str, x_tr, y_tr, x_te, y_te,
             m.model.eval()
             with torch.no_grad():
                 _, _, k_actual, _, _ = m.model(x_t)
-            mean_k = float(k_actual.float().mean().item())
+            k_valid = k_actual[k_actual < DIRECT_REGRESSION_K_SENTINEL]
+            mean_k = float(k_valid.float().mean().item()) if k_valid.numel() > 0 else None
         except Exception:  # noqa: BLE001
             mean_k = None
     return {

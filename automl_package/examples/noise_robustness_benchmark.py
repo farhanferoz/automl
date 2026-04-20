@@ -35,6 +35,7 @@ from automl_package.models.classifier_regression import ClassifierRegressionMode
 from automl_package.models.lightgbm_model import LightGBMModel
 from automl_package.models.neural_network import PyTorchNeuralNetwork
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+from automl_package.models.selection_strategies.base_selection_strategy import DIRECT_REGRESSION_K_SENTINEL
 from automl_package.models.xgboost_model import XGBoostModel
 
 logger = logging.getLogger(__name__)
@@ -120,7 +121,8 @@ def dyn_k_mean(model: ProbabilisticRegressionModel, x_te: np.ndarray) -> float:
     model.model.eval()
     with torch.no_grad():
         _, _, k_actual, _, _ = model.model(x_t)
-    return float(k_actual.float().mean().item())
+    k_valid = k_actual[k_actual < DIRECT_REGRESSION_K_SENTINEL]
+    return float(k_valid.float().mean().item()) if k_valid.numel() > 0 else float("nan")
 
 
 def main() -> None:

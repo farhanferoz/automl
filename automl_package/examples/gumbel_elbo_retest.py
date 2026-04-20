@@ -35,6 +35,7 @@ from automl_package.enums import (
 )
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+from automl_package.models.selection_strategies.base_selection_strategy import DIRECT_REGRESSION_K_SENTINEL
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -111,7 +112,8 @@ def run_probreg(x_tr, y_tr, x_te, y_te, method: NClassesSelectionMethod, reg: NC
     m.model.eval()
     with torch.no_grad():
         _, _, k_actual, _, _ = m.model(x_t)
-    mean_k = float(k_actual.float().mean().item())
+    k_valid = k_actual[k_actual < DIRECT_REGRESSION_K_SENTINEL]
+    mean_k = float(k_valid.float().mean().item()) if k_valid.numel() > 0 else float("nan")
     mode_probs = getattr(m.model.n_classes_strategy, "mode_selection_probs", None)
     entropy = _entropy(mode_probs.cpu().numpy()) if mode_probs is not None else None
     return {

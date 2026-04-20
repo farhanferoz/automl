@@ -312,8 +312,8 @@ def _plot_probreg_internal(model: ProbabilisticRegressionModel, pdf: PdfPages) -
     axes[0].set_xlabel("x"); axes[0].set_ylabel("p")
     axes[0].legend(fontsize=8); axes[0].grid(True, alpha=0.3)
 
-    order = np.argsort(probs[:, 0])
     for i in range(model.n_classes):
+        order = np.argsort(probs[:, i])
         axes[1].plot(probs[order, i], per_head[order, i], label=f"head {i}", alpha=0.7)
     axes[1].set_title("Regression head mean vs class prob")
     axes[1].set_xlabel("p(class=i)"); axes[1].set_ylabel("head mean")
@@ -365,6 +365,7 @@ def _plot_flexnn_depth(model: FlexibleHiddenLayersNN, x_te: np.ndarray, ds: ToyD
         axes[0].plot(xs, argmax_s, color="C1")
         axes[0].set_ylabel("argmax depth")
         axes[0].set_title(f"FlexNN selected depth — {ds.name}")
+        axes[0].tick_params(labelbottom=True)
         axes[0].grid(True, alpha=0.3)
         im = axes[1].imshow(soft_s.T, aspect="auto", origin="lower",
                              extent=[xs[0], xs[-1], 0.5, soft_s.shape[1] + 0.5],

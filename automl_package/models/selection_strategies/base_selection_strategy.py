@@ -5,6 +5,10 @@ from typing import Any
 
 import torch
 
+# Sentinel value for direct regression mode (must exceed any valid n_classes_inf).
+# Loss function checks `selected_k_values < n_classes_inf` to identify probabilistic samples.
+DIRECT_REGRESSION_K_SENTINEL = 2**30
+
 
 class BaseSelectionStrategy(ABC):
     """Abstract base class for all selection strategies (layer, n_classes, etc.)."""
@@ -44,9 +48,7 @@ class BaseSelectionStrategy(ABC):
         """Hook for epoch-end operations (e.g., REINFORCE policy updates)."""
         # Default implementation does nothing
 
-    # Sentinel value for direct regression mode (must exceed any valid n_classes_inf).
-    # Loss function checks `selected_k_values < n_classes_inf` to identify probabilistic samples.
-    _DIRECT_REGRESSION_K_SENTINEL = 2**30
+    _DIRECT_REGRESSION_K_SENTINEL = DIRECT_REGRESSION_K_SENTINEL
 
     # Helper for weighted average logic (common to GumbelSoftmax and SoftGating)
     def _weighted_average_logic(self, x_input: torch.Tensor, mode_selection_probs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

@@ -1,5 +1,36 @@
 # Next Steps
 
+**Current active work (2026-04-20)**: ProbReg identifiability investigation.
+
+Symmetry-check diagnostic on toy datasets revealed ProbReg SEP_HEADS suffers from
+head–class index swap degeneracy: under default `REGRESSION_ONLY` optimization
+strategy, nothing forces head_i to anchor at centroid_i when p_i → 1. Root cause:
+the current Gaussian-LTV loss `−log N(y; ŷ_mean, ŷ_var)` (via law of total
+variance) is agnostic to which (p, μ, σ) configuration produced a given
+(ŷ_mean, ŷ_var). Many degenerate factorizations satisfy the loss.
+
+ClassReg verified clean end-to-end (classifier p_i(x) semantically correct,
+centroids correctly computed, predictions bounded by [min_c, max_c] which is a
+known LOOKUP_MEDIAN limitation, not a bug).
+
+**Three orthogonal fixes identified, to be implemented as dials + experiments:**
+1. **MDN NLL** (new regression likelihood): probabilities enter the likelihood
+   directly → identifiability from likelihood structure
+2. **CE_STOP_GRAD** (new classifier supervision mode): classifier trained on
+   bin-CE alone; `probs.detach()` before heads → joint-likelihood with observed
+   bin labels
+3. **Anchored heads** (new head parametrization): `h_i(p_i) = c_i + (1−p_i)·f_i(p_i)`
+   → hard structural anchor at p_i = 1
+
+Plus bug fix B1: `_initialize_monotonic_head` uses `nn.init.normal_(weight, mean=-3.0)`
+which breaks on all-positive targets (exponential MSE = 11 vs 0.45 for SEP).
+
+Detailed implementation plan: `docs/probreg_identifiability_implementation_plan.md`.
+Session workflow: Opus plans → Sonnet implements → Opus reviews → Sonnet experiments
+→ PDFs.
+
+---
+
 **Status**: Phase 9 autonomous pass (Apr 18 2026). See `SESSION_JOURNAL_2.md` for the
 full change list. Critical fixes + feature additions; script scaffolding for the
 Paper A / Paper B primary tables authored and partly executed.
@@ -134,3 +165,34 @@ See `docs/research_plan.md` §9 for the full list. Parked for later — not acti
 - **I5-I8**: Fix bug N2 (STE gradient path), benchmark STE + REINFORCE for both dynamic-k and depth selection, re-test Gumbel+ELBO after N1 fix.
 - **I9**: Per-problem self-contained dashboards/reports with commentary.
 - Priority items: complete California Housing, add `predict_distribution()` to ProbReg, multi-seed averaging, HPO sweeps, cost-aware ELBO.
+
+## Deferred from current session (2026-04-20 identifiability work)
+
+Discussed in detail but **not in scope for the current session**. Implement after the
+primary ProbReg identifiability sweep (`docs/probreg_identifiability_implementation_plan.md`)
+lands and we've seen the results.
+
+- **Target transform infrastructure** (general-purpose preprocessing, model-agnostic):
+  - Add `log`, `yeo_johnson`, optional `quantile_normal` to `target_transform` (symlog
+    already exists)
+  - Transform inversion layer cleanup: point-prediction flag (median vs mean with bias
+    correction), variance via first-order Jacobian (document approximation limits),
+    exact interval/quantile inversion via T⁻¹ endpoint-wise
+  - NLL evaluation add `log|T'(y)|` change-of-variables term for fair cross-transform
+    comparison
+  - Audit `ConformalWrapper` composition with transforms (should be correct by
+    construction but verify)
+  - Coverage test on synthetic log-normal
+  - Motivation: faithful handling of photo-z (σ_z / (1+z)), cluster log-mass, any
+    multiplicative-noise domain. Toy data is additive-noise so transform will show
+    a null result there — that's the right negative finding to document.
+
+- **Secondary ProbReg experiments** (after primary sweep):
+  - E4: Anchored × monotonic on/off (needs B1 bug fix)
+  - E5: Control — anchored with/without `constrain_middle_class` to empirically
+    confirm the per-class anchor subsumes the middle-class special case
+  - E6: Transform diagnostic on exponential for ClassReg + top 2 ProbReg cells
+
+- **Subsumed tasks** (from workslate):
+  - #37 "Middle-class centering investigation" — folded into anchored-heads work
+  - #38 "Loss functions full grid" — becomes the primary sweep E1–E3
