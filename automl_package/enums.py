@@ -222,6 +222,14 @@ class ProbabilisticRegressionOptimizationStrategy(Enum):
     REGRESSION_ONLY = "regression_only"
     COMPOSITE_LOSS = "composite_loss"
     GRADIENT_STOP = "gradient_stop"
+    CE_STOP_GRAD = "ce_stop_grad"  # classifier trained on bin-CE only; probs detached before heads
+
+
+class ProbRegLossType(Enum):
+    """Enum for loss function used in ProbabilisticRegressionModel."""
+
+    GAUSSIAN_LTV = "gaussian_ltv"  # law of total variance + Gaussian NLL (current default)
+    MDN = "mdn"                    # Bishop 1994 mixture density network NLL
 
 
 class OptimizerType(Enum):

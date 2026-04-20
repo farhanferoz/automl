@@ -35,6 +35,10 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
     ) -> None:
         """Initializes the ProbabilisticRegressionNet."""
         nn.Module.__init__(self)
+        # Extract new params before passing kwargs to MonotonicityConfigMixin to avoid
+        # forwarding unknown kwargs to object.__init__ via cooperative MRO.
+        self._centroids = kwargs.pop("centroids", None)
+        self._use_anchored_heads = kwargs.pop("use_anchored_heads", False)
         MonotonicityConfigMixin.__init__(self, **kwargs)
         self.input_size = input_size
         self.device = device
@@ -103,6 +107,8 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
                 regression_output_size=self.regression_output_size,
                 use_monotonic_constraints=self.use_monotonic_constraints,
                 constrain_middle_class=self.constrain_middle_class,
+                centroids=self._centroids,
+                use_anchored_heads=self._use_anchored_heads,
             )
         elif self.regression_strategy == RegressionStrategy.SINGLE_HEAD_N_OUTPUTS:
             self.regression_module = SingleHeadNOutputsRegressionModule(

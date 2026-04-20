@@ -5,7 +5,7 @@ from typing import Any
 import torch
 import torch.nn.functional as f
 
-from automl_package.enums import RegressionStrategy
+from automl_package.enums import ProbabilisticRegressionOptimizationStrategy, RegressionStrategy
 from automl_package.models.selection_strategies.base_selection_strategy import BaseSelectionStrategy
 
 
@@ -39,6 +39,12 @@ class NoneStrategy(BaseSelectionStrategy):
         masked_classifier_logits[:, : self.model.n_classes] = classifier_raw_logits[:, : self.model.n_classes]
 
         probabilities = torch.softmax(masked_classifier_logits, dim=1)
+
+        # CE_STOP_GRAD: detach probs so regression loss has no gradient path to classifier.
+        # Classifier receives gradient only from CE loss (computed in _calculate_custom_loss).
+        if self.model.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD or \
+                self.model.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP:
+            probabilities = probabilities.detach()
 
         if self.model.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
             final_predictions_contribution = self.model.regression_module(probabilities, return_head_outputs=True, boundaries=boundaries)

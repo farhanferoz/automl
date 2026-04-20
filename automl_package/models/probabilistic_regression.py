@@ -12,6 +12,7 @@ from automl_package.enums import (
     ExplainerType,
     NClassesRegularization,
     NClassesSelectionMethod,
+    ProbRegLossType,
     ProbabilisticRegressionOptimizationStrategy,
     RegressionStrategy,
     UncertaintyMethod,
@@ -20,10 +21,10 @@ from automl_package.logger import logger
 from automl_package.models.architectures.probabilistic_regression_net import ProbabilisticRegressionNet
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.common.losses import calculate_combined_loss
+from automl_package.models.common.mixins import BoundaryLossMixin
 from automl_package.models.common.middle_class_penalty_mixin import MiddleClassPenaltyMixin
 from automl_package.models.common.penalties import apply_additional_penalties
-from automl_package.models.common.mixins import BoundaryLossMixin
-from automl_package.utils.losses import masked_cross_entropy_loss
+from automl_package.utils.losses import masked_cross_entropy_loss, mdn_nll
 from automl_package.utils.numerics import calculate_class_value_ranges, create_bins
 from automl_package.utils.plotting import plot_nn_probability_mappers
 from automl_package.utils.transforms import symexp, symlog
@@ -55,6 +56,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         "loss_type": "nll",
         "beta": 0.5,
         "target_transform": None,
+        "prob_reg_loss_type": ProbRegLossType.GAUSSIAN_LTV,
+        "use_anchored_heads": False,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -92,10 +95,16 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             self.optimization_strategy = ProbabilisticRegressionOptimizationStrategy[self.optimization_strategy.upper()]
         if isinstance(self.n_classes_regularization, str):
             self.n_classes_regularization = NClassesRegularization[self.n_classes_regularization.upper()]
+        if isinstance(self.prob_reg_loss_type, str):
+            self.prob_reg_loss_type = ProbRegLossType[self.prob_reg_loss_type.upper()]
 
         if self.use_monotonic_constraints and self.regression_strategy != RegressionStrategy.SEPARATE_HEADS:
             logger.warning("Monotonic constraints are only supported for the 'SEPARATE_HEADS' regression strategy.")
             self.use_monotonic_constraints = False
+
+        if self.use_anchored_heads and self.regression_strategy != RegressionStrategy.SEPARATE_HEADS:
+            logger.warning("use_anchored_heads=True has no effect for regression_strategy=%s; anchoring is only defined for SEPARATE_HEADS. Ignoring.", self.regression_strategy)
+            self.use_anchored_heads = False
 
         if self.constrain_middle_class and self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
             logger.warning("The `constrain_middle_class` option is not supported for the SINGLE_HEAD_FINAL_OUTPUT strategy.")
@@ -141,14 +150,28 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         y_true_squeezed = y_true.squeeze(-1) if y_true.ndim > 1 else y_true
 
         # 1. Calculate main regression loss
-        regression_loss = calculate_combined_loss(predictions=final_predictions, y_true=y_true, uncertainty_method=self.uncertainty_method, include_boundary_loss=False, loss_type=self.loss_type, beta=self.beta)
+        if self.prob_reg_loss_type == ProbRegLossType.MDN and per_head_outputs is not None and self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
+            # MDN NLL: probabilities enter the likelihood directly → structural identifiability.
+            # Recompute probs from classifier logits (detached path already applied in forward).
+            masked = torch.full_like(classifier_logits_out, float("-inf"))
+            masked[:, : self.n_classes] = classifier_logits_out[:, : self.n_classes]
+            probs_for_mdn = torch.softmax(masked, dim=1)[:, : self.n_classes]
+            mus = per_head_outputs[:, : self.n_classes, 0]
+            log_vars = per_head_outputs[:, : self.n_classes, 1]
+            regression_loss = mdn_nll(y_true_squeezed, probs_for_mdn, mus, log_vars)
+        else:
+            regression_loss = calculate_combined_loss(predictions=final_predictions, y_true=y_true, uncertainty_method=self.uncertainty_method, include_boundary_loss=False, loss_type=self.loss_type, beta=self.beta)
 
         total_loss = regression_loss
         unique_k = torch.tensor([])
         probabilistic_indices = torch.tensor([])
 
-        # 2. Calculate classification loss if applicable
-        if self.optimization_strategy != ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY:
+        # 2. Classification loss: existing strategies + CE_STOP_GRAD
+        is_ce_active = self.optimization_strategy not in (
+            ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+            ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
+        )
+        if is_ce_active:
             probabilistic_indices = torch.where(selected_k_values < self.n_classes_inf)[0]
 
             if probabilistic_indices.numel() > 0:
@@ -262,6 +285,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             device=self.device,
             use_monotonic_constraints=self.use_monotonic_constraints,
             constrain_middle_class=self.constrain_middle_class,
+            centroids=getattr(self, "_per_class_centroids", None),
+            use_anchored_heads=self.use_anchored_heads,
         )
         self.model.to(self.device)
 
@@ -390,6 +415,12 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 self._constant_head_init_value = float(y_flat[mid_mask].mean()) if mid_mask.any() else 0.0
             else:
                 self._constant_head_init_value = None
+
+            # Per-class centroids for monotonic head init (B1 fix) and anchored heads (C6).
+            if self.regression_strategy == RegressionStrategy.SEPARATE_HEADS:
+                self._per_class_centroids = [float(y_flat[y_binned == i].mean()) if np.any(y_binned == i) else 0.0 for i in range(max_k)]
+            else:
+                self._per_class_centroids = None
 
         forward_pass_kwargs = None
         if self.boundary_regularization_method == BoundaryRegularizationMethod.HARDSIGMOID:

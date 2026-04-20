@@ -28,6 +28,7 @@ class BaseRegressionHead(nn.Module):
         activation: nn.Module,
         monotonic_constraint: Monotonicity = Monotonicity.NONE,
         use_logit_initialization: bool = True,
+        centroid: float | None = None,
     ) -> None:
         """Initializes the BaseRegressionHead."""
         super().__init__()
@@ -60,24 +61,32 @@ class BaseRegressionHead(nn.Module):
             self.mean_head = nn.Linear(hidden_size, 1)
             self.variance_head = nn.Linear(hidden_size, 1)
             if self.use_logit_initialization:
-                self._initialize_monotonic_head(self.mean_head)
+                self._initialize_monotonic_head(self.mean_head, centroid=centroid)
                 self._initialize_standard_head(self.variance_head)
         else:
             # Standard case: Single final layer
             final_layer = nn.Linear(hidden_size, output_size)
             if self.use_logit_initialization:
                 if self.monotonic_constraint != Monotonicity.NONE:
-                    self._initialize_monotonic_head(final_layer)
+                    self._initialize_monotonic_head(final_layer, centroid=centroid)
                 else:
                     self._initialize_standard_head(final_layer)
             layers.append(final_layer)
 
         self.layers = nn.ModuleList(layers)
 
-    def _initialize_monotonic_head(self, layer: nn.Linear) -> None:
-        """Applies special initialization for monotonic heads."""
-        nn.init.normal_(layer.weight, mean=-3.0, std=0.1)
-        nn.init.constant_(layer.bias, 0.0)
+    def _initialize_monotonic_head(self, layer: nn.Linear, centroid: float | None = None) -> None:
+        """Applies special initialization for monotonic heads.
+
+        Uses centroid-aware init when available (prevents negative-bias catastrophe
+        on all-positive targets like exponential datasets).
+        """
+        if centroid is not None:
+            nn.init.constant_(layer.weight, 0.1)
+            nn.init.constant_(layer.bias, centroid)
+        else:
+            nn.init.constant_(layer.weight, 0.0)
+            nn.init.constant_(layer.bias, 0.0)
 
     def _initialize_standard_head(self, layer: nn.Linear) -> None:
         """Applies standard Xavier uniform initialization."""
@@ -149,6 +158,34 @@ class BaseRegressionHead(nn.Module):
 
             output = logit if boundaries is None else self._apply_boundary_constraints(logit=logit, boundaries=boundaries)
         return output
+
+
+class AnchoredHead(nn.Module):
+    """Anchored separate-head parametrization: h_i(p_i) = c_i + (1 - p_i) * f_i(p_i).
+
+    Hard constraint: h_i(1) = c_i exactly (structural identifiability).
+    f_i retains full expressivity away from p_i = 1.
+    log_var is produced by f_i and left unconstrained.
+    """
+
+    def __init__(self, centroid: float, hidden_size: int = 16) -> None:
+        """Initializes the AnchoredHead."""
+        super().__init__()
+        self.monotonic_constraint = Monotonicity.NONE
+        self.register_buffer("centroid", torch.tensor(float(centroid)))
+        self.f = nn.Sequential(
+            nn.Linear(1, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, 2),
+        )
+
+    def forward(self, p_i: torch.Tensor, boundaries: torch.Tensor | None = None) -> torch.Tensor:  # noqa: ARG002
+        """Forward pass: mean = centroid + (1 - p_i) * f_mean; log_var from f."""
+        f_out = self.f(p_i)
+        gate = 1.0 - p_i
+        mean = self.centroid + gate * f_out[:, 0:1]
+        log_var = f_out[:, 1:2]
+        return torch.cat([mean, log_var], dim=-1)
 
 
 class ConstantHead(nn.Module):
@@ -235,6 +272,8 @@ class SeparateHeadsRegressionModule(nn.Module):
         activation: ActivationFunction = ActivationFunction.RELU,
         use_monotonic_constraints: bool = False,
         constrain_middle_class: bool = True,
+        centroids: list[float] | None = None,
+        use_anchored_heads: bool = False,
     ) -> None:
         """Initializes the SeparateHeadsRegressionModule."""
         super().__init__()
@@ -245,8 +284,12 @@ class SeparateHeadsRegressionModule(nn.Module):
         for i in range(n_classes):
             middle_point = (n_classes - 1) / 2.0
             is_middle_class = i == middle_point
+            centroid_i = centroids[i] if centroids is not None and i < len(centroids) else 0.0
 
-            if is_middle_class and constrain_middle_class:
+            if use_anchored_heads:
+                # Anchored heads subsume constrain_middle_class — every head has a structural anchor.
+                self.heads.append(AnchoredHead(centroid=centroid_i, hidden_size=regression_head_params.get("hidden_size", 16)))
+            elif is_middle_class and constrain_middle_class:
                 # If it's the middle class and we are constraining it
                 if use_monotonic_constraints and uncertainty_method == UncertaintyMethod.PROBABILISTIC:
                     # User's special case: constant mean, flexible variance
@@ -274,6 +317,7 @@ class SeparateHeadsRegressionModule(nn.Module):
                         uncertainty_method=uncertainty_method,
                         activation=activation,
                         monotonic_constraint=slope_type,
+                        centroid=centroid_i,
                     )
                 )
 
@@ -421,8 +465,9 @@ class SingleHeadFinalOutputRegressionModule(nn.Module):
             activation=regression_head_params.get("activation", ActivationFunction.RELU),
         )
 
-    def init_middle_class_mean(self, value: float) -> None:  # noqa: ARG002
+    def init_middle_class_mean(self, value: float) -> None:
         """No-op: this module has no middle-class constant head."""
+        _ = value
 
     def forward(self, head_input_probas: torch.Tensor, boundaries: torch.Tensor | None = None, **_kwargs: Any) -> torch.Tensor:
         """Performs the forward pass.

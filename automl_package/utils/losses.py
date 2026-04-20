@@ -101,6 +101,33 @@ def tree_model_gaussian_nll_eval_metric(y_true: np.ndarray, y_pred: np.ndarray) 
     return [("nll", np.mean(nll), False)]
 
 
+def mdn_nll(
+    y: torch.Tensor,
+    probs: torch.Tensor,
+    mus: torch.Tensor,
+    log_vars: torch.Tensor,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """Bishop 1994 Mixture Density Network negative log-likelihood.
+
+    L = -mean_i log Σ_j p_j · N(y_i; μ_j, σ_j²)
+
+    Uses log-sum-exp for numerical stability.
+
+    Args:
+        y: [batch] or [batch, 1] target values.
+        probs: [batch, k] softmax mixture weights.
+        mus: [batch, k] per-component means.
+        log_vars: [batch, k] per-component log-variances.
+        eps: floor for probs before log to prevent -inf.
+    """
+    y = y.view(-1, 1)
+    log_component = -0.5 * (math.log(2 * math.pi) + log_vars + (y - mus) ** 2 * torch.exp(-log_vars))
+    log_weights = torch.log(probs.clamp_min(eps))
+    log_mixture = torch.logsumexp(log_weights + log_component, dim=-1)
+    return -log_mixture.mean()
+
+
 def boundary_regularization_loss(predictions: torch.Tensor, boundaries: torch.Tensor) -> torch.Tensor:
     """Calculates a penalty for predictions that fall outside the given boundaries.
 
