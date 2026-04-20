@@ -235,15 +235,13 @@ def _compute_metrics(model: ClassifierRegressionModel | ProbabilisticRegressionM
         # Middle-class activity (k=5 only)
         if k == 5:
             x_eval = np.linspace(float(x_tr.min()), float(x_tr.max()), N_EVAL).reshape(-1, 1).astype(np.float32)
-            probs_eval = model.predict_proba(x_eval, filter_data=False)[:, :k] if hasattr(model, "predict_proba") else None
-            if probs_eval is None:
-                x_t = torch.tensor(x_eval, dtype=torch.float32).to(model.device)
-                model.model.eval()
-                with torch.no_grad():
-                    raw = model.model.classifier_layers(x_t)
-                    masked = torch.full_like(raw, float("-inf"))
-                    masked[:, :k] = raw[:, :k]
-                    probs_eval = torch.softmax(masked, dim=1)[:, :k].cpu().numpy()
+            x_t = torch.tensor(x_eval, dtype=torch.float32).to(model.device)
+            model.model.eval()
+            with torch.no_grad():
+                raw = model.model.classifier_layers(x_t)
+                masked = torch.full_like(raw, float("-inf"))
+                masked[:, :k] = raw[:, :k]
+                probs_eval = torch.softmax(masked, dim=1)[:, :k].cpu().numpy()
             max_p_mid = float(probs_eval[:, k // 2].max())
 
         # Anchor error for free heads (not anchored)
