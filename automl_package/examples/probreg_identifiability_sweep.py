@@ -121,9 +121,16 @@ def _mdn_nll(y: np.ndarray, probs: np.ndarray, mus: np.ndarray, log_vars: np.nda
 
 
 def _bin_centroids(y_tr: np.ndarray, boundaries: np.ndarray, k: int) -> np.ndarray:
+    """Per-bin centroids using mean.
+
+    Must match ProbReg model's `_per_class_centroids` so that anchor_error is meaningful for
+    anchored heads (where AnchoredHead.centroid is the mean).
+    """
     y_flat = y_tr.flatten()
     _, y_binned = create_bins(data=y_flat, unique_bin_edges=boundaries)
-    return np.array([np.median(y_flat[y_binned == i]) if np.any(y_binned == i) else np.nan for i in range(k)])
+    counts = np.bincount(y_binned, minlength=k)
+    sums = np.bincount(y_binned, weights=y_flat, minlength=k)
+    return np.where(counts > 0, sums / np.maximum(counts, 1), np.nan)
 
 
 # ---------------------------------------------------------------------------

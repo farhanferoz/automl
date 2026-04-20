@@ -153,7 +153,16 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         if self.prob_reg_loss_type == ProbRegLossType.MDN and per_head_outputs is not None and self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
             # MDN NLL: probabilities enter the likelihood directly → structural identifiability.
             # Slice before softmax so the distribution is over exactly n_classes components.
-            probs_for_mdn = torch.softmax(classifier_logits_out[:, : self.n_classes], dim=-1)
+            # Under CE_STOP_GRAD/GRADIENT_STOP the classifier is not supervised by regression
+            # loss; detach logits here so MDN's probs path does not become a back-door channel
+            # (regression_module already received detached probs in NoneStrategy.forward).
+            logits_for_mdn = classifier_logits_out
+            if self.optimization_strategy in (
+                ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
+                ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
+            ):
+                logits_for_mdn = logits_for_mdn.detach()
+            probs_for_mdn = torch.softmax(logits_for_mdn[:, : self.n_classes], dim=-1)
             mus = per_head_outputs[:, : self.n_classes, 0]
             log_vars = per_head_outputs[:, : self.n_classes, 1]
             regression_loss = mdn_nll(y_true_squeezed, probs_for_mdn, mus, log_vars)
