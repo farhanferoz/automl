@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Callable
 from pathlib import Path
 
 import matplotlib as mpl
@@ -182,6 +183,16 @@ def _extract_classreg(model: ClassifierRegressionModel, x_tr: np.ndarray, y_tr: 
     return probs, per_head_means, centroids
 
 
+def _probreg_masked_probs(model: ProbabilisticRegressionModel, x_eval: np.ndarray, k: int) -> np.ndarray:
+    x_t = torch.tensor(x_eval, dtype=torch.float32).to(model.device)
+    model.model.eval()
+    with torch.no_grad():
+        raw = model.model.classifier_layers(x_t)
+        masked = torch.full_like(raw, float("-inf"))
+        masked[:, :k] = raw[:, :k]
+        return torch.softmax(masked, dim=1)[:, :k].cpu().numpy()
+
+
 def _extract_probreg(model: ProbabilisticRegressionModel, x_tr: np.ndarray, y_tr: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     x_eval = np.linspace(float(x_tr.min()), float(x_tr.max()), N_EVAL).reshape(-1, 1).astype(np.float32)
     x_t = torch.tensor(x_eval, dtype=torch.float32).to(model.device)
@@ -232,29 +243,14 @@ def _compute_metrics(model: ClassifierRegressionModel | ProbabilisticRegressionM
         except Exception:
             pass
 
-        # Middle-class activity (k=5 only)
-        if k == 5:
-            x_eval = np.linspace(float(x_tr.min()), float(x_tr.max()), N_EVAL).reshape(-1, 1).astype(np.float32)
-            x_t = torch.tensor(x_eval, dtype=torch.float32).to(model.device)
-            model.model.eval()
-            with torch.no_grad():
-                raw = model.model.classifier_layers(x_t)
-                masked = torch.full_like(raw, float("-inf"))
-                masked[:, :k] = raw[:, :k]
-                probs_eval = torch.softmax(masked, dim=1)[:, :k].cpu().numpy()
-            max_p_mid = float(probs_eval[:, k // 2].max())
-
-        # Anchor error for free heads (not anchored)
-        if not isinstance(model, ClassifierRegressionModel):
-            try:
-                probs_ext, per_head_ext, centroids_ext = _extract_probreg(model, x_tr, y_tr, k)
-                anchor_errs = []
-                for i in range(k):
-                    max_idx = np.argmax(probs_ext[:, i])
-                    anchor_errs.append(abs(per_head_ext[max_idx, i] - centroids_ext[i]))
-                anchor_error = float(np.max(anchor_errs))
-            except Exception:
-                pass
+        try:
+            probs_ext, per_head_ext, centroids_ext = _extract_probreg(model, x_tr, y_tr, k)
+            if k == 5:
+                max_p_mid = float(probs_ext[:, k // 2].max())
+            anchor_errs = [abs(per_head_ext[np.argmax(probs_ext[:, i]), i] - centroids_ext[i]) for i in range(k)]
+            anchor_error = float(np.max(anchor_errs))
+        except Exception:
+            pass
 
     is_mdn_cell = not is_classreg and cell_label in ("E", "F", "G", "H")
     nll_own = nll_mdn if is_mdn_cell else nll_gaussian
@@ -297,16 +293,7 @@ def _plot_prob_curves_panel(ax: plt.Axes, model: ClassifierRegressionModel | Pro
     x_min, x_max = float(x_tr.min()), float(x_tr.max())
     x_eval = np.linspace(x_min, x_max, N_EVAL).reshape(-1, 1).astype(np.float32)
 
-    if isinstance(model, ClassifierRegressionModel):
-        probs = model.predict_proba(x_eval, filter_data=False)[:, :k]
-    else:
-        x_t = torch.tensor(x_eval, dtype=torch.float32).to(model.device)
-        model.model.eval()
-        with torch.no_grad():
-            raw = model.model.classifier_layers(x_t)
-            masked = torch.full_like(raw, float("-inf"))
-            masked[:, :k] = raw[:, :k]
-            probs = torch.softmax(masked, dim=1)[:, :k].cpu().numpy()
+    probs = model.predict_proba(x_eval, filter_data=False)[:, :k] if isinstance(model, ClassifierRegressionModel) else _probreg_masked_probs(model, x_eval, k)
 
     mid_idx = k // 2
     for i in range(k):
@@ -332,12 +319,60 @@ def _plot_prob_curves_panel(ax: plt.Axes, model: ClassifierRegressionModel | Pro
     ax2.tick_params(axis="y", labelsize=6)
 
 
+def _draw_head_cr(ax: plt.Axes, model: ClassifierRegressionModel, x_tr: np.ndarray, y_tr: np.ndarray, k: int, title: str) -> None:
+    probs, per_head, centroids = _extract_classreg(model, x_tr, y_tr, k)
+    _plot_head_curves_panel(ax, probs, per_head, centroids, k, title)
+
+
+def _draw_head_pr(ax: plt.Axes, model: ProbabilisticRegressionModel, x_tr: np.ndarray, y_tr: np.ndarray, k: int, title: str) -> None:
+    probs, per_head, centroids = _extract_probreg(model, x_tr, y_tr, k)
+    _plot_head_curves_panel(ax, probs, per_head, centroids, k, title)
+
+
+def _draw_prob_cr(ax: plt.Axes, model: ClassifierRegressionModel, x_tr: np.ndarray, y_tr: np.ndarray, k: int, title: str) -> None:
+    _plot_prob_curves_panel(ax, model, x_tr, y_tr, k, title, model.class_boundaries)
+
+
+def _draw_prob_pr(ax: plt.Axes, model: ProbabilisticRegressionModel, x_tr: np.ndarray, y_tr: np.ndarray, k: int, title: str) -> None:
+    _plot_prob_curves_panel(ax, model, x_tr, y_tr, k, title, model.precomputed_class_boundaries.get(k))
+
+
+def _render_grid_page(pdf: PdfPages, ds_name: str, seed42_models: dict, k: int, page_title: str, draw_cr: Callable, draw_pr: Callable) -> None:
+    nrows = math.ceil((len(CELLS) + 1) / 3)
+    fig, axes = plt.subplots(nrows, 3, figsize=(15, 4 * nrows))
+    fig.suptitle(f"{ds_name} k={k} — {page_title} (seed 42)", fontsize=10)
+    axes_flat = axes.ravel() if hasattr(axes, "ravel") else [axes]
+
+    panel_idx = 0
+    key_cr = f"ClassReg_{k}"
+    if key_cr in seed42_models:
+        cr_model, x_tr, y_tr = seed42_models[key_cr]
+        draw_cr(axes_flat[panel_idx], cr_model, x_tr, y_tr, k, f"ClassReg k={k}")
+        panel_idx += 1
+
+    for cell_id, *_ in CELLS:
+        key = f"{cell_id}_{k}"
+        if key in seed42_models:
+            pr_model, x_tr, y_tr = seed42_models[key]
+            try:
+                draw_pr(axes_flat[panel_idx], pr_model, x_tr, y_tr, k, f"Cell {cell_id} k={k}")
+            except Exception as e:
+                axes_flat[panel_idx].set_title(f"Cell {cell_id} — error: {e}", fontsize=7)
+            panel_idx += 1
+
+    for ax in axes_flat[panel_idx:]:
+        ax.axis("off")
+    fig.tight_layout()
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
 def _make_pdf(ds_name: str, seed42_models: dict, summary_df: pd.DataFrame) -> None:
     """Generate a 5-page PDF for one dataset."""
     pdf_path = OUT_DIR / f"results_{ds_name}.pdf"
 
     with PdfPages(pdf_path) as pdf:
-        # --- Page 1: metrics summary table ---
+        # Page 1: metrics summary table
         fig, ax = plt.subplots(figsize=(16, 9))
         ax.axis("off")
         fig.suptitle(f"{ds_name} — metrics summary (mean ± std across {len(SEEDS)} seeds)", fontsize=11)
@@ -347,11 +382,7 @@ def _make_pdf(ds_name: str, seed42_models: dict, summary_df: pd.DataFrame) -> No
             ds_df = ds_df.sort_values(["k", "cell"])
             cols = ["k", "cell", "mse_mean", "mse_std", "nll_gaussian_mean", "nll_mdn_mean", "max_p_mid_mean", "anchor_error_mean"]
             present_cols = [c for c in cols if c in ds_df.columns]
-            tbl_data = ds_df[present_cols].values.tolist()
-            tbl_headers = present_cols
-
-            # Highlight best MSE per k
-            table = ax.table(cellText=tbl_data, colLabels=tbl_headers, cellLoc="center", loc="center")
+            table = ax.table(cellText=ds_df[present_cols].values.tolist(), colLabels=present_cols, cellLoc="center", loc="center")
             table.auto_set_font_size(False)
             table.set_fontsize(7)
             table.scale(1, 1.4)
@@ -360,75 +391,11 @@ def _make_pdf(ds_name: str, seed42_models: dict, summary_df: pd.DataFrame) -> No
         pdf.savefig(fig)
         plt.close(fig)
 
-        # --- Pages 2–3: h_i(p_i) curves ---
+        # Pages 2–3: h_i(p_i) curves; pages 4–5: p_i(x) vs x
         for k in K_VALUES:
-            n_panels = len(CELLS) + 1  # 8 ProbReg + 1 ClassReg
-            ncols = 3
-            nrows = math.ceil(n_panels / ncols)
-            fig, axes = plt.subplots(nrows, ncols, figsize=(15, 4 * nrows))
-            fig.suptitle(f"{ds_name} k={k} — h_i(p_i) vs p_i (seed 42)", fontsize=10)
-            axes_flat = axes.ravel() if hasattr(axes, "ravel") else [axes]
-
-            panel_idx = 0
-            key_cr = f"ClassReg_{k}"
-            if key_cr in seed42_models:
-                cr_model, x_tr, y_tr = seed42_models[key_cr]
-                probs, per_head, centroids = _extract_classreg(cr_model, x_tr, y_tr, k)
-                _plot_head_curves_panel(axes_flat[panel_idx], probs, per_head, centroids, k, f"ClassReg k={k}")
-                panel_idx += 1
-
-            for cell_id, _loss_type, _opt_strat, _use_anchored in CELLS:
-                key = f"{cell_id}_{k}"
-                if key in seed42_models:
-                    pr_model, x_tr, y_tr = seed42_models[key]
-                    try:
-                        probs, per_head, centroids = _extract_probreg(pr_model, x_tr, y_tr, k)
-                        _plot_head_curves_panel(axes_flat[panel_idx], probs, per_head, centroids, k, f"Cell {cell_id} k={k}")
-                    except Exception as e:
-                        axes_flat[panel_idx].set_title(f"Cell {cell_id} — error: {e}", fontsize=7)
-                    panel_idx += 1
-
-            for ax in axes_flat[panel_idx:]:
-                ax.axis("off")
-
-            fig.tight_layout()
-            pdf.savefig(fig)
-            plt.close(fig)
-
-        # --- Pages 4–5: p_i(x) vs x ---
+            _render_grid_page(pdf, ds_name, seed42_models, k, "h_i(p_i) vs p_i", _draw_head_cr, _draw_head_pr)
         for k in K_VALUES:
-            n_panels = len(CELLS) + 1
-            ncols = 3
-            nrows = math.ceil(n_panels / ncols)
-            fig, axes = plt.subplots(nrows, ncols, figsize=(15, 4 * nrows))
-            fig.suptitle(f"{ds_name} k={k} — p_i(x) vs x (seed 42)", fontsize=10)
-            axes_flat = axes.ravel() if hasattr(axes, "ravel") else [axes]
-
-            panel_idx = 0
-            key_cr = f"ClassReg_{k}"
-            if key_cr in seed42_models:
-                cr_model, x_tr, y_tr = seed42_models[key_cr]
-                boundaries = cr_model.class_boundaries
-                _plot_prob_curves_panel(axes_flat[panel_idx], cr_model, x_tr, y_tr, k, f"ClassReg k={k}", boundaries)
-                panel_idx += 1
-
-            for cell_id, _, _, _ in CELLS:
-                key = f"{cell_id}_{k}"
-                if key in seed42_models:
-                    pr_model, x_tr, y_tr = seed42_models[key]
-                    boundaries = pr_model.precomputed_class_boundaries.get(k)
-                    try:
-                        _plot_prob_curves_panel(axes_flat[panel_idx], pr_model, x_tr, y_tr, k, f"Cell {cell_id} k={k}", boundaries)
-                    except Exception as e:
-                        axes_flat[panel_idx].set_title(f"Cell {cell_id} — error: {e}", fontsize=7)
-                    panel_idx += 1
-
-            for ax in axes_flat[panel_idx:]:
-                ax.axis("off")
-
-            fig.tight_layout()
-            pdf.savefig(fig)
-            plt.close(fig)
+            _render_grid_page(pdf, ds_name, seed42_models, k, "p_i(x) vs x", _draw_prob_cr, _draw_prob_pr)
 
     logger.warning("Saved %s", pdf_path)
 

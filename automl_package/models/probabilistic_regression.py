@@ -12,8 +12,8 @@ from automl_package.enums import (
     ExplainerType,
     NClassesRegularization,
     NClassesSelectionMethod,
-    ProbRegLossType,
     ProbabilisticRegressionOptimizationStrategy,
+    ProbRegLossType,
     RegressionStrategy,
     UncertaintyMethod,
 )
@@ -21,8 +21,8 @@ from automl_package.logger import logger
 from automl_package.models.architectures.probabilistic_regression_net import ProbabilisticRegressionNet
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.common.losses import calculate_combined_loss
-from automl_package.models.common.mixins import BoundaryLossMixin
 from automl_package.models.common.middle_class_penalty_mixin import MiddleClassPenaltyMixin
+from automl_package.models.common.mixins import BoundaryLossMixin
 from automl_package.models.common.penalties import apply_additional_penalties
 from automl_package.utils.losses import masked_cross_entropy_loss, mdn_nll
 from automl_package.utils.numerics import calculate_class_value_ranges, create_bins
@@ -152,10 +152,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         # 1. Calculate main regression loss
         if self.prob_reg_loss_type == ProbRegLossType.MDN and per_head_outputs is not None and self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
             # MDN NLL: probabilities enter the likelihood directly → structural identifiability.
-            # Recompute probs from classifier logits (detached path already applied in forward).
-            masked = torch.full_like(classifier_logits_out, float("-inf"))
-            masked[:, : self.n_classes] = classifier_logits_out[:, : self.n_classes]
-            probs_for_mdn = torch.softmax(masked, dim=1)[:, : self.n_classes]
+            # Slice before softmax so the distribution is over exactly n_classes components.
+            probs_for_mdn = torch.softmax(classifier_logits_out[:, : self.n_classes], dim=-1)
             mus = per_head_outputs[:, : self.n_classes, 0]
             log_vars = per_head_outputs[:, : self.n_classes, 1]
             regression_loss = mdn_nll(y_true_squeezed, probs_for_mdn, mus, log_vars)
@@ -418,9 +416,9 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
             # Per-class centroids for monotonic head init (B1 fix) and anchored heads (C6).
             if self.regression_strategy == RegressionStrategy.SEPARATE_HEADS:
-                self._per_class_centroids = [float(y_flat[y_binned == i].mean()) if np.any(y_binned == i) else 0.0 for i in range(max_k)]
-            else:
-                self._per_class_centroids = None
+                counts = np.bincount(y_binned, minlength=max_k)
+                sums = np.bincount(y_binned, weights=y_flat, minlength=max_k)
+                self._per_class_centroids = list(np.where(counts > 0, sums / counts, 0.0))
 
         forward_pass_kwargs = None
         if self.boundary_regularization_method == BoundaryRegularizationMethod.HARDSIGMOID:
@@ -724,7 +722,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
         probabilities = torch.softmax(masked_classifier_logits, dim=1)
 
-        if self.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP:
+        if self.optimization_strategy in (
+            ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
+            ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
+        ):
             probabilities = probabilities.detach()
 
         if self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
