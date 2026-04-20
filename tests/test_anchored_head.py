@@ -3,7 +3,14 @@
 import torch
 
 from automl_package.enums import UncertaintyMethod
-from automl_package.models.common.regression_heads import AnchoredHead, SeparateHeadsRegressionModule
+from automl_package.models.common.regression_heads import (
+    AnchoredHead,
+    BaseRegressionHead,
+    ConstantHead,
+    ProbabilisticMiddleClassHead,
+    RegressionHead,
+    SeparateHeadsRegressionModule,
+)
 
 
 class TestAnchoredHead:
@@ -71,6 +78,36 @@ class TestAnchoredHead:
         p = torch.rand(12, 1)
         out = head(p)
         assert out.shape == (12, 2)
+
+    def test_all_heads_subclass_regression_head_abc(self):
+        """All concrete heads must inherit from the RegressionHead ABC for isinstance dispatch."""
+        anchored = AnchoredHead(centroid=0.0)
+        constant = ConstantHead(uncertainty_method=UncertaintyMethod.PROBABILISTIC, regression_output_size=2)
+        middle = ProbabilisticMiddleClassHead(regression_head_params={"hidden_layers": 1, "hidden_size": 16})
+        base = BaseRegressionHead(
+            input_size=1, output_size=2, hidden_layers=1, hidden_size=16,
+            use_batch_norm=False, dropout_rate=0.0, uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            activation=__import__("automl_package.enums", fromlist=["ActivationFunction"]).ActivationFunction.RELU,
+        )
+        for head in (anchored, constant, middle, base):
+            assert isinstance(head, RegressionHead), f"{type(head).__name__} must subclass RegressionHead"
+
+    def test_all_heads_accept_boundaries_kwarg(self):
+        """All heads must accept the unified (x, boundaries=None) signature — no TypeError."""
+        p = torch.rand(4, 1)
+        for head in (
+            AnchoredHead(centroid=0.0),
+            ConstantHead(uncertainty_method=UncertaintyMethod.PROBABILISTIC, regression_output_size=2),
+            ProbabilisticMiddleClassHead(regression_head_params={"hidden_layers": 1, "hidden_size": 16}),
+        ):
+            out = head(p, boundaries=None)
+            assert out.shape[0] == 4
+
+    def test_anchored_head_uses_hidden_layers(self):
+        """AnchoredHead honors hidden_layers: 2 hidden layers → 3 Linear layers in f."""
+        head = AnchoredHead(centroid=0.0, hidden_layers=2, hidden_size=8)
+        linears = [m for m in head.f.modules() if isinstance(m, torch.nn.Linear)]
+        assert len(linears) == 3, f"expected 3 Linears (hidden + hidden + output), got {len(linears)}"
 
     def test_module_forward_with_anchored_heads(self):
         """SeparateHeadsRegressionModule forward works end-to-end with anchored heads."""

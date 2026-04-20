@@ -1,5 +1,6 @@
 """Shared regression head modules for neural network-based models."""
 
+from abc import ABC, abstractmethod
 from typing import Any
 
 import torch
@@ -10,7 +11,22 @@ from automl_package.enums import ActivationFunction, Monotonicity, UncertaintyMe
 from automl_package.utils.pytorch_utils import apply_law_of_total_variance, get_activation_function_map, monotonic_linear
 
 
-class BaseRegressionHead(nn.Module):
+class RegressionHead(nn.Module, ABC):
+    """Abstract base class for per-class regression heads.
+
+    Contract for any head used by SeparateHeadsRegressionModule / SingleHead*:
+      - accepts ``(x, boundaries=None)`` in forward
+      - exposes ``monotonic_constraint`` for upstream dispatch
+    """
+
+    monotonic_constraint: Monotonicity = Monotonicity.NONE
+
+    @abstractmethod
+    def forward(self, x: torch.Tensor, boundaries: torch.Tensor | None = None) -> torch.Tensor:
+        """Map input tensor ``x`` (typically per-class probability) to head output."""
+
+
+class BaseRegressionHead(RegressionHead):
     """A single regression head.
 
     Handles its own layers and probabilistic output processing.
@@ -119,18 +135,14 @@ class BaseRegressionHead(nn.Module):
 
         # Re-interleave if necessary
         if log_vars is not None:
-            # Create a new tensor to hold the results
             output = torch.zeros_like(logit)
             output[:, 0::2] = constrained_means
             output[:, 1::2] = log_vars
             return output
-        else:
-            return constrained_means
+        return constrained_means
 
     def forward(self, x: torch.Tensor, boundaries: torch.Tensor | None = None) -> torch.Tensor:
         """Performs the forward pass."""
-
-        # Determine which layers are the shared layers
         shared_layers = self.layers if self.is_probabilistic_monotonic else self.layers[:-1]
 
         hidden_output = x
@@ -138,57 +150,65 @@ class BaseRegressionHead(nn.Module):
             hidden_output = layer(hidden_output)
 
         if self.is_probabilistic_monotonic:
-            # --- Path for Probabilistic Monotonic ---
             mean_logit = monotonic_linear(hidden_output, self.mean_head, self.monotonic_constraint)
             log_var_logit = self.variance_head(hidden_output)
-
-            # The boundary logic for the mean is applied here for this specific path
             if boundaries is not None:
                 mean_logit = self._apply_boundary_constraints(logit=mean_logit, boundaries=boundaries)
-
             output = torch.cat([mean_logit, log_var_logit], dim=1)
         else:
-            # --- Path for Standard and Non-Probabilistic Monotonic ---
             final_layer = self.layers[-1]
-
-            if self.monotonic_constraint != Monotonicity.NONE:
-                logit = monotonic_linear(hidden_output, final_layer, self.monotonic_constraint)
-            else:
-                logit = final_layer(hidden_output)
-
+            logit = monotonic_linear(hidden_output, final_layer, self.monotonic_constraint) if self.monotonic_constraint != Monotonicity.NONE else final_layer(hidden_output)
             output = logit if boundaries is None else self._apply_boundary_constraints(logit=logit, boundaries=boundaries)
         return output
 
 
-class AnchoredHead(nn.Module):
+class AnchoredHead(RegressionHead):
     """Anchored separate-head parametrization: h_i(p_i) = c_i + (1 - p_i) * f_i(p_i).
 
     Hard constraint: h_i(1) = c_i exactly (structural identifiability).
     f_i retains full expressivity away from p_i = 1.
     log_var is produced by f_i and left unconstrained.
+
+    Accepts the same structural knobs (hidden_layers, hidden_size, activation) as
+    BaseRegressionHead so callers can pass one regression_head_params dict uniformly.
+    Boundaries are intentionally unused: AnchoredHead's whole point is structural
+    anchoring, not hardsigmoid-based range bounding.
     """
 
-    def __init__(self, centroid: float, hidden_size: int = 16) -> None:
+    def __init__(
+        self,
+        centroid: float,
+        hidden_layers: int = 1,
+        hidden_size: int = 16,
+        activation: ActivationFunction = ActivationFunction.RELU,
+    ) -> None:
         """Initializes the AnchoredHead."""
         super().__init__()
-        self.monotonic_constraint = Monotonicity.NONE
         self.register_buffer("centroid", torch.tensor(float(centroid)))
-        self.f = nn.Sequential(
-            nn.Linear(1, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, 2),
-        )
 
-    def forward(self, p_i: torch.Tensor, boundaries: torch.Tensor | None = None) -> torch.Tensor:  # noqa: ARG002
+        activation_map = get_activation_function_map()
+        activation_module = activation_map.get(activation)
+        if activation_module is None:
+            raise ValueError(f"Unsupported activation function: {activation}")
+
+        layers: list[nn.Module] = [nn.Linear(1, hidden_size), activation_module()]
+        for _ in range(max(0, hidden_layers - 1)):
+            layers.append(nn.Linear(hidden_size, hidden_size))
+            layers.append(activation_module())
+        layers.append(nn.Linear(hidden_size, 2))
+        self.f = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor, boundaries: torch.Tensor | None = None) -> torch.Tensor:
         """Forward pass: mean = centroid + (1 - p_i) * f_mean; log_var from f."""
-        f_out = self.f(p_i)
-        gate = 1.0 - p_i
+        _ = boundaries
+        f_out = self.f(x)
+        gate = 1.0 - x
         mean = self.centroid + gate * f_out[:, 0:1]
         log_var = f_out[:, 1:2]
         return torch.cat([mean, log_var], dim=-1)
 
 
-class ConstantHead(nn.Module):
+class ConstantHead(RegressionHead):
     """A head that learns and returns a constant value."""
 
     def __init__(self, uncertainty_method: UncertaintyMethod, regression_output_size: int) -> None:
@@ -196,7 +216,6 @@ class ConstantHead(nn.Module):
         super().__init__()
         self.regression_output_size = regression_output_size
         self.mean = nn.Parameter(torch.zeros(1))
-        self.monotonic_constraint = Monotonicity.NONE
         if uncertainty_method == UncertaintyMethod.PROBABILISTIC:
             self.log_variance = nn.Parameter(torch.zeros(1))
 
@@ -207,6 +226,7 @@ class ConstantHead(nn.Module):
 
     def forward(self, x: torch.Tensor, boundaries: torch.Tensor | None = None) -> torch.Tensor:
         """Returns the learned constant value, expanded to the batch size."""
+        _ = boundaries
         batch_size = x.size(0)
         output_mean = self.mean.expand(batch_size, 1)
         if self.regression_output_size == 2:
@@ -217,7 +237,7 @@ class ConstantHead(nn.Module):
         return output
 
 
-class ProbabilisticMiddleClassHead(nn.Module):
+class ProbabilisticMiddleClassHead(RegressionHead):
     """A special head for the middle class in probabilistic monotonic models.
 
     It learns a constant mean but a flexible, non-constant variance.
@@ -227,7 +247,6 @@ class ProbabilisticMiddleClassHead(nn.Module):
         """Initializes the ProbabilisticMiddleClassHead."""
         super().__init__()
         self.mean = nn.Parameter(torch.zeros(1))
-        self.monotonic_constraint = Monotonicity.NONE
 
         # Network to learn log_variance from probability input
         hidden_layers = regression_head_params.get("hidden_layers", 1)
@@ -254,6 +273,7 @@ class ProbabilisticMiddleClassHead(nn.Module):
 
     def forward(self, x: torch.Tensor, boundaries: torch.Tensor | None = None) -> torch.Tensor:
         """Forward pass for the probabilistic middle class head."""
+        _ = boundaries
         batch_size = x.size(0)
         output_mean = self.mean.expand(batch_size, 1)
         output_log_var = self.variance_net(x)
@@ -288,7 +308,14 @@ class SeparateHeadsRegressionModule(nn.Module):
 
             if use_anchored_heads:
                 # Anchored heads subsume constrain_middle_class — every head has a structural anchor.
-                self.heads.append(AnchoredHead(centroid=centroid_i, hidden_size=regression_head_params.get("hidden_size", 16)))
+                self.heads.append(
+                    AnchoredHead(
+                        centroid=centroid_i,
+                        hidden_layers=regression_head_params.get("hidden_layers", 1),
+                        hidden_size=regression_head_params.get("hidden_size", 16),
+                        activation=activation,
+                    )
+                )
             elif is_middle_class and constrain_middle_class:
                 # If it's the middle class and we are constraining it
                 if use_monotonic_constraints and uncertainty_method == UncertaintyMethod.PROBABILISTIC:
@@ -341,8 +368,7 @@ class SeparateHeadsRegressionModule(nn.Module):
         per_head_outputs = []
         for i in range(len(self.heads)):
             p_i = probabilities[:, i].unsqueeze(1)
-            y_i_processed = self.heads[i](p_i) if isinstance(self.heads[i], ConstantHead) else self.heads[i](p_i, boundaries=boundaries)
-            per_head_outputs.append(y_i_processed)
+            per_head_outputs.append(self.heads[i](p_i, boundaries=boundaries))
         per_head_outputs = torch.stack(per_head_outputs, dim=1)
         final_predictions = _calculate_final_predictions(probabilities, per_head_outputs, self.regression_output_size)
         return (final_predictions, per_head_outputs) if return_head_outputs else final_predictions

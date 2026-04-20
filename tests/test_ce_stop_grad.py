@@ -162,3 +162,16 @@ class TestCeStopGradRouting:
         classifier_grad, heads_grad = self._run_backward(model)
         assert classifier_grad > 0.0, "MDN's probs path must train the classifier under REGRESSION_ONLY"
         assert heads_grad > 0.0
+
+    def test_gradient_stop_classifier_still_receives_regression_gradient(self):
+        """GRADIENT_STOP with fixed k: CE is off, but regression loss still flows through probs.
+
+        Pre-change semantics (preserved): GRADIENT_STOP only disables the CE term; the classifier
+        is still supervised by regression via the non-detached probs path in NoneStrategy.forward.
+        If detach were incorrectly applied here the classifier grad would be zero (no CE, no grad
+        path), which was the bug flagged for restoration.
+        """
+        model = self._fit_tiny(ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP, ProbRegLossType.GAUSSIAN_LTV)
+        classifier_grad, heads_grad = self._run_backward(model)
+        assert classifier_grad > 0.0, "GRADIENT_STOP + fixed k must route regression gradient to classifier (CE is off)"
+        assert heads_grad > 0.0

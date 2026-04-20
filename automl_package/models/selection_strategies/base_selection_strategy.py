@@ -51,37 +51,37 @@ class BaseSelectionStrategy(ABC):
     _DIRECT_REGRESSION_K_SENTINEL = DIRECT_REGRESSION_K_SENTINEL
 
     # Helper for weighted average logic (common to GumbelSoftmax and SoftGating)
-    def _weighted_average_logic(self, x_input: torch.Tensor, mode_selection_probs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        # Compute classifier logits once (Bug 4 fix: pass logits, not raw features, to _compute_predictions_for_k)
+    def _weighted_average_logic(
+        self, x_input: torch.Tensor, mode_selection_probs: torch.Tensor, boundaries: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         classifier_raw_logits = self.model.classifier_layers(x_input)
         final_predictions_contribution = torch.zeros(x_input.size(0), self.model.regression_output_size).to(x_input.device)
 
-        # Determine the selected k values based on the argmax of probabilities
         inf_sentinel = self._DIRECT_REGRESSION_K_SENTINEL
         selected_k_indices = torch.argmax(mode_selection_probs, dim=1)
         selected_k_values = torch.where(
-            selected_k_indices == mode_selection_probs.size(1) - 1,  # If it's the last mode (direct regression)
+            selected_k_indices == mode_selection_probs.size(1) - 1,
             torch.tensor(inf_sentinel, dtype=torch.long).to(x_input.device),
-            selected_k_indices + 2,  # Otherwise, it's k_val = index + 2
+            selected_k_indices + 2,
         )
 
-        # Iterate over all possible k values (from 2 up to max_n_classes_for_probabilistic_path)
-        # and the direct regression mode
         for i in range(mode_selection_probs.size(1)):
-            prob_i = mode_selection_probs[:, i].unsqueeze(1)  # Probability for this mode
+            prob_i = mode_selection_probs[:, i].unsqueeze(1)
 
-            if i == mode_selection_probs.size(1) - 1:  # This is the direct regression mode
+            if i == mode_selection_probs.size(1) - 1:
                 predictions_for_mode = self.model.direct_regression_head(x_input)
-            else:  # This is a probabilistic path with k_val = i + 2
+            else:
                 k_val = i + 2
-                predictions_for_mode = self.model._compute_predictions_for_k(classifier_raw_logits, k_val)
+                predictions_for_mode = self.model._compute_predictions_for_k(classifier_raw_logits, k_val, boundaries=boundaries)
 
             final_predictions_contribution += prob_i * predictions_for_mode
 
         return final_predictions_contribution, selected_k_values, classifier_raw_logits
 
     # Helper for hard selection logic (common to STE and REINFORCE)
-    def _hard_selection_logic(self, x_input: torch.Tensor, mode_selection_one_hot: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _hard_selection_logic(
+        self, x_input: torch.Tensor, mode_selection_one_hot: torch.Tensor, boundaries: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Applies hard selection using weighted-sum pattern to preserve STE gradients.
 
         Uses prob * output for each mode so that gradients flow through mode_selection_one_hot
@@ -112,7 +112,7 @@ class BaseSelectionStrategy(ABC):
             if i == mode_selection_one_hot.size(1) - 1:  # Last index is the direct regression bypass
                 predictions_for_mode = self.model.direct_regression_head(x_input)
             else:
-                predictions_for_mode = self.model._compute_predictions_for_k(classifier_raw_logits, i + 2)
+                predictions_for_mode = self.model._compute_predictions_for_k(classifier_raw_logits, i + 2, boundaries=boundaries)
 
             final_predictions_contribution += prob_i * predictions_for_mode
 

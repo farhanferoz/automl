@@ -24,6 +24,7 @@ from automl_package.models.common.losses import calculate_combined_loss
 from automl_package.models.common.middle_class_penalty_mixin import MiddleClassPenaltyMixin
 from automl_package.models.common.mixins import BoundaryLossMixin
 from automl_package.models.common.penalties import apply_additional_penalties
+from automl_package.utils.distributions import MixtureOfGaussiansDistribution
 from automl_package.utils.losses import masked_cross_entropy_loss, mdn_nll
 from automl_package.utils.numerics import calculate_class_value_ranges, create_bins
 from automl_package.utils.plotting import plot_nn_probability_mappers
@@ -140,13 +141,13 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         return f"ProbabilisticRegression_{self.regression_strategy.value}"
 
     @property
-    def regression_heads(self):
+    def regression_heads(self) -> nn.ModuleList:
         """Returns the regression heads module list."""
         return self.model.regression_module.heads
 
     def _calculate_custom_loss(self, model_outputs: tuple, y_true: torch.Tensor, include_boundary_loss: bool = True) -> torch.Tensor:
         """Calculates the loss for the ProbabilisticRegressionModel."""
-        final_predictions, classifier_logits_out, selected_k_values, log_prob_for_reinforce, per_head_outputs = model_outputs
+        final_predictions, classifier_logits_out, selected_k_values, _log_prob_for_reinforce, per_head_outputs = model_outputs
         y_true_squeezed = y_true.squeeze(-1) if y_true.ndim > 1 else y_true
 
         # 1. Calculate main regression loss
@@ -167,7 +168,14 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             log_vars = per_head_outputs[:, : self.n_classes, 1]
             regression_loss = mdn_nll(y_true_squeezed, probs_for_mdn, mus, log_vars)
         else:
-            regression_loss = calculate_combined_loss(predictions=final_predictions, y_true=y_true, uncertainty_method=self.uncertainty_method, include_boundary_loss=False, loss_type=self.loss_type, beta=self.beta)
+            regression_loss = calculate_combined_loss(
+                predictions=final_predictions,
+                y_true=y_true,
+                uncertainty_method=self.uncertainty_method,
+                include_boundary_loss=False,
+                loss_type=self.loss_type,
+                beta=self.beta,
+            )
 
         total_loss = regression_loss
         unique_k = torch.tensor([])
@@ -200,7 +208,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 total_loss += classification_loss
 
         # 3. Apply additional penalties (Middle Class NLL, Boundary Regularization)
-        if per_head_outputs is not None and (self.use_middle_class_nll_penalty or (self.boundary_regularization_method != BoundaryRegularizationMethod.NONE and include_boundary_loss)):
+        boundary_reg_active = self.boundary_regularization_method != BoundaryRegularizationMethod.NONE and include_boundary_loss
+        if per_head_outputs is not None and (self.use_middle_class_nll_penalty or boundary_reg_active):
             if probabilistic_indices.numel() == 0:
                 probabilistic_indices = torch.where(selected_k_values < self.n_classes_inf)[0]
 
@@ -453,7 +462,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             return mean_orig
         return predictions
 
-    def predict_distribution(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> "MixtureOfGaussiansDistribution":
+    def predict_distribution(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> MixtureOfGaussiansDistribution:
         """Returns the full per-input mixture-of-Gaussians predictive distribution.
 
         The classification bottleneck IS a mixture: each class k contributes a
@@ -472,8 +481,6 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             NotImplementedError: for unsupported configurations.
             RuntimeError: if the model has not been fitted.
         """
-        from automl_package.utils.distributions import MixtureOfGaussiansDistribution
-
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if self.uncertainty_method != UncertaintyMethod.PROBABILISTIC:
@@ -723,28 +730,6 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 plot_path=plot_path,
                 model_name=self.name,
             )
-
-    def _compute_predictions_for_k(self, classifier_raw_logits: torch.Tensor, k_val: int) -> torch.Tensor:
-        """Helper to compute regression predictions for a given k_val."""
-        masked_classifier_logits = torch.full_like(classifier_raw_logits, float("-inf"))
-        masked_classifier_logits[:, :k_val] = classifier_raw_logits[:, :k_val]
-
-        probabilities = torch.softmax(masked_classifier_logits, dim=1)
-
-        if self.optimization_strategy in (
-            ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
-            ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
-        ):
-            probabilities = probabilities.detach()
-
-        if self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
-            # The regression_module's head directly outputs the mean for each class.
-            # The final prediction is the weighted average of these means.
-            class_means = self.regression_module(probabilities)  # Shape: (batch, n_classes, 1)
-            preds = torch.sum(probabilities.unsqueeze(-1) * class_means, dim=1)
-        else:
-            preds = self.regression_module(probabilities)
-        return preds
 
     def get_num_parameters(self) -> int:
         """Returns the total number of trainable parameters in the model.

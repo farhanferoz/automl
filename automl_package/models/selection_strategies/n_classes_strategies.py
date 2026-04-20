@@ -40,13 +40,11 @@ class NoneStrategy(BaseSelectionStrategy):
 
         probabilities = torch.softmax(masked_classifier_logits, dim=1)
 
-        # CE_STOP_GRAD / GRADIENT_STOP: detach probs so regression loss has no gradient path
-        # to the classifier. Classifier receives gradient only from CE loss under CE_STOP_GRAD
-        # (computed in _calculate_custom_loss); GRADIENT_STOP leaves the classifier unsupervised.
-        if self.model.optimization_strategy in (
-            ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
-            ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
-        ):
+        # CE_STOP_GRAD detaches so regression loss has no gradient path to the classifier —
+        # classifier is trained by CE only (computed in _calculate_custom_loss).
+        # GRADIENT_STOP only disables CE; the classifier is still supervised by the regression
+        # loss through the non-detached probs path (pre-existing semantics, preserved).
+        if self.model.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD:
             probabilities = probabilities.detach()
 
         if self.model.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
@@ -73,13 +71,14 @@ class GumbelSoftmaxStrategy(BaseSelectionStrategy):
         self, x_input: torch.Tensor, logits: torch.Tensor, boundaries: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None]:
         """Performs forward pass using Gumbel-Softmax for n_classes selection."""
-        if self.model.training:
-            mode_selection_probs = f.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=False, dim=-1)
-        else:
-            # At eval time, use deterministic softmax — Gumbel noise makes predictions stochastic
-            mode_selection_probs = f.softmax(logits / self.model.gumbel_tau, dim=-1)
+        # At eval time, use deterministic softmax — Gumbel noise makes predictions stochastic.
+        mode_selection_probs = (
+            f.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=False, dim=-1)
+            if self.model.training
+            else f.softmax(logits / self.model.gumbel_tau, dim=-1)
+        )
         self.mode_selection_probs = mode_selection_probs
-        final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._weighted_average_logic(x_input, mode_selection_probs)
+        final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._weighted_average_logic(x_input, mode_selection_probs, boundaries=boundaries)
         return final_predictions_contribution, selected_k_values_for_logging, None, classifier_raw_logits, None
 
 
@@ -98,7 +97,7 @@ class SoftGatingStrategy(BaseSelectionStrategy):
         """Performs forward pass using Softmax for n_classes selection."""
         mode_selection_probs = f.softmax(logits, dim=-1)
         self.mode_selection_probs = mode_selection_probs
-        final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._weighted_average_logic(x_input, mode_selection_probs)
+        final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._weighted_average_logic(x_input, mode_selection_probs, boundaries=boundaries)
         return final_predictions_contribution, selected_k_values_for_logging, None, classifier_raw_logits, None
 
 
@@ -117,7 +116,7 @@ class SteStrategy(BaseSelectionStrategy):
         """Performs forward pass using STE for n_classes selection."""
         mode_selection_one_hot = f.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=True, dim=-1)
         self.mode_selection_probs = mode_selection_one_hot
-        final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._hard_selection_logic(x_input, mode_selection_one_hot)
+        final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._hard_selection_logic(x_input, mode_selection_one_hot, boundaries=boundaries)
         return final_predictions_contribution, selected_k_values_for_logging, None, classifier_raw_logits, None
 
 
@@ -143,7 +142,7 @@ class ReinforceStrategy(BaseSelectionStrategy):
 
         mode_selection_one_hot = f.one_hot(action, num_classes=logits.size(-1)).float()
         self.mode_selection_probs = mode_selection_one_hot
-        final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._hard_selection_logic(x_input, mode_selection_one_hot)
+        final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._hard_selection_logic(x_input, mode_selection_one_hot, boundaries=boundaries)
         return final_predictions_contribution, selected_k_values_for_logging, log_prob, classifier_raw_logits, None
 
     def on_epoch_end(self, **kwargs: Any) -> None:

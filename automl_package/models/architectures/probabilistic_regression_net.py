@@ -129,13 +129,16 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
         else:
             raise ValueError(f"Unknown regression_strategy: {regression_strategy}")
 
-    def _compute_predictions_for_k(self, classifier_raw_logits: torch.Tensor, k_val: int) -> torch.Tensor:
+    def _compute_predictions_for_k(self, classifier_raw_logits: torch.Tensor, k_val: int, boundaries: torch.Tensor | None = None) -> torch.Tensor:
         """Helper to compute regression predictions for a given k_val."""
         masked_classifier_logits = torch.full_like(classifier_raw_logits, float("-inf"))
         masked_classifier_logits[:, :k_val] = classifier_raw_logits[:, :k_val]
 
         probabilities = torch.softmax(masked_classifier_logits, dim=1)
 
+        # CE_STOP_GRAD detaches probs so regression loss has no gradient path to the classifier.
+        # GRADIENT_STOP preserves pre-existing semantics: detach in the dynamic-k path so the
+        # k-selection head isn't pulled by regression gradient through probabilities.
         if self.optimization_strategy in (
             ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
             ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
@@ -143,10 +146,10 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
             probabilities = probabilities.detach()
 
         if self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
-            class_means = self.regression_module(probabilities)
+            class_means = self.regression_module(probabilities, boundaries=boundaries)
             preds = torch.sum(probabilities.unsqueeze(-1) * class_means, dim=1)
         else:
-            preds = self.regression_module(probabilities)
+            preds = self.regression_module(probabilities, boundaries=boundaries)
         return preds
 
     def forward(self, x_input: torch.Tensor, boundaries: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
