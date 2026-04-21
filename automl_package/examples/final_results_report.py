@@ -19,6 +19,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -311,10 +313,13 @@ def build_report(status_file: Path | None, out_dir: Path) -> None:
         ))
 
     pdf_path = out_dir / "final_report.pdf"
-    with PdfPages(pdf_path) as pdf:
+    summary_pdf = out_dir / "_summary.pdf"
+    with PdfPages(summary_pdf) as pdf:
         _write_cover(pdf, results)
         for r in results:
             _write_sweep_pages(pdf, r)
+
+    _merge_with_sweep_pdfs(summary_pdf, results, pdf_path)
 
     status_json = {
         "sweeps": [
@@ -338,6 +343,25 @@ def _write_cover(pdf: PdfPages, results: list[SweepResult]) -> None:
         lines.append(f"  [{r.status:<7}] {r.name:<18} ({mins})  →  {r.results_dir}")
     lines += ["", "Each per-sweep page below links back to its own CSV/PDF artefacts.", "Missing sweeps render a status-only page (no data to plot)."]
     _text_page(pdf, "Final sweep roll-up", "\n".join(lines))
+
+
+def _merge_with_sweep_pdfs(summary_pdf: Path, results: list[SweepResult], out_pdf: Path) -> None:
+    """Concatenate summary_pdf with every per-sweep PDF using pdfunite.
+
+    The summary sits first; per-sweep PDFs follow in sweep order. If pdfunite is
+    unavailable or has no PDFs to merge, the summary is just moved to out_pdf.
+    """
+    per_sweep = [p for r in results for p in r.pdf_paths if p.exists()]
+    if not per_sweep or shutil.which("pdfunite") is None:
+        summary_pdf.replace(out_pdf)
+        return
+    cmd = ["pdfunite", str(summary_pdf), *[str(p) for p in per_sweep], str(out_pdf)]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+        summary_pdf.unlink(missing_ok=True)
+    except subprocess.CalledProcessError as exc:
+        logger.warning("pdfunite failed (%s); keeping summary-only final_report", exc.stderr.decode(errors="replace"))
+        summary_pdf.replace(out_pdf)
 
 
 def _write_sweep_pages(pdf: PdfPages, r: SweepResult) -> None:
