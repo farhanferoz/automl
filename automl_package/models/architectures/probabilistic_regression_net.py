@@ -145,11 +145,7 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
         ):
             probabilities = probabilities.detach()
 
-        if self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
-            class_means = self.regression_module(probabilities, boundaries=boundaries)
-            preds = torch.sum(probabilities.unsqueeze(-1) * class_means, dim=1)
-        else:
-            preds = self.regression_module(probabilities, boundaries=boundaries)
+        preds = self.regression_module(probabilities, boundaries=boundaries)
         return preds
 
     def forward(self, x_input: torch.Tensor, boundaries: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
