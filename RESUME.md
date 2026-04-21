@@ -1,6 +1,40 @@
 # Next Steps
 
-**Current active work (2026-04-20)**: ProbReg identifiability investigation.
+**Current active work (2026-04-21)**: Overnight sweep completed. Assess results, plan next experiments.
+
+## Overnight sweep summary (2026-04-20 23:18 → 2026-04-21 03:07)
+
+All 7 sweeps ran sequentially via `run_all_sweeps.sh`. Three bugs found and fixed during the run:
+
+### Bugs fixed overnight
+| Bug | Fix | Commit |
+|---|---|---|
+| `_compute_predictions_for_k` SINGLE_HEAD_FINAL_OUTPUT: wrong weighted sum (shape mismatch) | Removed erroneous branch; all strategies use `regression_module()` directly | 280ad1f |
+| `calculate_class_value_ranges`: numpy.float32 rejected by PyTorch 2.6+ tensor assignment | Cast y_min/y_max to Python float | 19bdacc |
+| BatchNorm crash when last training batch = 1 sample (193 % 32 = 1 on UCI-Yacht) | `drop_last=True` only when last batch would be 1 | (uncommitted) |
+| `final_results_report.py`: looked for `nll_mean` but identifiability CSV has `nll_own_mean` | Use whichever column exists | (uncommitted) |
+
+### Sweep results
+
+**identifiability**: Best cells — bimodal: F (MSE=2.305), exponential: A (MSE=0.503), heteroscedastic: C (MSE=1.775), piecewise: D (MSE=0.284).
+
+**classreg_k**: Best k — bimodal: k=5 (MSE=2.953), exponential: k=7 (MSE=2.800), heteroscedastic: k=2 (MSE=1.826), piecewise: k=7 (MSE=0.296).
+
+**probreg_ablation** (rerun after bug fix): `single_head_final_output + soft_gating + ELBO` wins on b1_gravitational (MSE=0.037, 2.8× better than separate_heads). `separate_heads + soft_gating` wins on bimodal (MSE=2.231). Dynamic-k consistently competitive with fixed-k.
+
+**flex_nn_ablation / ablation_study**: Completed, see CSVs in respective `_results/` dirs.
+
+**HPO (UCI-Yacht)**: XGB+HPO wins MSE (0.323). ProbReg+HPO MSE=206, NN+HPO MSE=87.9 — high because no feature normalization; NLL closer (ProbReg 2.51, NN 2.18, XGB 1.90). ProbReg needs StandardScaler to compete on MSE.
+
+**Final PDF**: `automl_package/examples/final_results_report/final_report.pdf`
+
+### Outstanding items from overnight
+- ProbReg HPO needs feature normalization to give fair MSE comparison
+- `PyTorchNeuralNetwork.predict()` returns (N,1) not (N,) — noted below, not yet fixed
+
+---
+
+**Previous active work (2026-04-20)**: ProbReg identifiability investigation.
 
 Symmetry-check diagnostic on toy datasets revealed ProbReg SEP_HEADS suffers from
 head–class index swap degeneracy: under default `REGRESSION_ONLY` optimization

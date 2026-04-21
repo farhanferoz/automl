@@ -150,7 +150,8 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         if self.is_regression_model or is_binary_classification:
             y_train_tensor = y_train_tensor.unsqueeze(1)
 
-        train_dataloader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x_train_tensor, y_train_tensor), batch_size=self.batch_size, shuffle=True)
+        drop_last = len(x_train_tensor) % self.batch_size == 1
+        train_dataloader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x_train_tensor, y_train_tensor), batch_size=self.batch_size, shuffle=True, drop_last=drop_last)
 
         x_val_tensor, y_val_tensor = None, None
         if x_val is not None and y_val is not None:

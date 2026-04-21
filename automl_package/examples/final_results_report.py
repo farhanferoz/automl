@@ -109,7 +109,9 @@ def _headline_identifiability(results_dir: Path) -> tuple[pd.DataFrame | None, l
         return None, []
     findings: list[str] = []
     if {"dataset", "cell", "mse_mean"}.issubset(df.columns):
-        best = df.loc[df.groupby("dataset")["mse_mean"].idxmin()][["dataset", "cell", "mse_mean", "nll_mean"]].reset_index(drop=True)
+        nll_col = "nll_mean" if "nll_mean" in df.columns else "nll_own_mean"
+        cols = ["dataset", "cell", "mse_mean"] + ([nll_col] if nll_col in df.columns else [])
+        best = df.loc[df.groupby("dataset")["mse_mean"].idxmin()][cols].reset_index(drop=True)
         for _, row in best.iterrows():
             findings.append(f"best cell on {row['dataset']}: {row['cell']} (MSE={row['mse_mean']:.3f})")
         return best, findings
