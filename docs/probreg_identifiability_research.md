@@ -152,38 +152,81 @@ At $p_i = 1$, $h_i = c_i$ exactly, with no gradient path for deviation. For
 $p_i < 1$, the residual $f_i$ retains full expressivity. Identifiability comes
 from a hard structural prior rather than loss structure.
 
-**Why pin to the conditional mean specifically.** The head returns the per-class
-mean $\mu_i$ and the model combines them by LTV:
+**The centroid target is wrong for edge bins — a real limitation.** The head
+returns the per-class mean $\mu_i$ and the model combines them by LTV:
 $\mu_\text{total}(x) = \sum_j p_j(x)\, \mu_j(p_j(x))$.
-When $p_i \to 1$, $\mu_\text{total} \to \mu_i$. Under squared-error (or
-Gaussian-NLL) loss, the optimal point estimator of $y$ given "$y \in \text{bin}_i$"
-is $\mathbb{E}[y \mid y \in \text{bin}_i] = c_i$ — the conditional mean. So the
-centroid is the correct target, not "a typical y from the bin" (which would be
-higher than the mean for a skewed bin).
+When $p_i(x) \to 1$, $\mu_\text{total}(x) \to h_i(1)$. Under MSE loss the
+optimal target for $h_i(1)$ is
+$$
+h_i^\star(1) \;=\; \mathbb{E}\bigl[y \,\big|\, p_i(x) = 1\bigr].
+$$
+This is conditioned on the **classifier's confidence**, not on bin membership.
+It is *not* equal to $c_i = \mathbb{E}[y \mid y \in \text{bin}_i]$ in general —
+$\{x : p_i(x) = 1\}$ is typically a strict subset of $\{x : y \in \text{bin}_i\}$,
+specifically the "deep interior" away from bin boundaries.
+
+For edge bins the two expectations differ substantially:
+
+- **Upper bin** ($i = k-1$): samples with $p_i(x) = 1$ live in the deep upper
+  interior close to $y_\text{max}$. So
+  $\mathbb{E}[y \mid p_{k-1} = 1] > c_{k-1}$. The correct anchor is higher
+  than the centroid.
+- **Lower bin** ($i = 0$): symmetric. $\mathbb{E}[y \mid p_0 = 1] < c_0$.
+- **Inner bins**: bin distribution is (approximately) symmetric about $c_i$
+  so $\mathbb{E}[y \mid p_i = 1] \approx c_i$ and the centroid anchor is fine.
+
+Anchoring $h_i(1) = c_i$ therefore **systematically pulls edge-bin predictions
+toward the interior** — downward on the upper tail, upward on the lower tail.
+On heavy-tailed targets this is harmful; the data confirms it (Table in \S5,
+exponential $k=5$: anchored Cell B MSE $= 1.84$ vs unanchored Cell A MSE $= 0.50$).
+
+For contrast, ClassReg with `LOOKUP_MEDIAN` does not have this problem: its
+mapper is built empirically from observed $(p, y)$ pairs, effectively
+estimating $\mathbb{E}[y \mid p_i(x)]$ (or the median thereof) directly from
+training data rather than from the centroid.
+
+**Interaction with monotonic constraints — worse still.** The
+`use_monotonic_constraints=True` option replaces the head's Linear layer
+with `monotonic_linear`, which uses `softplus` weights so that $h_i$ is
+monotone non-decreasing (negated for `Monotonicity.NEGATIVE`). With anchor
+active:
+
+- Upper class (monotone positive): maximum at $p_i = 1$, pinned to $c_i$, so
+  $h_i(p_i) \le c_i$ for all $p_i$. The model cannot predict above $c_{k-1}$
+  anywhere.
+- Lower class (monotone negative): $h_0(p_0) \ge c_0$ always.
+
+The model's output range is bounded inside $[c_0, c_{k-1}]$ — the tails of
+$y$ outside this interval are structurally unreachable. This is a hard
+architectural limit for unbounded/heavy-tail targets. The identifiability
+sweep disabled `use_monotonic_constraints` so this combination was not
+stressed, but it is an important caveat for any downstream use.
+
+**Refinements to the anchor target.** The centroid is the wrong target for
+edge bins. Options worth trying, in order of implementation cost:
+
+1. *Bin-extreme anchor for edge bins*: $a_0 = y_\text{min}$,
+   $a_{k-1} = y_\text{max}$, $a_\text{middle} = c_i$. One-line change,
+   crude, zero training cost.
+2. *Empirical* $\hat{\mathbb{E}}[y \mid p_i \ge 0.95]$: fit a classifier-only
+   warmup, compute the mean of $y$ among training samples with high $p_i$,
+   and use that value as the anchor. More principled.
+3. *Learnable soft anchor*: replace the hard pin with a parameter
+   $\alpha_i$ initialised at $c_i$ and add a soft penalty
+   $\lambda\,(\alpha_i - c_i)^2$ — lets the head drift when data demands.
+4. *Drop the anchor for edge bins*: keep it only for inner bins where the
+   centroid is correct. Trades some identifiability for tail freedom.
 
 **What the anchor does and does not do.** The anchor is a constraint on the
-**head function** $h_i$ at $p_i = 1$, not a constraint on the
-model output $\mu_\text{total}$ for samples in bin $i$. At $p_i = 1$
-exactly, $\mu_\text{total} = h_i(1) = c_i$; but for $p_i < 1$ (which is
-almost always the case — empirically $\max_x p_i(x)$ lands in 0.8-0.95,
-not 1.0), the prediction $\mu_\text{total}$ is a convex combination of
-all heads and can freely differ from $c_i$. This is by design: for
-samples near the lower boundary of bin $i$, we *want* $\mu_\text{total}
-< c_i$, which we get via $p_{i-1} > 0$ and $h_{i-1}$ pulling the mean
-down. The anchor is a symmetry-breaking *limit* condition, not a
-pointwise constraint on the regression output.
-
-**Caveat on skewed bins.** On heavy-tail data the within-bin distribution is
-itself highly skewed — e.g. on exponential, the top percentile bin spans
-roughly $[3, 20]$ and the mean is dominated by the tail. In that regime $c_i$
-becomes a poor point predictor for most samples in the bin, and a symmetric
-Gaussian component $\mathcal{N}(c_i, \sigma_i^2)$ is a bad fit regardless of
-parametrization. This is one of the candidates for why anchored Cell D still
-fails on exponential (see \S8.5). Refinements worth trying: pin to the
-conditional median instead of the mean; impose a soft-anchor penalty
-$\lambda\,(h_i(1) - c_i)^2$ that lets the head deviate when data demands;
-or move to non-percentile (uniform-on-symlog-$y$) bins so intra-bin skew is
-reduced.
+**head function** $h_i$ at $p_i = 1$, not a constraint on the model output
+$\mu_\text{total}$ for samples in bin $i$. At $p_i = 1$ exactly,
+$\mu_\text{total} = h_i(1)$; but for $p_i < 1$ (which is almost always the
+case — empirically $\max_x p_i(x)$ lands in 0.8–0.95, not 1.0), the prediction
+$\mu_\text{total}$ is a convex combination of all heads and differs freely
+from $h_i(1)$. For samples near the lower boundary of bin $i$ we *want*
+$\mu_\text{total} < c_i$ via $p_{i-1} > 0$ and $h_{i-1}$ leaking the mean
+down; the anchor does not prevent this. The anchor is a symmetry-breaking
+*limit* condition, not a pointwise constraint on the prediction.
 
 ## 3.4 How the three are orthogonal
 
@@ -566,6 +609,14 @@ applications (photo-z, cluster mass).
    correct), unanchored heads at 0 (far from the 12 centroid). Yet
    anchored cells D/H still fail — ruling out "bad init" as the primary
    cause and re-pointing at bin/target geometry.
+4. **Anchor target mis-specification** (see \S3.3): pinning $h_i(1) = c_i$
+   is wrong for edge bins, because $\mathbb{E}[y \mid p_i(x) = 1]$ does
+   not equal $c_i$ when the bin is asymmetric about its mean. On
+   exponential's upper bin, the correct anchor is well above $c_{k-1}$,
+   so the current anchor forces a systematic under-prediction on the
+   upper tail. This is the most likely root cause of the anchored cells
+   (B, D, F, H) still failing on exponential and is a concrete actionable
+   fix — worth trying *before* the hybrid opt-strategy (§9.1).
 
 # 9. Open questions and next experiments
 
