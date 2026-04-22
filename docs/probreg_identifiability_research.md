@@ -947,13 +947,218 @@ via `pdfunite`).
 
 # 12. What we'd pick up first in a future session
 
-1. Implement the **hybrid opt-strategy** (§9.1). This is the most likely
-   source of insight about whether CE_STOP_GRAD on exponential is a
-   co-adaptation failure or something else.
-2. Set `use_anchored_heads=True` as the **ProbReg default** and remove
-   the `constrain_middle_class` branch that it subsumes.
-3. Run the **anchored + MDN + symlog** combination on photo-z /
-   cluster-mass real data (§9.4) — our one dramatic positive surprise
-   and the combination most likely to matter for Paper A.
-4. Add `ce_stop_grad_after_epoch` experiments into the main ablation
-   sweep infrastructure so these numbers feed Paper A naturally.
+1. Implement the **ordering-constraint penalty** (§9.1). Drop the hard
+   anchor in `AnchoredHead`, add $\mathcal{L}_\text{order}$ to the loss,
+   re-run the 8-cell identifiability sweep. Expected payoff: edge-bin
+   cells (B, D, F, H) on exponential should recover toward the unanchored
+   baseline values.
+2. Implement the **hybrid opt-strategy** (§9.2). Most likely source of
+   insight about whether the CE_STOP_GRAD failure on exponential is
+   co-adaptation or something else.
+3. Run the **MDN + symlog** combination on photo-z / cluster-mass real
+   data (§9.4) — one dramatic positive surprise on exponential and the
+   combination most likely to matter for Paper A.
+4. Consider the redesign choices flagged in §13 (MDN as default,
+   adaptive bins, $h_i(x)$ instead of $h_i(p_i)$) before committing the
+   Paper A architecture.
+
+# 13. Statistical critique — does this model make sense?
+
+The preceding sections focused on specific technical problems (head-swap
+degeneracy, anchor target, CE_STOP_GRAD failures) and concrete fixes
+(anchored heads, ordering constraint, symlog). This section steps back and
+asks whether the underlying statistical model is sound — independent of
+how we patch the surface symptoms.
+
+## 13.1 The implied data-generating model
+
+ProbReg in `SEPARATE_HEADS` mode implicitly assumes
+$$
+y \,\vert\, x \;\sim\; \sum_{j=1}^k p_j(x)\, \mathcal{N}\!\bigl(\mu_j(p_j(x)),\; \sigma_j^2(p_j(x))\bigr),
+$$
+a mixture of $k$ Gaussians whose mixing weights are functions of $x$ and
+whose component parameters are functions of the mixing weights
+themselves (not of $x$ directly — this is a real restriction; see §13.4).
+
+This is a well-defined statistical model. The MDN likelihood is the
+proper scoring rule for it.
+
+## 13.2 Gaussian-LTV is not a proper mixture likelihood
+
+The alternative Gaussian-LTV training objective
+$$
+\mathcal{L}_\text{LTV} = -\tfrac12\!\left[\log(2\pi\sigma_\text{total}^2) + \frac{(y - \mu_\text{total})^2}{\sigma_\text{total}^2}\right]
+$$
+computes the log-density of a **moment-matched Gaussian approximation**
+to the mixture, not the mixture's own log-density.
+$(\mu_\text{total}, \sigma_\text{total}^2)$ are correctly derived via LTV;
+the likelihood is a valid proper scoring rule for the Gaussian family, so
+it gives consistent estimates of $(\mu_\text{total}(x), \sigma_\text{total}^2(x))$.
+But it *cannot distinguish* different mixtures sharing these two moments.
+Multimodality is invisible to it.
+
+Practical implications:
+
+1. **Identifiability.** $\mathcal{L}_\text{LTV}$ identifies the mixture
+   only up to its first two moments. The individual components
+   $(p_j, \mu_j, \sigma_j^2)$ are not identifiable from the likelihood
+   alone. This is the head-swap degeneracy restated in statistical
+   language. All the anchoring and ordering machinery in §3.3 is a
+   statistical remedy for a likelihood that leaves components
+   under-determined.
+2. **Proper scoring.** MDN is proper; Gaussian-LTV is proper for a
+   *different* parametric family. Training under Gaussian-LTV does not
+   give the MLE of the mixture model.
+3. **Component interpretation.** Under Gaussian-LTV, the components
+   $(\mu_j, \sigma_j^2)$ have no intrinsic meaning beyond "they
+   aggregate to the moments we care about". Under MDN, the components
+   are identifiable (up to permutation) and interpretable as actual
+   mixture components with real marginal meaning.
+
+**Verdict:** Gaussian-LTV is defensible as a computational simplification
+when you only want $\mu_\text{total}, \sigma_\text{total}^2$, and you
+don't need the components for anything downstream. If the components
+matter (e.g. for calibration, interpretability, or tighter uncertainty
+quantification on multimodal targets), MDN is the statistically coherent
+choice.
+
+## 13.3 The classification bottleneck
+
+The model compresses $x$ to a $k$-dimensional softmax vector $p(x)$ before
+reconstructing $y$. This is an **information bottleneck** at dimension $k$.
+
+**Sufficiency question.** Is $p(x)$ a sufficient statistic for $y$ given
+$x$? In general, no — $p(x)$ is a lossy summary. A standard regressor on
+$x$ has access to everything $p(x)$ loses.
+
+**Bias–variance trade-off.** Compressing $x$ through a classifier is a
+form of regularisation: it introduces bias (we cannot in general recover
+$E[y \vert x]$ exactly) in exchange for reduced variance (the classifier
+is more stable than a regressor under noisy supervision, because sign
+matters more than magnitude in classification loss). This is sensible
+when:
+
+- Noise in $y$ is large relative to within-bin structure.
+- The classifier's bin assignment captures the dominant signal in $E[y \vert x]$.
+- Within-bin residual structure is small or uninformative.
+
+It is not sensible when within-bin structure is large and captures
+important features of $E[y \vert x]$ — the bottleneck then destroys
+useful signal.
+
+**Empirically this has been validated partially** (§2 of RESUME.md,
+noise-robustness benchmark): at $\sigma = 1.0$, ClassReg with $k=2$ beats
+tree baselines on smooth data. At low noise, standard regressors beat
+ClassReg. The classification bottleneck earns its keep specifically in
+the high-noise regime that motivated it.
+
+## 13.4 $h_i(p_i)$ — strong conditional-independence assumption
+
+The heads take $p_i(x)$ as input, not $x$. This encodes the assumption
+$$
+E[y \vert x, y \in \text{bin}_i] \;=\; E[y \vert p_i(x), y \in \text{bin}_i],
+$$
+i.e. $p_i(x)$ is a sufficient statistic for $y$ given bin $i$. All samples
+$x$ with the same $p_i(x)$ get the same $\mu_i, \sigma_i^2$.
+
+This is **stricter than standard MDN**, where $\mu_j, \sigma_j^2$ depend
+on $x$ directly. The ProbReg restriction reduces head capacity and makes
+the model rely more heavily on the classifier to carry position
+information.
+
+On 1-D toy data, $p_i(x)$ is a smooth function of $x$ and the restriction
+is mild (the head can reach most within-bin structure via $p_i$). On
+higher-dimensional inputs, different $x$'s can give the same $p_i$ with
+very different residual structure, and the restriction will bite. This is
+one of the architectural knobs worth revisiting before Paper A: allowing
+$h_i(x)$ (or $h_i(x, p_i)$) gives strictly more capacity.
+
+## 13.5 Percentile bins + Gaussian component — model misspecification
+
+Percentile bins give each bin equal *probability mass* but unequal
+*widths*. On heavy-tailed data, the top bin is wide and contains a
+skewed within-bin distribution. A single Gaussian $\mathcal{N}(\mu_i, \sigma_i^2)$
+cannot represent a skewed conditional.
+
+The within-component assumption
+$$
+y \,\vert\, \text{bin}_i \;\approx\; \mathcal{N}(\mu_i, \sigma_i^2)
+$$
+is reasonable only when the within-bin distribution is (approximately)
+symmetric and unimodal. For heavy-tailed or sharply skewed targets, it is
+misspecified. The anchor-target mis-specification we identified in §3.3 is
+a surface symptom: on a skewed bin the conditional mean $c_i$ sits far
+from both the conditional mode and the deep-interior samples, and no
+point anchor at $c_i$ can rescue the Gaussian fit.
+
+**This is model misspecification, not identifiability.** No reparametrisation,
+no ordering constraint, no anchoring trick rescues a Gaussian on a
+skewed conditional distribution. The fix has to be either:
+
+- **Finer bins** so within-bin skew is reduced (see §9.6).
+- **Adaptive bins** on transformed $y$ (e.g. uniform-on-symlog-$y$).
+- **Target transforms** so the conditional becomes approximately Gaussian in transformed space.
+- **Heavier-tailed component distributions** (Student-$t$, log-Normal) instead of Gaussian — a larger architectural change.
+
+## 13.6 The ordering constraint, in statistical language
+
+Under Gaussian-LTV the likelihood leaves components unidentified; the
+ordering constraint supplies $k-1$ inequalities $M_0 < M_1 < \dots < M_{k-1}$
+that pick a canonical labelling out of the $k!$ permutations. This is
+standard practice in Bayesian mixture fitting ("sorted-means" labelling
+convention) and recovers identifiability up to the minimal symmetry the
+data can support.
+
+Under MDN the likelihood already identifies components up to permutation;
+ordering is redundant but harmless — it selects a canonical permutation
+for free.
+
+In both cases, the ordering penalty is the statistical equivalent of a
+sorted-means prior. It is statistically standard and unproblematic.
+
+## 13.7 Summary verdict
+
+\begin{center}
+\small
+\begin{tabular}{lp{7cm}}
+\toprule
+\textbf{Aspect} & \textbf{Statistical soundness} \\
+\midrule
+MDN likelihood on mixture & \textbf{Sound.} Proper scoring rule; identifiable up to permutation. \\
+Gaussian-LTV likelihood on mixture & \textbf{Partially sound.} Proper Gaussian scoring rule, but misspecifies the mixture; components unidentified. \\
+Ordering constraint & \textbf{Sound.} Standard labelling convention; equivalent to sorted-means prior. \\
+Classification-only bottleneck on $x$ & \textbf{Sound as regularisation.} Loses information; trade-off depends on noise level. \\
+$h_i$ as function of $p_i$ only (not $x$) & \textbf{Strong assumption.} Conditional-independence restriction; likely binding on high-$d$ real data. \\
+Percentile bins + Gaussian component & \textbf{Misspecified for heavy-tail data.} No identifiability fix compensates. \\
+\midrule
+Overall model & Coherent for unimodal/mildly-multimodal, noisy, low-$d$ regression; misspecified for heavy-tail or high-$d$ non-compressible targets. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+## 13.8 If redesigning from scratch
+
+With the benefit of everything we've learned, a statistically cleaner
+architecture would:
+
+1. **Use MDN as the primary likelihood.** Proper scoring rule, identifiable
+   up to permutation, interpretable components. Gaussian-LTV becomes a
+   secondary / diagnostic objective, not the default.
+2. **Use adaptive bins** — uniform-on-symlog-$y$ or uniform-on-transformed-$y$ —
+   to reduce within-bin skew on heavy-tail targets. Or abandon fixed binning
+   and let the mixture components be data-driven.
+3. **Let heads depend on $x$**, not just $p_i$. The ProbReg restriction is
+   a capacity bottleneck that is under-motivated for high-$d$ data.
+4. **Keep the ordering constraint** as the identifiability convention.
+   It's statistically standard and costs nothing.
+5. **Keep the classification bottleneck interpretation** as a valuable
+   regularisation mode for noisy data — but treat it as *one setting of
+   $k$*, not as the whole model. With $k$ very large, the model converges
+   to a mixture density network; with $k$ very small, to a classification
+   bottleneck. Both are useful operating points.
+
+Whether the resulting model is still called "ProbReg" is a naming
+question. The core statistical insight — "combine classification
+robustness with regression precision via a mixture model" — survives the
+redesign; the specific parametrisation choices that cause our current
+pain points do not.
