@@ -203,19 +203,72 @@ sweep disabled `use_monotonic_constraints` so this combination was not
 stressed, but it is an important caveat for any downstream use.
 
 **Refinements to the anchor target.** The centroid is the wrong target for
-edge bins. Options worth trying, in order of implementation cost:
+edge bins. Several candidates were brainstormed in session; only one
+survived the full set of constraints (no anchoring known constants at $p=1$,
+no separate classifier warmup, uniform treatment of middle and edge bins).
 
-1. *Bin-extreme anchor for edge bins*: $a_0 = y_\text{min}$,
-   $a_{k-1} = y_\text{max}$, $a_\text{middle} = c_i$. One-line change,
-   crude, zero training cost.
-2. *Empirical* $\hat{\mathbb{E}}[y \mid p_i \ge 0.95]$: fit a classifier-only
-   warmup, compute the mean of $y$ among training samples with high $p_i$,
-   and use that value as the anchor. More principled.
-3. *Learnable soft anchor*: replace the hard pin with a parameter
-   $\alpha_i$ initialised at $c_i$ and add a soft penalty
-   $\lambda\,(\alpha_i - c_i)^2$ — lets the head drift when data demands.
-4. *Drop the anchor for edge bins*: keep it only for inner bins where the
-   centroid is correct. Trades some identifiability for tail freedom.
+*Discarded candidates* (kept here for record):
+
+- *Bin-extreme anchor for edges* ($y_\text{max}/y_\text{min}$): dominated by
+  order-statistic noise; the anchor value changes under data resampling.
+- *Empirical* $\hat{\mathbb{E}}[y \mid p_i \ge \tau]$ *at* $p=1$: fixes the
+  target but still anchors at an operating point the model never reaches.
+- *Single-point operating-point anchor* $(p_i^\star, y_i^\star)$: requires
+  a classifier warmup to measure $p_i^\star$; user found this unsatisfying
+  (asymmetric — anchor one end but not the other).
+- *Two-point operating-point anchor* at $(p_i^\text{hi}, y_i^\text{hi})$ and
+  $(p_i^\text{lo}, y_i^\text{lo})$: still requires a warmup to measure the
+  probabilities; complicates strategies other than CE_STOP_GRAD.
+- *Empirical-curve baseline* $\hat{m}_i(p) = \hat{\mathbb{E}}[y \mid p_i = p]$:
+  most principled but requires a warmup and per-head regressor.
+- *Hard anchor at* $c_i$ *for middle bins only, drop for edges*: inconsistent
+  treatment; middle bins still suffer the $p=1$ extrapolation issue.
+
+*Selected candidate* — **range-parametrised head** (uses only $y$-quantile
+means from training data, no probabilities, no warmup):
+
+$$
+h_i(p) \;=\; y_i^\text{lo} \;+\; (y_i^\text{hi} - y_i^\text{lo}) \cdot \sigma\bigl(g_i(p)\bigr),
+$$
+
+where $y_i^\text{hi}$ and $y_i^\text{lo}$ are the means of the top and
+bottom $\kappa$-percentile of $y$-values *within bin $i$*, computed
+deterministically from training data. $g_i$ is a small MLP mapping
+$p \to \mathbb{R}$ and $\sigma$ is a sigmoid. The head's output is
+structurally bounded in $(y_i^\text{lo}, y_i^\text{hi})$.
+
+Key properties:
+
+- **No probability anchoring.** The two endpoint values appear as output
+  bounds, not as pointwise constraints on $h_i(p)$ at any specific $p$.
+  The mapping from $p$ to position within the range is fully learnable.
+- **No classifier warmup.** Only $y$-quantiles within bins are needed;
+  these are deterministic functions of training $y$.
+- **Uniform across bins.** Every bin — middle or edge — gets the same
+  parametrization, with its own bin-specific $(y_i^\text{lo}, y_i^\text{hi})$.
+  Edge bins naturally get a wider, higher/lower range than middle bins.
+- **Identifiability via ranges, not points.** Each head has a distinct
+  output range. Swapping two heads visibly changes the loss because their
+  ranges differ; the head-swap degeneracy is broken by construction.
+- **Optional monotonicity.** If $g_i$ is forced monotonically increasing
+  (softplus weights), $h_i \to y_i^\text{lo}$ as $p \to 0$ and
+  $h_i \to y_i^\text{hi}$ as $p \to 1$, recovering the "deep interior
+  implies upper" intuition without requiring a specific anchor probability.
+
+Caveats:
+
+- Sigmoid saturation: endpoints are approached but not reached. Usually
+  fine; if it matters, use a tanh-plus-residual form that allows mild
+  overshoot.
+- $y$ values outside $[y_i^\text{lo}, y_i^\text{hi}]$ are unreachable by
+  $h_i$. Mitigation: choose extreme $\kappa$ (top/bottom 1–5%) so the
+  range covers the tails that matter.
+- Loses some flexibility relative to an unconstrained head, but retains
+  it in the shape of $g_i$.
+
+This proposal — call it the **range-parametrised anchor** — replaces all
+four earlier options listed in the draft and supersedes both P5 and P6
+from session brainstorming.
 
 **What the anchor does and does not do.** The anchor is a constraint on the
 **head function** $h_i$ at $p_i = 1$, not a constraint on the model output
@@ -610,19 +663,63 @@ applications (photo-z, cluster mass).
    anchored cells D/H still fail — ruling out "bad init" as the primary
    cause and re-pointing at bin/target geometry.
 4. **Anchor target mis-specification** (see \S3.3): pinning $h_i(1) = c_i$
-   is wrong for edge bins, because $\mathbb{E}[y \mid p_i(x) = 1]$ does
-   not equal $c_i$ when the bin is asymmetric about its mean. On
-   exponential's upper bin, the correct anchor is well above $c_{k-1}$,
-   so the current anchor forces a systematic under-prediction on the
-   upper tail. This is the most likely root cause of the anchored cells
-   (B, D, F, H) still failing on exponential and is a concrete actionable
-   fix — worth trying *before* the hybrid opt-strategy (§9.1).
+   is wrong for edge bins because $\mathbb{E}[y \mid p_i(x) = 1] \neq c_i$
+   when the bin is asymmetric about its mean. On exponential's upper bin
+   the correct value is well above $c_{k-1}$, so the current anchor forces
+   a systematic under-prediction on the upper tail. The proposed fix is
+   the **range-parametrised head** described in \S3.3: bound $h_i$'s output
+   by $[y_i^\text{lo}, y_i^\text{hi}]$ from $y$-quantile means within each
+   bin, without anchoring at any specific $p$. This is the most likely
+   root cause of the anchored cells (B, D, F, H) still failing on
+   exponential and is a concrete actionable fix — worth trying *before*
+   the hybrid opt-strategy (§9.1).
 
 # 9. Open questions and next experiments
 
 In priority order.
 
-## 9.1 Hybrid opt-strategy (most promising)
+## 9.1 Range-parametrised head (highest-priority first experiment)
+
+Replace the current anchored head with the range-parametrised form from
+\S3.3:
+$$
+h_i(p) \;=\; y_i^\text{lo} \;+\; (y_i^\text{hi} - y_i^\text{lo}) \cdot \sigma\bigl(g_i(p)\bigr),
+$$
+where $y_i^\text{lo}, y_i^\text{hi}$ are the means of the bottom and top
+$\kappa$-percentile of training $y$ values within bin $i$ (say
+$\kappa = 5\%$). No classifier warmup. No anchoring at $p = 1$. Uniform
+across all bins.
+
+Implementation sketch: add a new `RegressionHead` subclass `RangeHead` that
+takes `(y_lo, y_hi)` and contains a small MLP $g_i$ plus sigmoid. Compute
+the quantile means at `fit()` time and pass them to the head factory in
+`SeparateHeadsRegressionModule`. Optional monotonic variant: softplus
+weights on $g_i$'s linear layer.
+
+Validation target: run the 8-cell identifiability sweep with the new head
+in place of `AnchoredHead`. Expected signatures:
+
+- *Exponential* cells B, D, F, H: MSE should drop toward the unanchored A,
+  C, E, G values (confirming anchor-target-mis-specification was the cause).
+- *Bimodal/heteroscedastic/piecewise*: anchor_error should remain low
+  (identifiability preserved), with MSE no worse than before.
+
+If this fix works the new head supersedes `AnchoredHead` as the default
+ProbReg parametrization.
+
+## 9.2 Hybrid opt-strategy
+
+Train jointly (`REGRESSION_ONLY`) for the first ~30 epochs, then switch
+to `CE_STOP_GRAD` for the remainder. Gives classifier + heads time to
+co-adapt before locking the classifier. Would validate or refute
+suspect (2) in §8.5.
+
+Implementation sketch: add
+`ProbabilisticRegressionOptimizationStrategy.HYBRID` with a
+`ce_stop_grad_after_epoch: int = 30` knob in
+`probabilistic_regression.py`. At inference-time the heads see detached
+probs; the classifier stays frozen on bin-CE post-switch.
+
 
 Train jointly (`REGRESSION_ONLY`) for the first ~30 epochs, then switch
 to `CE_STOP_GRAD` for the remainder. Gives classifier + heads time to
