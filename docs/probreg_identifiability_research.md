@@ -161,6 +161,18 @@ is $\mathbb{E}[y \mid y \in \text{bin}_i] = c_i$ — the conditional mean. So th
 centroid is the correct target, not "a typical y from the bin" (which would be
 higher than the mean for a skewed bin).
 
+**What the anchor does and does not do.** The anchor is a constraint on the
+**head function** $h_i$ at $p_i = 1$, not a constraint on the
+model output $\mu_\text{total}$ for samples in bin $i$. At $p_i = 1$
+exactly, $\mu_\text{total} = h_i(1) = c_i$; but for $p_i < 1$ (which is
+almost always the case — empirically $\max_x p_i(x)$ lands in 0.8-0.95,
+not 1.0), the prediction $\mu_\text{total}$ is a convex combination of
+all heads and can freely differ from $c_i$. This is by design: for
+samples near the lower boundary of bin $i$, we *want* $\mu_\text{total}
+< c_i$, which we get via $p_{i-1} > 0$ and $h_{i-1}$ pulling the mean
+down. The anchor is a symmetry-breaking *limit* condition, not a
+pointwise constraint on the regression output.
+
 **Caveat on skewed bins.** On heavy-tail data the within-bin distribution is
 itself highly skewed — e.g. on exponential, the top percentile bin spans
 roughly $[3, 20]$ and the mean is dominated by the tail. In that regime $c_i$
