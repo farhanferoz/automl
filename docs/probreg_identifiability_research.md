@@ -110,6 +110,12 @@ Because each component's likelihood scales with its own $p_i$, a relabeling
 changes the per-sample log-likelihood — the loss is **not** invariant under
 head-index swaps. Identifiability comes from the likelihood structure itself.
 
+Implementation note (`automl_package/utils/losses.py:mdn_nll`): the
+naive evaluation of $\log\sum_j p_j\,\mathcal{N}_j$ is numerically unstable
+(both factors can underflow). The code computes $\log p_j$ and
+$\log \mathcal{N}_j$ separately and combines them via `torch.logsumexp` with
+an $\epsilon$-floor on $p_j$, which is the standard Bishop 1994 form.
+
 ## 3.2 CE_STOP_GRAD
 
 Supervise the classifier directly by cross-entropy against bin labels, and
@@ -121,10 +127,18 @@ $$
 \tilde p_i = p_i.\text{detach}().
 $$
 Total loss $\mathcal{L}_\text{CE} + \mathcal{L}_\text{LTV}(\tilde p, \mu, \sigma)$.
-The classifier is now pinned by hard labels (like ClassReg), and the regression
-heads fit the regression loss with probabilities treated as an input signal
-rather than a trainable quantity. Identifiability comes from hard bin
-supervision, as in ClassReg.
+
+Although the total loss is arithmetically a sum, the stop-gradient severs the
+gradient path: the classifier receives gradient only from $\mathcal{L}_\text{CE}$
+(because $\tilde p$ is detached before the regression module), and the heads
+receive gradient only from $\mathcal{L}_\text{LTV}$ (because they do not appear
+in $\mathcal{L}_\text{CE}$). In `SEPARATE_HEADS` the classifier and heads share
+no parameters, so the two losses optimize disjoint parameter sets: the training
+dynamic is effectively two uncoupled optimizations sharing a forward pass. The
+classifier is pinned by hard labels (like ClassReg), and the heads fit the
+regression loss treating $\tilde p$ as a frozen input signal. Identifiability
+comes from hard bin supervision. This lack of co-adaptation is also the
+leading suspect for the exponential failure (\S8.5).
 
 ## 3.3 Anchored heads
 
@@ -137,6 +151,27 @@ where $c_i$ is the precomputed mean of $y$ in bin $i$ and $f_i$ is a small MLP.
 At $p_i = 1$, $h_i = c_i$ exactly, with no gradient path for deviation. For
 $p_i < 1$, the residual $f_i$ retains full expressivity. Identifiability comes
 from a hard structural prior rather than loss structure.
+
+**Why pin to the conditional mean specifically.** The head returns the per-class
+mean $\mu_i$ and the model combines them by LTV:
+$\mu_\text{total}(x) = \sum_j p_j(x)\, \mu_j(p_j(x))$.
+When $p_i \to 1$, $\mu_\text{total} \to \mu_i$. Under squared-error (or
+Gaussian-NLL) loss, the optimal point estimator of $y$ given "$y \in \text{bin}_i$"
+is $\mathbb{E}[y \mid y \in \text{bin}_i] = c_i$ — the conditional mean. So the
+centroid is the correct target, not "a typical y from the bin" (which would be
+higher than the mean for a skewed bin).
+
+**Caveat on skewed bins.** On heavy-tail data the within-bin distribution is
+itself highly skewed — e.g. on exponential, the top percentile bin spans
+roughly $[3, 20]$ and the mean is dominated by the tail. In that regime $c_i$
+becomes a poor point predictor for most samples in the bin, and a symmetric
+Gaussian component $\mathcal{N}(c_i, \sigma_i^2)$ is a bad fit regardless of
+parametrization. This is one of the candidates for why anchored Cell D still
+fails on exponential (see \S8.5). Refinements worth trying: pin to the
+conditional median instead of the mean; impose a soft-anchor penalty
+$\lambda\,(h_i(1) - c_i)^2$ that lets the head deviate when data demands;
+or move to non-percentile (uniform-on-symlog-$y$) bins so intra-bin skew is
+reduced.
 
 ## 3.4 How the three are orthogonal
 
