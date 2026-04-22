@@ -15,12 +15,55 @@ the penalty.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import torch
 
 from automl_package.utils.ordering_loss import (
     compute_ordering_means,
     ordering_penalty,
 )
+
+
+@pytest.fixture(scope="module")
+def probreg_pair():
+    """Two fitted ProbReg models sharing config: ordering off and on.
+
+    Module-scoped so the two expensive .fit() calls are paid once for the
+    whole file, not per-test.
+    """
+    from automl_package.enums import RegressionStrategy, UncertaintyMethod
+    from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+
+    torch.manual_seed(42)
+    rng = np.random.default_rng(42)
+    x = rng.uniform(-2, 2, 200).reshape(-1, 1).astype(np.float32)
+    y = x.ravel().astype(np.float32)
+
+    common = dict(
+        input_size=1, n_classes=3,
+        regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+        uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+        n_epochs=1, random_seed=42, early_stopping_rounds=None,
+        calculate_feature_importance=False, validation_fraction=0.2,
+    )
+    off = ProbabilisticRegressionModel(ordering_constraint_weight=0.0, **common)
+    off.fit(x, y)
+    on = ProbabilisticRegressionModel(ordering_constraint_weight=10.0, **common)
+    on.fit(x, y)
+    return off, on
+
+
+def _synthetic_model_outputs(head_means_by_class: list[float]):
+    """Build a model_outputs tuple for _calculate_custom_loss."""
+    batch = 20
+    k = len(head_means_by_class)
+    classifier_logits = torch.randn(batch, k)
+    per_head_outputs = torch.zeros(batch, k, 2)
+    for i, m in enumerate(head_means_by_class):
+        per_head_outputs[:, i, 0] = m
+    final_predictions = torch.zeros(batch, 2)
+    selected_k_values = torch.full((batch,), float("inf"))
+    return (final_predictions, classifier_logits, selected_k_values, None, per_head_outputs), torch.zeros(batch, 1)
 
 
 # -----------------------------------------------------------------------------
@@ -145,99 +188,122 @@ def test_probreg_ordering_weight_zero_by_default():
     assert model.ordering_constraint_weight == 0.0
 
 
-def test_probreg_ordering_loss_adds_to_total_when_enabled():
-    """The custom loss grows when ordering weight is on and means are reversed."""
-    from automl_package.enums import RegressionStrategy, UncertaintyMethod
-    from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
-
-    common = dict(
-        input_size=1, n_classes=3,
-        regression_strategy=RegressionStrategy.SEPARATE_HEADS,
-        uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-        n_epochs=1, random_seed=42, early_stopping_rounds=None,
-        calculate_feature_importance=False, validation_fraction=0.2,
-    )
-    # Fit a model briefly so it has a build_model'd internal state we can reuse.
-    torch.manual_seed(42)
-    rng = np.random.default_rng(42)
-    x = rng.uniform(-2, 2, 200).reshape(-1, 1).astype(np.float32)
-    y = x.ravel().astype(np.float32)
-
-    off = ProbabilisticRegressionModel(ordering_constraint_weight=0.0, **common)
-    off.fit(x, y)
-
-    on = ProbabilisticRegressionModel(ordering_constraint_weight=10.0, **common)
-    on.fit(x, y)
-
-    # Synthetically construct model_outputs with reversed head means — this
-    # GUARANTEES an ordering violation that the penalty must detect.
-    batch = 20
-    k = 3
-    classifier_logits = torch.randn(batch, k)
-    per_head_outputs = torch.zeros(batch, k, 2)
-    # Reversed means: head 0 high, head 2 low — swap vs correct ordering.
-    per_head_outputs[:, 0, 0] = 10.0
-    per_head_outputs[:, 1, 0] = 5.0
-    per_head_outputs[:, 2, 0] = 0.0
-    # Final predictions + y (doesn't matter for ordering, just needs to be a valid loss input).
-    final_predictions = torch.zeros(batch, 2)
-    selected_k_values = torch.full((batch,), float("inf"))
-    model_outputs = (final_predictions, classifier_logits, selected_k_values, None, per_head_outputs)
-    y_t = torch.zeros(batch, 1)
-
+def test_probreg_ordering_loss_adds_to_total_when_enabled(probreg_pair):
+    off, on = probreg_pair
+    model_outputs, y_t = _synthetic_model_outputs([10.0, 5.0, 0.0])  # reversed
     loss_off = off._calculate_custom_loss(model_outputs, y_t, include_boundary_loss=False)
     loss_on = on._calculate_custom_loss(model_outputs, y_t, include_boundary_loss=False)
-
-    # With reversed means and ordering on, loss should be strictly larger than off.
     assert loss_on.item() > loss_off.item() + 0.1, (
-        f"Ordering penalty should increase loss on reversed means: "
+        f"Reversed means should trigger the ordering penalty: "
         f"off={loss_off.item():.4f}, on={loss_on.item():.4f}"
     )
 
 
-def test_probreg_ordering_loss_is_zero_when_means_ordered():
-    """Correctly ordered synthetic means should produce zero ordering contribution."""
-    from automl_package.enums import RegressionStrategy, UncertaintyMethod
+def test_probreg_ordering_loss_is_zero_when_means_ordered(probreg_pair):
+    off, on = probreg_pair
+    model_outputs, y_t = _synthetic_model_outputs([0.0, 5.0, 10.0])  # ordered
+    loss_off = off._calculate_custom_loss(model_outputs, y_t, include_boundary_loss=False)
+    loss_on = on._calculate_custom_loss(model_outputs, y_t, include_boundary_loss=False)
+    assert abs(loss_on.item() - loss_off.item()) < 1e-4, (
+        f"Ordered means should produce zero ordering contribution: "
+        f"off={loss_off.item():.6f}, on={loss_on.item():.6f}"
+    )
+
+
+def test_probreg_ordering_under_ce_stop_grad_does_not_leak_to_classifier():
+    """Gradient-stop contract: under CE_STOP_GRAD, ordering must not flow to logits."""
+    from automl_package.enums import (
+        ProbabilisticRegressionOptimizationStrategy,
+        RegressionStrategy,
+        UncertaintyMethod,
+    )
     from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
 
-    common = dict(
+    torch.manual_seed(0)
+    rng = np.random.default_rng(0)
+    x = rng.uniform(-2, 2, 200).reshape(-1, 1).astype(np.float32)
+    y = x.ravel().astype(np.float32)
+    model = ProbabilisticRegressionModel(
         input_size=1, n_classes=3,
         regression_strategy=RegressionStrategy.SEPARATE_HEADS,
         uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-        n_epochs=1, random_seed=42, early_stopping_rounds=None,
+        optimization_strategy=ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
+        ordering_constraint_weight=100.0,
+        n_epochs=1, random_seed=0, early_stopping_rounds=None,
         calculate_feature_importance=False, validation_fraction=0.2,
     )
-    torch.manual_seed(42)
-    rng = np.random.default_rng(42)
-    x = rng.uniform(-2, 2, 200).reshape(-1, 1).astype(np.float32)
-    y = x.ravel().astype(np.float32)
+    model.fit(x, y)
 
-    off = ProbabilisticRegressionModel(ordering_constraint_weight=0.0, **common)
-    off.fit(x, y)
-    on = ProbabilisticRegressionModel(ordering_constraint_weight=10.0, **common)
-    on.fit(x, y)
-
-    batch = 20
-    k = 3
-    classifier_logits = torch.randn(batch, k)
-    per_head_outputs = torch.zeros(batch, k, 2)
-    # Correctly ordered: head 0 low, head 2 high.
-    per_head_outputs[:, 0, 0] = 0.0
-    per_head_outputs[:, 1, 0] = 5.0
-    per_head_outputs[:, 2, 0] = 10.0
+    # Construct a reversed-means scenario with a logits tensor we OWN, so we
+    # can check whether gradient flows back into it after .backward() on the
+    # ordering contribution.
+    batch, k = 20, 3
+    classifier_logits = torch.randn(batch, k, requires_grad=True)
+    # per_head_outputs has requires_grad so the ordering term has a grad_fn
+    # even when logits get detached by the stop-grad.
+    per_head_outputs = torch.zeros(batch, k, 2, requires_grad=True)
+    with torch.no_grad():
+        per_head_outputs[:, 0, 0] = 10.0
+        per_head_outputs[:, 1, 0] = 5.0
+        per_head_outputs[:, 2, 0] = 0.0
+    # Only the ordering term is relevant here; pass final_predictions and y
+    # placeholders that don't contribute via the regression-loss path.
     final_predictions = torch.zeros(batch, 2)
     selected_k_values = torch.full((batch,), float("inf"))
     model_outputs = (final_predictions, classifier_logits, selected_k_values, None, per_head_outputs)
     y_t = torch.zeros(batch, 1)
 
-    loss_off = off._calculate_custom_loss(model_outputs, y_t, include_boundary_loss=False)
-    loss_on = on._calculate_custom_loss(model_outputs, y_t, include_boundary_loss=False)
+    loss = model._calculate_custom_loss(model_outputs, y_t, include_boundary_loss=False)
+    loss.backward()
+    # Under CE_STOP_GRAD the ordering loss must not send gradient back to logits.
+    assert classifier_logits.grad is None or torch.all(classifier_logits.grad == 0), (
+        f"CE_STOP_GRAD violated: ordering loss leaked gradient to classifier logits "
+        f"(max |grad| = {classifier_logits.grad.abs().max().item() if classifier_logits.grad is not None else 0:.2e})"
+    )
 
-    # With correctly ordered means and margin=0, the ordering penalty should be ~0,
-    # so loss_on == loss_off (up to float noise).
-    assert abs(loss_on.item() - loss_off.item()) < 1e-4, (
-        f"Ordering penalty should be 0 for ordered means: "
-        f"off={loss_off.item():.6f}, on={loss_on.item():.6f}"
+
+def test_probreg_ordering_under_regression_only_does_flow_to_classifier():
+    """Complementary check: under REGRESSION_ONLY the gradient path is open."""
+    from automl_package.enums import (
+        ProbabilisticRegressionOptimizationStrategy,
+        RegressionStrategy,
+        UncertaintyMethod,
+    )
+    from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+
+    torch.manual_seed(0)
+    rng = np.random.default_rng(0)
+    x = rng.uniform(-2, 2, 200).reshape(-1, 1).astype(np.float32)
+    y = x.ravel().astype(np.float32)
+    model = ProbabilisticRegressionModel(
+        input_size=1, n_classes=3,
+        regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+        uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+        optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+        ordering_constraint_weight=100.0,
+        n_epochs=1, random_seed=0, early_stopping_rounds=None,
+        calculate_feature_importance=False, validation_fraction=0.2,
+    )
+    model.fit(x, y)
+
+    batch, k = 20, 3
+    classifier_logits = torch.randn(batch, k, requires_grad=True)
+    # per_head_outputs has requires_grad so the ordering term has a grad_fn
+    # even when logits get detached by the stop-grad.
+    per_head_outputs = torch.zeros(batch, k, 2, requires_grad=True)
+    with torch.no_grad():
+        per_head_outputs[:, 0, 0] = 10.0
+        per_head_outputs[:, 1, 0] = 5.0
+        per_head_outputs[:, 2, 0] = 0.0
+    final_predictions = torch.zeros(batch, 2)
+    selected_k_values = torch.full((batch,), float("inf"))
+    model_outputs = (final_predictions, classifier_logits, selected_k_values, None, per_head_outputs)
+    y_t = torch.zeros(batch, 1)
+
+    loss = model._calculate_custom_loss(model_outputs, y_t, include_boundary_loss=False)
+    loss.backward()
+    assert classifier_logits.grad is not None and classifier_logits.grad.abs().sum() > 0.0, (
+        "Under REGRESSION_ONLY the ordering loss should flow gradient to logits."
     )
 
 

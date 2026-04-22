@@ -42,7 +42,7 @@ def compute_ordering_means(
     batch_size, k = classifier_logits.shape
     probs = torch.softmax(classifier_logits, dim=-1)  # (B, k)
 
-    subset_size = max(1, int(math.ceil(batch_size * top_decile_fraction)))
+    subset_size = max(1, math.ceil(batch_size * top_decile_fraction))
 
     # For each head i, find indices of the top subset_size samples by p_i.
     # topk over dim=0 picks the B highest along batch for each column.

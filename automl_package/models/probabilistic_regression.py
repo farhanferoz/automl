@@ -245,29 +245,31 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                     )
 
 
-        # 3b. Ordering-constraint identifiability penalty.
-        # Drops the hard head-index swap symmetry of the LTV loss by requiring the
-        # probability-weighted mean of each head's output (on its top-p subset) to
-        # be strictly increasing in class index. See
-        # docs/probreg_identifiability_research.md §3.3 for full derivation.
-        # Applied only to SEPARATE_HEADS (single-head strategies have no
-        # permutation symmetry to break) and only when per_head_outputs and
-        # classifier_logits are available.
-        ordering_weight = getattr(self, "ordering_constraint_weight", 0.0) or 0.0
+        # 3b. Ordering-constraint identifiability penalty. See
+        # docs/probreg_identifiability_research.md §3.3. Only SEPARATE_HEADS has a
+        # permutation symmetry to break.
+        ordering_weight = getattr(self, "ordering_constraint_weight", 0.0)
         if (
             ordering_weight > 0.0
             and self.regression_strategy == RegressionStrategy.SEPARATE_HEADS
             and per_head_outputs is not None
             and classifier_logits_out is not None
         ):
-            # Slice to active classes so dynamic-k doesn't include padding heads.
+            # Detach under stop-grad optimisation strategies so the ordering
+            # constraint does not become a back-door gradient path into the
+            # classifier (mirrors the MDN path above).
             logits_for_order = classifier_logits_out[:, : self.n_classes]
+            if self.optimization_strategy in (
+                ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
+                ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
+            ):
+                logits_for_order = logits_for_order.detach()
             head_means = per_head_outputs[:, : self.n_classes, 0]
             order_term = ordering_loss_fn(
                 logits_for_order,
                 head_means,
-                top_decile_fraction=float(getattr(self, "ordering_top_decile_fraction", 0.1)),
-                margin=float(getattr(self, "ordering_constraint_margin", 0.0)),
+                top_decile_fraction=getattr(self, "ordering_top_decile_fraction", 0.1),
+                margin=getattr(self, "ordering_constraint_margin", 0.0),
             )
             total_loss = total_loss + ordering_weight * order_term
 
