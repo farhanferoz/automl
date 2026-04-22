@@ -203,72 +203,136 @@ sweep disabled `use_monotonic_constraints` so this combination was not
 stressed, but it is an important caveat for any downstream use.
 
 **Refinements to the anchor target.** The centroid is the wrong target for
-edge bins. Several candidates were brainstormed in session; only one
-survived the full set of constraints (no anchoring known constants at $p=1$,
-no separate classifier warmup, uniform treatment of middle and edge bins).
+edge bins. Several candidates were brainstormed in session; the selected
+proposal at the end is an *ordering constraint* — a soft loss that imposes
+only the relative ordering of head outputs at their high-confidence
+operating points, without fixing any specific values.
 
 *Discarded candidates* (kept here for record):
 
-- *Bin-extreme anchor for edges* ($y_\text{max}/y_\text{min}$): dominated by
-  order-statistic noise; the anchor value changes under data resampling.
+- *Bin-extreme anchor for edges* ($y_\text{max}/y_\text{min}$): dominated
+  by order-statistic noise; the anchor value changes under data resampling.
 - *Empirical* $\hat{\mathbb{E}}[y \mid p_i \ge \tau]$ *at* $p=1$: fixes the
   target but still anchors at an operating point the model never reaches.
 - *Single-point operating-point anchor* $(p_i^\star, y_i^\star)$: requires
-  a classifier warmup to measure $p_i^\star$; user found this unsatisfying
-  (asymmetric — anchor one end but not the other).
-- *Two-point operating-point anchor* at $(p_i^\text{hi}, y_i^\text{hi})$ and
+  a classifier warmup to measure $p_i^\star$; asymmetric — anchor one end
+  but not the other.
+- *Two-point operating-point anchor* $(p_i^\text{hi}, y_i^\text{hi})$ and
   $(p_i^\text{lo}, y_i^\text{lo})$: still requires a warmup to measure the
-  probabilities; complicates strategies other than CE_STOP_GRAD.
+  probabilities; complicates strategies other than `CE_STOP_GRAD`.
 - *Empirical-curve baseline* $\hat{m}_i(p) = \hat{\mathbb{E}}[y \mid p_i = p]$:
   most principled but requires a warmup and per-head regressor.
 - *Hard anchor at* $c_i$ *for middle bins only, drop for edges*: inconsistent
   treatment; middle bins still suffer the $p=1$ extrapolation issue.
+- *Range-parametrised head* $h_i(p) = y_i^\text{lo} + (y_i^\text{hi} -
+  y_i^\text{lo})\,\sigma(g_i(p))$ with $y_i^\text{hi}, y_i^\text{lo}$ from
+  in-bin $y$-quantile means: bounds the head's range but (a) the range is
+  narrower than the bin itself when using quantile means (tail values
+  become unreachable), and (b) hard range bounds are stronger than
+  identifiability requires.
 
-*Selected candidate* — **range-parametrised head** (uses only $y$-quantile
-means from training data, no probabilities, no warmup):
+**Selected candidate — ordering constraint at high-confidence operating
+points.** The only property needed to break the head-swap degeneracy is
+that heads are *ordered* in their high-$p$ outputs — not that they take
+specific values. Imposing an ordering is strictly weaker than any
+point-anchor or range-bound proposal, and is the minimal constraint
+sufficient to break the $S_k$ permutation symmetry of the LTV loss.
 
+**Why $p \to 1$ is the natural reference.** At low or moderate $p_i(x)$,
+the classifier is saying "this sample *might* be in bin $i$". We have no
+grounded constraint on what $h_i$ should output there, because $y$ could
+be in any of several bins. Only as $p_i \to 1$ does the classifier assert
+"$y$ is in bin $i$ with certainty", and then the law of iterated
+expectations ties the head's high-confidence output to the bin: samples
+with $p_i \approx 1$ have $y$ in bin $i$ (assuming a calibrated
+classifier), and since the bins partition the $y$-axis in sorted order,
+the corresponding head outputs must also be sorted. At any other $p$, we
+would be making up a rule.
+
+**Formulation.** For each head $i = 0, \dots, k-1$, define its
+high-confidence operating subset
 $$
-h_i(p) \;=\; y_i^\text{lo} \;+\; (y_i^\text{hi} - y_i^\text{lo}) \cdot \sigma\bigl(g_i(p)\bigr),
+S_i \;=\; \bigl\{x_n \,\big|\, p_i(x_n) \text{ in top decile of } \{p_i(x_1), \dots, p_i(x_N)\}\bigr\},
 $$
+the training samples on which the classifier is most confident about class
+$i$. Define the mean head output on this subset:
+$$
+M_i \;=\; \frac{1}{|S_i|} \sum_{x \in S_i} h_i\bigl(p_i(x)\bigr).
+$$
+$M_i$ is a scalar: what head $i$ outputs, on average, when its own class
+is most confident.
 
-where $y_i^\text{hi}$ and $y_i^\text{lo}$ are the means of the top and
-bottom $\kappa$-percentile of $y$-values *within bin $i$*, computed
-deterministically from training data. $g_i$ is a small MLP mapping
-$p \to \mathbb{R}$ and $\sigma$ is a sigmoid. The head's output is
-structurally bounded in $(y_i^\text{lo}, y_i^\text{hi})$.
+**Ordering penalty.** Add to the training loss
+$$
+\boxed{\;\mathcal{L}_\text{order} \;=\; \lambda \sum_{i=1}^{k-1} \bigl[\max\bigl(0,\; M_{i-1} - M_i + \delta\bigr)\bigr]^2\;}
+$$
+where $\delta > 0$ is a small margin and $\lambda$ is a weight. The total
+loss becomes $\mathcal{L} = \mathcal{L}_\text{reg} + \mathcal{L}_\text{CE}
++ \mathcal{L}_\text{order}$ (with $\mathcal{L}_\text{CE}$ only active under
+`CE_STOP_GRAD` or the hybrid strategy).
 
-Key properties:
+The penalty is a hinge: zero when $M_i \ge M_{i-1} + \delta$, positive and
+smooth otherwise. The sum ranges over adjacent pairs, imposing strict
+ordering $M_0 < M_1 < \dots < M_{k-1}$.
 
-- **No probability anchoring.** The two endpoint values appear as output
-  bounds, not as pointwise constraints on $h_i(p)$ at any specific $p$.
-  The mapping from $p$ to position within the range is fully learnable.
-- **No classifier warmup.** Only $y$-quantiles within bins are needed;
-  these are deterministic functions of training $y$.
-- **Uniform across bins.** Every bin — middle or edge — gets the same
-  parametrization, with its own bin-specific $(y_i^\text{lo}, y_i^\text{hi})$.
-  Edge bins naturally get a wider, higher/lower range than middle bins.
-- **Identifiability via ranges, not points.** Each head has a distinct
-  output range. Swapping two heads visibly changes the loss because their
-  ranges differ; the head-swap degeneracy is broken by construction.
-- **Optional monotonicity.** If $g_i$ is forced monotonically increasing
-  (softplus weights), $h_i \to y_i^\text{lo}$ as $p \to 0$ and
-  $h_i \to y_i^\text{hi}$ as $p \to 1$, recovering the "deep interior
-  implies upper" intuition without requiring a specific anchor probability.
+**Identifiability proof sketch.** Suppose we swap heads $i \leftrightarrow
+j$ with $i < j$. After the swap, $M_i$ (now computed as the mean output of
+"the head formerly known as $j$" on the subset where $p_i$ is highest)
+reflects what was previously $M_j$, which is higher. Similarly the new
+$M_j$ reflects the old $M_i$. So $M_i^\text{swap} > M_j^\text{swap}$,
+violating the ordering for that pair. Hinge penalty fires. Any non-trivial
+permutation of heads creates at least one pair violating ordering, so the
+penalty is zero only at the identity permutation (and its discrete
+neighbourhood). Degeneracy broken.
 
-Caveats:
+**Key properties.**
 
-- Sigmoid saturation: endpoints are approached but not reached. Usually
-  fine; if it matters, use a tanh-plus-residual form that allows mild
-  overshoot.
-- $y$ values outside $[y_i^\text{lo}, y_i^\text{hi}]$ are unreachable by
-  $h_i$. Mitigation: choose extreme $\kappa$ (top/bottom 1–5%) so the
-  range covers the tails that matter.
-- Loses some flexibility relative to an unconstrained head, but retains
-  it in the shape of $g_i$.
+- **No anchor at any specific $p$ value.** The constraint uses the
+  classifier's live probabilities to select subsets; no reference to
+  $p = 1$ or any other fixed probability.
+- **No classifier warmup needed.** $M_i$ is computed from the current
+  classifier's outputs at each training step. Under `CE_STOP_GRAD` the
+  classifier stabilises quickly under bin-CE; under `REGRESSION_ONLY`
+  the $M_i$ co-evolve with the classifier, which is fine because the
+  constraint only asks for ordering, not specific values.
+- **Uniform across bins.** Every adjacent pair $(i-1, i)$ contributes one
+  inequality; there is no special case for edges vs. middle bins.
+- **Strictly weaker than all earlier proposals.** Does not bound the
+  head's output, does not fix any head value at any $p$, does not
+  constrain the head's functional form. Only a scalar ordering on
+  the $k$ means.
+- **Minimal sufficient for identifiability.** The LTV loss has an
+  $S_k$ permutation symmetry; breaking it requires $k - 1$
+  independent constraints (enough to pick out the canonical
+  permutation). The ordering penalty provides exactly $k - 1$.
 
-This proposal — call it the **range-parametrised anchor** — replaces all
-four earlier options listed in the draft and supersedes both P5 and P6
-from session brainstorming.
+**Hyperparameters.**
+
+- $\delta$: margin. A natural scale is $\delta \sim
+  (y_\text{max} - y_\text{min}) / k$ — one bin-width's worth of
+  separation. Can also be set to a fraction of the residual scale,
+  e.g. $0.1 \cdot \mathrm{std}(y)$.
+- $\lambda$: weight of the ordering loss relative to regression loss.
+  Start at 1.0 and tune. Too small and the constraint is ineffective;
+  too large and the heads are pushed apart artificially.
+- Decile cutoff for $S_i$: "top 10%" is a reasonable default; could be
+  "top 5%" for tighter estimates. Robust to the exact choice.
+
+**Caveats.**
+
+- Computing $M_i$ requires sorting each batch by $p_i$ per head. For
+  batch size $B$ and $k$ classes, this is $O(k B \log B)$ — negligible
+  relative to the forward pass.
+- When the classifier is still untrained (early epochs under
+  `REGRESSION_ONLY`), top-decile subsets are nearly random and $M_i$
+  is noisy; the ordering constraint will be weakly informative until
+  the classifier converges. Not a failure mode — the ordering just
+  becomes active once the classifier provides meaningful confidence.
+- The constraint only acts in the high-$p$ region. If the head misbehaves
+  at moderate $p$ values (e.g. outputs nonsensical values where
+  $p_i \approx 0.3$), the ordering penalty is silent there. But this is
+  fine: the regression loss already shapes the head on those samples
+  through the LTV combination.
 
 **What the anchor does and does not do.** The anchor is a constraint on the
 **head function** $h_i$ at $p_i = 1$, not a constraint on the model output
@@ -667,45 +731,62 @@ applications (photo-z, cluster mass).
    when the bin is asymmetric about its mean. On exponential's upper bin
    the correct value is well above $c_{k-1}$, so the current anchor forces
    a systematic under-prediction on the upper tail. The proposed fix is
-   the **range-parametrised head** described in \S3.3: bound $h_i$'s output
-   by $[y_i^\text{lo}, y_i^\text{hi}]$ from $y$-quantile means within each
-   bin, without anchoring at any specific $p$. This is the most likely
-   root cause of the anchored cells (B, D, F, H) still failing on
-   exponential and is a concrete actionable fix — worth trying *before*
-   the hybrid opt-strategy (§9.1).
+   the **ordering-constraint** soft loss described in \S3.3: drop the hard
+   anchor entirely and let the heads run unconstrained, adding only a
+   hinge penalty on the *ordering* of their high-confidence operating
+   means $M_0 < M_1 < \dots < M_{k-1}$. This is the most likely root cause
+   of the anchored cells (B, D, F, H) still failing on exponential and is
+   a concrete actionable fix — worth trying *before* the hybrid
+   opt-strategy (now §9.2).
 
 # 9. Open questions and next experiments
 
 In priority order.
 
-## 9.1 Range-parametrised head (highest-priority first experiment)
+## 9.1 Ordering constraint (highest-priority first experiment)
 
-Replace the current anchored head with the range-parametrised form from
-\S3.3:
+Replace the current anchored head (which imposes $h_i(1) = c_i$ hard) with
+an **ordering soft penalty** from \S3.3. No change to head parametrization:
+heads remain plain `BaseRegressionHead` with full flexibility. Add a new
+loss term
 $$
-h_i(p) \;=\; y_i^\text{lo} \;+\; (y_i^\text{hi} - y_i^\text{lo}) \cdot \sigma\bigl(g_i(p)\bigr),
+\mathcal{L}_\text{order} \;=\; \lambda \sum_{i=1}^{k-1} \bigl[\max\bigl(0,\; M_{i-1} - M_i + \delta\bigr)\bigr]^2
 $$
-where $y_i^\text{lo}, y_i^\text{hi}$ are the means of the bottom and top
-$\kappa$-percentile of training $y$ values within bin $i$ (say
-$\kappa = 5\%$). No classifier warmup. No anchoring at $p = 1$. Uniform
-across all bins.
+where $M_i$ is the mean output of head $i$ over training samples with
+$p_i(x)$ in the top decile. Hyperparameters: $\delta \sim
+(y_\text{max}-y_\text{min})/k$ (one bin-width margin) and $\lambda = 1$
+to start.
 
-Implementation sketch: add a new `RegressionHead` subclass `RangeHead` that
-takes `(y_lo, y_hi)` and contains a small MLP $g_i$ plus sigmoid. Compute
-the quantile means at `fit()` time and pass them to the head factory in
-`SeparateHeadsRegressionModule`. Optional monotonic variant: softplus
-weights on $g_i$'s linear layer.
+Implementation sketch: add a method
+`_calculate_ordering_loss(classifier_logits, per_head_outputs)` on
+`ProbabilisticRegressionModel`, called from `_calculate_custom_loss`. For
+each head $i$:
 
-Validation target: run the 8-cell identifiability sweep with the new head
-in place of `AnchoredHead`. Expected signatures:
+1. Extract $p_i(x_n) = \text{softmax}(\text{logits})[:, i]$ for the batch.
+2. Find the top-decile threshold on $p_i$ across the batch.
+3. Compute $M_i$ = mean of $h_i(p_i(x_n))$ over samples above that threshold.
+4. Accumulate the hinge penalty across adjacent pairs.
 
-- *Exponential* cells B, D, F, H: MSE should drop toward the unanchored A,
-  C, E, G values (confirming anchor-target-mis-specification was the cause).
-- *Bimodal/heteroscedastic/piecewise*: anchor_error should remain low
-  (identifiability preserved), with MSE no worse than before.
+No classifier warmup, no quantile preprocessing, no head parametrisation
+change. The heads become unconstrained `BaseRegressionHead` again (drop
+anchoring).
 
-If this fix works the new head supersedes `AnchoredHead` as the default
-ProbReg parametrization.
+Validation target: run the 8-cell identifiability sweep with the ordering
+penalty added and anchored heads removed. Expected signatures:
+
+- *All datasets, all cells*: anchor_error stays low (measured as
+  in the current sweep), confirming the ordering constraint provides
+  identifiability.
+- *Exponential*: MSE recovers to the unanchored-baseline values (cells A,
+  C, E, G), since the tails are no longer cut off by a misspecified
+  anchor target. This directly tests the suspect-4 diagnosis from \S8.5.
+- *Other datasets*: MSE stays at or near current anchored-cell values
+  since the ordering constraint is strictly weaker than the hard anchor
+  but sufficient for head-swap avoidance.
+
+If this fix works, the ordering penalty replaces both the `AnchoredHead`
+parametrization and the `use_monotonic_constraints` option as the default
+mechanism for head identifiability in ProbReg.
 
 ## 9.2 Hybrid opt-strategy
 
