@@ -247,8 +247,14 @@ def _compute_metrics(model: ClassifierRegressionModel | ProbabilisticRegressionM
             log_vars_mdn = np.log(np.clip(stds ** 2, 1e-8, None))
             weights = dist.weights
             nll_mdn = _mdn_nll(y_te, weights, mus, log_vars_mdn)
-        except Exception:
+        except NotImplementedError:
+            # dynamic-k and symlog-target ProbReg configs legitimately don't
+            # support predict_distribution; leave nll_mdn as NaN silently.
             pass
+        except Exception as exc:  # noqa: BLE001
+            # Any other failure is a real bug — log it loudly so we don't
+            # silently produce NaN rows again.
+            logger.warning("MDN NLL computation failed for cell %s (k=%d): %s", cell_label, k, exc)
 
         try:
             probs_ext, per_head_ext, centroids_ext = _extract_probreg(model, x_tr, y_tr, k)

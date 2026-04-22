@@ -128,6 +128,18 @@ class MixtureOfGaussiansDistribution:
         return _logsumexp(log_weights + component_logpdfs, axis=1)
 
     @property
+    def weights(self) -> np.ndarray:
+        return self._weights
+
+    @property
+    def means(self) -> np.ndarray:
+        return self._means
+
+    @property
+    def stds(self) -> np.ndarray:
+        return self._stds
+
+    @property
     def mean(self) -> np.ndarray:
         return np.sum(self._weights * self._means, axis=1)
 
