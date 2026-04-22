@@ -26,6 +26,7 @@ from automl_package.models.common.mixins import BoundaryLossMixin
 from automl_package.models.common.penalties import apply_additional_penalties
 from automl_package.utils.distributions import MixtureOfGaussiansDistribution
 from automl_package.utils.losses import masked_cross_entropy_loss, mdn_nll
+from automl_package.utils.ordering_loss import ordering_loss as ordering_loss_fn
 from automl_package.utils.numerics import calculate_class_value_ranges, create_bins
 from automl_package.utils.plotting import plot_nn_probability_mappers
 from automl_package.utils.transforms import symexp, symlog
@@ -59,6 +60,11 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         "target_transform": None,
         "prob_reg_loss_type": ProbRegLossType.GAUSSIAN_LTV,
         "use_anchored_heads": False,
+        # Ordering-constraint identifiability (see docs/probreg_identifiability_research.md §3.3).
+        # weight=0 disables the penalty entirely (zero cost).
+        "ordering_constraint_weight": 0.0,
+        "ordering_constraint_margin": 0.0,
+        "ordering_top_decile_fraction": 0.1,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -238,6 +244,32 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                         middle_class_dist_params=self.middle_class_dist_params_.get(k_int),
                     )
 
+
+        # 3b. Ordering-constraint identifiability penalty.
+        # Drops the hard head-index swap symmetry of the LTV loss by requiring the
+        # probability-weighted mean of each head's output (on its top-p subset) to
+        # be strictly increasing in class index. See
+        # docs/probreg_identifiability_research.md §3.3 for full derivation.
+        # Applied only to SEPARATE_HEADS (single-head strategies have no
+        # permutation symmetry to break) and only when per_head_outputs and
+        # classifier_logits are available.
+        ordering_weight = getattr(self, "ordering_constraint_weight", 0.0) or 0.0
+        if (
+            ordering_weight > 0.0
+            and self.regression_strategy == RegressionStrategy.SEPARATE_HEADS
+            and per_head_outputs is not None
+            and classifier_logits_out is not None
+        ):
+            # Slice to active classes so dynamic-k doesn't include padding heads.
+            logits_for_order = classifier_logits_out[:, : self.n_classes]
+            head_means = per_head_outputs[:, : self.n_classes, 0]
+            order_term = ordering_loss_fn(
+                logits_for_order,
+                head_means,
+                top_decile_fraction=float(getattr(self, "ordering_top_decile_fraction", 0.1)),
+                margin=float(getattr(self, "ordering_constraint_margin", 0.0)),
+            )
+            total_loss = total_loss + ordering_weight * order_term
 
         # 4. ELBO / k-penalty regularization for dynamic n_classes
         if self.n_classes_selection_method != NClassesSelectionMethod.NONE and self.n_classes_regularization != NClassesRegularization.NONE:
