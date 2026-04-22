@@ -255,12 +255,21 @@ $$
 S_i \;=\; \bigl\{x_n \,\big|\, p_i(x_n) \text{ in top decile of } \{p_i(x_1), \dots, p_i(x_N)\}\bigr\},
 $$
 the training samples on which the classifier is most confident about class
-$i$. Define the mean head output on this subset:
+$i$. Define the **probability-weighted mean head output** on this subset:
 $$
-M_i \;=\; \frac{1}{|S_i|} \sum_{x \in S_i} h_i\bigl(p_i(x)\bigr).
+M_i \;=\; \frac{\sum_{x \in S_i} p_i(x) \cdot h_i\bigl(p_i(x)\bigr)}{\sum_{x \in S_i} p_i(x)}.
 $$
-$M_i$ is a scalar: what head $i$ outputs, on average, when its own class
-is most confident.
+The weighting by $p_i(x)$ aligns $M_i$ with the head's actual contribution
+to the LTV prediction ($\mu_\text{total} = \sum_j p_j\,h_j$): $M_i$ is the
+average contribution of head $i$ to $\mu_\text{total}$ on samples where
+head $i$ dominates. Equivalently, it's the sensible *contribution*
+statistic — not just a function-value statistic.
+
+(An unweighted arithmetic alternative
+$M_i^\text{arith} = |S_i|^{-1} \sum_{x \in S_i} h_i(p_i(x))$
+yields the same ordering in any calibrated regime; the weighted form
+is strictly more sensitive to violations at the high-confidence end,
+where we most want sensitivity.)
 
 **Ordering penalty.** Add to the training loss
 $$
