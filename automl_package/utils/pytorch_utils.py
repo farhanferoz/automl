@@ -1,5 +1,7 @@
 """Utility functions for PyTorch models."""
 
+import os
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as f
@@ -43,11 +45,20 @@ def calculate_regularization_loss(
 
 
 def get_device() -> torch.device:
-    """Returns the best available device: CUDA > XPU > CPU.
+    """Returns the device to use for PyTorch models.
+
+    Honors the ``AUTOML_DEVICE`` environment variable when it is set to a
+    non-empty value (e.g. ``"cpu"``, ``"xpu"``, ``"cuda"``): this forces a
+    specific device regardless of what is available, so long-running jobs can
+    leave a busy accelerator free for other work. When the variable is unset or
+    empty, auto-detects the best available device: CUDA > XPU > CPU.
 
     On first call, disables a broken triton-xpu stub that crashes torch._dynamo.
     """
     _disable_broken_triton()
+    forced = os.environ.get("AUTOML_DEVICE", "").strip().lower()
+    if forced:
+        return torch.device(forced)
     if torch.cuda.is_available():
         return torch.device("cuda")
     if hasattr(torch, "xpu") and torch.xpu.is_available():
