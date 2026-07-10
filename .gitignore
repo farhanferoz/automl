@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Build / packaging
+build/
+dist/
+
+# CatBoost training artifacts
+catboost_info/
+
+# LaTeX build intermediates
+*.aux
+*.fdb_latexmk
+*.fls
+*.out
+*.synctex.gz
+*.toc
+texput.log
+
+# Logs
+*.log
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
