@@ -34,14 +34,21 @@ recommendation we would take forward, a negative-result side experiment
 bugs found during this work. The goal is that a future session can resume
 without re-deriving the context.
 
-**Headline finding.** Anchored heads solve the head-swap degeneracy cleanly
-at essentially no MSE cost and should become the default. CE_STOP_GRAD and MDN
-are situationally useful dials, not uniform improvements. ClassReg is
-consistently beaten by ProbReg except on narrow-range symmetric targets.
-A single negative result: on heavy-tail targets (exponential), CE_STOP_GRAD
-cells fail by an order of magnitude and **target-range compression via
-`symlog` does not rescue them** — the root cause is something other than
-target scale.
+**Headline finding.** Anchored heads were rejected on statistical grounds
+(\S13) and replaced with an **ordering-constraint penalty** (\S3.3) that
+imposes the minimal $k{-}1$ inequalities $M_0 < M_1 < \ldots < M_{k-1}$
+on probability-weighted top-decile head means. The rerun (\S9.1) shows
+the ordering penalty **works as intended, but only for Gaussian-LTV +
+REGRESSION_ONLY**: 2–7× anchor-error reduction with neutral-to-improved
+MSE/NLL on 7/8 cells. Under CE_STOP_GRAD the classifier already pre-orders
+the heads so the penalty is redundant; under MDN the head-means ordering
+has the wrong semantics and harms exponential/bimodal fits. CE_STOP_GRAD
+and MDN remain situational dials. ClassReg is consistently beaten by
+ProbReg except on narrow-range symmetric targets. One outstanding
+negative: on heavy-tail targets (exponential), CE_STOP_GRAD cells fail
+by an order of magnitude and **target-range compression via `symlog`
+does not rescue them** — the root cause is something other than target
+scale.
 
 # 2. Background: architecture and the identifiability problem
 
@@ -567,18 +574,26 @@ structural pressure for every class to be meaningful.
 
 # 7. Analysis and conclusions
 
-## 7.1 Anchored heads — recommend ON by default
+## 7.1 Identifiability mechanism — ordering constraint (Gaussian-LTV + RegOnly only)
 
-Anchoring is the cleanest win. Across all 4 datasets $\times$ 2 $k$ values:
+Anchored heads were the original candidate but were rejected on
+statistical grounds in \S13 and replaced by the ordering-constraint
+penalty (\S3.3, results in \S9.1). The rerun shows:
 
-- anchor_error drops from ~3–9 (unanchored) to 0.02–0.4 (anchored).
-- MSE cost is $\le 5\%$ on 3/4 datasets.
-- NLL cost is negligible.
-- Visually: the head-swap degeneracy disappears entirely.
-- Structural: $h_i(1) = c_i$ is a hard guarantee, not statistical.
+- anchor_error drops 2–7× on Gaussian-LTV + REGRESSION_ONLY (cells
+  A vs B), with neutral-to-improved MSE/NLL on 7/8 (dataset, k) cells.
+- Under `CE_STOP_GRAD` the classifier's softmax weighting already
+  pre-orders the heads (anchor $\le 1.2$ without the penalty), so the
+  ordering term is a no-op — redundant.
+- Combined with MDN it is harmful — mixture-parameter output does not
+  share the monotone-means semantics, and exponential MSE degrades
+  3–4×.
+- Margin must be $\delta = 0$; a range-normalised $\delta$ fails on
+  heavy-tail geometries.
 
-Recommendation: flip `use_anchored_heads=True` as the default
-parametrization.
+Recommendation: enable the ordering penalty only under
+`loss_type = gaussian_ltv` + `optimization_strategy = REGRESSION_ONLY`.
+Do not treat it as a universal default.
 
 ## 7.2 ClassReg vs ProbReg
 
@@ -615,28 +630,157 @@ where classifier semantics are wanted.
 - Wins exponential k=3 (Cell E = 0.507, best overall on that row).
 - Wins bimodal k=3 (Cell F = 2.305, beats A by $\sim 3\%$).
 - Loses on heteroscedastic and piecewise (Gaussian LTV wins both).
-- MDN + anchored is the most robust MDN choice.
+- MDN + ordering is **not** a safe combination — ordering head means
+  fights MDN's free mixture-parameter assignment (see \S9.1, E vs F).
 
 Keep Gaussian LTV as the default loss; expose MDN as a `prob_reg_loss_type`
-dial for bimodal / heavy-tail data.
+dial for bimodal / heavy-tail data, and disable the ordering penalty
+when MDN is selected.
 
 ## 7.5 Recommendation matrix
 
 | setting | default | expose as dial | rationale |
 |:---|:---:|:---:|:---|
-| anchored heads | **on** |   | free identifiability, no MSE cost |
+| ordering constraint | **on for Gauss-LTV + RegOnly only** |   | 2–7× anchor drop; redundant under CE_STOP_GRAD, harmful under MDN |
 | Gaussian LTV vs MDN | Gaussian | yes | MDN is situationally better, not uniformly |
 | `REGRESSION_ONLY` vs `CE_STOP_GRAD` | `REGRESSION_ONLY` | yes | CE_STOP_GRAD breaks on heavy-tail targets |
 | ClassReg vs ProbReg | **ProbReg** |  | ClassReg only competitive on narrow-range targets |
 
 ## 7.6 The best "safe default" overall
 
-**Cell B** — Gaussian LTV + `REGRESSION_ONLY` + anchored heads. It either
-wins or ties-best on NLL across all four datasets and is the highest among
-cells that do not fail catastrophically on any. If classifier semantics
-are specifically wanted (e.g. calibration / interpretability applications
-where we need $p_i(x)$ to mean "probability of bin $i$"), **Cell D** is
-the right choice at the cost of mild MSE degradation outside exponential.
+**Cell B** — Gaussian LTV + `REGRESSION_ONLY` + ordering penalty. It either
+wins or ties-best on NLL across all four datasets, gets a 2–7× anchor
+reduction over Cell A, and is the highest among cells that do not fail
+catastrophically on any. If classifier semantics are specifically
+wanted (e.g. calibration / interpretability applications where we need
+$p_i(x)$ to mean "probability of bin $i$"), **Cell C** (no ordering
+needed — CE_STOP_GRAD pre-orders for free) is the right choice at the
+cost of mild MSE degradation outside exponential.
+
+## 7.7 Default policy (codified in `ProbabilisticRegressionModel`)
+
+The three cells with simultaneously (i) solved identifiability and (ii)
+no catastrophic regression across datasets are **B, C, G**. The underlying
+principle: something must break the $S_k$ head-index swap symmetry —
+either the explicit ordering penalty (B) or the implicit pinning
+provided by a frozen classifier (C, G). Combining both is redundant at
+best (D, H) and harmful with MDN (F). Leaving both off is unidentified
+(A, E).
+
+Policy implemented via auto-resolution of `ordering_constraint_weight`
+in `ProbabilisticRegressionModel.__init__`:
+
+| user passes | loss | opt strategy | strategy | resolved weight |
+|---|---|---|---|---|
+| `None` (default) | Gaussian-LTV | `REGRESSION_ONLY` | `SEPARATE_HEADS` | **1.0** (Cell B) |
+| `None` (default) | any other combination | | | **0.0** |
+| explicit float | — | — | — | **used verbatim** |
+
+Guardrails:
+
+- Explicit `ordering_constraint_weight > 0` with `prob_reg_loss_type = MDN`
+  emits a warning pointing to §9.1 (cells E vs F regression on
+  exponential). We do not silently override — research users may want to
+  verify the finding.
+- Non-`SEPARATE_HEADS` strategies silently no-op the penalty in
+  `_calculate_custom_loss` regardless of the weight (the per-head output
+  tensor needed for $M_i$ doesn't exist in other strategies).
+
+Opt-in dials users should consider overriding:
+
+- Heteroscedastic-style noise structure: switch to **Cell C**
+  (`optimization_strategy = CE_STOP_GRAD`). Wins MSE by 10–17% on
+  heteroscedastic data.
+- Multimodal / heavy-tail targets where calibration matters:
+  **Cell G** (`prob_reg_loss_type = MDN` +
+  `optimization_strategy = CE_STOP_GRAD`). Ordering auto-resolves to 0
+  for this combination.
+
+Never-recommended configurations: A, D, E, F, H. The auto-resolution
+prevents the common accidental A (unidentified default) but does not
+prevent D/E/F/H if explicitly chosen — those remain available for
+ablations and research.
+
+### 7.7.1 Loss-term typology: supervision vs regularization
+
+There is a philosophical tension between Cell B (ordering) and Cell C
+(CE_STOP_GRAD) that the empirical ranking does not resolve:
+
+- **(i) Supervision on a separate target.** CE_STOP_GRAD adds a
+  cross-entropy loss $\mathcal{L}_\text{CE}(p_\cdot(x), b(y))$ on
+  percentile-bin labels $b(y)$. The bin label is a deterministic
+  function of $y$ and percentile cut-points, so $p_i(x)$ is being
+  supervised to approximate $\Pr[b(y) = i \mid x]$ — a well-defined
+  probabilistic quantity. The regression loss (Gaussian-LTV NLL) is
+  itself probabilistically motivated, so layering a likelihood on bin
+  labels is consistent with the generative story.
+- **(ii) Regularization on the regression path.** The ordering penalty
+  $\mathcal{L}_\text{order}$ operates on $M_i$, a probability-weighted
+  mean of $h_i(p_i)$ over the top-decile-$p_i$ subset. It pushes the
+  regression heads directly, and is not the gradient of any likelihood
+  — it is a constraint chosen to break the $S_k$ swap symmetry.
+
+On grounds of probabilistic cleanliness, (i) > (ii): once we accept
+regularization terms of type (ii), there is no principled stopping
+rule. Would we add a middle-class occupancy penalty too? A head-spread
+penalty? Each one is individually defensible yet the coefficient space
+grows without end.
+
+Despite this, **B remains the default** on empirical grounds:
+
+- B wins or ties-best on NLL against C on $5/6$ non-exponential
+  dataset–$k$ cells.
+- C fails catastrophically on heavy-tail targets (exponential $k=3$,
+  C MSE = 5.77 vs B MSE = 0.51 — a $\sim 11\times$ regression).
+- C's middle-bin probability under $k=5$ runs to $\max p_\text{mid} \in
+  [0.59, 0.93]$ — CE forces bin occupancy whether or not the data
+  support $k$ effective components, which can mask
+  effective-$k$ < nominal-$k$ collapses that B surfaces honestly
+  (see §7.8).
+
+The tension is real and worth revisiting after the $k$-sweep of §9: if
+C + dynamic-$k$ closes the exponential gap and keeps the NLL parity on
+the others, the philosophical argument becomes actionable.
+
+## 7.8 Against middle-class penalty stacking
+
+A tempting follow-up to the ordering constraint is a **middle-class
+occupancy penalty**: for $k \geq 5$, the unidentified Cell A collapses
+the middle bin to $\max p_\text{mid} \approx 0.05$–$0.37$, and Cell B
+only partially recovers ($[0.31, 0.54]$). One could add a penalty
+$\mathcal{L}_\text{mid} = -\lambda_\text{mid}
+\sum_{i \in \text{mid}} \log \bar p_i$ (or similar) that pushes the
+batch-averaged middle-bin mass toward $1/k$.
+
+**We explicitly decline to do this**, for two reasons:
+
+1. **Slippery slope on type-(ii) regularizers.** Once the coefficient
+   vector contains one hand-chosen penalty on the regression path, the
+   threshold for adding more collapses: head-spread, variance-floor,
+   anti-collapse, anchor-drift... each individually defensible, none
+   grounded in a likelihood. See §7.7.1: type-(i) supervision has a
+   natural stopping rule (supervise observables); type-(ii)
+   regularization does not. We draw the line at one (the ordering
+   penalty, whose identifiability role is unreplaceable in cells B/F).
+2. **Emptiness is information, not a bug.** A middle bin with
+   $p_i \to 0$ at large $k$ is the model telling us the effective
+   number of components supported by the data is smaller than the
+   nominal $k$ we passed in. Stamping that out with a penalty hides
+   the signal. The correct response is to let $k$ adapt to the data
+   — which is exactly what the dynamic-$k$ machinery
+   (`NClassesSelectionMethod` $\in \{$Gumbel, SoftGating, STE,
+   REINFORCE$\}$ combined with `NClassesRegularization` $\in \{$
+   K_PENALTY, ELBO$\}$) is for.
+
+The test of (2) is §9 (P2.3): if dynamic-$k$ + Cell B recovers
+best-fixed-$k$ performance or better, the middle-class emptiness
+problem is absorbed into the $k$-selection mechanism and no penalty is
+needed. If dynamic-$k$ fails to improve over fixed $k$, we revisit —
+but through the lens of fixing the selection mechanism, not by
+stacking another regularizer.
+
+Corresponding work — a middle-class centering penalty — is struck from
+the roadmap.
 
 # 8. The symlog hypothesis — a negative result
 
@@ -752,50 +896,106 @@ applications (photo-z, cluster mass).
 
 In priority order.
 
-## 9.1 Ordering constraint (highest-priority first experiment)
+## 9.1 Ordering constraint — results from the rerun
 
-Replace the current anchored head (which imposes $h_i(1) = c_i$ hard) with
-an **ordering soft penalty** from \S3.3. No change to head parametrization:
-heads remain plain `BaseRegressionHead` with full flexibility. Add a new
-loss term
+The current anchored head (which imposes $h_i(1) = c_i$ hard) was replaced
+with an **ordering soft penalty** from \S3.3. No change to head
+parametrization: heads remain plain `BaseRegressionHead` with full
+flexibility. Added loss term:
 $$
 \mathcal{L}_\text{order} \;=\; \lambda \sum_{i=1}^{k-1} \bigl[\max\bigl(0,\; M_{i-1} - M_i + \delta\bigr)\bigr]^2
 $$
-where $M_i$ is the mean output of head $i$ over training samples with
-$p_i(x)$ in the top decile. Hyperparameters: $\delta \sim
-(y_\text{max}-y_\text{min})/k$ (one bin-width margin) and $\lambda = 1$
-to start.
+where
+$$
+M_i \;=\; \frac{\sum_{x \in S_i} p_i(x)\, h_i(p_i(x))}{\sum_{x \in S_i} p_i(x)},
+\qquad
+S_i = \{x : p_i(x) \text{ in top } 10\% \}
+$$
+is the probability-weighted mean of head $i$ over the top-decile-$p_i$
+subset of the batch.
 
-Implementation sketch: add a method
-`_calculate_ordering_loss(classifier_logits, per_head_outputs)` on
-`ProbabilisticRegressionModel`, called from `_calculate_custom_loss`. For
-each head $i$:
+**Hyperparameters used in the sweep.** $\lambda = 1.0$, $\delta = 0$.
+An initial attempt with $\delta = (y_{\max} - y_{\min})/k$ (one bin-width
+margin) catastrophically hurt exponential (MSE $\gg 5$) because the
+target-quantile centroids on a heavy tail are far from uniformly
+spaced — margin-0 is the only safe default across problems with varying
+tail geometry.
 
-1. Extract $p_i(x_n) = \text{softmax}(\text{logits})[:, i]$ for the batch.
-2. Find the top-decile threshold on $p_i$ across the batch.
-3. Compute $M_i$ = mean of $h_i(p_i(x_n))$ over samples above that threshold.
-4. Accumulate the hinge penalty across adjacent pairs.
+Implementation: `automl_package/utils/ordering_loss.py` +
+`_calculate_custom_loss` integration in
+`automl_package/models/probabilistic_regression.py`. Under `CE_STOP_GRAD`
+the classifier logits are detached before entering the ordering term so
+the gradient-stop contract is preserved.
 
-No classifier warmup, no quantile preprocessing, no head parametrisation
-change. The heads become unconstrained `BaseRegressionHead` again (drop
-anchoring).
+**Validation:** re-ran the 8-cell matrix with anchored heads disabled and
+ordering toggled on/off. Three seeds per cell, $k \in \{3, 5\}$, four
+datasets. Clean run against post-fix code; the gradient-stop fix itself
+moves D/H by less than seed noise (max $|\Delta \mathrm{MSE}| = 0.05$).
 
-Validation target: run the 8-cell identifiability sweep with the ordering
-penalty added and anchored heads removed. Expected signatures:
+### 9.1.1 Measured ordering-on vs ordering-off pairs
 
-- *All datasets, all cells*: anchor_error stays low (measured as
-  in the current sweep), confirming the ordering constraint provides
-  identifiability.
-- *Exponential*: MSE recovers to the unanchored-baseline values (cells A,
-  C, E, G), since the tails are no longer cut off by a misspecified
-  anchor target. This directly tests the suspect-4 diagnosis from \S8.5.
-- *Other datasets*: MSE stays at or near current anchored-cell values
-  since the ordering constraint is strictly weaker than the hard anchor
-  but sufficient for head-swap avoidance.
+Ratio $r_\text{anchor} = \mathrm{anchor\_on} / \mathrm{anchor\_off}$
+(lower = stronger symmetry break). MSE columns in data units.
 
-If this fix works, the ordering penalty replaces both the `AnchoredHead`
-parametrization and the `use_monotonic_constraints` option as the default
-mechanism for head identifiability in ProbReg.
+**Cells A vs B — Gaussian-LTV + REGRESSION_ONLY** (ordering's target use case):
+
+| dataset        | k | MSE off | MSE on | $r_\text{anchor}$ |
+|----------------|---|--------:|-------:|------------------:|
+| bimodal        | 3 |   2.372 |  2.349 |             0.148 |
+| bimodal        | 5 |   2.329 |  2.386 |             0.372 |
+| exponential    | 3 |   0.569 |  0.509 |             0.897 |
+| exponential    | 5 |   0.503 |  1.696 |             0.178 |
+| heteroscedastic| 3 |   2.190 |  2.142 |             0.174 |
+| heteroscedastic| 5 |   2.124 |  2.206 |             0.536 |
+| piecewise      | 3 |   0.334 |  0.292 |             0.229 |
+| piecewise      | 5 |   0.293 |  0.296 |             0.503 |
+
+Seven of eight cells: anchor drops 2–7× with neutral-to-improved MSE/NLL.
+One regression: exponential $k=5$ (MSE $0.50 \to 1.70$) — the heavy-tail
+geometry is hostile to uniform-weight ordering even at $\delta = 0$.
+
+**Cells C vs D — Gaussian-LTV + CE_STOP_GRAD**:
+$r_\text{anchor} \in [0.90, 1.15]$; $|\Delta \mathrm{MSE}| \le 0.22$
+(all within seed std). Ordering is **redundant** here because the
+classifier's softmax weighting already pre-orders the heads — anchor
+error is already $\le 1.2$ without the penalty.
+
+**Cells E vs F — MDN + REGRESSION_ONLY**:
+anchor drops as with A/B, but MSE **regresses on exponential**
+($0.51 \to 1.91$ at $k{=}3$; $0.99 \to 3.17$ at $k{=}5$) and MDN NLL
+worsens on bimodal $k{=}3$ ($0.18 \to 0.49$). The head-means ordering
+is the wrong semantics for MDN's mixture-parameter output — its
+"heads" predict $(\mu_i, \log\sigma_i^2, \pi_i)$ triples, and forcing
+$\mu_i$ monotone in $i$ conflicts with the free mixture assignment.
+
+**Cells G vs H — MDN + CE_STOP_GRAD**: essentially identical
+($|\Delta \mathrm{MSE}| \le 0.07$), same reason as C vs D.
+
+### 9.1.2 Verdict
+
+The ordering penalty **achieves its identifiability goal** (5–7× anchor
+reduction) **only for Gaussian-LTV + REGRESSION_ONLY**. Elsewhere it is
+either redundant (CE_STOP_GRAD variants) or actively harmful (MDN +
+REGRESSION_ONLY).
+
+**Updated defaults:**
+
+- `use_ordering_constraint = True` **only** when
+  `loss_type = gaussian_ltv` and
+  `optimization_strategy = REGRESSION_ONLY`.
+- Leave off under CE_STOP_GRAD (no benefit, slight compute cost).
+- **Do not combine** with MDN.
+- `margin = 0.0` unconditionally — the range-normalised margin
+  hypothesised in earlier drafts fails on heavy-tail targets.
+
+**Outstanding:** exponential $k=5$ under the recommended config still
+regresses relative to ordering-off. Worth a small tuning pass
+($\lambda \in \{0.1, 0.3\}$) or switching the exponential pipeline to
+CE_STOP_GRAD (where ordering is a no-op anyway).
+
+Measured data: `automl_package/examples/probreg_identifiability_results/summary.csv`
+(clean), `summary.TAINTED-DH.csv` (pre-fix baseline used to verify the
+gradient-stop leak had no observable effect).
 
 ## 9.2 Hybrid opt-strategy
 
@@ -898,7 +1098,49 @@ The aggregator expected a column `nll_mean` but the identifiability sweep
 CSV produces `nll_own_mean`, `nll_gaussian_mean`, `nll_mdn_mean`. Fixed
 to tolerate either.
 
-## 10.5 B1 — monotonic head init with `mean=-3.0` (**pre-existing, not fixed**)
+## 10.5 Sentinel filter used `n_classes_inf` instead of the sentinel itself (Phase-2 re-run)
+
+`_calculate_custom_loss` filtered batch samples that had taken the
+direct-regression bypass with
+
+```python
+probabilistic_indices = torch.where(selected_k_values < self.n_classes_inf)[0]
+```
+
+The sentinel value for the bypass is
+`DIRECT_REGRESSION_K_SENTINEL = 2**30 = 1073741824`
+(see `automl_package/models/selection_strategies/base_selection_strategy.py`).
+The constant was intended to *exceed* `n_classes_inf`, but
+`n_classes_inf` defaults to `float("inf")`, so `2**30 < inf` is `True`
+and the sentinel flowed through the filter. The downstream
+`self.precomputed_class_boundaries[int(k.item())]` lookup then crashed
+with `KeyError: 1073741824`. Symmetric bug in the `predict`-side
+classifier-predictions path (same filter pattern).
+
+**Latent until:** a dynamic-k selection strategy (`SOFT_GATING`,
+`GUMBEL_SOFTMAX`, `STE`, `REINFORCE`) picks the bypass mode for at least
+one sample in a batch *and* CE supervision is active (`CE_STOP_GRAD` or
+`GRADIENT_STOP`). Cell B (`REGRESSION_ONLY`) is unaffected — the entire
+CE block is gated off. The `use_middle_class_nll_penalty` /
+`boundary_regularization` variant of the same filter has identical
+defect but is not exercised in the default sweep.
+
+**Affected:** 352/360 Cell C + non-NONE-dynamic runs in the P2.3 sweep
+(2026-04-23). The 8 "successful" seeds silently biased toward batches
+where the bypass mode was never the argmax and were discarded with the
+rest before re-running.
+
+**Fix:** Compare against the sentinel directly at three call sites in
+`probabilistic_regression.py` (classification-loss block, middle-class
+penalty block, `get_classifier_predictions`). Added import of
+`DIRECT_REGRESSION_K_SENTINEL`. Regression test
+`TestCeStopGradDynamicKSentinelFilter` (6 parametrizations over
+(SOFT_GATING, GUMBEL_SOFTMAX) × (NONE, K_PENALTY, ELBO)) added to
+`tests/test_phase3_dynamic_k.py`. Three ordering-constraint tests that
+had used `float("inf")` as a stand-in sentinel updated to use the real
+constant.
+
+## 10.6 B1 — monotonic head init with `mean=-3.0` (**pre-existing, not fixed**)
 
 `_initialize_monotonic_head` uses `nn.init.normal_(weight, mean=-3.0)`,
 which breaks on all-positive targets. **Does not affect this
