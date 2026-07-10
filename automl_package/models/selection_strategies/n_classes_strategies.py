@@ -79,7 +79,8 @@ class GumbelSoftmaxStrategy(BaseSelectionStrategy):
         )
         self.mode_selection_probs = mode_selection_probs
         final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._weighted_average_logic(x_input, mode_selection_probs, boundaries=boundaries)
-        return final_predictions_contribution, selected_k_values_for_logging, None, classifier_raw_logits, None
+        per_head_outputs = self._compute_per_head_outputs_full_k(classifier_raw_logits, boundaries=boundaries)
+        return final_predictions_contribution, selected_k_values_for_logging, None, classifier_raw_logits, per_head_outputs
 
 
 class SoftGatingStrategy(BaseSelectionStrategy):
@@ -98,7 +99,8 @@ class SoftGatingStrategy(BaseSelectionStrategy):
         mode_selection_probs = f.softmax(logits, dim=-1)
         self.mode_selection_probs = mode_selection_probs
         final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._weighted_average_logic(x_input, mode_selection_probs, boundaries=boundaries)
-        return final_predictions_contribution, selected_k_values_for_logging, None, classifier_raw_logits, None
+        per_head_outputs = self._compute_per_head_outputs_full_k(classifier_raw_logits, boundaries=boundaries)
+        return final_predictions_contribution, selected_k_values_for_logging, None, classifier_raw_logits, per_head_outputs
 
 
 class SteStrategy(BaseSelectionStrategy):
@@ -117,7 +119,8 @@ class SteStrategy(BaseSelectionStrategy):
         mode_selection_one_hot = f.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=True, dim=-1)
         self.mode_selection_probs = mode_selection_one_hot
         final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._hard_selection_logic(x_input, mode_selection_one_hot, boundaries=boundaries)
-        return final_predictions_contribution, selected_k_values_for_logging, None, classifier_raw_logits, None
+        per_head_outputs = self._compute_per_head_outputs_full_k(classifier_raw_logits, boundaries=boundaries)
+        return final_predictions_contribution, selected_k_values_for_logging, None, classifier_raw_logits, per_head_outputs
 
 
 class ReinforceStrategy(BaseSelectionStrategy):
@@ -143,7 +146,8 @@ class ReinforceStrategy(BaseSelectionStrategy):
         mode_selection_one_hot = f.one_hot(action, num_classes=logits.size(-1)).float()
         self.mode_selection_probs = mode_selection_one_hot
         final_predictions_contribution, selected_k_values_for_logging, classifier_raw_logits = self._hard_selection_logic(x_input, mode_selection_one_hot, boundaries=boundaries)
-        return final_predictions_contribution, selected_k_values_for_logging, log_prob, classifier_raw_logits, None
+        per_head_outputs = self._compute_per_head_outputs_full_k(classifier_raw_logits, boundaries=boundaries)
+        return final_predictions_contribution, selected_k_values_for_logging, log_prob, classifier_raw_logits, per_head_outputs
 
     def on_epoch_end(self, **kwargs: Any) -> None:
         """Performs operations at the end of each training epoch.

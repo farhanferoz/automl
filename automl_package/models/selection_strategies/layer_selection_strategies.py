@@ -1,5 +1,6 @@
 """Layer selection strategies for flexible neural networks."""
 
+import math
 from typing import Any
 
 import torch
@@ -181,6 +182,97 @@ class SteStrategy(BaseSelectionStrategy):
 
         n_actual = torch.argmax(n_probs, dim=1) + 1
         return aggregated_output, n_actual, None, n_probs, torch.tensor(0.0)
+
+
+class NestedStrategy(BaseSelectionStrategy):
+    """Nested-depth training: per-sample depth draws as a SCHEDULE (capacity-ladder F2).
+
+    Every sample independently draws a depth d ~ Uniform{1..max_hidden_layers} on each
+    forward pass; the training loss (computed by the caller from `final_output`, same as
+    every other strategy) is the readout at that sample's OWN drawn depth. This is a draw,
+    not a learned selector: `logits` is ignored entirely (no depth input to the network,
+    no penalty), so `n_predictor_layers` must be 0, same as `NoneStrategy`.
+
+    All `max_hidden_layers` per-depth outputs are computed once via the same
+    cached-representation loop the soft strategies use (`all_depth_outputs`), so the
+    per-sample gather that follows is a free reshape of one forward pass — the prefix
+    property this relies on is the one audited in `_flexnn_prefix_selftest.py`.
+    `all_depth_log_likelihood` reuses that same cache to export the eval-time all-depth
+    score table the capacity-ladder readers consume.
+    """
+
+    def setup_optimizers(self, policy_params: Any) -> None:
+        """No policy optimizer needed: NESTED has no n_predictor to train."""
+
+    def on_epoch_end(self, **kwargs: Any) -> None:
+        """No epoch-end action: the draw distribution is fixed (uniform), nothing anneals."""
+
+    def all_depth_outputs(self, x_input: torch.Tensor) -> torch.Tensor:
+        """Computes the shared output layer's readout at every depth, in ONE forward pass.
+
+        Args:
+            x_input (torch.Tensor): Input tensor, shape (batch, in_features).
+
+        Returns:
+            torch.Tensor: Shape (batch, max_hidden_layers, out_features); index
+                `[:, d - 1, :]` is the depth-d readout (blocks 1..d then the shared
+                output layer) — the same value an independent truncated forward at
+                depth d would give.
+        """
+        outputs = []
+        current_output = x_input
+        for i in range(self.model.max_hidden_layers):
+            current_output = self.model.model.hidden_layers_blocks[i](current_output)
+            outputs.append(self.model.model.output_layer(current_output))
+        return torch.stack(outputs, dim=1)
+
+    def all_depth_log_likelihood(self, x_input: torch.Tensor, y_target: torch.Tensor) -> torch.Tensor:
+        """Per-sample Gaussian log-likelihood at every depth, from ONE forward pass.
+
+        Requires `UncertaintyMethod.PROBABILISTIC` (native (mean, log_var) heads) — NLL
+        scoring falls out of the same forward, no shim needed. This is the all-depth
+        score table F2's ladder read and the `_capacity_ladder.py` readers consume.
+
+        Args:
+            x_input (torch.Tensor): Input tensor, shape (batch, in_features).
+            y_target (torch.Tensor): Targets, shape (batch,) or (batch, 1).
+
+        Returns:
+            torch.Tensor: Shape (batch, max_hidden_layers); higher is better.
+        """
+        all_outputs = self.all_depth_outputs(x_input)  # (batch, depth, out_features)
+        if all_outputs.size(-1) != 2:
+            raise ValueError("all_depth_log_likelihood requires UncertaintyMethod.PROBABILISTIC (mean, log_var) heads.")
+        mean = all_outputs[..., 0]
+        log_var = all_outputs[..., 1]
+        variance = torch.exp(log_var)
+        y = y_target.reshape(-1, 1).to(all_outputs.device)
+        return -0.5 * (math.log(2 * math.pi) + log_var + (y - mean) ** 2 / variance)
+
+    def forward(self, x_input: torch.Tensor, _logits: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
+        """Draws a per-sample depth ~ Uniform{1..max_hidden_layers}; returns that depth's readout.
+
+        Args:
+            x_input (torch.Tensor): Input tensor.
+            _logits (torch.Tensor | None): Ignored — NESTED does not condition on the n_predictor.
+
+        Returns:
+            tuple: A tuple containing final predictions (each sample's own drawn-depth
+                readout), actual n (the drawn depth), None, n_probs (one-hot at the
+                drawn depth, for logging parity with the other strategies), and log_prob.
+        """
+        max_depth = self.model.max_hidden_layers
+        all_outputs = self.all_depth_outputs(x_input)  # (batch, depth, out_features)
+
+        depth_idx = torch.randint(0, max_depth, (x_input.size(0),), device=x_input.device)
+        gather_index = depth_idx.view(-1, 1, 1).expand(-1, 1, all_outputs.size(-1))
+        final_output = all_outputs.gather(1, gather_index).squeeze(1)
+
+        n_actual = depth_idx + 1
+        n_probs = f.one_hot(depth_idx, num_classes=max_depth).float()
+        self.mode_selection_probs = n_probs
+
+        return final_output, n_actual, None, n_probs, torch.tensor(0.0)
 
 
 class ReinforceStrategy(BaseSelectionStrategy):

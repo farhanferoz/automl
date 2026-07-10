@@ -90,6 +90,7 @@ class LayerSelectionMethod(Enum):
     GUMBEL_SOFTMAX = "gumbel_softmax"
     STE = "ste"
     REINFORCE = "reinforce"
+    NESTED = "nested"  # per-sample depth draws (a training schedule, not a selector) — capacity-ladder F2
 
 
 class DepthRegularization(Enum):

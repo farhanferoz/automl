@@ -5,6 +5,8 @@ from typing import Any
 
 import torch
 
+from automl_package.enums import ProbabilisticRegressionOptimizationStrategy, RegressionStrategy
+
 # Sentinel value for direct regression mode (must exceed any valid n_classes_inf).
 # Loss function checks `selected_k_values < n_classes_inf` to identify probabilistic samples.
 DIRECT_REGRESSION_K_SENTINEL = 2**30
@@ -49,6 +51,38 @@ class BaseSelectionStrategy(ABC):
         # Default implementation does nothing
 
     _DIRECT_REGRESSION_K_SENTINEL = DIRECT_REGRESSION_K_SENTINEL
+
+    def _compute_per_head_outputs_full_k(
+        self, classifier_raw_logits: torch.Tensor, boundaries: torch.Tensor | None = None,
+    ) -> torch.Tensor | None:
+        """Per-head outputs at k=n_classes, for ordering/MDN/middle-class penalties.
+
+        Dynamic-k strategies call the regression heads inside a weighted-sum over
+        modes with mode-dependent probability inputs; that per-mode view is not a
+        coherent readout for head-structure penalties (ordering, MDN, middle-class,
+        boundary loss). This helper mirrors NoneStrategy's fixed-k behaviour: mask
+        to the first n_classes logits, softmax, feed through the regression module
+        with ``return_head_outputs=True``. SINGLE_HEAD_FINAL_OUTPUT has no per-head
+        structure, so None is returned and the loss-side guards become no-ops.
+        """
+        if self.model.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
+            return None
+
+        n_classes = self.model.n_classes
+        masked = torch.full_like(classifier_raw_logits, float("-inf"))
+        masked[:, :n_classes] = classifier_raw_logits[:, :n_classes]
+        probabilities = torch.softmax(masked, dim=1)
+
+        if self.model.optimization_strategy in (
+            ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
+            ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
+        ):
+            probabilities = probabilities.detach()
+
+        _, per_head_outputs = self.model.regression_module(
+            probabilities, return_head_outputs=True, boundaries=boundaries,
+        )
+        return per_head_outputs
 
     # Helper for weighted average logic (common to GumbelSoftmax and SoftGating)
     def _weighted_average_logic(

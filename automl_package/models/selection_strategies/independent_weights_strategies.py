@@ -212,6 +212,52 @@ class IndependentWeightsSteStrategy(BaseSelectionStrategy):
         # No annealing or policy update specific to STE
 
 
+class IndependentWeightsNestedStrategy(BaseSelectionStrategy):
+    """NESTED strategy for IndependentWeightsFlexibleNN — the conditioned control.
+
+    Every sample independently draws a depth d ~ Uniform{1..max_hidden_layers}, the same
+    per-sample schedule as `NestedStrategy` on the shared-trunk model. `select_n` returns
+    a ONE-HOT `n_probs` at the drawn depth, so the module's existing weighted-sum-over-
+    independent-networks forward (`IndependentWeightsFlexibleNNModule.forward`) already
+    selects exactly that sample's independent network — no change needed there. Ignores
+    `n_logits` (no depth input to the network; `n_predictor_layers` must be 0, same as
+    `IndependentWeightsNoneStrategy`).
+    """
+
+    def setup_optimizers(self, policy_params: Any) -> None:  # noqa: ARG002
+        """No policy optimizer needed: NESTED has no n_predictor to train."""
+        self.policy_optimizer = None
+
+    def select_n(self, x_input: torch.Tensor, n_logits: torch.Tensor) -> SelectionOutput:
+        """Draws a per-sample depth ~ Uniform{1..max_hidden_layers}.
+
+        :param x_input: The input tensor.
+        :param n_logits: Ignored — NESTED does not condition on the n_predictor.
+        :return: A tuple containing the drawn depth, a one-hot selection over depths,
+            the (unused) logits, and None (no log_prob — this is a draw, not a policy).
+        """
+        max_depth = self.model.max_hidden_layers
+        depth_idx = torch.randint(0, max_depth, (x_input.shape[0],), device=x_input.device)
+        n_actual = depth_idx + 1
+        n_probs = f.one_hot(depth_idx, num_classes=max_depth).float()
+        return n_actual, n_probs, n_logits, None
+
+    def forward(self, x_input: torch.Tensor, n_logits: torch.Tensor) -> ForwardOutput:
+        """This forward method is called by the model's main forward pass.
+
+        :param x_input: The input tensor.
+        :param n_logits: The logits for the number of layers (ignored).
+        :return: A tuple containing the input tensor, the actual number of layers,
+            the probabilities for the number of layers, the logits for the number of
+            layers, and the log probability.
+        """
+        n_actual, n_probs, n_logits_out, log_prob = self.select_n(x_input, n_logits)
+        return x_input, n_actual, n_probs, n_logits_out, log_prob
+
+    def on_epoch_end(self, validation_loss: float, epoch_log_probs: Any) -> None:
+        """No epoch-end action: the draw distribution is fixed (uniform), nothing anneals."""
+
+
 class IndependentWeightsReinforceStrategy(BaseSelectionStrategy):
     """REINFORCE strategy for IndependentWeightsFlexibleNN."""
 

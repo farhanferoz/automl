@@ -24,10 +24,11 @@ from automl_package.models.common.losses import calculate_combined_loss
 from automl_package.models.common.middle_class_penalty_mixin import MiddleClassPenaltyMixin
 from automl_package.models.common.mixins import BoundaryLossMixin
 from automl_package.models.common.penalties import apply_additional_penalties
+from automl_package.models.selection_strategies.base_selection_strategy import DIRECT_REGRESSION_K_SENTINEL
 from automl_package.utils.distributions import MixtureOfGaussiansDistribution
 from automl_package.utils.losses import masked_cross_entropy_loss, mdn_nll
-from automl_package.utils.ordering_loss import ordering_loss as ordering_loss_fn
 from automl_package.utils.numerics import calculate_class_value_ranges, create_bins
+from automl_package.utils.ordering_loss import ordering_loss as ordering_loss_fn
 from automl_package.utils.plotting import plot_nn_probability_mappers
 from automl_package.utils.transforms import symexp, symlog
 
@@ -55,14 +56,26 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         "use_middle_class_nll_penalty": False,
         "n_classes_regularization": NClassesRegularization.NONE,
         "k_penalty_weight": 0.01,
+        # ELBO prior configuration for n_classes_regularization == ELBO.
+        # bypass_prior_prob: prior probability p(bypass) for the direct-regression mode,
+        #   applied as a separate Bernoulli KL. Default 0.5 (symmetric / least-informative).
+        # k_prior_type: prior over probabilistic modes k ∈ {2..k_max}, conditional on not-bypass.
+        #   "uniform" (default) — pure concentration penalty.
+        #   "geometric" — prefers low k; step size controlled by k_prior_geometric_lambda.
+        "bypass_prior_prob": 0.5,
+        "k_prior_type": "uniform",
+        "k_prior_geometric_lambda": 0.2,
         "loss_type": "nll",
         "beta": 0.5,
         "target_transform": None,
         "prob_reg_loss_type": ProbRegLossType.GAUSSIAN_LTV,
         "use_anchored_heads": False,
-        # Ordering-constraint identifiability (see docs/probreg_identifiability_research.md §3.3).
-        # weight=0 disables the penalty entirely (zero cost).
-        "ordering_constraint_weight": 0.0,
+        # Ordering-constraint identifiability (see docs/probreg_identifiability_research.md §3.3, §7.7).
+        # None = auto: enable (weight=1.0) only for the (SEPARATE_HEADS, Gaussian-LTV, REGRESSION_ONLY)
+        # triple — the single configuration where the penalty measurably helps. Redundant under
+        # CE_STOP_GRAD, harmful under MDN; auto-resolution sets it to 0 there. Pass a float to
+        # override (e.g. 0.0 to disable everywhere).
+        "ordering_constraint_weight": None,
         "ordering_constraint_margin": 0.0,
         "ordering_top_decile_fraction": 0.1,
     }
@@ -112,6 +125,21 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         if self.use_anchored_heads and self.regression_strategy != RegressionStrategy.SEPARATE_HEADS:
             logger.warning("use_anchored_heads=True has no effect for regression_strategy=%s; anchoring is only defined for SEPARATE_HEADS. Ignoring.", self.regression_strategy)
             self.use_anchored_heads = False
+
+        if self.ordering_constraint_weight is None:
+            recommended_combo = (
+                self.regression_strategy == RegressionStrategy.SEPARATE_HEADS
+                and self.prob_reg_loss_type == ProbRegLossType.GAUSSIAN_LTV
+                and self.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY
+            )
+            self.ordering_constraint_weight = 1.0 if recommended_combo else 0.0
+        elif self.ordering_constraint_weight > 0.0 and self.prob_reg_loss_type == ProbRegLossType.MDN:
+            logger.warning(
+                "ordering_constraint_weight=%.3f with MDN loss is empirically harmful "
+                "(see docs/probreg_identifiability_research.md §9.1 cells E vs F). "
+                "Pass ordering_constraint_weight=0.0 to silence this warning.",
+                self.ordering_constraint_weight,
+            )
 
         if self.constrain_middle_class and self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
             logger.warning("The `constrain_middle_class` option is not supported for the SINGLE_HEAD_FINAL_OUTPUT strategy.")
@@ -193,7 +221,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
         )
         if is_ce_active:
-            probabilistic_indices = torch.where(selected_k_values < self.n_classes_inf)[0]
+            # Exclude samples that took the direct-regression bypass (sentinel value).
+            # Was `< self.n_classes_inf`, which fails when n_classes_inf=inf (default) because
+            # the sentinel 2**30 < inf and the sentinel then flows into precomputed_class_boundaries[k].
+            probabilistic_indices = torch.where(selected_k_values != DIRECT_REGRESSION_K_SENTINEL)[0]
 
             if probabilistic_indices.numel() > 0:
                 y_true_prob = y_true_squeezed[probabilistic_indices]
@@ -217,7 +248,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         boundary_reg_active = self.boundary_regularization_method != BoundaryRegularizationMethod.NONE and include_boundary_loss
         if per_head_outputs is not None and (self.use_middle_class_nll_penalty or boundary_reg_active):
             if probabilistic_indices.numel() == 0:
-                probabilistic_indices = torch.where(selected_k_values < self.n_classes_inf)[0]
+                probabilistic_indices = torch.where(selected_k_values != DIRECT_REGRESSION_K_SENTINEL)[0]
 
             if probabilistic_indices.numel() > 0:
                 y_true_prob = y_true_squeezed[probabilistic_indices]
@@ -279,16 +310,42 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             if k_probs is not None:
                 n_modes = k_probs.size(1)
                 if self.n_classes_regularization == NClassesRegularization.ELBO:
-                    # Prior favoring low k, normalized to fixed logit range [1, 3] regardless of n_modes.
-                    # Without normalization, arange(n_modes, 0, -1) creates a prior whose steepness
-                    # scales with n_modes (KL cost k=2→k=10 = 8 nats for 10 modes vs 1.8 for 3 modes),
-                    # making the prior unbeatable for high k. linspace keeps the same steepness as
-                    # the FlexibleNN ELBO depth prior (3 modes, range [3,1]).
-                    prior_logits = torch.linspace(3.0, 1.0, n_modes, device=k_probs.device)
-                    k_prior = torch.distributions.Categorical(logits=prior_logits)
-                    q_k = torch.distributions.Categorical(probs=k_probs + 1e-8)
-                    kl_div = torch.distributions.kl_divergence(q_k, k_prior).mean()
-                    total_loss = total_loss + kl_div
+                    # Split KL into two components:
+                    #   (a) Bernoulli on bypass vs not-bypass with prior p(bypass) = bypass_prior_prob.
+                    #   (b) Categorical on k ∈ {2..k_max} conditional on not-bypass, with a uniform
+                    #       or geometric prior, weighted by per-sample (1 − p_bypass) mass.
+                    # This removes two earlier issues: (1) the monolithic linspace prior placed
+                    # bypass at the least-favoured end, actively suppressing the correct answer
+                    # on heavy-tail data; (2) the constant logit range [3,1] became near-uniform
+                    # as n_modes grew.
+                    eps = 1e-8
+                    p_bypass_per_sample = k_probs[:, -1]
+                    p_bypass = p_bypass_per_sample.mean()
+                    bypass_prior = torch.tensor(self.bypass_prior_prob, device=k_probs.device, dtype=k_probs.dtype)
+                    kl_bypass = (
+                        p_bypass * torch.log((p_bypass + eps) / (bypass_prior + eps))
+                        + (1.0 - p_bypass) * torch.log((1.0 - p_bypass + eps) / (1.0 - bypass_prior + eps))
+                    )
+
+                    if n_modes > 1:
+                        prob_mode_probs = k_probs[:, :-1]
+                        prob_mode_mass = prob_mode_probs.sum(dim=-1, keepdim=True).clamp_min(eps)
+                        q_given_not_bypass = prob_mode_probs / prob_mode_mass
+                        n_probabilistic_modes = n_modes - 1
+                        if self.k_prior_type == "geometric":
+                            k_indices = torch.arange(n_probabilistic_modes, dtype=k_probs.dtype, device=k_probs.device)
+                            log_prior = k_indices * torch.log(torch.tensor(1.0 - self.k_prior_geometric_lambda, device=k_probs.device, dtype=k_probs.dtype))
+                            prior_logits_k = log_prior
+                        else:  # "uniform"
+                            prior_logits_k = torch.zeros(n_probabilistic_modes, device=k_probs.device, dtype=k_probs.dtype)
+                        q_k = torch.distributions.Categorical(probs=q_given_not_bypass + eps)
+                        p_k = torch.distributions.Categorical(logits=prior_logits_k)
+                        kl_k_per_sample = torch.distributions.kl_divergence(q_k, p_k)
+                        kl_k = ((1.0 - p_bypass_per_sample) * kl_k_per_sample).mean()
+                    else:
+                        kl_k = torch.zeros((), device=k_probs.device, dtype=k_probs.dtype)
+
+                    total_loss = total_loss + kl_bypass + kl_k
                 elif self.n_classes_regularization == NClassesRegularization.K_PENALTY:
                     # Weighted expected k: penalize selecting higher k values
                     k_indices = torch.arange(1, n_modes + 1, dtype=torch.float, device=k_probs.device)
@@ -508,8 +565,9 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         Only supported for ``uncertainty_method=PROBABILISTIC`` with
         ``regression_strategy in {SEPARATE_HEADS, SINGLE_HEAD_N_OUTPUTS}`` and
         ``n_classes_selection_method=NONE``. Dynamic-k is not yet supported
-        because per_head_outputs are not exposed by the weighted-sum path;
-        ``SINGLE_HEAD_FINAL_OUTPUT`` does not produce per-class parameters.
+        because the predictive mixture under dynamic-k mixes per-k predictions
+        weighted by the k-selection distribution, not a single set of per-class
+        heads; ``SINGLE_HEAD_FINAL_OUTPUT`` does not produce per-class parameters.
 
         Raises:
             NotImplementedError: for unsupported configurations.
@@ -694,7 +752,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             _, returned_classifier_logits, selected_k_values_tensor, _, _ = self.model(x_tensor)
 
             selected_k_values = selected_k_values_tensor.cpu().numpy()
-            probabilistic_indices = np.where(selected_k_values < self.n_classes_inf)[0]
+            probabilistic_indices = np.where(selected_k_values != DIRECT_REGRESSION_K_SENTINEL)[0]
 
             if self.n_classes_selection_method != NClassesSelectionMethod.NONE:
                 if len(probabilistic_indices) == 0:

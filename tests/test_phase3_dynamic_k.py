@@ -6,7 +6,10 @@ import torch
 from sklearn.model_selection import train_test_split
 
 from automl_package.enums import (
+    NClassesRegularization,
     NClassesSelectionMethod,
+    ProbabilisticRegressionOptimizationStrategy,
+    ProbRegLossType,
     RegressionStrategy,
     UncertaintyMethod,
 )
@@ -287,8 +290,14 @@ class TestELBOkSelection:
 
         assert mse < 10.0, f"ELBO-k model MSE={mse:.4f} — did not converge"
 
-    def test_elbo_prefers_lower_k_than_unregularized(self, heteroscedastic_data):
-        """ELBO should select lower mean k than unregularized dynamic k on the same data."""
+    def test_elbo_raises_mode_selection_entropy_vs_unregularized(self, heteroscedastic_data):
+        """Uniform-prior ELBO (default) pulls q(k|not-bypass) toward uniform, so the
+        entropy of the per-sample mode-selection distribution over probabilistic
+        modes should be >= unregularized on average. This replaces the old
+        `prefers_lower_k` test, which encoded the buggy linspace-prior behavior
+        (see probabilistic_regression.py ELBO block)."""
+        import torch.nn.functional as F
+
         x, y, _, _ = heteroscedastic_data
 
         model_none = self._make_probreg(n_classes=3, max_n_classes=7, n_classes_regularization="none", n_epochs=80)
@@ -300,16 +309,56 @@ class TestELBOkSelection:
         x_t = torch.tensor(x, dtype=torch.float32).to(model_none.device)
         model_none.model.eval()
         model_elbo.model.eval()
-        with torch.no_grad():
-            _, _, k_none, _, _ = model_none.model(x_t)
-            _, _, k_elbo, _, _ = model_elbo.model(x_t)
 
-        mean_k_none = k_none.float().mean().item()
-        mean_k_elbo = k_elbo.float().mean().item()
+        def _mean_entropy_over_probabilistic_modes(m):
+            with torch.no_grad():
+                probs = F.softmax(m.model.n_classes_predictor(x_t), dim=-1)
+                prob_modes = probs[:, :-1]
+                prob_modes = prob_modes / prob_modes.sum(-1, keepdim=True).clamp_min(1e-8)
+                ent = -(prob_modes * torch.log(prob_modes.clamp_min(1e-8))).sum(-1)
+                return float(ent.mean().item())
 
-        assert mean_k_elbo <= mean_k_none, (
-            f"ELBO should prefer lower k (elbo={mean_k_elbo:.2f}) "
-            f"than unregularized (none={mean_k_none:.2f})."
+        ent_none = _mean_entropy_over_probabilistic_modes(model_none)
+        ent_elbo = _mean_entropy_over_probabilistic_modes(model_elbo)
+
+        assert ent_elbo >= ent_none - 0.05, (
+            f"ELBO (uniform prior) should not reduce entropy of q(k|not-bypass) "
+            f"below unregularized (elbo={ent_elbo:.3f}, none={ent_none:.3f})."
+        )
+
+    def test_elbo_bypass_prior_pulls_toward_configured_value(self, heteroscedastic_data):
+        """ELBO with bypass_prior_prob=0.9 should produce a higher mean bypass
+        fraction than bypass_prior_prob=0.1 on the same data. Validates that the
+        bypass Bernoulli KL is actually wired up and pulls q(bypass) toward p(bypass)."""
+        import torch.nn.functional as F
+
+        x, y, _, _ = heteroscedastic_data
+
+        def _mean_bypass_fraction(model):
+            x_t = torch.tensor(x, dtype=torch.float32).to(model.device)
+            model.model.eval()
+            with torch.no_grad():
+                probs = F.softmax(model.model.n_classes_predictor(x_t), dim=-1)
+                return float(probs[:, -1].mean().item())
+
+        m_low = self._make_probreg(
+            n_classes=3, max_n_classes=7, n_classes_regularization="elbo",
+            bypass_prior_prob=0.1, n_epochs=60,
+        )
+        m_low.fit(x, y)
+
+        m_high = self._make_probreg(
+            n_classes=3, max_n_classes=7, n_classes_regularization="elbo",
+            bypass_prior_prob=0.9, n_epochs=60,
+        )
+        m_high.fit(x, y)
+
+        bp_low = _mean_bypass_fraction(m_low)
+        bp_high = _mean_bypass_fraction(m_high)
+
+        assert bp_high > bp_low, (
+            f"bypass_prior_prob=0.9 should pull bypass fraction higher than 0.1 "
+            f"(high={bp_high:.3f}, low={bp_low:.3f})."
         )
 
     def test_k_penalty_reduces_mean_k(self, heteroscedastic_data):
@@ -341,3 +390,43 @@ def _compute_nll(model, x, y):
     log_var = 2 * np.log(np.clip(y_std, 1e-6, None))
     nll = 0.5 * np.mean(log_var + ((y - y_pred) ** 2) / np.exp(log_var))
     return float(nll)
+
+
+class TestCeStopGradDynamicKSentinelFilter:
+    """Regression for the `KeyError: 1073741824` bug.
+
+    The loss path filtered samples by `selected_k_values < self.n_classes_inf`.
+    n_classes_inf defaults to inf, so the direct-regression sentinel (2**30)
+    passed the filter and crashed precomputed_class_boundaries[2**30]. The bug
+    only tripped when CE supervision was active (CE_STOP_GRAD/GRADIENT_STOP)
+    *and* a dynamic-k strategy selected the bypass mode for at least one
+    sample in a batch. Cell B (REGRESSION_ONLY) skipped the buggy block.
+    """
+
+    @pytest.mark.parametrize("dynamic", [
+        NClassesSelectionMethod.SOFT_GATING,
+        NClassesSelectionMethod.GUMBEL_SOFTMAX,
+    ])
+    @pytest.mark.parametrize("k_reg", [
+        NClassesRegularization.NONE,
+        NClassesRegularization.K_PENALTY,
+        NClassesRegularization.ELBO,
+    ])
+    def test_ce_stop_grad_with_dynamic_k_trains(self, heteroscedastic_data, dynamic, k_reg):
+        x, y, _, _ = heteroscedastic_data
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=3,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            optimization_strategy=ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
+            prob_reg_loss_type=ProbRegLossType.GAUSSIAN_LTV,
+            n_classes_selection_method=dynamic,
+            n_classes_regularization=k_reg,
+            use_anchored_heads=False, constrain_middle_class=True,
+            n_epochs=5, learning_rate=0.01, random_seed=42,
+            calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+        y_pred = model.predict(x)
+        assert y_pred.shape == (len(x),)
+        assert not np.any(np.isnan(y_pred))

@@ -18,6 +18,7 @@ from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.selection_strategies.independent_weights_strategies import (
     IndependentWeightsGumbelSoftmaxStrategy,
+    IndependentWeightsNestedStrategy,
     IndependentWeightsNoneStrategy,
     IndependentWeightsReinforceStrategy,
     IndependentWeightsSoftGatingStrategy,
@@ -64,8 +65,8 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         super().__init__(**kwargs)
 
         # Validation logic
-        if self.layer_selection_method == LayerSelectionMethod.NONE and self.n_predictor_layers != 0:
-            raise ValueError("n_predictor_layers must be 0 when layer_selection_method is NONE.")
+        if self.layer_selection_method in (LayerSelectionMethod.NONE, LayerSelectionMethod.NESTED) and self.n_predictor_layers != 0:
+            raise ValueError("n_predictor_layers must be 0 when layer_selection_method is NONE or NESTED.")
         if (
             self.layer_selection_method
             in [
@@ -84,6 +85,7 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             LayerSelectionMethod.SOFT_GATING: IndependentWeightsSoftGatingStrategy,
             LayerSelectionMethod.STE: IndependentWeightsSteStrategy,
             LayerSelectionMethod.REINFORCE: IndependentWeightsReinforceStrategy,
+            LayerSelectionMethod.NESTED: IndependentWeightsNestedStrategy,
         }
         self.strategy = strategy_map[self.layer_selection_method](self)
 

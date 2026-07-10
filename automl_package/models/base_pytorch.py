@@ -198,11 +198,19 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
                     best_epoch = epoch
                 else:
                     patience_counter += 1
-                if patience_counter >= self.early_stopping_rounds:
-                    logger.info(f"Early stopping at epoch {best_epoch + 1}")
-                    break
+                stop_now = patience_counter >= self.early_stopping_rounds
             else:
+                val_loss = None
                 best_epoch = epoch
+                stop_now = False
+
+            epoch_callback = getattr(self, "epoch_callback", None)
+            if epoch_callback is not None:
+                epoch_callback(epoch=epoch, model=self, val_loss=val_loss)
+
+            if use_early_stopping and x_val_tensor is not None and stop_now:
+                logger.info(f"Early stopping at epoch {best_epoch + 1}")
+                break
 
         if best_model_state and use_early_stopping:
             self.model.load_state_dict(best_model_state)

@@ -9,7 +9,14 @@ import torch.nn as nn
 from automl_package.enums import ActivationFunction, DepthRegularization, ExplainerType, LayerSelectionMethod, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
-from automl_package.models.selection_strategies.layer_selection_strategies import GumbelSoftmaxStrategy, NoneStrategy, ReinforceStrategy, SoftGatingStrategy, SteStrategy
+from automl_package.models.selection_strategies.layer_selection_strategies import (
+    GumbelSoftmaxStrategy,
+    NestedStrategy,
+    NoneStrategy,
+    ReinforceStrategy,
+    SoftGatingStrategy,
+    SteStrategy,
+)
 from automl_package.utils.losses import nll_loss
 from automl_package.utils.pytorch_utils import get_activation_function_map, get_device
 
@@ -47,8 +54,8 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         super().__init__(**kwargs)
 
         # Validation logic
-        if self.layer_selection_method == LayerSelectionMethod.NONE and self.n_predictor_layers != 0:
-            raise ValueError("n_predictor_layers must be 0 when layer_selection_method is NONE.")
+        if self.layer_selection_method in (LayerSelectionMethod.NONE, LayerSelectionMethod.NESTED) and self.n_predictor_layers != 0:
+            raise ValueError("n_predictor_layers must be 0 when layer_selection_method is NONE or NESTED.")
         if (
             self.layer_selection_method in [LayerSelectionMethod.GUMBEL_SOFTMAX, LayerSelectionMethod.STE, LayerSelectionMethod.SOFT_GATING, LayerSelectionMethod.REINFORCE]
             and self.n_predictor_layers <= 0
@@ -61,6 +68,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             LayerSelectionMethod.SOFT_GATING: SoftGatingStrategy,
             LayerSelectionMethod.STE: SteStrategy,
             LayerSelectionMethod.REINFORCE: ReinforceStrategy,
+            LayerSelectionMethod.NESTED: NestedStrategy,
         }
         self.strategy = strategy_map[self.layer_selection_method](self)
 
