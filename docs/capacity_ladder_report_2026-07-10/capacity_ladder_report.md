@@ -1004,11 +1004,17 @@ flat per-input depth read is therefore consistent with two distinct explanations
 per-input depth structure in the *reachable* problems, or a real structure the optimiser cannot
 install — and the present studies cannot separate them, because the discriminating problem is
 unlearnable. Whether *any* target that both requires depth and is learnable exists is an open
-question. Two ways forward remain: a bounded search for such a target, or recording the
-learnability-versus-representability asymmetry as the depth-lane finding and closing the
-per-input depth question as a compute-saving story rather than a recovery one. Which to take is a
-research-priority decision left open here; the per-input depth result does not need it resolved
-to stand as reported — a null with a named, honest cause rather than an unexplained one.
+question. We ran the first of the two ways forward — a bounded search over three easier
+provably-deep targets (fewer folds of the tent, or a narrower trunk) — and it came back the same:
+on each target the deep-required half stayed roughly a nat below the achievable fit at every depth
+and on every seed — never closer than about $0.98$ nats even under the most generous
+best-of-eight-scored-on-test read — and never climbed as depth grew. The bounded search therefore
+turns up no learnable depth-requiring control, so the learnability-versus-representability
+asymmetry stands as the depth-lane finding and the per-input depth question closes as a
+compute-saving story rather than a recovery one. The general existence question — whether any
+learnable depth-requiring target exists at all — a three-target search cannot settle, and stays
+open; the per-input depth result does not need it resolved to stand as reported — a null with a
+named, honest cause rather than an unexplained one.
 
 # 7. What holds, what does not, and where the boundary is
 
@@ -1071,10 +1077,10 @@ tried. Section 6.5 supplies the reason it may be null in principle and not only 
 the one target for which a per-input depth requirement is *provable* — a function a shallow network
 cannot represent, by a depth-separation theorem — turns out to be representable but not learnable by
 gradient descent, so the depth lane has no learnable positive control to anchor a per-input read
-against. Whether any learnable depth-requiring target exists is open; resolving it — a bounded
-search for one, or recording the learnability-versus-representability asymmetry as the finding and
-treating per-input depth as a compute-saving story — is left as future work and changes nothing
-reported here.
+against. A bounded search over three easier provably-deep targets came back the same way, so the
+learnability-versus-representability asymmetry is recorded as the depth-lane finding and per-input
+depth read as a compute-saving story; whether any learnable depth-requiring target exists at all
+stays open, and changes nothing reported here.
 
 **Cost.** Nesting is not free, and its cost is not one number. On the component ladder it is
 small ($0.13$ nats at worst), concentrated on middle rungs, and never touches the top rung; on

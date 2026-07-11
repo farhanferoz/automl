@@ -17,10 +17,11 @@ In flight: none — every capacity-ladder lane (WS1–3 + X-queue) and every per
 (S/T/H/P) has run and been fresh-context-certified.
 Status: **capacity-ladder program COMPLETE** (WS1/WS2/WS3 through R-checkpoints R2/R3/R4; X-queue
 X1–X4b certified; F4 closed no-go). **Per-input selector program (S/T/H/P) COMPLETE through compute +
-certification** (S1, S2, T3, T2, H1, P1, T1 all adjudicated, folded below). Remaining: **R-INT**
-(fold S/T/H/P into REPORT-2 — in progress 2026-07-10, new §6 "the per-input selector program" + §7
-boundary rewrite + Summary), report/tidy, and the two parked user gates (**G-FORK** = T1 terminal
-path 2 vs 3; **G-COMMIT**). NOV-1 and NOTE-MOE landed earlier (see "Reports of record").
+certification** (S1, S2, T3, T2, H1, P1, T1 all adjudicated, folded below). **R-INT folded into
+REPORT-2** (new §6 "the per-input selector program" + §7 boundary rewrite + Summary). **Both user gates
+resolved:** G-COMMIT done (commit df3982e, deliverables; `*.pt` excluded); **G-FORK → Path 2 RUN →
+NOT_FOUND_UNLEARNABLE on all 3 configs → path-3-as-fallback outcome** (T1 finding stands; certified
+`T1/T1_PATH2_ADJUDICATION.md`). NOV-1 and NOTE-MOE landed earlier (see "Reports of record").
 
 **Ledger audit (2026-07-10):** every load-bearing WS1/WS3 figure re-derived from the source JSON
 artifacts (K4/K5/K6/V0/V2/V3). All verified exactly or within rounding. Fixes applied: K6 pilot count
@@ -293,8 +294,8 @@ Artifacts: `V0/v0_summary.json`, `V1/v1_summary.json`, `V2/v2_summary.json`, `V2
 - **WS1 (K0–K6 + R2), WS2 (F0–F3 + R3), WS3 (V0–V3 + R4) all COMPLETE through their R-checkpoints.**
   The ⛔ far-future user-gated ports are K7 (WS1), F5 (WS2), V4 (WS3).
 - **Per-input selector program (S/T/H/P) COMPLETE through compute + certification** — S1, S2, T3, T2,
-  H1, P1, T1 each fresh-context-adjudicated and folded (sections below). Remaining is report/tidy
-  (R-INT in progress) and the two user gates (G-FORK = T1 path 2 vs 3; G-COMMIT). No live jobs.
+  H1, P1, T1 each fresh-context-adjudicated and folded (sections below). R-INT folded; both user gates
+  resolved (G-COMMIT = df3982e; G-FORK → Path 2 run → NOT_FOUND → path-3 outcome, T1 finding stands). No live jobs.
 
 ## X-queue follow-ups (2026-07-10, post-review; all adjudicator-certified, fresh-context)
 
@@ -700,19 +701,22 @@ the open question the parked G-FORK decides.
   every depth** (min 1.141 @ d3) — > 0.70 nat under the most generous test-peeking read. Region A flat
   and learnable (+0.831…+0.851, ≤0.052 below oracle). Multi-restart on the same Telgarsky toy does not
   rescue bar (i); the single-init unluckiness hypothesis is closed. `T1/T1_PATH1_ADJUDICATION.md`.
-- **Terminal path = a PARKED user-level G-FORK.** Both remaining moves revise the ratified toy premise
-  ("provable-by-construction Telgarsky") → user decision. **Path 2** = a bounded (≤3 configs, same
-  bars, same 3 seeds, width-8 pin) empirical search for a depth-preferring-AND-learnable target
-  (tent⁴@w8 → tent³@w8 → tent⁴@w6); scientifically stronger IF it succeeds; stop after 3 configs.
-  **Path 3** = reframe with no new toy: record the learnability-vs-representability asymmetry as the
-  depth-lane finding, close the lane (per-input value becomes a compute-only story), leave H2 locked.
-  Path-1 is the deciding evidence: the "pure optimization fix, no premise change" option is now closed,
-  so path 2 (if run) is bounded and premise-revising, and path 3 is correct only after a bounded path-2
-  search fails. Advisory ordering: path 1 → (path 2, bounded) → path 3-as-fallback; the go/no-go on
-  path-2 compute is the user's research-priority call.
+- **Terminal path = G-FORK RESOLVED → Path 2 (bounded search) RUN → NOT_FOUND (path-3-as-fallback
+  outcome).** User greenlit Path 2 (2026-07-11): a bounded ≤3-config, same-bars, all-3-seeds empirical
+  search for a depth-preferring-AND-learnable target (tent⁴@w8, tent³@w8, tent⁴@w6;
+  `capacity_ladder_t1_path2.py`). **All three read `NOT_FOUND_UNLEARNABLE`** (0/3 construction_pass each;
+  region_b_pass 0/9 seeds): even best-of-8-scored-on-test, region B stayed >0.7 nat below the +0.8836
+  oracle at EVERY depth on EVERY seed — min optimistic gaps 1.095 / 0.980 / 1.098 nat for
+  tent⁴@w8 / tent³@w8 / tent⁴@w6 (tent³@w8 the near-miss at 0.98 nat: isolated single-depth B increments
+  but never the consecutive d1→d2 AND d2→d3 climb). No learnable depth-requiring positive control →
+  **path-3-as-fallback outcome: the representable-but-not-learnable asymmetry stands as the depth-lane
+  finding**; per-input depth closes as a compute-saving story. Whether ANY learnable depth-requiring
+  target exists remains open (a 3-config search demonstrates the limit but cannot prove non-existence).
+  Fresh-context certified (independent re-derivation from the summary JSONs; leak check PASS on all 54
+  config×seed×depth entries): `T1/T1_PATH2_ADJUDICATION.md`.
 - **H2 — LOCKED.** Every H2-unlock branch requires PASS (i) first; bar (i) failed 0/3 → all unlock
-  branches unreachable. H2 stays locked regardless of the terminal path (path 3 locks it explicitly;
-  path 2 cannot unlock until a redesigned bar (i) passes). `T1/FAIL_I_ADJUDICATION.md` Q4.
+  branches unreachable. The path-2 bounded search was RUN and passed bar (i) on 0/3 configs (0/9 seeds),
+  so no unlock branch is reachable → H2 stays LOCKED under the path-3 outcome. `T1/FAIL_I_ADJUDICATION.md` Q4.
 - **Strictly probabilistic + leak-free.** Fixed-depth LL = per-example Gaussian log-likelihood
   (`_fixed_depth_log_likelihood`, F2's formula, reused verbatim); train = `make_toy_t1(seed=0)`, test =
   `make_toy_t1(seed=500)` (disjoint); keep-best selection reads train only; construction bar =
@@ -721,7 +725,8 @@ the open question the parked G-FORK decides.
 
 Artifacts: `capacity_ladder_results/T1/{PREREGISTRATION.md, FAIL_I_ADJUDICATION.md,
 BAR_II_ADJUDICATION.md, t1_summary.json, nested_toyT1_seed{0,1,2}.pt, t1_path1_summary.json,
-path1_toyT1_seed0.pt, T1_PATH1_ADJUDICATION.md}`, `capacity_ladder_t1.py`, `capacity_ladder_t1_path1.py`.
+path1_toyT1_seed0.pt, T1_PATH1_ADJUDICATION.md, t1_path2_{tent4_w8,tent3_w8,tent4_w6}_summary.json,
+T1_PATH2_ADJUDICATION.md}`, `capacity_ladder_t1.py`, `capacity_ladder_t1_path1.py`, `capacity_ladder_t1_path2.py`.
 Adjudication: fresh-context Opus (not the producing session). Path-1 driver newly authored this
 session — BOTH numbers and methodology verified: every per-depth region-A/B mean and gap re-derived
 from `path1_toyT1_seed0.pt` (kept vectors match `t1_path1_summary.json` to 8.5e-8), keep-best-by-train
