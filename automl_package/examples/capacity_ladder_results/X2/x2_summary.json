@@ -1,0 +1,360 @@
+{
+  "task": "X2",
+  "config": {
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "n_grid": [
+      1000
+    ],
+    "n_eval": 2000,
+    "epochs": 2000,
+    "lr": 0.01
+  },
+  "units": [
+    {
+      "toy": "v_toy1",
+      "n": 1000,
+      "seed": 0,
+      "nll_consistency": "MATCH",
+      "wall_time_sec": 10.033933877944946,
+      "nll_r_star": 2,
+      "nll_rung_selected": "v1",
+      "crps_r_star": 2,
+      "crps_rung_selected": "v1",
+      "crps_delta_curve": {
+        "v0": 0.0,
+        "v1": 0.0007207084354124982,
+        "v2": 0.0006973428968180262,
+        "v3": 0.0009485493550362989
+      },
+      "crps_se": {
+        "v1": 0.00019332097378483426,
+        "v2": 0.00013291890918803868
+      },
+      "nll_delta_curve": {
+        "v0": 0.0,
+        "v1": 0.012073529242514092,
+        "v2": 0.012948081203768114,
+        "v3": 0.01450345868779751
+      },
+      "rungs": {
+        "v0": {
+          "sigma_ratio_error": 0.10995118728994431,
+          "nll": 0.3819395209593968,
+          "ssr": 0.9371838352610068,
+          "mean_crps": 0.198623026532237
+        },
+        "v1": {
+          "sigma_ratio_error": 0.064821454891035,
+          "nll": 0.3698659917168827,
+          "ssr": 0.9468844482837329,
+          "mean_crps": 0.19790231809682451
+        },
+        "v2": {
+          "sigma_ratio_error": 0.04535892351524929,
+          "nll": 0.3689914397556287,
+          "ssr": 0.941682239667559,
+          "mean_crps": 0.197925683635419
+        },
+        "v3": {
+          "sigma_ratio_error": 0.0676876805645328,
+          "nll": 0.3674360622715993,
+          "ssr": 0.9619045000817903,
+          "mean_crps": 0.1976744771772007
+        }
+      }
+    },
+    {
+      "toy": "v_toy1",
+      "n": 1000,
+      "seed": 1,
+      "nll_consistency": "MATCH",
+      "wall_time_sec": 6.1820878982543945,
+      "nll_r_star": 0,
+      "nll_rung_selected": "v0 (ABSTAIN -- no significant growth beyond v0 confirmed)",
+      "crps_r_star": 0,
+      "crps_rung_selected": "v0 (ABSTAIN -- no significant growth beyond v0 confirmed)",
+      "crps_delta_curve": {
+        "v0": 0.0,
+        "v1": 0.00020717053244290184,
+        "v2": 0.0003929858010648102,
+        "v3": 0.00011393442350926541
+      },
+      "crps_se": {
+        "v1": 0.00022883677486467714
+      },
+      "nll_delta_curve": {
+        "v0": 0.0,
+        "v1": 0.003799433103834793,
+        "v2": 0.007928905209993231,
+        "v3": 0.0042140287137207855
+      },
+      "rungs": {
+        "v0": {
+          "sigma_ratio_error": 0.11251185020014015,
+          "nll": 0.3485594113824746,
+          "ssr": 0.8654919805877173,
+          "mean_crps": 0.1929697337066632
+        },
+        "v1": {
+          "sigma_ratio_error": 0.07187482572868216,
+          "nll": 0.3447599782786398,
+          "ssr": 0.894187339900444,
+          "mean_crps": 0.1927625631742203
+        },
+        "v2": {
+          "sigma_ratio_error": 0.048169376229954916,
+          "nll": 0.34063050617248136,
+          "ssr": 0.8816626675661907,
+          "mean_crps": 0.1925767479055984
+        },
+        "v3": {
+          "sigma_ratio_error": 0.07191023103007887,
+          "nll": 0.3443453826687538,
+          "ssr": 0.9071446876333205,
+          "mean_crps": 0.19285579928315394
+        }
+      }
+    },
+    {
+      "toy": "v_toy1",
+      "n": 1000,
+      "seed": 2,
+      "nll_consistency": "MATCH",
+      "wall_time_sec": 8.215582370758057,
+      "nll_r_star": 2,
+      "nll_rung_selected": "v1",
+      "crps_r_star": 3,
+      "crps_rung_selected": "v2",
+      "crps_delta_curve": {
+        "v0": 0.0,
+        "v1": 0.0007439818983073221,
+        "v2": 0.0009839213856462914,
+        "v3": 0.000995234083137564
+      },
+      "crps_se": {
+        "v1": 0.0002017271286522566,
+        "v2": 0.00010513562194292341,
+        "v3": 7.07421271917128e-05
+      },
+      "nll_delta_curve": {
+        "v0": 0.0,
+        "v1": 0.013803425241779743,
+        "v2": 0.017976623871499453,
+        "v3": 0.01794863821782161
+      },
+      "rungs": {
+        "v0": {
+          "sigma_ratio_error": 0.10935122743967747,
+          "nll": 0.3797934034369359,
+          "ssr": 1.0231612145547886,
+          "mean_crps": 0.19818431545202492
+        },
+        "v1": {
+          "sigma_ratio_error": 0.03877985779142985,
+          "nll": 0.36598997819515616,
+          "ssr": 1.0205117790548819,
+          "mean_crps": 0.1974403335537176
+        },
+        "v2": {
+          "sigma_ratio_error": 0.042395910451169076,
+          "nll": 0.36181677956543645,
+          "ssr": 1.0236583785290416,
+          "mean_crps": 0.19720039406637863
+        },
+        "v3": {
+          "sigma_ratio_error": 0.039257583055180685,
+          "nll": 0.3618447652191143,
+          "ssr": 1.0233005249801164,
+          "mean_crps": 0.19718908136888735
+        }
+      }
+    },
+    {
+      "toy": "v_toy1h",
+      "n": 1000,
+      "seed": 0,
+      "nll_consistency": "MATCH",
+      "wall_time_sec": 8.42221713066101,
+      "nll_r_star": 0,
+      "nll_rung_selected": "v0 (ABSTAIN -- no significant growth beyond v0 confirmed)",
+      "crps_r_star": 0,
+      "crps_rung_selected": "v0 (ABSTAIN -- no significant growth beyond v0 confirmed)",
+      "crps_delta_curve": {
+        "v0": 0.0,
+        "v1": 3.908500529029024e-05,
+        "v2": -3.07852826266497e-05,
+        "v3": 6.320803014714382e-06
+      },
+      "crps_se": {
+        "v1": 6.669134686755641e-05
+      },
+      "nll_delta_curve": {
+        "v0": 0.0,
+        "v1": 7.685260700837637e-05,
+        "v2": -0.000661218090418414,
+        "v3": -0.0008955999027248362
+      },
+      "rungs": {
+        "v0": {
+          "sigma_ratio_error": 0.03272128111076201,
+          "nll": 0.21953171393892074,
+          "ssr": 0.944737292647438,
+          "mean_crps": 0.16940614108738622
+        },
+        "v1": {
+          "sigma_ratio_error": 0.04326453492612553,
+          "nll": 0.21945486133191236,
+          "ssr": 0.9440285790555346,
+          "mean_crps": 0.16936705608209593
+        },
+        "v2": {
+          "sigma_ratio_error": 0.03408255527668834,
+          "nll": 0.22019293202933915,
+          "ssr": 0.9438200006522627,
+          "mean_crps": 0.16943692637001287
+        },
+        "v3": {
+          "sigma_ratio_error": 0.050661836010858316,
+          "nll": 0.22042731384164557,
+          "ssr": 0.9496459582237138,
+          "mean_crps": 0.1693998202843715
+        }
+      }
+    },
+    {
+      "toy": "v_toy1h",
+      "n": 1000,
+      "seed": 1,
+      "nll_consistency": "MATCH",
+      "wall_time_sec": 7.0343170166015625,
+      "nll_r_star": 0,
+      "nll_rung_selected": "v0 (ABSTAIN -- no significant growth beyond v0 confirmed)",
+      "crps_r_star": 0,
+      "crps_rung_selected": "v0 (ABSTAIN -- no significant growth beyond v0 confirmed)",
+      "crps_delta_curve": {
+        "v0": 0.0,
+        "v1": -0.0002567099915960769,
+        "v2": -2.1465797240355355e-05,
+        "v3": -0.0003197958060292827
+      },
+      "crps_se": {
+        "v1": 8.613176270372398e-05
+      },
+      "nll_delta_curve": {
+        "v0": 0.0,
+        "v1": -0.005294309205583492,
+        "v2": -0.00048372744610541973,
+        "v3": -0.0059398725136892705
+      },
+      "rungs": {
+        "v0": {
+          "sigma_ratio_error": 0.03739970832831419,
+          "nll": 0.20373993150539776,
+          "ssr": 0.9041138016959461,
+          "mean_crps": 0.167607240831919
+        },
+        "v1": {
+          "sigma_ratio_error": 0.05397815409325871,
+          "nll": 0.20903424071098126,
+          "ssr": 0.9178394350557474,
+          "mean_crps": 0.16786395082351507
+        },
+        "v2": {
+          "sigma_ratio_error": 0.03706759150948713,
+          "nll": 0.20422365895150318,
+          "ssr": 0.9058608193685694,
+          "mean_crps": 0.16762870662915935
+        },
+        "v3": {
+          "sigma_ratio_error": 0.07209482845606482,
+          "nll": 0.20967980401908703,
+          "ssr": 0.9204858124933155,
+          "mean_crps": 0.16792703663794828
+        }
+      }
+    },
+    {
+      "toy": "v_toy1h",
+      "n": 1000,
+      "seed": 2,
+      "nll_consistency": "MATCH",
+      "wall_time_sec": 8.237721920013428,
+      "nll_r_star": 0,
+      "nll_rung_selected": "v0 (ABSTAIN -- no significant growth beyond v0 confirmed)",
+      "crps_r_star": 0,
+      "crps_rung_selected": "v0 (ABSTAIN -- no significant growth beyond v0 confirmed)",
+      "crps_delta_curve": {
+        "v0": 0.0,
+        "v1": 4.689062009621825e-06,
+        "v2": 2.8152273471887534e-05,
+        "v3": -0.00010081399900632726
+      },
+      "crps_se": {
+        "v1": 2.0735751969939693e-05
+      },
+      "nll_delta_curve": {
+        "v0": 0.0,
+        "v1": 0.00013161737756889336,
+        "v2": 0.0005429128358174218,
+        "v3": -0.0024097979883908327
+      },
+      "rungs": {
+        "v0": {
+          "sigma_ratio_error": 0.01012307814266955,
+          "nll": 0.21454764640459323,
+          "ssr": 1.0195131649282607,
+          "mean_crps": 0.16869610655489845
+        },
+        "v1": {
+          "sigma_ratio_error": 0.011979180031016378,
+          "nll": 0.21441602902702434,
+          "ssr": 1.0190149438004807,
+          "mean_crps": 0.16869141749288882
+        },
+        "v2": {
+          "sigma_ratio_error": 0.016616373263460993,
+          "nll": 0.2140047335687758,
+          "ssr": 1.019327781892757,
+          "mean_crps": 0.16866795428142656
+        },
+        "v3": {
+          "sigma_ratio_error": 0.045679956056590636,
+          "nll": 0.21695744439298406,
+          "ssr": 1.0256533446420573,
+          "mean_crps": 0.16879692055390477
+        }
+      }
+    }
+  ],
+  "verdicts": {
+    "resolution": {
+      "hetero_crps_r_star": [
+        2,
+        0,
+        3
+      ],
+      "hetero_nll_r_star": [
+        2,
+        0,
+        2
+      ],
+      "n_seeds_crps_above_nll": 1,
+      "n_seeds_resolves_toward_truth": 0,
+      "resolves_v1_to_v2": false
+    },
+    "no_false_positive": {
+      "homo_crps_r_star": [
+        0,
+        0,
+        0
+      ],
+      "holds": true
+    },
+    "nll_consistency_all_match": true
+  },
+  "total_wall_time_sec": 48.130104064941406
+}

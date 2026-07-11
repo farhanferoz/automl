@@ -1,0 +1,355 @@
+{
+  "task": "X4b",
+  "config": {
+    "n_tr": 1000,
+    "n_te": 2500,
+    "n_epochs": 1000,
+    "r_restarts": 8,
+    "m_gold": 1500,
+    "n_grid": 40,
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "k_max": 6,
+    "alpha0": 0.1,
+    "sigma": 0.3,
+    "sep": [
+      0.3,
+      4.0
+    ],
+    "keep_best_criterion": "train_MAP_objective",
+    "smoke": false
+  },
+  "E": [
+    {
+      "toy": "E",
+      "seed": 0,
+      "tercile": {
+        "edge_lo": {
+          "mean": 0.010624741204082966,
+          "se": 0.006054119125411931,
+          "n": 797
+        },
+        "middle": {
+          "mean": 0.009130413644015789,
+          "se": 0.0181395626648603,
+          "n": 856
+        },
+        "edge_hi": {
+          "mean": -0.0016104535898193717,
+          "se": 0.004877649040495309,
+          "n": 847
+        }
+      },
+      "middle_significantly_positive": false,
+      "middle_above_both_tails": false,
+      "recovered": false,
+      "gold_tercile": {
+        "edge_lo": -0.0025736601629222813,
+        "middle": 0.025069476570934057,
+        "edge_hi": 0.002116073288821748
+      },
+      "eff_tercile": {
+        "edge_lo": 1.7280118465423584,
+        "middle": 1.935081124305725,
+        "edge_hi": 1.6416645050048828
+      },
+      "restart_info": {
+        "restart_losses": [
+          0.4164944589138031,
+          0.5269360542297363,
+          0.460705041885376,
+          0.42232584953308105,
+          0.5001990795135498,
+          0.46937280893325806,
+          0.4197985529899597,
+          0.45256251096725464
+        ],
+        "best_restart": 0,
+        "best_loss": 0.4164944589138031
+      },
+      "wall_time_sec": 36.8
+    },
+    {
+      "toy": "E",
+      "seed": 1,
+      "tercile": {
+        "edge_lo": {
+          "mean": -0.0010447300737723708,
+          "se": 0.0010713631747545833,
+          "n": 824
+        },
+        "middle": {
+          "mean": -0.004316296894103289,
+          "se": 0.0030738476321597206,
+          "n": 835
+        },
+        "edge_hi": {
+          "mean": -0.004082164727151394,
+          "se": 0.0028153180048383518,
+          "n": 841
+        }
+      },
+      "middle_significantly_positive": false,
+      "middle_above_both_tails": false,
+      "recovered": false,
+      "gold_tercile": {
+        "edge_lo": -0.0014931576767524418,
+        "middle": -0.004484457272785501,
+        "edge_hi": -0.002816087587104578
+      },
+      "eff_tercile": {
+        "edge_lo": 1.0,
+        "middle": 1.0,
+        "edge_hi": 1.0
+      },
+      "restart_info": {
+        "restart_losses": [
+          0.46560829877853394,
+          0.4709630608558655,
+          0.4694856107234955,
+          0.49544408917427063,
+          0.48346370458602905,
+          0.45904916524887085,
+          0.46003687381744385,
+          0.46117550134658813
+        ],
+        "best_restart": 5,
+        "best_loss": 0.45904916524887085
+      },
+      "wall_time_sec": 41.1
+    },
+    {
+      "toy": "E",
+      "seed": 2,
+      "tercile": {
+        "edge_lo": {
+          "mean": -0.056068602949380875,
+          "se": 0.013382295204552586,
+          "n": 818
+        },
+        "middle": {
+          "mean": 0.059712570160627365,
+          "se": 0.012020415856494451,
+          "n": 845
+        },
+        "edge_hi": {
+          "mean": 0.002362111583352089,
+          "se": 0.003356913284795365,
+          "n": 837
+        }
+      },
+      "middle_significantly_positive": true,
+      "middle_above_both_tails": true,
+      "recovered": true,
+      "gold_tercile": {
+        "edge_lo": -0.08607788334708087,
+        "middle": 0.05683006790394966,
+        "edge_hi": 0.002472890841350558
+      },
+      "eff_tercile": {
+        "edge_lo": 1.8480130434036255,
+        "middle": 1.9757578372955322,
+        "edge_hi": 1.6108074188232422
+      },
+      "restart_info": {
+        "restart_losses": [
+          0.4184516668319702,
+          0.43163102865219116,
+          0.5205910801887512,
+          0.4242224097251892,
+          0.47971320152282715,
+          0.4131544530391693,
+          0.41890889406204224,
+          0.44071194529533386
+        ],
+        "best_restart": 5,
+        "best_loss": 0.4131544530391693
+      },
+      "wall_time_sec": 38.1
+    }
+  ],
+  "E_broad": [
+    {
+      "toy": "E_broad",
+      "seed": 0,
+      "tercile": {
+        "edge_lo": {
+          "mean": 0.002638933015987277,
+          "se": 0.003191045929223296,
+          "n": 797
+        },
+        "middle": {
+          "mean": -0.006685512140393257,
+          "se": 0.0032646631746189245,
+          "n": 856
+        },
+        "edge_hi": {
+          "mean": -0.0033585247583687305,
+          "se": 0.0057522926112765745,
+          "n": 847
+        }
+      },
+      "middle_significantly_positive": false,
+      "middle_above_both_tails": false,
+      "recovered": false,
+      "gold_tercile": {
+        "edge_lo": -0.0018136726788585433,
+        "middle": -0.0024953236662930488,
+        "edge_hi": -0.0034325358584672877
+      },
+      "eff_tercile": {
+        "edge_lo": 1.0,
+        "middle": 1.0,
+        "edge_hi": 1.0
+      },
+      "restart_info": {
+        "restart_losses": [
+          0.4717997908592224,
+          0.5288359522819519,
+          0.4703071117401123,
+          0.5154339671134949,
+          0.4958830773830414,
+          0.47030460834503174,
+          0.47204893827438354,
+          0.52895188331604
+        ],
+        "best_restart": 5,
+        "best_loss": 0.47030460834503174
+      },
+      "wall_time_sec": 45.0
+    },
+    {
+      "toy": "E_broad",
+      "seed": 1,
+      "tercile": {
+        "edge_lo": {
+          "mean": -0.014197491109371185,
+          "se": 0.004814553345580661,
+          "n": 824
+        },
+        "middle": {
+          "mean": -0.002706254832446575,
+          "se": 0.0016810681352275347,
+          "n": 835
+        },
+        "edge_hi": {
+          "mean": -0.06361858546733856,
+          "se": 0.017378404222685714,
+          "n": 841
+        }
+      },
+      "middle_significantly_positive": false,
+      "middle_above_both_tails": true,
+      "recovered": false,
+      "gold_tercile": {
+        "edge_lo": -0.01877233520588981,
+        "middle": -0.000852951779961586,
+        "edge_hi": -0.14509958210068621
+      },
+      "eff_tercile": {
+        "edge_lo": 1.0,
+        "middle": 1.0,
+        "edge_hi": 1.0
+      },
+      "restart_info": {
+        "restart_losses": [
+          0.46192729473114014,
+          0.45414072275161743,
+          0.4488523006439209,
+          0.5293559432029724,
+          0.4538760781288147,
+          0.45502275228500366,
+          0.44758397340774536,
+          0.4485400319099426
+        ],
+        "best_restart": 6,
+        "best_loss": 0.44758397340774536
+      },
+      "wall_time_sec": 48.1
+    },
+    {
+      "toy": "E_broad",
+      "seed": 2,
+      "tercile": {
+        "edge_lo": {
+          "mean": 0.004382462706416845,
+          "se": 0.0033836409085513802,
+          "n": 818
+        },
+        "middle": {
+          "mean": -0.0013754145475104451,
+          "se": 0.0041076423133514115,
+          "n": 845
+        },
+        "edge_hi": {
+          "mean": -0.004086750093847513,
+          "se": 0.0017742459877856996,
+          "n": 837
+        }
+      },
+      "middle_significantly_positive": false,
+      "middle_above_both_tails": false,
+      "recovered": false,
+      "gold_tercile": {
+        "edge_lo": 0.003926368519807091,
+        "middle": -0.0048654105944129136,
+        "edge_hi": -0.001329706382680992
+      },
+      "eff_tercile": {
+        "edge_lo": 1.0,
+        "middle": 1.0,
+        "edge_hi": 1.0
+      },
+      "restart_info": {
+        "restart_losses": [
+          0.441314160823822,
+          0.4789605736732483,
+          0.437749445438385,
+          0.4622894823551178,
+          0.42293548583984375,
+          0.44660472869873047,
+          0.42198318243026733,
+          0.4235031008720398
+        ],
+        "best_restart": 6,
+        "best_loss": 0.42198318243026733
+      },
+      "wall_time_sec": 38.6
+    }
+  ],
+  "x4_baseline_E": {
+    "0": {
+      "gold_mid": 0.025069476570934057,
+      "recovered": false,
+      "delta_mid": 0.009130413644015789
+    },
+    "1": {
+      "gold_mid": -0.06546634364013489,
+      "recovered": false,
+      "delta_mid": -0.06479983776807785
+    },
+    "2": {
+      "gold_mid": 0.02304063171434861,
+      "recovered": true,
+      "delta_mid": 0.019799718633294106
+    }
+  },
+  "verdict": {
+    "primary": "s1_still_collapses_clean_W8_refutation_instrument_general",
+    "s1_gold_mid_x4": -0.06546634364013489,
+    "s1_gold_mid_x4b": -0.004484457272785501,
+    "s1_flipped": false,
+    "model_capture_per_seed": {
+      "0": true,
+      "1": false,
+      "2": true
+    },
+    "model_capture_count": 2,
+    "n_seeds_recovered": 1,
+    "broad_stays_flat": true
+  },
+  "wall_time_sec": 247.7
+}

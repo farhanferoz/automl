@@ -1,0 +1,267 @@
+{
+  "config": {
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "n_grid": [
+      200,
+      1000
+    ],
+    "hidden_sizes": [
+      32,
+      32
+    ],
+    "lr": 0.001,
+    "n_epochs_toy1": 8000,
+    "n_epochs_toy0": 3000,
+    "grid_n": 500,
+    "heldout_n": 2000
+  },
+  "v_toy1": [
+    {
+      "toy": "v_toy1",
+      "n": 200,
+      "seed": 0,
+      "n_epochs": 8000,
+      "wall_time_sec": 119.33298420906067,
+      "sigma_ratio_final": 0.9009746720749259,
+      "ssr_train_final": 1.0000211000442505,
+      "ssr_heldout_final": 7.557629585266113,
+      "heldout_nll_final": 3.424407482147217,
+      "heldout_nll_min": 0.39556747674942017,
+      "heldout_nll_min_epoch": 565,
+      "curve_path": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/V0/v_toy1_N200_seed0_curves.pt"
+    },
+    {
+      "toy": "v_toy1",
+      "n": 200,
+      "seed": 1,
+      "n_epochs": 8000,
+      "wall_time_sec": 99.8915205001831,
+      "sigma_ratio_final": 0.8034954051767429,
+      "ssr_train_final": 1.0007164478302002,
+      "ssr_heldout_final": 3.7358977794647217,
+      "heldout_nll_final": 1.42421293258667,
+      "heldout_nll_min": 0.3711863160133362,
+      "heldout_nll_min_epoch": 560,
+      "curve_path": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/V0/v_toy1_N200_seed1_curves.pt"
+    },
+    {
+      "toy": "v_toy1",
+      "n": 200,
+      "seed": 2,
+      "n_epochs": 8000,
+      "wall_time_sec": 99.44704461097717,
+      "sigma_ratio_final": 0.9498394965165167,
+      "ssr_train_final": 0.9999100565910339,
+      "ssr_heldout_final": 2.853285789489746,
+      "heldout_nll_final": 1.1931517124176025,
+      "heldout_nll_min": 0.3613397479057312,
+      "heldout_nll_min_epoch": 626,
+      "curve_path": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/V0/v_toy1_N200_seed2_curves.pt"
+    },
+    {
+      "toy": "v_toy1",
+      "n": 1000,
+      "seed": 0,
+      "n_epochs": 8000,
+      "wall_time_sec": 114.32942986488342,
+      "sigma_ratio_final": 1.0117814448127547,
+      "ssr_train_final": 1.0000801086425781,
+      "ssr_heldout_final": 1.0251518487930298,
+      "heldout_nll_final": 0.38152018189430237,
+      "heldout_nll_min": 0.3603034019470215,
+      "heldout_nll_min_epoch": 539,
+      "curve_path": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/V0/v_toy1_N1000_seed0_curves.pt"
+    },
+    {
+      "toy": "v_toy1",
+      "n": 1000,
+      "seed": 1,
+      "n_epochs": 8000,
+      "wall_time_sec": 136.9078028202057,
+      "sigma_ratio_final": 1.0158235654817112,
+      "ssr_train_final": 0.9999443292617798,
+      "ssr_heldout_final": 1.0172828435897827,
+      "heldout_nll_final": 0.37161996960639954,
+      "heldout_nll_min": 0.3428076207637787,
+      "heldout_nll_min_epoch": 700,
+      "curve_path": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/V0/v_toy1_N1000_seed1_curves.pt"
+    },
+    {
+      "toy": "v_toy1",
+      "n": 1000,
+      "seed": 2,
+      "n_epochs": 8000,
+      "wall_time_sec": 148.76444029808044,
+      "sigma_ratio_final": 0.9606874161526193,
+      "ssr_train_final": 1.0014264583587646,
+      "ssr_heldout_final": 1.1207120418548584,
+      "heldout_nll_final": 0.377042293548584,
+      "heldout_nll_min": 0.35767388343811035,
+      "heldout_nll_min_epoch": 2903,
+      "curve_path": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/V0/v_toy1_N1000_seed2_curves.pt"
+    }
+  ],
+  "v_toy0": [
+    {
+      "toy": "v_toy0",
+      "n": 200,
+      "seed": 0,
+      "n_epochs": 3000,
+      "wall_time_sec": 19.387471914291382,
+      "closed_form": {
+        "w_hat": [
+          1.5772956961485054,
+          -2.0857168414666836,
+          0.4685062764880876,
+          3.040634855922972,
+          -0.8921578556448382
+        ],
+        "n": 200,
+        "p": 5,
+        "rss": 187.63730904710357,
+        "mle_variance": 0.9381865452355178,
+        "unbiased_variance": 0.962242610497967
+      },
+      "gd_mle_variance": 3.2931104458621174,
+      "ssr_train_final": 1.1515591144561768,
+      "ssr_heldout_final": 1.066486120223999,
+      "heldout_nll_final": 2.048097848892212,
+      "curve_path": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/V0/v_toy0_N200_seed0_curves.pt"
+    },
+    {
+      "toy": "v_toy0",
+      "n": 200,
+      "seed": 1,
+      "n_epochs": 3000,
+      "wall_time_sec": 16.696213483810425,
+      "closed_form": {
+        "w_hat": [
+          1.5133909474570117,
+          -1.921114160284732,
+          0.48508844377848365,
+          3.1327022859300406,
+          -0.8744671135191997
+        ],
+        "n": 200,
+        "p": 5,
+        "rss": 206.69097130737975,
+        "mle_variance": 1.0334548565368988,
+        "unbiased_variance": 1.0599536990122038
+      },
+      "gd_mle_variance": 2.575012441683188,
+      "ssr_train_final": 0.8209437727928162,
+      "ssr_heldout_final": 0.7203236222267151,
+      "heldout_nll_final": 1.7520276308059692,
+      "curve_path": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/V0/v_toy0_N200_seed1_curves.pt"
+    },
+    {
+      "toy": "v_toy0",
+      "n": 200,
+      "seed": 2,
+      "n_epochs": 3000,
+      "wall_time_sec": 17.22319006919861,
+      "closed_form": {
+        "w_hat": [
+          1.41445777740248,
+          -1.896526309766715,
+          0.533532171543023,
+          3.029787096565503,
+          -0.8361107268510477
+        ],
+        "n": 200,
+        "p": 5,
+        "rss": 184.45990389934065,
+        "mle_variance": 0.9222995194967032,
+        "unbiased_variance": 0.9459482251248238
+      },
+      "gd_mle_variance": 2.5986064147072727,
+      "ssr_train_final": 0.8158673644065857,
+      "ssr_heldout_final": 0.9462984800338745,
+      "heldout_nll_final": 1.8695753812789917,
+      "curve_path": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/V0/v_toy0_N200_seed2_curves.pt"
+    },
+    {
+      "toy": "v_toy0",
+      "n": 1000,
+      "seed": 0,
+      "n_epochs": 3000,
+      "wall_time_sec": 18.38064408302307,
+      "closed_form": {
+        "w_hat": [
+          1.4794104819148322,
+          -1.946156153355262,
+          0.5185602941976836,
+          2.987898559377962,
+          -1.0174737042440505
+        ],
+        "n": 1000,
+        "p": 5,
+        "rss": 989.077270186835,
+        "mle_variance": 0.989077270186835,
+        "unbiased_variance": 0.9940475077254624
+      },
+      "gd_mle_variance": 3.087958859025553,
+      "ssr_train_final": 1.0415195226669312,
+      "ssr_heldout_final": 1.1014413833618164,
+      "heldout_nll_final": 2.033414363861084,
+      "curve_path": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/V0/v_toy0_N1000_seed0_curves.pt"
+    },
+    {
+      "toy": "v_toy0",
+      "n": 1000,
+      "seed": 1,
+      "n_epochs": 3000,
+      "wall_time_sec": 21.277512311935425,
+      "closed_form": {
+        "w_hat": [
+          1.559333640682965,
+          -2.0018979744307446,
+          0.544008023107428,
+          3.0111346848476908,
+          -1.0005340613346396
+        ],
+        "n": 1000,
+        "p": 5,
+        "rss": 990.8377939643472,
+        "mle_variance": 0.9908377939643471,
+        "unbiased_variance": 0.9958168783561278
+      },
+      "gd_mle_variance": 2.4775001474311624,
+      "ssr_train_final": 0.760841429233551,
+      "ssr_heldout_final": 0.7160091996192932,
+      "heldout_nll_final": 1.7305681705474854,
+      "curve_path": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/V0/v_toy0_N1000_seed1_curves.pt"
+    },
+    {
+      "toy": "v_toy0",
+      "n": 1000,
+      "seed": 2,
+      "n_epochs": 3000,
+      "wall_time_sec": 19.281243562698364,
+      "closed_form": {
+        "w_hat": [
+          1.5501072502401954,
+          -1.9968224320028387,
+          0.5453137548828084,
+          2.962755690003249,
+          -1.0189002661607722
+        ],
+        "n": 1000,
+        "p": 5,
+        "rss": 937.262697576386,
+        "mle_variance": 0.937262697576386,
+        "unbiased_variance": 0.9419725603782774
+      },
+      "gd_mle_variance": 2.6283191498438736,
+      "ssr_train_final": 0.8157227635383606,
+      "ssr_heldout_final": 0.8645937442779541,
+      "heldout_nll_final": 1.8344076871871948,
+      "curve_path": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/V0/v_toy0_N1000_seed2_curves.pt"
+    }
+  ],
+  "total_wall_time_sec": 831.0673360824585
+}

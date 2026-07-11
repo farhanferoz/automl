@@ -1,0 +1,651 @@
+{
+  "config": {
+    "N_TRAIN": 2500,
+    "N_TEST": 2500,
+    "k_max": 8,
+    "n_epochs_ladder": 800,
+    "router_hidden": [
+      32,
+      32
+    ],
+    "router_n_epochs": 300,
+    "router_lr": 0.01,
+    "n_nbr": 50,
+    "n_nbr_half": 25,
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "configs": [
+      {
+        "name": "dim2_axis",
+        "dim": 2,
+        "rotated": false,
+        "broad": false
+      },
+      {
+        "name": "dim2_broad",
+        "dim": 2,
+        "rotated": false,
+        "broad": true
+      },
+      {
+        "name": "dim5_axis",
+        "dim": 5,
+        "rotated": false,
+        "broad": false
+      },
+      {
+        "name": "dim5_rotated",
+        "dim": 5,
+        "rotated": true,
+        "broad": false
+      },
+      {
+        "name": "dim10_axis",
+        "dim": 10,
+        "rotated": false,
+        "broad": false
+      }
+    ]
+  },
+  "cases": [
+    {
+      "config": "dim2_axis",
+      "dim": 2,
+      "rotated": false,
+      "broad": false,
+      "seed": 0,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 0.8549912116327496,
+      "nll_hard_n_nbr50": 0.8309508680023558,
+      "nll_blend_n_nbr25": 0.8543381228555398,
+      "nll_hard_n_nbr25": 0.8360038470859494,
+      "g5_blend_shift": 0.0006530887772098204,
+      "nll_global": 0.9306333957214948,
+      "k_global": 1,
+      "advantage": 0.07564218408874535,
+      "advantage_se": 0.008691445058699433,
+      "oracle_x_score": -0.8352313216583156,
+      "oracle_noisy_score": -0.6032547701044915,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": {
+        "capture_rate": 0.1024,
+        "modal_by_tercile": [
+          2,
+          7,
+          5
+        ],
+        "designed_modal": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "config": "dim2_axis",
+      "dim": 2,
+      "rotated": false,
+      "broad": false,
+      "seed": 1,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 0.8082000903336204,
+      "nll_hard_n_nbr50": 0.8119913051680383,
+      "nll_blend_n_nbr25": 0.8081736517734529,
+      "nll_hard_n_nbr25": 0.8155660045806771,
+      "g5_blend_shift": 2.643856016748547e-05,
+      "nll_global": 0.8861970124332417,
+      "k_global": 1,
+      "advantage": 0.07799692209962125,
+      "advantage_se": 0.01086185170217702,
+      "oracle_x_score": -0.8244469341839458,
+      "oracle_noisy_score": -0.567477043032536,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": {
+        "capture_rate": 0.1448,
+        "modal_by_tercile": [
+          1,
+          7,
+          8
+        ],
+        "designed_modal": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "config": "dim2_axis",
+      "dim": 2,
+      "rotated": false,
+      "broad": false,
+      "seed": 2,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 0.8490607476979649,
+      "nll_hard_n_nbr50": 0.8323120216319432,
+      "nll_blend_n_nbr25": 0.8489113283870465,
+      "nll_hard_n_nbr25": 0.8324487997368818,
+      "g5_blend_shift": 0.00014941931091838612,
+      "nll_global": 0.9135433849486201,
+      "k_global": 1,
+      "advantage": 0.06448263725065516,
+      "advantage_se": 0.01044497572754081,
+      "oracle_x_score": -0.8318220526179015,
+      "oracle_noisy_score": -0.5650475208006984,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": {
+        "capture_rate": 0.244,
+        "modal_by_tercile": [
+          1,
+          5,
+          5
+        ],
+        "designed_modal": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "config": "dim2_broad",
+      "dim": 2,
+      "rotated": false,
+      "broad": true,
+      "seed": 0,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 0.9506525670982735,
+      "nll_hard_n_nbr50": 0.9396950006711746,
+      "nll_blend_n_nbr25": 0.9505895238214179,
+      "nll_hard_n_nbr25": 0.9392216591615219,
+      "g5_blend_shift": 6.304327685557887e-05,
+      "nll_global": 0.93826951508557,
+      "k_global": 1,
+      "advantage": -0.012383052012703599,
+      "advantage_se": 0.005656923553078778,
+      "oracle_x_score": -0.9892998398392346,
+      "oracle_noisy_score": -0.8179121385573825,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": null
+    },
+    {
+      "config": "dim2_broad",
+      "dim": 2,
+      "rotated": false,
+      "broad": true,
+      "seed": 1,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 0.9432863142026916,
+      "nll_hard_n_nbr50": 0.932172376161797,
+      "nll_blend_n_nbr25": 0.9432025930369178,
+      "nll_hard_n_nbr25": 0.9314184466833907,
+      "g5_blend_shift": 8.372116577382016e-05,
+      "nll_global": 0.9307144240610087,
+      "k_global": 1,
+      "advantage": -0.01257189014168301,
+      "advantage_se": 0.006561669025904438,
+      "oracle_x_score": -0.9255355665054689,
+      "oracle_noisy_score": -0.8184610174688826,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": null
+    },
+    {
+      "config": "dim2_broad",
+      "dim": 2,
+      "rotated": false,
+      "broad": true,
+      "seed": 2,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 0.9556553983797825,
+      "nll_hard_n_nbr50": 0.9428739277765821,
+      "nll_blend_n_nbr25": 0.9554408761750834,
+      "nll_hard_n_nbr25": 0.942332721054654,
+      "g5_blend_shift": 0.00021452220469908578,
+      "nll_global": 0.9319843101503779,
+      "k_global": 1,
+      "advantage": -0.02367108822940469,
+      "advantage_se": 0.007716292319828613,
+      "oracle_x_score": -0.8661737611541878,
+      "oracle_noisy_score": -0.8067038874788041,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": null
+    },
+    {
+      "config": "dim5_axis",
+      "dim": 5,
+      "rotated": false,
+      "broad": false,
+      "seed": 0,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 1.2251059479759017,
+      "nll_hard_n_nbr50": 1.1869858126909327,
+      "nll_blend_n_nbr25": 1.2189922698790023,
+      "nll_hard_n_nbr25": 1.1881185153439846,
+      "g5_blend_shift": 0.006113678096899333,
+      "nll_global": 1.2178983877877518,
+      "k_global": 1,
+      "advantage": -0.007207560188149598,
+      "advantage_se": 0.025646735973094692,
+      "oracle_x_score": -1.2914476936529449,
+      "oracle_noisy_score": -0.7688273106860101,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": {
+        "capture_rate": 0.3528,
+        "modal_by_tercile": [
+          1,
+          1,
+          1
+        ],
+        "designed_modal": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "config": "dim5_axis",
+      "dim": 5,
+      "rotated": false,
+      "broad": false,
+      "seed": 1,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 1.0607174913553727,
+      "nll_hard_n_nbr50": 1.0585511845774414,
+      "nll_blend_n_nbr25": 1.05705820925496,
+      "nll_hard_n_nbr25": 1.054112971856165,
+      "g5_blend_shift": 0.003659282100412664,
+      "nll_global": 1.111705149251982,
+      "k_global": 1,
+      "advantage": 0.050987657896609154,
+      "advantage_se": 0.04010689433179245,
+      "oracle_x_score": -1.0663186431692717,
+      "oracle_noisy_score": -0.9030119593281865,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": {
+        "capture_rate": 0.2728,
+        "modal_by_tercile": [
+          2,
+          1,
+          1
+        ],
+        "designed_modal": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "config": "dim5_axis",
+      "dim": 5,
+      "rotated": false,
+      "broad": false,
+      "seed": 2,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 1.00203448001932,
+      "nll_hard_n_nbr50": 0.9320845398171492,
+      "nll_blend_n_nbr25": 0.9977365416918805,
+      "nll_hard_n_nbr25": 0.9300076796467333,
+      "g5_blend_shift": 0.00429793832743941,
+      "nll_global": 0.9216542338935986,
+      "k_global": 1,
+      "advantage": -0.08038024612572157,
+      "advantage_se": 0.017787093510297693,
+      "oracle_x_score": -0.9727683616865417,
+      "oracle_noisy_score": -0.5387326971638117,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": {
+        "capture_rate": 0.3648,
+        "modal_by_tercile": [
+          1,
+          1,
+          1
+        ],
+        "designed_modal": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "config": "dim5_rotated",
+      "dim": 5,
+      "rotated": true,
+      "broad": false,
+      "seed": 0,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 0.8119759387773161,
+      "nll_hard_n_nbr50": 0.8121301833492243,
+      "nll_blend_n_nbr25": 0.7963299784346629,
+      "nll_hard_n_nbr25": 0.8619512235737157,
+      "g5_blend_shift": 0.015645960342653198,
+      "nll_global": 1.4354465818296875,
+      "k_global": 1,
+      "advantage": 0.6234706430523717,
+      "advantage_se": 0.3613153541443444,
+      "oracle_x_score": -1.517532150430505,
+      "oracle_noisy_score": -0.3359493445628631,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": {
+        "capture_rate": 0.852,
+        "modal_by_tercile": [
+          1,
+          1,
+          1
+        ],
+        "designed_modal": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "config": "dim5_rotated",
+      "dim": 5,
+      "rotated": true,
+      "broad": false,
+      "seed": 1,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 0.671507075803272,
+      "nll_hard_n_nbr50": 0.7179317987380284,
+      "nll_blend_n_nbr25": 0.6701968348018783,
+      "nll_hard_n_nbr25": 0.7235492770028158,
+      "g5_blend_shift": 0.0013102410013936527,
+      "nll_global": 2.3240094657513537,
+      "k_global": 1,
+      "advantage": 1.6525023899480824,
+      "advantage_se": 1.2730633765327048,
+      "oracle_x_score": -0.9280787416830549,
+      "oracle_noisy_score": -0.4973387727166427,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": {
+        "capture_rate": 0.344,
+        "modal_by_tercile": [
+          1,
+          1,
+          2
+        ],
+        "designed_modal": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "config": "dim5_rotated",
+      "dim": 5,
+      "rotated": true,
+      "broad": false,
+      "seed": 2,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 0.7537444352206589,
+      "nll_hard_n_nbr50": 0.7554953002073146,
+      "nll_blend_n_nbr25": 0.7503220227022506,
+      "nll_hard_n_nbr25": 0.7382677633352139,
+      "g5_blend_shift": 0.0034224125184083576,
+      "nll_global": 1.3545483891573484,
+      "k_global": 1,
+      "advantage": 0.6008039539366894,
+      "advantage_se": 0.2971337810218299,
+      "oracle_x_score": -1.1395348809012513,
+      "oracle_noisy_score": -0.44128153959998334,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": {
+        "capture_rate": 0.516,
+        "modal_by_tercile": [
+          1,
+          1,
+          1
+        ],
+        "designed_modal": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "config": "dim10_axis",
+      "dim": 10,
+      "rotated": false,
+      "broad": false,
+      "seed": 0,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 1.3573070025373637,
+      "nll_hard_n_nbr50": 1.240306130815516,
+      "nll_blend_n_nbr25": 1.3450567207914519,
+      "nll_hard_n_nbr25": 1.2182452352227564,
+      "g5_blend_shift": 0.012250281745911806,
+      "nll_global": 1.2269331822864915,
+      "k_global": 1,
+      "advantage": -0.13037382025087205,
+      "advantage_se": 0.025438750235817733,
+      "oracle_x_score": -1.3248831786360291,
+      "oracle_noisy_score": -0.8532953676603405,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": {
+        "capture_rate": 0.3248,
+        "modal_by_tercile": [
+          1,
+          1,
+          1
+        ],
+        "designed_modal": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "config": "dim10_axis",
+      "dim": 10,
+      "rotated": false,
+      "broad": false,
+      "seed": 1,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 1.1912829676118386,
+      "nll_hard_n_nbr50": 1.1269409257367633,
+      "nll_blend_n_nbr25": 1.1882390450864568,
+      "nll_hard_n_nbr25": 1.1269409257422776,
+      "g5_blend_shift": 0.0030439225253817703,
+      "nll_global": 1.126940925742273,
+      "k_global": 1,
+      "advantage": -0.06434204186956571,
+      "advantage_se": 0.023807703975033456,
+      "oracle_x_score": -1.1035076822397878,
+      "oracle_noisy_score": -0.8029636837349016,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": {
+        "capture_rate": 0.2896,
+        "modal_by_tercile": [
+          1,
+          1,
+          1
+        ],
+        "designed_modal": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "config": "dim10_axis",
+      "dim": 10,
+      "rotated": false,
+      "broad": false,
+      "seed": 2,
+      "n_train_router": 1250,
+      "n_eval_router": 1250,
+      "nll_blend_n_nbr50": 1.3280654763374904,
+      "nll_hard_n_nbr50": 1.3192481242943725,
+      "nll_blend_n_nbr25": 1.3264039535258727,
+      "nll_hard_n_nbr25": 1.2791689520239995,
+      "g5_blend_shift": 0.0016615228116176883,
+      "nll_global": 1.4096222740007203,
+      "k_global": 1,
+      "advantage": 0.08155679766323005,
+      "advantage_se": 0.08534802482358912,
+      "oracle_x_score": -1.2647165209462263,
+      "oracle_noisy_score": -0.8575107048671935,
+      "oracle_x_le_oracle_noisy": true,
+      "gold": {
+        "capture_rate": 0.288,
+        "modal_by_tercile": [
+          1,
+          1,
+          1
+        ],
+        "designed_modal": [
+          1,
+          2,
+          3
+        ]
+      }
+    }
+  ],
+  "bars": {
+    "i_dim2_axis_beats_global": {
+      "per_seed": [
+        {
+          "seed": 0,
+          "advantage": 0.07564218408874535,
+          "se": 0.008691445058699433,
+          "beats_2se": true
+        },
+        {
+          "seed": 1,
+          "advantage": 0.07799692209962125,
+          "se": 0.01086185170217702,
+          "beats_2se": true
+        },
+        {
+          "seed": 2,
+          "advantage": 0.06448263725065516,
+          "se": 0.01044497572754081,
+          "beats_2se": true
+        }
+      ],
+      "n_pass": 3,
+      "n_seeds": 3,
+      "pass": true
+    },
+    "ii_degradation_curve": {
+      "curve": {
+        "2": {
+          "mean_advantage": 0.07270724781300725,
+          "per_seed_advantage": [
+            0.07564218408874535,
+            0.07799692209962125,
+            0.06448263725065516
+          ],
+          "per_seed_se": [
+            0.008691445058699433,
+            0.01086185170217702,
+            0.01044497572754081
+          ],
+          "n_seeds_above_2se": 3,
+          "mean_gold_capture_rate": 0.16373333333333334,
+          "per_seed_gold_capture_rate": [
+            0.1024,
+            0.1448,
+            0.244
+          ]
+        },
+        "5": {
+          "mean_advantage": -0.012200049472420671,
+          "per_seed_advantage": [
+            -0.007207560188149598,
+            0.050987657896609154,
+            -0.08038024612572157
+          ],
+          "per_seed_se": [
+            0.025646735973094692,
+            0.04010689433179245,
+            0.017787093510297693
+          ],
+          "n_seeds_above_2se": 0,
+          "mean_gold_capture_rate": 0.33013333333333333,
+          "per_seed_gold_capture_rate": [
+            0.3528,
+            0.2728,
+            0.3648
+          ]
+        },
+        "10": {
+          "mean_advantage": -0.03771968815240257,
+          "per_seed_advantage": [
+            -0.13037382025087205,
+            -0.06434204186956571,
+            0.08155679766323005
+          ],
+          "per_seed_se": [
+            0.025438750235817733,
+            0.023807703975033456,
+            0.08534802482358912
+          ],
+          "n_seeds_above_2se": 0,
+          "mean_gold_capture_rate": 0.3008,
+          "per_seed_gold_capture_rate": [
+            0.3248,
+            0.2896,
+            0.288
+          ]
+        }
+      },
+      "dims": [
+        2,
+        5,
+        10
+      ],
+      "crossing_dim_below_2se_majority": 5
+    },
+    "iii_rotated_vs_axis_dim5": {
+      "seeds": [
+        0,
+        1,
+        2
+      ],
+      "per_seed_diff": [
+        0.6306782032405213,
+        1.6015147320514733,
+        0.681184200062411
+      ],
+      "mean_diff": 0.9711257117848019,
+      "se": 0.2634505575556837,
+      "within_2se": false
+    },
+    "iv_dim2_broad_bounded": {
+      "advantages": [
+        -0.012383052012703599,
+        -0.01257189014168301,
+        -0.02367108822940469
+      ],
+      "max_advantage": -0.012383052012703599,
+      "pass": true
+    }
+  },
+  "wall_time_sec": 807.4170572757721
+}

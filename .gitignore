@@ -25,6 +25,10 @@ texput.log
 # Logs
 *.log
 
+# Model checkpoints / large binary artifacts (regenerable from the example scripts)
+*.pt
+*.pth
+
 # Editors / IDEs
 .idea/
 .vscode/

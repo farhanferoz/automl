@@ -1,0 +1,204 @@
+{
+  "config": {
+    "width": 0.075,
+    "hidden": [
+      32,
+      32
+    ],
+    "n_epochs": 300,
+    "lr": 0.01,
+    "seeds": [
+      0,
+      1,
+      2
+    ]
+  },
+  "structured": {
+    "C": [
+      {
+        "n_train": 1250,
+        "n_eval": 1250,
+        "k_global": 1,
+        "nll_hard": 0.6511879209810661,
+        "nll_soft": 0.6162705788139312,
+        "nll_pilot": 0.6389413444955426,
+        "nll_global": 0.638451677226784,
+        "nll_oracle": 0.4079228723406629,
+        "agreement_hard": 0.9859022556390977,
+        "agreement_soft": 0.3505639097744361,
+        "agreement_pilot": 0.34398496240601506,
+        "checks": {
+          "soft_le_hard": true,
+          "soft_le_global": true,
+          "pilot_ge_soft": true
+        },
+        "toy": "C",
+        "seed": 0
+      },
+      {
+        "n_train": 1250,
+        "n_eval": 1250,
+        "k_global": 1,
+        "nll_hard": 0.6253501724469772,
+        "nll_soft": 0.6072602221687295,
+        "nll_pilot": 0.6338052525890663,
+        "nll_global": 0.6253501724469772,
+        "nll_oracle": 0.4395899721275182,
+        "agreement_hard": 0.9868173258003766,
+        "agreement_soft": 0.7015065913370998,
+        "agreement_pilot": 0.655367231638418,
+        "checks": {
+          "soft_le_hard": true,
+          "soft_le_global": true,
+          "pilot_ge_soft": true
+        },
+        "toy": "C",
+        "seed": 1
+      },
+      {
+        "n_train": 1250,
+        "n_eval": 1250,
+        "k_global": 1,
+        "nll_hard": 0.5937091693791996,
+        "nll_soft": 0.6074614350736903,
+        "nll_pilot": 0.6030477750225381,
+        "nll_global": 0.6142050541853529,
+        "nll_oracle": 0.432710005825579,
+        "agreement_hard": 0.8686964795432921,
+        "agreement_soft": 0.41198858230256896,
+        "agreement_pilot": 0.5128449096098954,
+        "checks": {
+          "soft_le_hard": false,
+          "soft_le_global": true,
+          "pilot_ge_soft": false
+        },
+        "toy": "C",
+        "seed": 2
+      }
+    ],
+    "D": [
+      {
+        "n_train": 1250,
+        "n_eval": 1250,
+        "k_global": 2,
+        "nll_hard": 0.8794761223616507,
+        "nll_soft": 0.8560849338185742,
+        "nll_pilot": 0.9559546145983268,
+        "nll_global": 0.8849187058511677,
+        "nll_oracle": 0.6195449446482183,
+        "agreement_hard": 0.9417293233082706,
+        "agreement_soft": 0.5845864661654135,
+        "agreement_pilot": 0.6278195488721805,
+        "checks": {
+          "soft_le_hard": true,
+          "soft_le_global": true,
+          "pilot_ge_soft": true
+        },
+        "toy": "D",
+        "seed": 0
+      },
+      {
+        "n_train": 1250,
+        "n_eval": 1250,
+        "k_global": 1,
+        "nll_hard": 0.9482161401344907,
+        "nll_soft": 0.8598511816776824,
+        "nll_pilot": 0.9639032653269521,
+        "nll_global": 0.9486462404135187,
+        "nll_oracle": 0.5920611137301075,
+        "agreement_hard": 1.0,
+        "agreement_soft": 0.3097928436911488,
+        "agreement_pilot": 0.7184557438794726,
+        "checks": {
+          "soft_le_hard": true,
+          "soft_le_global": true,
+          "pilot_ge_soft": true
+        },
+        "toy": "D",
+        "seed": 1
+      },
+      {
+        "n_train": 1250,
+        "n_eval": 1250,
+        "k_global": 1,
+        "nll_hard": 0.9217534768218011,
+        "nll_soft": 0.8258557051300511,
+        "nll_pilot": 0.9202612918552073,
+        "nll_global": 0.9217760354910115,
+        "nll_oracle": 0.5939143619062255,
+        "agreement_hard": 0.9048525214081827,
+        "agreement_soft": 0.02759276879162702,
+        "agreement_pilot": 0.5556612749762131,
+        "checks": {
+          "soft_le_hard": true,
+          "soft_le_global": true,
+          "pilot_ge_soft": true
+        },
+        "toy": "D",
+        "seed": 2
+      }
+    ],
+    "E": [
+      {
+        "n_train": 1250,
+        "n_eval": 1250,
+        "k_global": 2,
+        "nll_hard": 0.6231103637963721,
+        "nll_soft": 0.6013935694005077,
+        "nll_pilot": 0.6444294431675839,
+        "nll_global": 0.6444294431675839,
+        "nll_oracle": 0.4163849059526203,
+        "agreement_hard": 0.8656015037593985,
+        "agreement_soft": 0.2894736842105263,
+        "agreement_pilot": 0.7302631578947368,
+        "checks": {
+          "soft_le_hard": true,
+          "soft_le_global": true,
+          "pilot_ge_soft": true
+        },
+        "toy": "E",
+        "seed": 0
+      },
+      {
+        "n_train": 1250,
+        "n_eval": 1250,
+        "k_global": 1,
+        "nll_hard": 0.6107328100106247,
+        "nll_soft": 0.611320755319772,
+        "nll_pilot": 0.6148366907348635,
+        "nll_global": 0.6156914793741438,
+        "nll_oracle": 0.572373290640403,
+        "agreement_hard": 0.9020715630885122,
+        "agreement_soft": 0.6911487758945386,
+        "agreement_pilot": 0.9190207156308852,
+        "checks": {
+          "soft_le_hard": false,
+          "soft_le_global": true,
+          "pilot_ge_soft": true
+        },
+        "toy": "E",
+        "seed": 1
+      },
+      {
+        "n_train": 1250,
+        "n_eval": 1250,
+        "k_global": 1,
+        "nll_hard": 0.6106728721149665,
+        "nll_soft": 0.6099455893445951,
+        "nll_pilot": 0.6130281458240885,
+        "nll_global": 0.6120976483249939,
+        "nll_oracle": 0.5846622421941781,
+        "agreement_hard": 0.9372026641294006,
+        "agreement_soft": 0.845861084681256,
+        "agreement_pilot": 0.8411037107516651,
+        "checks": {
+          "soft_le_hard": true,
+          "soft_le_global": true,
+          "pilot_ge_soft": true
+        },
+        "toy": "E",
+        "seed": 2
+      }
+    ]
+  }
+}
