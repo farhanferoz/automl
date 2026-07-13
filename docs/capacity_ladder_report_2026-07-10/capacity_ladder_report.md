@@ -59,7 +59,9 @@ depth, a direct noise-recovery error for the
 variance model), and recovering it is what makes the capacity picture legible. Beyond measuring
 capacity, the read also *deploys*: distilled into a small selector — one that imitates the
 faithful per-input reads, a recipe a direct held-out objective ties but does not beat — it matches
-or beats a single global count on every case and, run end to end on the actual model, beats that model's
+or beats a single global count on every case and, run end to end on the actual model — trained
+throughout via the predictive likelihood alone, the configuration whose class identities stay
+stable across counts (Section 6.2) — beats that model's
 jointly-trained form on the staircase while never underperforming a fixed oracle count on the
 control. The one setting where the per-input read does not merely want more data is depth: a
 depth requirement that is provable by construction turns out to be representable but not learnable
@@ -818,10 +820,20 @@ network. Its capacity axis is the number of classes.
 
 The recipe becomes a **two-phase** procedure. Phase one freezes the classifier and its
 regression heads, trained by the ordered-prefix schedule of Section 2.1 with the class-count
-selector held quiescent. Phase two distils a small post-hoc selector — trained on the
+selector held quiescent. One training detail is load-bearing, here and in every comparison
+below: the classifier and heads are trained through the predictive likelihood alone — no
+class-membership targets enter the loss. This matters because the model's class boundaries are
+quantiles of the target re-derived separately for each class count, and boundary sets for
+different counts are not refinements of one another; a class-membership signal would therefore
+ask the same class to stand for a *different* slice of the target depending on which count is in
+play — an identity conflict across counts of exactly the kind Section 2.4's coherence check
+exists to catch. Likelihood-only training never anchors a class to count-specific boundaries, so
+each class keeps a single identity at every count, and the validation below applies to that
+configuration (both arms of it). Phase two distils a small post-hoc selector — trained on the
 prior-informed soft responsibilities of Section 6.1 — on a held-out split *inside* the training
 data, and reads the weighted combination. We compared this two-phase model against three
-references: the model as shipped today, which trains the selector *jointly* with the heads; a
+references: the model as shipped today, which trains the selector *jointly* with the heads
+(likewise likelihood-only, so the comparison isolates joint-versus-two-phase, not the loss); a
 standalone selector trained outside the network on the same target; and an oracle that sweeps a
 single fixed class count and keeps the best by held-out fit. Table 9 collects the outcome.
 
@@ -1114,7 +1126,11 @@ held-out errors to hit a target coverage rate with no distributional assumptions
 capacity, read the faithful contrast, not the knee, and carry the power caveat; and to *ship* it,
 distil the prior-informed soft responsibilities into a post-hoc selector on a held-out split
 (Section 6.2) — the recipe that matched or beat both the jointly-trained model and a fixed oracle
-count, while smoothing and a direct held-out objective each added nothing.
+count, while smoothing and a direct held-out objective each added nothing. One condition
+attaches to that recipe: train the classifier and heads through the predictive likelihood alone,
+with no class-membership targets — count-specific class boundaries are not refinements of one
+another, so a membership signal would redefine each class as the count changes, and the
+validation of Section 6.2 covers only the likelihood-only configuration.
 
 # Appendix A. The maximum-likelihood variance bias
 
