@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Noisy Sine Wave: Regression vs Classification</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #0F1B2E;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+    </style>
+</head>
+
+<body style="overflow: hidden;">
+    <svg viewBox="0 0 1000 500" xmlns="http://www.w3.org/2000/svg">
+        <rect width="1000" height="500" fill="#0F1B2E" />
+
+        <!-- Title -->
+        <text x="500" y="35" text-anchor="middle" fill="#4FC3F7" font-size="22" font-weight="bold">Why Classification?
+            Robustness to Noise</text>
+
+        <!-- LEFT PANEL: Pure Regression -->
+        <rect x="30" y="55" width="450" height="400" rx="10" fill="#1A2940" stroke="#263238" stroke-width="1" />
+        <text x="255" y="85" text-anchor="middle" fill="#EF5350" font-size="16" font-weight="bold">Pure
+            Regression</text>
+        <text x="255" y="105" text-anchor="middle" fill="#78909C" font-size="12">Overfits to noise</text>
+
+        <!-- Axes for left panel -->
+        <line x1="80" y1="400" x2="440" y2="400" stroke="#546E7A" stroke-width="1" />
+        <line x1="80" y1="130" x2="80" y2="400" stroke="#546E7A" stroke-width="1" />
+        <text x="260" y="435" text-anchor="middle" fill="#78909C" font-size="11">x</text>
+        <text x="60" y="265" text-anchor="middle" fill="#78909C" font-size="11" transform="rotate(-90 60 265)">y</text>
+
+        <!-- True sine wave (left) -->
+        <path d="M 90,265 Q 135,160 180,265 Q 225,370 270,265 Q 315,160 360,265 Q 390,330 430,265" fill="none"
+            stroke="#66BB6A" stroke-width="2.5" stroke-dasharray="8,4" opacity="0.6" />
+
+        <!-- Noisy data points (left) - scattered around sine -->
+        <circle cx="95" cy="270" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="100" cy="240" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="110" cy="230" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="115" cy="255" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="125" cy="200" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="130" cy="225" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="140" cy="180" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="148" cy="195" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="155" cy="175" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="165" cy="210" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="170" cy="230" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="180" cy="260" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="185" cy="280" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="195" cy="300" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="200" cy="285" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="210" cy="330" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="215" cy="350" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="225" cy="365" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="230" cy="340" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="240" cy="310" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="250" cy="290" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="260" cy="275" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="270" cy="260" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="280" cy="240" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="290" cy="220" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="300" cy="190" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="310" cy="175" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="315" cy="200" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="325" cy="215" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="335" cy="235" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="345" cy="255" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="355" cy="265" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="365" cy="280" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="375" cy="300" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="385" cy="310" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="395" cy="290" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="410" cy="275" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="425" cy="260" r="3" fill="#4FC3F7" opacity="0.5" />
+
+        <!-- Overfitting regression line (wiggly, chasing noise) -->
+        <path d="M 90,268 C 100,235 108,228 118,250 C 128,195 138,178 148,190 C 158,170 168,215 178,255
+             C 188,283 198,298 205,282 C 215,335 222,360 228,343 C 238,305 248,288 258,272
+             C 268,255 278,238 290,215 C 300,188 308,172 318,205 C 328,220 338,240 348,258
+             C 358,268 368,285 378,305 C 388,312 398,285 410,270 C 420,255 430,262 430,262" fill="none"
+            stroke="#EF5350" stroke-width="2.5" />
+
+        <!-- Legend left -->
+        <line x1="100" y1="425" x2="130" y2="425" stroke="#EF5350" stroke-width="2.5" />
+        <text x="135" y="429" fill="#EF5350" font-size="11">Fitted (overfits)</text>
+        <line x1="260" y1="425" x2="290" y2="425" stroke="#66BB6A" stroke-width="2.5" stroke-dasharray="8,4" />
+        <text x="295" y="429" fill="#66BB6A" font-size="11">True function</text>
+
+        <!-- RIGHT PANEL: Classification then Regression -->
+        <rect x="520" y="55" width="450" height="400" rx="10" fill="#1A2940" stroke="#263238" stroke-width="1" />
+        <text x="745" y="85" text-anchor="middle" fill="#66BB6A" font-size="16" font-weight="bold">Probabilistic
+            Regression (k=3)</text>
+        <text x="745" y="105" text-anchor="middle" fill="#78909C" font-size="12">Captures trend, provides
+            uncertainty</text>
+
+        <!-- Axes for right panel -->
+        <line x1="570" y1="400" x2="930" y2="400" stroke="#546E7A" stroke-width="1" />
+        <line x1="570" y1="130" x2="570" y2="400" stroke="#546E7A" stroke-width="1" />
+        <text x="750" y="435" text-anchor="middle" fill="#78909C" font-size="11">x</text>
+        <text x="550" y="265" text-anchor="middle" fill="#78909C" font-size="11"
+            transform="rotate(-90 550 265)">y</text>
+
+        <!-- Class bands (3 horizontal bands with colours) -->
+        <rect x="570" y="130" width="360" height="75" fill="#EF5350" opacity="0.08" />
+        <rect x="570" y="205" width="360" height="120" fill="#66BB6A" opacity="0.08" />
+        <rect x="570" y="325" width="360" height="75" fill="#4FC3F7" opacity="0.08" />
+
+        <!-- Band labels -->
+        <text x="940" y="170" fill="#EF5350" font-size="10" opacity="0.7">Class 2 (High)</text>
+        <text x="940" y="268" fill="#66BB6A" font-size="10" opacity="0.7">Class 1 (Mid)</text>
+        <text x="940" y="365" fill="#4FC3F7" font-size="10" opacity="0.7">Class 0 (Low)</text>
+
+        <!-- True sine wave (right) -->
+        <path d="M 580,265 Q 625,160 670,265 Q 715,370 760,265 Q 805,160 850,265 Q 880,330 920,265" fill="none"
+            stroke="#66BB6A" stroke-width="2.5" stroke-dasharray="8,4" opacity="0.6" />
+
+        <!-- Same noisy data points (right) -->
+        <circle cx="585" cy="270" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="590" cy="240" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="600" cy="230" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="605" cy="255" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="615" cy="200" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="620" cy="225" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="630" cy="180" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="638" cy="195" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="645" cy="175" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="655" cy="210" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="660" cy="230" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="670" cy="260" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="675" cy="280" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="685" cy="300" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="690" cy="285" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="700" cy="330" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="705" cy="350" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="715" cy="365" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="720" cy="340" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="730" cy="310" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="740" cy="290" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="750" cy="275" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="760" cy="260" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="770" cy="240" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="780" cy="220" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="790" cy="190" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="800" cy="175" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="805" cy="200" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="815" cy="215" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="825" cy="235" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="835" cy="255" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="845" cy="265" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="855" cy="280" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="865" cy="300" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="875" cy="310" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="885" cy="290" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="900" cy="275" r="3" fill="#4FC3F7" opacity="0.5" />
+        <circle cx="915" cy="260" r="3" fill="#4FC3F7" opacity="0.5" />
+
+        <!-- Smooth predicted curve (captures trend without overfitting) -->
+        <path d="M 580,265 Q 625,175 670,265 Q 715,355 760,265 Q 805,175 850,265 Q 880,320 920,265" fill="none"
+            stroke="#FFA726" stroke-width="3" />
+
+        <!-- Uncertainty band -->
+        <path d="M 580,240 Q 625,140 670,240 Q 715,340 760,240 Q 805,140 850,240 Q 880,295 920,240" fill="none"
+            stroke="#FFA726" stroke-width="1" opacity="0.4" />
+        <path d="M 580,290 Q 625,210 670,290 Q 715,390 760,290 Q 805,210 850,290 Q 880,345 920,290" fill="none"
+            stroke="#FFA726" stroke-width="1" opacity="0.4" />
+        <!-- fill between for uncertainty -->
+        <path d="M 580,240 Q 625,140 670,240 Q 715,340 760,240 Q 805,140 850,240 Q 880,295 920,240
+             L 920,290 Q 880,345 850,290 Q 805,210 760,290 Q 715,390 670,290 Q 625,210 580,290 Z" fill="#FFA726"
+            opacity="0.1" />
+
+        <!-- Legend right -->
+        <line x1="590" y1="425" x2="620" y2="425" stroke="#FFA726" stroke-width="2.5" />
+        <text x="625" y="429" fill="#FFA726" font-size="11">Prediction ± σ</text>
+        <line x1="750" y1="425" x2="780" y2="425" stroke="#66BB6A" stroke-width="2.5" stroke-dasharray="8,4" />
+        <text x="785" y="429" fill="#66BB6A" font-size="11">True function</text>
+
+        <!-- VS divider -->
+        <text x="493" y="270" text-anchor="middle" fill="#546E7A" font-size="18" font-weight="bold">vs</text>
+    </svg>
+</body>
+
+</html>

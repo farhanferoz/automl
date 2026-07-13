@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Probabilistic Regression - Turing Institute Presentation</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.6.1/reveal.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.6.1/theme/black.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --accent-blue: #4FC3F7;
+            --accent-green: #66BB6A;
+            --accent-orange: #FFA726;
+            --accent-purple: #AB47BC;
+            --accent-red: #EF5350;
+            --bg-dark: #0a1628;
+            --bg-card: rgba(255, 255, 255, 0.05);
+            --text-primary: #e8eaf6;
+            --text-secondary: #90a4ae;
+        }
+
+        .reveal {
+            font-family: 'Inter', -apple-system, sans-serif;
+            font-size: 28px;
+            color: var(--text-primary);
+        }
+
+        .reveal .slides {
+            text-align: left;
+        }
+
+        .reveal .slides section {
+            padding: 40px 60px;
+        }
+
+        .reveal h1 {
+            font-size: 1.8em;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.3em;
+            text-align: left;
+            line-height: 1.2;
+        }
+
+        .reveal h2 {
+            font-size: 1.4em;
+            font-weight: 600;
+            color: var(--accent-blue);
+            margin-bottom: 0.5em;
+            text-align: left;
+        }
+
+        .reveal h3 {
+            font-size: 1.0em;
+            font-weight: 500;
+            color: var(--accent-green);
+            margin-bottom: 0.3em;
+            text-align: left;
+        }
+
+        .reveal p, .reveal li {
+            font-size: 0.75em;
+            line-height: 1.6;
+            color: var(--text-primary);
+        }
+
+        .reveal ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .reveal ul li {
+            padding-left: 1.2em;
+            position: relative;
+            margin-bottom: 0.3em;
+        }
+
+        .reveal ul li::before {
+            content: '▸';
+            color: var(--accent-blue);
+            position: absolute;
+            left: 0;
+            font-weight: bold;
+        }
+
+        .reveal .subtitle {
+            font-size: 0.65em;
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .reveal .highlight-box {
+            background: linear-gradient(135deg, rgba(79, 195, 247, 0.1), rgba(171, 71, 188, 0.1));
+            border-left: 3px solid var(--accent-blue);
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+
+        .reveal .key-insight {
+            background: linear-gradient(135deg, rgba(102, 187, 106, 0.15), rgba(79, 195, 247, 0.1));
+            border-left: 3px solid var(--accent-green);
+            padding: 12px 18px;
+            border-radius: 8px;
+            margin: 12px 0;
+            font-size: 0.8em;
+        }
+
+        .reveal .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            align-items: start;
+        }
+
+        .reveal .three-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+            align-items: start;
+        }
+
+        .reveal table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.65em;
+            margin: 15px 0;
+        }
+
+        .reveal table th {
+            background: rgba(79, 195, 247, 0.2);
+            color: var(--accent-blue);
+            padding: 10px 14px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid rgba(79, 195, 247, 0.3);
+        }
+
+        .reveal table td {
+            padding: 8px 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        .reveal table tr:hover td {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .reveal .equation {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-green);
+            font-size: 0.9em;
+            background: rgba(102, 187, 106, 0.1);
+            padding: 10px 16px;
+            border-radius: 6px;
+            display: inline-block;
+            margin: 8px 0;
+        }
+
+        .reveal .tag {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.6em;
+            font-weight: 600;
+            margin-right: 6px;
+        }
+
+        .tag-blue { background: rgba(79, 195, 247, 0.2); color: var(--accent-blue); }
+        .tag-green { background: rgba(102, 187, 106, 0.2); color: var(--accent-green); }
+        .tag-purple { background: rgba(171, 71, 188, 0.2); color: var(--accent-purple); }
+        .tag-orange { background: rgba(255, 167, 38, 0.2); color: var(--accent-orange); }
+
+        .reveal img.result-plot {
+            max-height: 340px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .reveal img.diagram-img {
+            max-height: 400px;
+            border-radius: 8px;
+        }
+
+        .reveal .slide-number {
+            color: var(--text-secondary);
+            font-size: 0.5em;
+        }
+
+        /* Title slide special styling */
+        .title-slide h1 {
+            font-size: 2.0em;
+            margin-top: 15vh;
+            text-align: center;
+        }
+        .title-slide .subtitle {
+            text-align: center;
+            font-size: 0.8em;
+        }
+        .title-slide .author {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.7em;
+            margin-top: 40px;
+        }
+
+        /* Architecture SVG */
+        .arch-svg text {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .reveal .strategy-card {
+            background: var(--bg-card);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 14px;
+        }
+
+        .reveal .strategy-card h3 {
+            margin-top: 0;
+            font-size: 0.85em;
+        }
+
+        .reveal .strategy-card p {
+            font-size: 0.6em;
+            color: var(--text-secondary);
+            margin: 0;
+        }
+
+        .plot-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .plot-caption {
+            font-size: 0.55em;
+            color: var(--text-secondary);
+            text-align: center;
+            margin-top: 4px;
+        }
+
+        .reveal .future-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .future-icon {
+            font-size: 1.2em;
+            min-width: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="reveal">
+        <div class="slides">
+
+            <!-- SLIDE 1: Title -->
+            <section class="title-slide" data-background-gradient="linear-gradient(135deg, #0a1628 0%, #1a237e 50%, #0d47a1 100%)">
+                <h1>Probabilistic Regression</h1>
+                <p class="subtitle">Bridging Classification and Regression for Robust Predictions with Calibrated Uncertainty</p>
+                <div class="author">
+                    <p>Farhan Feroz</p>
+                    <p style="font-size: 0.8em; color: #78909c;">Senior Research Associate Interview &bull; The Alan Turing Institute</p>
+                    <p style="font-size: 0.7em; color: #546e7a;">February 2026</p>
+                </div>
+            </section>
+
+            <!-- SLIDE 2: Motivation -->
+            <section data-background-color="#0a1628">
+                <h2>Motivation & Problem Statement</h2>
+                <div class="two-col">
+                    <div>
+                        <h3>The Challenge</h3>
+                        <ul>
+                            <li><strong>Noisy observations</strong> — standard regression overfits to noise in low SNR regimes</li>
+                            <li><strong>Uncertainty quantification</strong> — no natural mechanism for calibrated prediction intervals</li>
+                            <li><strong>Robustness trade-off</strong> — practitioners manually choose between smooth and flexible models</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <div class="key-insight">
+                            <h3 style="margin-top: 0;">💡 Key Insight</h3>
+                            <p><strong>Classification is inherently more robust to noise than regression.</strong></p>
+                            <p>By discretising the target space, we trade resolution for stability — and can recover full regression in the limit.</p>
+                        </div>
+                        <div style="margin-top: 15px;">
+                            <span class="tag tag-blue">Probabilistic Modelling</span>
+                            <span class="tag tag-green">Uncertainty Quantification</span>
+                            <span class="tag tag-purple">Surrogate Models</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 3: Architecture -->
+            <section data-background-color="#0a1628">
+                <h2>Model Architecture</h2>
+                <p class="subtitle">End-to-end differentiable pipeline from features to probabilistic predictions</p>
+
+                <!-- SVG Architecture Diagram -->
+                <svg viewBox="0 0 900 280" style="width: 100%; max-width: 850px; margin: 20px auto; display: block;" class="arch-svg">
+                    <defs>
+                        <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" style="stop-color:#4FC3F7;stop-opacity:0.3"/>
+                            <stop offset="100%" style="stop-color:#AB47BC;stop-opacity:0.3"/>
+                        </linearGradient>
+                        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                            <polygon points="0 0, 8 3, 0 6" fill="#4FC3F7"/>
+                        </marker>
+                    </defs>
+
+                    <!-- Step 1: Input -->
+                    <rect x="10" y="100" width="100" height="50" rx="8" fill="rgba(79,195,247,0.15)" stroke="#4FC3F7" stroke-width="1.5"/>
+                    <text x="60" y="130" text-anchor="middle" fill="#4FC3F7" font-size="14" font-weight="600">Input X</text>
+
+                    <!-- Arrow 1 -->
+                    <line x1="110" y1="125" x2="155" y2="125" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+                    <!-- Step 2: Classifier -->
+                    <rect x="160" y="85" width="130" height="80" rx="10" fill="rgba(79,195,247,0.1)" stroke="#4FC3F7" stroke-width="1.5"/>
+                    <text x="225" y="115" text-anchor="middle" fill="#e8eaf6" font-size="13" font-weight="600">Classifier</text>
+                    <text x="225" y="135" text-anchor="middle" fill="#90a4ae" font-size="11">(k classes)</text>
+                    <text x="225" y="155" text-anchor="middle" fill="#90a4ae" font-size="10">softmax output</text>
+
+                    <!-- Arrow 2 -->
+                    <line x1="290" y1="125" x2="335" y2="125" stroke="#4FC3F7" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+                    <!-- Step 3: Probabilities -->
+                    <rect x="340" y="75" width="130" height="100" rx="10" fill="rgba(102,187,106,0.1)" stroke="#66BB6A" stroke-width="1.5"/>
+                    <text x="405" y="100" text-anchor="middle" fill="#66BB6A" font-size="13" font-weight="600">Probabilities</text>
+                    <!-- Probability bars -->
+                    <rect x="360" y="110" width="60" height="8" rx="2" fill="rgba(79,195,247,0.5)"/>
+                    <text x="430" y="118" fill="#90a4ae" font-size="10">p₁</text>
+                    <rect x="360" y="123" width="35" height="8" rx="2" fill="rgba(171,71,188,0.5)"/>
+                    <text x="430" y="131" fill="#90a4ae" font-size="10">p₂</text>
+                    <rect x="360" y="136" width="50" height="8" rx="2" fill="rgba(255,167,38,0.5)"/>
+                    <text x="430" y="144" fill="#90a4ae" font-size="10">pₖ</text>
+                    <text x="405" y="162" text-anchor="middle" fill="#90a4ae" font-size="9">...</text>
+
+                    <!-- Arrows to regression heads -->
+                    <line x1="470" y1="105" x2="520" y2="55" stroke="#66BB6A" stroke-width="1" marker-end="url(#arrowhead)"/>
+                    <line x1="470" y1="125" x2="520" y2="125" stroke="#66BB6A" stroke-width="1" marker-end="url(#arrowhead)"/>
+                    <line x1="470" y1="145" x2="520" y2="195" stroke="#66BB6A" stroke-width="1" marker-end="url(#arrowhead)"/>
+
+                    <!-- Regression heads -->
+                    <rect x="525" y="30" width="130" height="45" rx="8" fill="rgba(255,167,38,0.1)" stroke="#FFA726" stroke-width="1"/>
+                    <text x="590" y="50" text-anchor="middle" fill="#FFA726" font-size="11" font-weight="500">Regression Head 1</text>
+                    <text x="590" y="66" text-anchor="middle" fill="#90a4ae" font-size="10">μ₁(p₁), σ²₁(p₁)</text>
+
+                    <rect x="525" y="100" width="130" height="45" rx="8" fill="rgba(255,167,38,0.1)" stroke="#FFA726" stroke-width="1"/>
+                    <text x="590" y="120" text-anchor="middle" fill="#FFA726" font-size="11" font-weight="500">Regression Head 2</text>
+                    <text x="590" y="136" text-anchor="middle" fill="#90a4ae" font-size="10">μ₂(p₂), σ²₂(p₂)</text>
+
+                    <rect x="525" y="170" width="130" height="45" rx="8" fill="rgba(255,167,38,0.1)" stroke="#FFA726" stroke-width="1"/>
+                    <text x="590" y="190" text-anchor="middle" fill="#FFA726" font-size="11" font-weight="500">Regression Head k</text>
+                    <text x="590" y="206" text-anchor="middle" fill="#90a4ae" font-size="10">μₖ(pₖ), σ²ₖ(pₖ)</text>
+
+                    <!-- Arrows to final -->
+                    <line x1="655" y1="52" x2="720" y2="105" stroke="#FFA726" stroke-width="1" marker-end="url(#arrowhead)"/>
+                    <line x1="655" y1="122" x2="720" y2="115" stroke="#FFA726" stroke-width="1" marker-end="url(#arrowhead)"/>
+                    <line x1="655" y1="192" x2="720" y2="130" stroke="#FFA726" stroke-width="1" marker-end="url(#arrowhead)"/>
+
+                    <!-- Final Prediction -->
+                    <rect x="725" y="80" width="160" height="80" rx="10" fill="rgba(102,187,106,0.15)" stroke="#66BB6A" stroke-width="2"/>
+                    <text x="805" y="105" text-anchor="middle" fill="#66BB6A" font-size="13" font-weight="700">Final Prediction</text>
+                    <text x="805" y="125" text-anchor="middle" fill="#e8eaf6" font-size="11">ŷ = Σ pᵢ · μᵢ</text>
+                    <text x="805" y="145" text-anchor="middle" fill="#90a4ae" font-size="10">σ² via Law of Total Var.</text>
+                </svg>
+
+                <div class="two-col" style="margin-top: 10px;">
+                    <div class="equation" style="font-size: 0.7em;">
+                        ŷ = Σᵢ pᵢ · μᵢ(pᵢ)
+                    </div>
+                    <div class="equation" style="font-size: 0.7em;">
+                        Var(y) = Σᵢ pᵢ · [σ²ᵢ + (μᵢ − ŷ)²]
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 4: n_classes as SNR Proxy -->
+            <section data-background-color="#0a1628">
+                <h2>n_classes as a Signal-to-Noise Ratio Proxy</h2>
+                <p class="subtitle">The number of classes k controls the precision-robustness trade-off</p>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Regime</th>
+                            <th>n_classes</th>
+                            <th>Behaviour</th>
+                            <th>Use Case</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="tag tag-orange">High Noise / Low SNR</span></td>
+                            <td><strong>k = 2–3</strong></td>
+                            <td>Coarse bins → robust to noise</td>
+                            <td>Noisy physical measurements, financial data</td>
+                        </tr>
+                        <tr>
+                            <td><span class="tag tag-blue">Medium Noise</span></td>
+                            <td><strong>k = 4–6</strong></td>
+                            <td>Balanced resolution vs robustness</td>
+                            <td>Typical ML regression problems</td>
+                        </tr>
+                        <tr>
+                            <td><span class="tag tag-green">Low Noise / High SNR</span></td>
+                            <td><strong>k → ∞</strong></td>
+                            <td>Approaches pure regression</td>
+                            <td>Clean data, high precision required</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="key-insight">
+                    <p style="margin: 0;"><strong>Intuition:</strong> With k=2 (binary), the classifier only distinguishes "above median" from "below median" — an easier task, robust to noise. As k→∞, each bin holds a single value, recovering standard regression. The <strong>optimal k is data-dependent</strong> and relates inversely to the noise level.</p>
+                </div>
+
+                <!-- SVG illustrating bins -->
+                <svg viewBox="0 0 800 150" style="width: 100%; max-width: 750px; margin: 15px auto; display: block;">
+                    <!-- k=2 -->
+                    <rect x="5" y="10" width="240" height="130" rx="8" fill="rgba(255,167,38,0.05)" stroke="rgba(255,167,38,0.3)" stroke-width="1"/>
+                    <text x="125" y="30" text-anchor="middle" fill="#FFA726" font-size="12" font-weight="600" font-family="Inter, sans-serif">k = 2 (High Noise)</text>
+                    <rect x="25" y="40" width="200" height="40" rx="3" fill="rgba(79,195,247,0.15)" stroke="rgba(79,195,247,0.3)"/>
+                    <text x="125" y="65" text-anchor="middle" fill="#90a4ae" font-size="10" font-family="Inter, sans-serif">Class 0: below median</text>
+                    <rect x="25" y="85" width="200" height="40" rx="3" fill="rgba(255,167,38,0.15)" stroke="rgba(255,167,38,0.3)"/>
+                    <text x="125" y="110" text-anchor="middle" fill="#90a4ae" font-size="10" font-family="Inter, sans-serif">Class 1: above median</text>
+                    <text x="125" y="140" text-anchor="middle" fill="#546e7a" font-size="9" font-family="Inter, sans-serif">Coarse → Robust</text>
+
+                    <!-- k=5 -->
+                    <rect x="280" y="10" width="240" height="130" rx="8" fill="rgba(79,195,247,0.05)" stroke="rgba(79,195,247,0.3)" stroke-width="1"/>
+                    <text x="400" y="30" text-anchor="middle" fill="#4FC3F7" font-size="12" font-weight="600" font-family="Inter, sans-serif">k = 5 (Medium)</text>
+                    <rect x="300" y="40" width="200" height="16" rx="2" fill="rgba(239,83,80,0.15)" stroke="rgba(239,83,80,0.2)"/>
+                    <rect x="300" y="58" width="200" height="16" rx="2" fill="rgba(255,167,38,0.15)" stroke="rgba(255,167,38,0.2)"/>
+                    <rect x="300" y="76" width="200" height="16" rx="2" fill="rgba(102,187,106,0.15)" stroke="rgba(102,187,106,0.2)"/>
+                    <rect x="300" y="94" width="200" height="16" rx="2" fill="rgba(79,195,247,0.15)" stroke="rgba(79,195,247,0.2)"/>
+                    <rect x="300" y="112" width="200" height="16" rx="2" fill="rgba(171,71,188,0.15)" stroke="rgba(171,71,188,0.2)"/>
+                    <text x="400" y="140" text-anchor="middle" fill="#546e7a" font-size="9" font-family="Inter, sans-serif">Balanced</text>
+
+                    <!-- k=inf -->
+                    <rect x="555" y="10" width="240" height="130" rx="8" fill="rgba(102,187,106,0.05)" stroke="rgba(102,187,106,0.3)" stroke-width="1"/>
+                    <text x="675" y="30" text-anchor="middle" fill="#66BB6A" font-size="12" font-weight="600" font-family="Inter, sans-serif">k → ∞ (Low Noise)</text>
+                    <!-- Many thin lines -->
+                    <line x1="575" y1="42" x2="775" y2="42" stroke="rgba(102,187,106,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="46" x2="775" y2="46" stroke="rgba(79,195,247,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="50" x2="775" y2="50" stroke="rgba(255,167,38,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="54" x2="775" y2="54" stroke="rgba(171,71,188,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="58" x2="775" y2="58" stroke="rgba(239,83,80,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="62" x2="775" y2="62" stroke="rgba(102,187,106,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="66" x2="775" y2="66" stroke="rgba(79,195,247,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="70" x2="775" y2="70" stroke="rgba(255,167,38,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="74" x2="775" y2="74" stroke="rgba(171,71,188,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="78" x2="775" y2="78" stroke="rgba(239,83,80,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="82" x2="775" y2="82" stroke="rgba(102,187,106,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="86" x2="775" y2="86" stroke="rgba(79,195,247,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="90" x2="775" y2="90" stroke="rgba(255,167,38,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="94" x2="775" y2="94" stroke="rgba(171,71,188,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="98" x2="775" y2="98" stroke="rgba(239,83,80,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="102" x2="775" y2="102" stroke="rgba(102,187,106,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="106" x2="775" y2="106" stroke="rgba(79,195,247,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="110" x2="775" y2="110" stroke="rgba(255,167,38,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="114" x2="775" y2="114" stroke="rgba(171,71,188,0.2)" stroke-width="0.5"/>
+                    <line x1="575" y1="118" x2="775" y2="118" stroke="rgba(239,83,80,0.2)" stroke-width="0.5"/>
+                    <text x="675" y="140" text-anchor="middle" fill="#546e7a" font-size="9" font-family="Inter, sans-serif">Fine → Pure Regression</text>
+                </svg>
+            </section>
+
+            <!-- SLIDE 5: Toy Model Results -->
+            <section data-background-color="#0a1628">
+                <h2>Toy Model Results</h2>
+                <p class="subtitle">Synthetic data: y = sin(x)·2 + 0.5x + noise | Noise levels: 0.05, 0.5, 1.5</p>
+
+                <div class="two-col">
+                    <div>
+                        <h3>Experiment Design</h3>
+                        <ul>
+                            <li>1000 samples, 80/20 train-test split</li>
+                            <li>Compare: Standard NN vs Probabilistic Regression</li>
+                            <li>Sweep k = 2, 3, ..., 7 at each noise level</li>
+                            <li>Metrics: MSE and NLL (uncertainty quality)</li>
+                        </ul>
+
+                        <div class="key-insight" style="margin-top: 15px;">
+                            <p style="margin: 0;"><strong>Key Finding:</strong> At high noise (σ=1.5), small k (2-3) minimises MSE. At low noise (σ=0.05), larger k performs best. The <strong>optimal k tracks the SNR</strong>.</p>
+                        </div>
+
+                        <h3 style="margin-top: 15px;">Financial Data Validation</h3>
+                        <ul>
+                            <li>DiscreteRegressor with LightGBM (k=3)</li>
+                            <li>Price prediction with noisy features</li>
+                            <li>Feature selection identifies informative signals</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <div style="text-align: center;">
+                            <img src="img/predicted_vs_actual.png" alt="Predicted vs Actual" class="result-plot" style="max-height: 220px;">
+                            <div class="plot-caption">Predicted vs Actual (test set) — ProbabilisticRegression, separate heads</div>
+                        </div>
+                        <div style="text-align: center; margin-top: 15px;">
+                            <img src="img/violin_plot.png" alt="SHAP Violin" class="result-plot" style="max-height: 180px;">
+                            <div class="plot-caption">SHAP values showing feature importance for the DiscreteRegressor — correctly identifies signal vs noise features</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 6: Probability Mappers & Calibration -->
+            <section data-background-color="#0a1628">
+                <h2>Learned Probability Mappers & Calibration</h2>
+                <p class="subtitle">The regression heads learn non-linear probability-to-value mappings</p>
+
+                <div class="plot-grid">
+                    <div style="text-align: center;">
+                        <img src="img/probability_mappers.png" alt="Probability Mappers" class="result-plot">
+                        <div class="plot-caption">Learned probability → regression value mappings per class. Each head learns the expected value conditioned on class probability.</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <img src="img/calibration_plot.png" alt="Calibration Plot" class="result-plot">
+                        <div class="plot-caption">Calibration plot: observed frequency vs predicted confidence. Near-diagonal = well-calibrated uncertainty.</div>
+                    </div>
+                </div>
+
+                <div class="highlight-box" style="margin-top: 15px;">
+                    <p style="margin: 0; font-size: 0.7em;"><strong>Three regression strategies implemented:</strong>
+                        <span class="tag tag-blue">Separate Heads</span> Independent NN per class — most expressive, supports monotonic constraints &nbsp;|&nbsp;
+                        <span class="tag tag-green">Single Head (N outputs)</span> Shared NN, k outputs — parameter efficient &nbsp;|&nbsp;
+                        <span class="tag tag-purple">Single Head (Final)</span> One NN, weighted output — simplest
+                    </p>
+                </div>
+            </section>
+
+            <!-- SLIDE 7: Automatic n_classes -->
+            <section data-background-color="#0a1628">
+                <h2>Automatic n_classes Determination</h2>
+                <p class="subtitle">Can we learn k from data rather than treating it as a hyperparameter?</p>
+
+                <div class="two-col">
+                    <div>
+                        <h3>Approach</h3>
+                        <p>A secondary <strong>"n_classes predictor"</strong> network selects optimal k <em>per sample</em>.</p>
+                        <p>Challenge: k is a discrete variable — standard gradient descent doesn't apply.</p>
+
+                        <h3 style="margin-top: 12px;">Four Differentiable Strategies</h3>
+                        <div class="strategy-card" style="margin-bottom: 8px;">
+                            <h3 style="color: var(--accent-blue);">Gumbel-Softmax</h3>
+                            <p>Differentiable categorical sampling via temperature-annealed reparameterisation trick</p>
+                        </div>
+                        <div class="strategy-card" style="margin-bottom: 8px;">
+                            <h3 style="color: var(--accent-green);">Soft Gating</h3>
+                            <p>Continuous softmax weighting over k ∈ {2, ..., max_k, ∞}</p>
+                        </div>
+                        <div class="strategy-card" style="margin-bottom: 8px;">
+                            <h3 style="color: var(--accent-orange);">Straight-Through Estimator</h3>
+                            <p>Hard selection forward, soft gradients backward — discrete at inference</p>
+                        </div>
+                        <div class="strategy-card">
+                            <h3 style="color: var(--accent-purple);">REINFORCE</h3>
+                            <p>Policy gradient — k as a discrete action with reward signal from validation loss</p>
+                        </div>
+                    </div>
+                    <div style="text-align: center;">
+                        <img src="img/auto_nclasses.png" alt="Auto n_classes Architecture" class="diagram-img" style="max-height: 380px;">
+                        <div class="plot-caption">Architecture for automatic n_classes selection — includes a direct regression path (k=∞) for clean data</div>
+
+                        <div class="key-insight" style="margin-top: 12px; text-align: left;">
+                            <p style="margin: 0;"><strong>Connection to NAS:</strong> This is essentially an instance of <em>differentiable architecture search</em> — the model learns its own optimal complexity per sample.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 8: Relevance to AI for Physical Systems -->
+            <section data-background-color="#0a1628">
+                <h2>Relevance to AI for Physical Systems</h2>
+                <p class="subtitle">Connecting probabilistic regression to the Turing Fundamental Research mission</p>
+
+                <div class="three-col">
+                    <div class="strategy-card">
+                        <h3 style="color: var(--accent-blue);">🔬 Surrogate Modelling</h3>
+                        <p>Robust surrogate for expensive physical simulations with calibrated uncertainty — essential for multi-fidelity workflows</p>
+                    </div>
+                    <div class="strategy-card">
+                        <h3 style="color: var(--accent-green);">📊 Uncertainty Quantification</h3>
+                        <p>Law of Total Variance provides principled uncertainty propagation — critical for safety-critical physical systems and decision-making</p>
+                    </div>
+                    <div class="strategy-card">
+                        <h3 style="color: var(--accent-orange);">🌊 Noisy Observations</h3>
+                        <p>Physical measurements are inherently noisy — the n_classes proxy offers a principled way to handle varying SNR without manual tuning</p>
+                    </div>
+                </div>
+
+                <div style="margin-top: 25px;">
+                    <div class="three-col">
+                        <div class="strategy-card">
+                            <h3 style="color: var(--accent-purple);">🎯 Conformal Prediction</h3>
+                            <p>Calibrated uncertainty feeds into conformal prediction frameworks for finite-sample coverage guarantees</p>
+                        </div>
+                        <div class="strategy-card">
+                            <h3 style="color: var(--accent-red);">⚙️ Software Engineering</h3>
+                            <p>Modular PyTorch package with Optuna HPO, SHAP explainability, CV, and reproducible experiments</p>
+                        </div>
+                        <div class="strategy-card">
+                            <h3 style="color: var(--accent-blue);">🤝 Collaborative Research</h3>
+                            <p>Designed for extension — application to climate, materials science, fluid dynamics, and other physical systems</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 9: Summary & Future -->
+            <section data-background-gradient="linear-gradient(135deg, #0a1628 0%, #1a237e 50%, #0d47a1 100%)">
+                <h2>Summary & Future Directions</h2>
+
+                <div class="two-col">
+                    <div>
+                        <h3>What We've Built</h3>
+                        <ul>
+                            <li>Novel probabilistic regression framework <strong>bridging classification and regression</strong></li>
+                            <li><strong>n_classes as an interpretable hyperparameter</strong> controlling the precision-robustness trade-off</li>
+                            <li>End-to-end differentiable with <strong>multiple optimisation strategies</strong></li>
+                            <li>Well-calibrated <strong>uncertainty estimates</strong> via Law of Total Variance</li>
+                            <li>Automatic complexity selection via <strong>differentiable architecture search</strong></li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h3>Future Work</h3>
+                        <div class="future-item">
+                            <span class="future-icon">📐</span>
+                            <span style="font-size: 0.75em;">Theoretical analysis of the n_classes ↔ SNR relationship</span>
+                        </div>
+                        <div class="future-item">
+                            <span class="future-icon">🔬</span>
+                            <span style="font-size: 0.75em;">Application to specific physical systems (climate, materials, PDE surrogates)</span>
+                        </div>
+                        <div class="future-item">
+                            <span class="future-icon">📈</span>
+                            <span style="font-size: 0.75em;">Extensions to multi-output and spatio-temporal regression</span>
+                        </div>
+                        <div class="future-item">
+                            <span class="future-icon">⚖️</span>
+                            <span style="font-size: 0.75em;">Benchmarking against Deep Ensembles, MC Dropout, Conformal Prediction</span>
+                        </div>
+                        <div class="future-item">
+                            <span class="future-icon">🧪</span>
+                            <span style="font-size: 0.75em;">Active learning: use uncertainty to guide data acquisition</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="text-align: center; margin-top: 30px; padding: 15px; border-radius: 10px; background: rgba(79,195,247,0.08);">
+                    <p style="margin: 0; font-size: 0.9em; color: var(--accent-blue); font-weight: 600;">Thank You</p>
+                    <p style="margin: 5px 0 0; font-size: 0.65em; color: var(--text-secondary);">Questions & Discussion</p>
+                </div>
+            </section>
+
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.6.1/reveal.min.js"></script>
+    <script>
+        Reveal.initialize({
+            hash: true,
+            slideNumber: true,
+            transition: 'slide',
+            transitionSpeed: 'default',
+            backgroundTransition: 'fade',
+            width: 1280,
+            height: 720,
+            margin: 0.04,
+            center: false,
+            controls: true,
+            progress: true,
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Automatic k Selection</title>
+    <style>
+        html {
+            overflow: hidden;
+        }
+
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            height: 100vh;
+            background: #0F1B2E;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+
+        svg {
+            width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+
+<body style="overflow: hidden;">
+    <svg viewBox="0 0 850 700" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#4FC3F7" />
+            </marker>
+            <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#FFA726" />
+            </marker>
+            <filter id="glow">
+                <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+                <feMerge>
+                    <feMergeNode in="coloredBlur" />
+                    <feMergeNode in="SourceGraphic" />
+                </feMerge>
+            </filter>
+        </defs>
+
+        <rect width="850" height="660" fill="#0F1B2E" />
+
+        <!-- Title -->
+        <text x="425" y="30" text-anchor="middle" fill="#4FC3F7" font-size="20" font-weight="bold">Automatic k
+            Selection</text>
+        <text x="425" y="50" text-anchor="middle" fill="#78909C" font-size="12">Learn the optimal number of classes
+            jointly with the model</text>
+
+        <!-- ========== INPUT ========== -->
+        <rect x="320" y="65" width="210" height="34" rx="8" fill="#1A2940" stroke="#4FC3F7" stroke-width="2" />
+        <text x="425" y="87" text-anchor="middle" fill="#E0E0E0" font-size="14" font-weight="bold">Input X</text>
+
+        <line x1="425" y1="99" x2="425" y2="125" stroke="#FFA726" stroke-width="2" marker-end="url(#arrow-orange)" />
+
+        <!-- ========== META-LEARNER ========== -->
+        <rect x="200" y="130" width="450" height="65" rx="10" fill="#1A2940" stroke="#FFA726" stroke-width="2.5"
+            filter="url(#glow)" />
+        <text x="425" y="153" text-anchor="middle" fill="#FFA726" font-size="15" font-weight="bold">Meta-learner
+            h(x)</text>
+        <text x="425" y="172" text-anchor="middle" fill="#E0E0E0" font-size="12">Outputs probabilities via
+            Gumbel-Softmax:</text>
+        <text x="425" y="189" text-anchor="middle" fill="#FFA726" font-size="13" font-weight="bold">π₂, π₃, ...,
+            π_{max_k}, π_∞ (Σ πᵢ = 1)</text>
+
+        <!-- Fan out -->
+        <line x1="280" y1="195" x2="130" y2="238" stroke="#FFA726" stroke-width="1.8" marker-end="url(#arrow-orange)" />
+        <line x1="380" y1="195" x2="340" y2="238" stroke="#FFA726" stroke-width="1.8" marker-end="url(#arrow-orange)" />
+        <line x1="470" y1="195" x2="550" y2="238" stroke="#FFA726" stroke-width="1.8" marker-end="url(#arrow-orange)" />
+        <line x1="570" y1="195" x2="720" y2="238" stroke="#FFA726" stroke-width="1.8" marker-end="url(#arrow-orange)" />
+
+        <!-- ========== PER-K PIPELINES ========== -->
+
+        <!-- k=2 -->
+        <rect x="50" y="243" width="160" height="40" rx="6" fill="#1A2940" stroke="#4FC3F7" stroke-width="1.5" />
+        <text x="130" y="268" text-anchor="middle" fill="#4FC3F7" font-size="14" font-weight="bold">k = 2 → ŷ(2)</text>
+
+        <!-- k=3 -->
+        <rect x="260" y="243" width="160" height="40" rx="6" fill="#1A2940" stroke="#4FC3F7" stroke-width="1.5" />
+        <text x="340" y="268" text-anchor="middle" fill="#4FC3F7" font-size="14" font-weight="bold">k = 3 → ŷ(3)</text>
+
+        <!-- k=5 -->
+        <rect x="470" y="243" width="160" height="40" rx="6" fill="#1A2940" stroke="#4FC3F7" stroke-width="1.5" />
+        <text x="550" y="268" text-anchor="middle" fill="#4FC3F7" font-size="14" font-weight="bold">k = 5 → ŷ(5)</text>
+
+        <!-- k=∞ -->
+        <rect x="650" y="243" width="160" height="40" rx="6" fill="#1A2940" stroke="#EF5350" stroke-width="2" />
+        <text x="730" y="268" text-anchor="middle" fill="#EF5350" font-size="14" font-weight="bold">k = ∞ → ŷ(∞)</text>
+
+        <!-- ========== REGRESSION HEAD MASKING VISUAL ========== -->
+        <rect x="35" y="300" width="780" height="180" rx="10" fill="#0D1825" stroke="#AB47BC" stroke-width="1.5"
+            stroke-dasharray="6,4" />
+        <text x="425" y="322" text-anchor="middle" fill="#AB47BC" font-size="14" font-weight="bold">Fixed set of max_k =
+            5 regression heads (shared across all k)</text>
+        <text x="425" y="340" text-anchor="middle" fill="#78909C" font-size="11">Each head fⱼ takes pⱼ as input. Heads
+            beyond k receive pⱼ = 0 → contribute nothing.</text>
+
+        <!-- HEAD ROW LABELS -->
+        <text x="195" y="366" text-anchor="end" fill="#78909C" font-size="11">Head:</text>
+        <text x="250" y="366" text-anchor="middle" fill="#E0E0E0" font-size="12" font-weight="bold">f₁</text>
+        <text x="340" y="366" text-anchor="middle" fill="#E0E0E0" font-size="12" font-weight="bold">f₂</text>
+        <text x="430" y="366" text-anchor="middle" fill="#E0E0E0" font-size="12" font-weight="bold">f₃</text>
+        <text x="520" y="366" text-anchor="middle" fill="#E0E0E0" font-size="12" font-weight="bold">f₄</text>
+        <text x="610" y="366" text-anchor="middle" fill="#E0E0E0" font-size="12" font-weight="bold">f₅</text>
+
+        <!-- k=2 row -->
+        <text x="195" y="398" text-anchor="end" fill="#4FC3F7" font-size="12" font-weight="bold">k=2:</text>
+        <rect x="222" y="381" width="56" height="24" rx="4" fill="#66BB6A" fill-opacity="0.3" stroke="#66BB6A"
+            stroke-width="1.5" />
+        <text x="250" y="398" text-anchor="middle" fill="#66BB6A" font-size="11" font-weight="bold">active</text>
+        <rect x="312" y="381" width="56" height="24" rx="4" fill="#66BB6A" fill-opacity="0.3" stroke="#66BB6A"
+            stroke-width="1.5" />
+        <text x="340" y="398" text-anchor="middle" fill="#66BB6A" font-size="11" font-weight="bold">active</text>
+        <rect x="402" y="381" width="56" height="24" rx="4" fill="#37474F" fill-opacity="0.4" stroke="#546E7A"
+            stroke-width="1" />
+        <text x="430" y="398" text-anchor="middle" fill="#546E7A" font-size="10">p=0</text>
+        <rect x="492" y="381" width="56" height="24" rx="4" fill="#37474F" fill-opacity="0.4" stroke="#546E7A"
+            stroke-width="1" />
+        <text x="520" y="398" text-anchor="middle" fill="#546E7A" font-size="10">p=0</text>
+        <rect x="582" y="381" width="56" height="24" rx="4" fill="#37474F" fill-opacity="0.4" stroke="#546E7A"
+            stroke-width="1" />
+        <text x="610" y="398" text-anchor="middle" fill="#546E7A" font-size="10">p=0</text>
+
+        <!-- k=3 row -->
+        <text x="195" y="432" text-anchor="end" fill="#4FC3F7" font-size="12" font-weight="bold">k=3:</text>
+        <rect x="222" y="415" width="56" height="24" rx="4" fill="#66BB6A" fill-opacity="0.3" stroke="#66BB6A"
+            stroke-width="1.5" />
+        <text x="250" y="432" text-anchor="middle" fill="#66BB6A" font-size="11" font-weight="bold">active</text>
+        <rect x="312" y="415" width="56" height="24" rx="4" fill="#66BB6A" fill-opacity="0.3" stroke="#66BB6A"
+            stroke-width="1.5" />
+        <text x="340" y="432" text-anchor="middle" fill="#66BB6A" font-size="11" font-weight="bold">active</text>
+        <rect x="402" y="415" width="56" height="24" rx="4" fill="#66BB6A" fill-opacity="0.3" stroke="#66BB6A"
+            stroke-width="1.5" />
+        <text x="430" y="432" text-anchor="middle" fill="#66BB6A" font-size="11" font-weight="bold">active</text>
+        <rect x="492" y="415" width="56" height="24" rx="4" fill="#37474F" fill-opacity="0.4" stroke="#546E7A"
+            stroke-width="1" />
+        <text x="520" y="432" text-anchor="middle" fill="#546E7A" font-size="10">p=0</text>
+        <rect x="582" y="415" width="56" height="24" rx="4" fill="#37474F" fill-opacity="0.4" stroke="#546E7A"
+            stroke-width="1" />
+        <text x="610" y="432" text-anchor="middle" fill="#546E7A" font-size="10">p=0</text>
+
+        <!-- k=5 row -->
+        <text x="195" y="466" text-anchor="end" fill="#4FC3F7" font-size="12" font-weight="bold">k=5:</text>
+        <rect x="222" y="449" width="56" height="24" rx="4" fill="#66BB6A" fill-opacity="0.3" stroke="#66BB6A"
+            stroke-width="1.5" />
+        <text x="250" y="466" text-anchor="middle" fill="#66BB6A" font-size="11" font-weight="bold">active</text>
+        <rect x="312" y="449" width="56" height="24" rx="4" fill="#66BB6A" fill-opacity="0.3" stroke="#66BB6A"
+            stroke-width="1.5" />
+        <text x="340" y="466" text-anchor="middle" fill="#66BB6A" font-size="11" font-weight="bold">active</text>
+        <rect x="402" y="449" width="56" height="24" rx="4" fill="#66BB6A" fill-opacity="0.3" stroke="#66BB6A"
+            stroke-width="1.5" />
+        <text x="430" y="466" text-anchor="middle" fill="#66BB6A" font-size="11" font-weight="bold">active</text>
+        <rect x="492" y="449" width="56" height="24" rx="4" fill="#66BB6A" fill-opacity="0.3" stroke="#66BB6A"
+            stroke-width="1.5" />
+        <text x="520" y="466" text-anchor="middle" fill="#66BB6A" font-size="11" font-weight="bold">active</text>
+        <rect x="582" y="449" width="56" height="24" rx="4" fill="#66BB6A" fill-opacity="0.3" stroke="#66BB6A"
+            stroke-width="1.5" />
+        <text x="610" y="466" text-anchor="middle" fill="#66BB6A" font-size="11" font-weight="bold">active</text>
+
+        <!-- Arrows from pipeline boxes to masking visual -->
+        <line x1="130" y1="283" x2="200" y2="388" stroke="#4FC3F7" stroke-width="1" stroke-dasharray="4,3" />
+        <line x1="340" y1="283" x2="250" y2="421" stroke="#4FC3F7" stroke-width="1" stroke-dasharray="4,3" />
+        <line x1="550" y1="283" x2="430" y2="455" stroke="#4FC3F7" stroke-width="1" stroke-dasharray="4,3" />
+
+        <!-- k=∞ note -->
+        <text x="730" y="398" text-anchor="middle" fill="#EF5350" font-size="11" font-weight="bold">k=∞:</text>
+        <text x="730" y="418" text-anchor="middle" fill="#78909C" font-size="10">No heads — uses</text>
+        <text x="730" y="434" text-anchor="middle" fill="#78909C" font-size="10">separate direct</text>
+        <text x="730" y="450" text-anchor="middle" fill="#78909C" font-size="10">regression NN</text>
+
+        <!-- ========== PROBABILISTIC COMBINATION ========== -->
+        <line x1="425" y1="480" x2="425" y2="510" stroke="#4FC3F7" stroke-width="2" marker-end="url(#arrowhead)" />
+
+        <rect x="85" y="515" width="680" height="80" rx="12" fill="#1A2940" stroke="#4FC3F7" stroke-width="2.5"
+            filter="url(#glow)" />
+        <text x="425" y="536" text-anchor="middle" fill="#4FC3F7" font-size="14" font-weight="bold">Probabilistic
+            combination</text>
+        <text x="425" y="558" text-anchor="middle" fill="#E0E0E0" font-size="14">ŷ = <tspan fill="#FFA726">Σₖ πₖ</tspan>
+            · ŷ(k)</text>
+        <text x="425" y="582" text-anchor="middle" fill="#E0E0E0" font-size="14">σ² = <tspan fill="#4FC3F7">Σₖ πₖ ·
+                σ²(k)</tspan> + <tspan fill="#FFA726">Σₖ πₖ · (ŷ(k) − ŷ)²</tspan></text>
+
+        <!-- Arrow to output -->
+        <line x1="425" y1="595" x2="425" y2="625" stroke="#4FC3F7" stroke-width="2" marker-end="url(#arrowhead)" />
+
+        <!-- Final prediction -->
+        <rect x="290" y="630" width="270" height="36" rx="8" fill="#1A2940" stroke="#EF5350" stroke-width="2.5" />
+        <text x="425" y="653" text-anchor="middle" fill="#EF5350" font-size="14" font-weight="bold">Prediction (ŷ,
+            σ²)</text>
+
+        <!-- Train/Infer -->
+        <text x="425" y="681" text-anchor="middle" fill="#78909C" font-size="11">
+            <tspan font-weight="bold" fill="#E0E0E0">Train:</tspan> soft π (differentiable)
+            <tspan dx="30" font-weight="bold" fill="#E0E0E0">Infer:</tspan> k* = argmax → single pipeline
+        </text>
+    </svg>
+</body>
+
+</html>

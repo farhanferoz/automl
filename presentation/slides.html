@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Probabilistic Regression — Bridging Classification and Regression</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/theme/black.css">
+    <style>
+        :root {
+            --bg: #0F1B2E;
+            --fg: #E0E0E0;
+            --accent: #4FC3F7;
+            --green: #66BB6A;
+            --orange: #FFA726;
+            --red: #EF5350;
+            --purple: #AB47BC;
+            --muted: #78909C;
+        }
+
+        .reveal {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            font-size: 28px;
+            color: var(--fg);
+        }
+
+        .reveal .slides {
+            text-align: left;
+        }
+
+        .reveal .slides section {
+            background: var(--bg);
+        }
+
+        .reveal h1,
+        .reveal h2,
+        .reveal h3 {
+            color: var(--accent);
+            font-weight: 700;
+            text-transform: none;
+        }
+
+        .reveal h1 {
+            font-size: 1.8em;
+            text-align: center;
+        }
+
+        .reveal h2 {
+            font-size: 1.35em;
+            border-bottom: 2px solid var(--accent);
+            padding-bottom: 8px;
+            margin-bottom: 16px;
+        }
+
+        .reveal h3 {
+            font-size: 0.95em;
+            color: var(--orange);
+            margin-top: 18px;
+        }
+
+        .reveal p,
+        .reveal li {
+            line-height: 1.5;
+        }
+
+        .reveal ul {
+            margin-left: 0;
+        }
+
+        .reveal li {
+            margin-bottom: 6px;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 0.65em;
+            font-style: italic;
+            text-align: center;
+            margin-top: 12px;
+        }
+
+        .author {
+            color: var(--fg);
+            font-size: 0.7em;
+            text-align: center;
+            margin-top: 30px;
+        }
+
+        .eq-box {
+            background: #1A2940;
+            border-radius: 8px;
+            padding: 14px 20px;
+            margin: 12px 0;
+            text-align: center;
+            font-size: 0.9em;
+        }
+
+        .eq-box.accent {
+            border-left: 4px solid var(--accent);
+        }
+
+        .eq-box.green {
+            border-left: 4px solid var(--green);
+        }
+
+        .eq-box.orange {
+            border-left: 4px solid var(--orange);
+        }
+
+        .eq-box.red {
+            border-left: 4px solid var(--red);
+        }
+
+        .c-accent {
+            color: var(--accent);
+        }
+
+        .c-green {
+            color: var(--green);
+        }
+
+        .c-orange {
+            color: var(--orange);
+        }
+
+        .c-red {
+            color: var(--red);
+        }
+
+        .c-purple {
+            color: var(--purple);
+        }
+
+        .c-muted {
+            color: var(--muted);
+        }
+
+        .two-col {
+            display: flex;
+            gap: 30px;
+            align-items: flex-start;
+        }
+
+        .two-col>* {
+            flex: 1;
+        }
+
+        .two-col.v-center {
+            align-items: center;
+        }
+
+        .key-point {
+            background: rgba(79, 195, 247, 0.1);
+            border: 1px solid var(--accent);
+            border-radius: 6px;
+            padding: 10px 16px;
+            margin: 10px 0;
+            font-size: 0.85em;
+        }
+
+        table.styled {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.75em;
+            margin: 12px 0;
+        }
+
+        table.styled th {
+            background: #1A2940;
+            color: var(--accent);
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 2px solid var(--accent);
+        }
+
+        table.styled td {
+            padding: 6px 12px;
+            border-bottom: 1px solid #263850;
+        }
+
+        .visual-frame {
+            text-align: center;
+            margin: 12px 0;
+        }
+
+        .visual-frame iframe {
+            border: 1px solid #263850;
+            border-radius: 8px;
+            background: var(--bg);
+        }
+
+        .visual-frame img {
+            border-radius: 8px;
+            max-height: 420px;
+        }
+
+        /* Scaled iframe wrapper: renders at native size, then scales down to fit */
+        .scaled-iframe-wrapper {
+            overflow: hidden;
+            position: relative;
+        }
+
+        .scaled-iframe-wrapper iframe {
+            transform-origin: top left;
+            border: none;
+            border-radius: 0;
+        }
+
+        .slide-number {
+            font-size: 0.6em;
+            color: var(--muted);
+        }
+
+        .fragment.highlight-current-blue.current-fragment {
+            color: var(--accent);
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+        }
+
+        .result-card {
+            background: #1A2940;
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .result-card img {
+            max-height: 260px;
+            border-radius: 4px;
+        }
+
+        .result-card h3 {
+            font-size: 0.75em;
+            margin: 6px 0 8px 0;
+        }
+
+        .result-card p {
+            font-size: 0.6em;
+            color: var(--muted);
+            margin: 4px 0;
+        }
+
+        /* Summary boxes */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-top: 12px;
+        }
+
+        .summary-box {
+            background: #1A2940;
+            border-radius: 8px;
+            padding: 14px 18px;
+            border-left: 4px solid var(--accent);
+        }
+
+        .summary-box h3 {
+            margin-top: 0;
+            font-size: 0.8em;
+        }
+
+        .summary-box ul {
+            font-size: 0.72em;
+            margin: 0;
+            padding-left: 18px;
+        }
+
+        .summary-box li {
+            margin-bottom: 3px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="reveal">
+        <div class="slides">
+
+            <!-- ============================================================ -->
+            <!-- SLIDE 1: TITLE                                                -->
+            <!-- ============================================================ -->
+            <section>
+                <div style="margin-top: 60px;">
+                    <h1>Probabilistic Regression</h1>
+                    <p class="subtitle">Bridging Classification and Regression
+                        for Robust Uncertainty Quantification</p>
+                    <div class="author">
+                        <p><strong>Farhan Feroz</strong></p>
+                        <p class="c-muted" style="font-size: 0.85em;">Senior Research Associate Application — Alan
+                            Turing Institute</p>
+                    </div>
+                    <div class="key-point" style="max-width: 600px; margin: 30px auto; text-align: center;">
+                        A Gaussian mixture framework that adapts model complexity to signal-to-noise ratio
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================================ -->
+            <!-- SLIDE 2: MOTIVATION                                           -->
+            <!-- ============================================================ -->
+            <section>
+                <h2>Motivation &amp; Problem Statement</h2>
+
+                <div class="two-col">
+                    <div>
+                        <p style="font-size: 0.85em;">Standard regression minimises squared error — producing
+                            <strong>point estimates only</strong>, with no uncertainty.
+                        </p>
+
+                        <div class="eq-box accent">
+                            L = Σ (yᵢ − f(xᵢ))² &nbsp;→&nbsp; just ŷ, no σ²
+                        </div>
+
+                        <ul style="font-size: 0.78em;">
+                            <li class="fragment">In <span class="c-orange">noisy regimes</span> (low SNR), the model
+                                overfits to noise</li>
+                            <li class="fragment">We want <strong class="c-accent">p(y | x)</strong> — a full predictive
+                                distribution</li>
+                            <li class="fragment">Key insight: <em class="c-green">classification is inherently more
+                                    robust to noise than regression</em></li>
+                        </ul>
+                    </div>
+
+                    <div class="visual-frame">
+                        <iframe src="visuals/visual_3_noisy_sine.html" width="420" height="380" scrolling="no"
+                            style="pointer-events: none; overflow: hidden;"></iframe>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================================ -->
+            <!-- SLIDE 3: CORE IDEA                                            -->
+            <!-- ============================================================ -->
+            <section>
+                <h2>Core Idea — Discretisation as Regularisation</h2>
+
+                <div class="two-col v-center">
+                    <div>
+                        <h3 style="margin-top: 6px;">Step 1 — Discretise</h3>
+                        <p style="font-size: 0.72em; margin: 4px 0;">Partition target space into k classes via
+                            quantiles:</p>
+                        <div class="eq-box green" style="font-size: 0.8em; padding: 8px 16px; margin: 6px 0;">
+                            C<sub>j</sub> = {y : q<sub>j−1</sub> ≤ y &lt; q<sub>j</sub>}, &nbsp; j = 1,…,k
+                        </div>
+
+                        <h3 style="margin-top: 10px;">Step 2 — Classify</h3>
+                        <p style="font-size: 0.72em; margin: 4px 0;">Train a classifier for class probabilities:</p>
+                        <div class="eq-box green" style="font-size: 0.8em; padding: 8px 16px; margin: 6px 0;">
+                            p<sub>j</sub>(x) = P(y ∈ C<sub>j</sub> | x), &nbsp; Σ p<sub>j</sub> = 1
+                        </div>
+
+                        <h3 style="margin-top: 10px;">Step 3 — Regress per class</h3>
+                        <p style="font-size: 0.72em; margin: 4px 0;">Each head maps probability to Gaussian params:</p>
+                        <div class="eq-box green" style="font-size: 0.8em; padding: 8px 16px; margin: 6px 0;">
+                            f<sub>j</sub> : p<sub>j</sub> ↦ (μ<sub>j</sub>, σ<sub>j</sub>²)
+                        </div>
+                    </div>
+
+                    <div class="visual-frame" style="flex: 1.5;">
+                        <iframe src="visuals/visual_1_core_architecture.html" width="550" height="420" scrolling="no"
+                            style="border: none; pointer-events: none; overflow: hidden;"></iframe>
+                    </div>
+                </div>
+
+                <div class="key-point"
+                    style="font-size: 0.68em; text-align: center; padding: 6px 12px; margin-top: 4px;">
+                    Equivalent to a <strong>Gaussian Mixture Model</strong> with data-dependent mixing weights:
+                    p(y|x) = Σ<sub>j</sub> p<sub>j</sub>(x) · 𝒩(y; μ<sub>j</sub>(x), σ<sub>j</sub>²(x))
+                </div>
+            </section>
+
+            <!-- ============================================================ -->
+            <!-- SLIDE 4: LAW OF TOTAL VARIANCE                                -->
+            <!-- ============================================================ -->
+            <section>
+                <h2>Prediction &amp; Uncertainty via Law of Total Variance</h2>
+
+                <!-- Point Prediction -->
+                <div class="eq-box green" style="padding: 10px 20px; margin: 8px 0;">
+                    <div
+                        style="font-size: 0.5em; color: var(--green); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px;">
+                        Point Prediction — Law of Total Expectation</div>
+                    <div style="font-size: 0.9em; text-align: center;">
+                        <span class="c-green">ŷ(x)</span> = E[Y | X] = <span style="font-size:1.1em;">∑</span><sub
+                            style="font-size:0.7em;">j=1</sub><sup style="font-size:0.7em;">k</sup> p<sub>j</sub>(x) ·
+                        μ<sub>j</sub>(x)
+                    </div>
+                </div>
+
+                <!-- Uncertainty -->
+                <div class="eq-box accent" style="padding: 10px 20px; margin: 8px 0;">
+                    <div
+                        style="font-size: 0.5em; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px;">
+                        Uncertainty — Law of Total Variance</div>
+                    <div style="font-size: 0.9em; text-align: center;">
+                        Var(Y | X) =
+                        <span class="c-accent" style="font-size:1.1em;">∑</span><sub style="font-size:0.7em;">j</sub>
+                        <span class="c-accent">p<sub>j</sub> · σ<sub>j</sub>²</span>
+                        &nbsp;+&nbsp;
+                        <span class="c-orange" style="font-size:1.1em;">∑</span><sub style="font-size:0.7em;">j</sub>
+                        <span class="c-orange">p<sub>j</sub> · (μ<sub>j</sub> − ŷ)²</span>
+                    </div>
+                </div>
+
+                <div class="two-col" style="margin-top: 8px;">
+                    <div class="key-point" style="border-color: var(--accent); padding: 8px 14px;">
+                        <strong class="c-accent">Within-class</strong> (aleatoric)<br>
+                        <span style="font-size: 0.72em;">E[Var(Y|C)] — uncertainty <em>within</em> each class</span>
+                    </div>
+                    <div class="key-point" style="border-color: var(--orange); padding: 8px 14px;">
+                        <strong class="c-orange">Between-class</strong> (epistemic)<br>
+                        <span style="font-size: 0.72em;">Var(E[Y|C]) — how much class means <em>disagree</em></span>
+                    </div>
+                </div>
+
+                <p style="font-size: 0.72em; text-align: center; color: var(--muted); margin-top: 6px;">
+                    This decomposition is <strong class="c-green">exact</strong> under the mixture model — not an
+                    approximation.
+                    Provides calibrated prediction intervals: ŷ ± z · σ
+                </p>
+            </section>
+
+            <!-- ============================================================ -->
+            <!-- SLIDE 5: K AS SNR PROXY                                       -->
+            <!-- ============================================================ -->
+            <section>
+                <h2>k as Signal-to-Noise Ratio Proxy</h2>
+
+                <p style="font-size: 0.82em;">The number of classes <strong class="c-accent">k</strong> is an
+                    interpretable hyperparameter controlling the <em>precision–robustness trade-off</em>.</p>
+
+                <table class="styled">
+                    <thead>
+                        <tr>
+                            <th>Regime</th>
+                            <th>k</th>
+                            <th>Behaviour</th>
+                            <th>Intuition</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="c-orange">High noise</span> (low SNR)</td>
+                            <td>k = 2</td>
+                            <td>Binary: above/below median</td>
+                            <td>Easiest classification, most robust</td>
+                        </tr>
+                        <tr>
+                            <td>Medium noise</td>
+                            <td>k = 3–5</td>
+                            <td>Moderate resolution</td>
+                            <td>Balanced</td>
+                        </tr>
+                        <tr>
+                            <td><span class="c-green">Low noise</span> (high SNR)</td>
+                            <td>k → ∞</td>
+                            <td>Approaches pure regression</td>
+                            <td>Each bin ≈ 1 value</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="key-point" style="text-align: center;">
+                    <strong class="c-accent">Optimal k is inversely related to noise level</strong><br>
+                    <span style="font-size: 0.78em;">
+                        As k increases: classification accuracy ↓ (harder task) but regression resolution ↑ (finer bins)
+                    </span>
+                </div>
+            </section>
+
+            <!-- ============================================================ -->
+            <!-- SLIDE 7: TRAINING OBJECTIVE + RESULTS                         -->
+            <!-- ============================================================ -->
+            <section>
+                <h2>Training Objective &amp; Results</h2>
+
+                <div class="two-col" style="gap: 24px;">
+                    <div style="flex: 1;">
+                        <!-- Total Loss -->
+                        <div class="eq-box" style="border: 2px solid var(--red); padding: 10px 16px; margin: 6px 0;">
+                            <div
+                                style="font-size: 0.45em; color: var(--red); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px;">
+                                Total Loss (trained end-to-end)</div>
+                            <div style="font-size: 0.85em; text-align: center;">
+                                <span class="c-red">L</span> = <span class="c-green">L<sub>regression</sub></span> +
+                                <span class="c-orange">L<sub>classification</sub></span>
+                            </div>
+                        </div>
+
+                        <!-- Regression Loss -->
+                        <div class="eq-box"
+                            style="border: 1.5px solid var(--green); padding: 10px 16px; margin: 6px 0;">
+                            <div
+                                style="font-size: 0.45em; color: var(--green); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px;">
+                                Regression — Gaussian Likelihood</div>
+                            <div style="font-size: 0.75em; text-align: center;">
+                                p(y | x) = <span class="c-green">N</span>(y ; ŷ, σ²)
+                            </div>
+                            <div style="font-size: 0.78em; text-align: center; margin-top: 4px;">
+                                <span class="c-green">L<sub>reg</sub></span> = ½ [ log(2π) + log σ² + (y − ŷ)² / σ² ]
+                            </div>
+                        </div>
+
+                        <!-- Classification Loss -->
+                        <div class="eq-box"
+                            style="border: 1.5px solid var(--orange); padding: 10px 16px; margin: 6px 0;">
+                            <div
+                                style="font-size: 0.45em; color: var(--orange); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px;">
+                                Classification — Cross-Entropy</div>
+                            <div style="font-size: 0.78em; text-align: center;">
+                                <span class="c-orange">L<sub>cls</sub></span> = − <span
+                                    style="font-size:1.1em;">∑</span><sub style="font-size:0.7em;">j</sub> 𝟙[y ∈
+                                bin<sub>j</sub>] · log p<sub>j</sub>(x)
+                            </div>
+                        </div>
+
+                        <p style="font-size: 0.55em; color: var(--muted); text-align: center; margin-top: 4px;">
+                            <span class="c-orange">L<sub>cls</sub></span> → good class assignments &nbsp;|&nbsp;
+                            <span class="c-green">L<sub>reg</sub></span> → accurate predictions &amp; calibrated σ²
+                        </p>
+                    </div>
+
+                    <div style="flex: 1;">
+                        <div class="result-card">
+                            <h3 class="c-accent">Optimal k tracks SNR</h3>
+                            <img src="img/result_a_mse_vs_k.png" alt="MSE vs k" style="max-height: 280px;">
+                            <p>At high noise, small k wins. At low noise, large k wins.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================================ -->
+            <!-- SLIDE 7b: RESULTS CONTINUED                                   -->
+            <!-- ============================================================ -->
+            <section>
+                <h2>Results — Calibration &amp; Learned Functions</h2>
+
+                <div class="two-col v-center">
+                    <div class="result-card">
+                        <h3 class="c-green">Calibrated Uncertainty</h3>
+                        <img src="img/result_b_calibration_histogram.png" alt="Calibration" style="max-height: 320px;">
+                        <p style="font-size: 0.7em; color: var(--muted);">
+                            Standardised residuals z<sub>i</sub> = (ŷ<sub>i</sub> − y<sub>i</sub>) / σ̂<sub>i</sub><br>
+                            closely match 𝒩(0,1) — uncertainty is well-calibrated
+                        </p>
+                    </div>
+
+                    <div class="result-card">
+                        <h3 class="c-orange">Learned Regression Functions</h3>
+                        <img src="img/result_c_regression_functions.png" alt="Regression functions"
+                            style="max-height: 320px;">
+                        <p style="font-size: 0.7em; color: var(--muted);">
+                            Each head f<sub>j</sub>(p<sub>j</sub>) learns a distinct<br>
+                            mapping from class probability to conditional mean
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================================ -->
+            <!-- SLIDE: AUTOMATIC K SELECTION                                  -->
+            <!-- ============================================================ -->
+            <section>
+                <h2>Automatic k Selection via Gumbel-Softmax</h2>
+
+                <p style="font-size: 0.78em;">Can we <strong>learn k from data</strong> rather than treat it as a
+                    hyperparameter? — a differentiable architecture search problem.</p>
+
+                <div class="visual-frame" style="text-align: center;">
+                    <iframe src="visuals/visual_2_auto_k_selection.html" width="630" height="519" scrolling="no"
+                        style="border: none; pointer-events: none; overflow: hidden; display: block; margin: 0 auto;"></iframe>
+                </div>
+            </section>
+
+            <!-- ============================================================ -->
+            <!-- SLIDE 8: SUMMARY & FUTURE                                     -->
+            <!-- ============================================================ -->
+            <section>
+                <h2>Summary &amp; Future Directions</h2>
+
+                <div class="summary-grid">
+                    <div class="summary-box">
+                        <h3 class="c-accent">Key Contributions</h3>
+                        <ul>
+                            <li>Novel framework bridging classification &amp; regression</li>
+                            <li>k as interpretable SNR proxy</li>
+                            <li>Calibrated uncertainty via Law of Total Variance</li>
+                            <li>Automatic k selection via Gumbel-Softmax</li>
+                        </ul>
+                    </div>
+                    <div class="summary-box" style="border-left-color: var(--green);">
+                        <h3 class="c-green">Relevance to Turing / AI for Physical Systems</h3>
+                        <ul>
+                            <li>Calibrated uncertainty enables trustworthy surrogate models — scientists know when to
+                                run expensive simulations vs. trust the model</li>
+                            <li>Principled handling of noisy physical measurements</li>
+                            <li>Works with any classifier: GBMs, NNs, transformers</li>
+                        </ul>
+                    </div>
+                    <div class="summary-box" style="border-left-color: var(--orange);">
+                        <h3 class="c-orange">Future Work</h3>
+                        <ul>
+                            <li>Theoretical analysis of optimal k ↔ SNR</li>
+                            <li>Benchmark vs Deep Ensembles, MC Dropout, CP</li>
+                            <li>Active learning: use σ² to guide data acquisition</li>
+                        </ul>
+                    </div>
+                    <div class="summary-box" style="border-left-color: var(--purple);">
+                        <h3 class="c-purple">Thank You</h3>
+                        <ul>
+                            <li>Questions welcome</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+        </div><!-- /slides -->
+    </div><!-- /reveal -->
+
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/plugin/notes/notes.js"></script>
+    <script>
+        Reveal.initialize({
+            hash: true,
+            width: 960,
+            height: 700,
+            margin: 0.06,
+            center: false,
+            transition: 'slide',
+            transitionSpeed: 'default',
+            backgroundTransition: 'fade',
+            plugins: [RevealNotes],
+            pdfSeparateFragments: false,
+        });
+    </script>
+</body>
+
+</html>

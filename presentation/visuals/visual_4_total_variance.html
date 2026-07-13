@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Law of Total Variance — Annotated</title>
+    <style>
+        html {
+            overflow: hidden;
+        }
+
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: #0F1B2E;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+
+        .container {
+            max-width: 900px;
+            padding: 40px;
+        }
+
+        .title {
+            text-align: center;
+            color: #4FC3F7;
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 40px;
+        }
+
+        .equation-block {
+            background: #1A2940;
+            border: 2px solid #4FC3F7;
+            border-radius: 12px;
+            padding: 30px 40px;
+            margin: 20px 0;
+        }
+
+        .equation-label {
+            color: #78909C;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 12px;
+        }
+
+        .equation {
+            font-size: 26px;
+            color: #E0E0E0;
+            text-align: center;
+            line-height: 1.8;
+        }
+
+        .within-class {
+            color: #4FC3F7;
+            font-weight: bold;
+        }
+
+        .between-class {
+            color: #FFA726;
+            font-weight: bold;
+        }
+
+        .prediction {
+            color: #66BB6A;
+        }
+
+        .annotation-row {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 15px;
+            gap: 20px;
+        }
+
+        .annotation-box {
+            flex: 1;
+            background: #0F1B2E;
+            border-radius: 8px;
+            padding: 15px 20px;
+            text-align: center;
+        }
+
+        .annotation-box.within {
+            border: 1.5px solid #4FC3F7;
+        }
+
+        .annotation-box.between {
+            border: 1.5px solid #FFA726;
+        }
+
+        .annotation-title {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+
+        .annotation-desc {
+            font-size: 12px;
+            color: #B0BEC5;
+            line-height: 1.5;
+        }
+
+        .expectation-block {
+            background: #1A2940;
+            border: 2px solid #66BB6A;
+            border-radius: 12px;
+            padding: 25px 40px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+
+<body style="overflow: hidden;">
+    <div class="container">
+        <div class="title">Prediction &amp; Uncertainty</div>
+
+        <!-- Point prediction -->
+        <div class="expectation-block">
+            <div class="equation-label" style="color:#66BB6A;">Point Prediction — Law of Total Expectation</div>
+            <div class="equation">
+                <span class="prediction">ŷ(x)</span> = E[Y | X] = <span style="font-size:32px;">∑</span><sub
+                    style="font-size:14px;">j=1</sub><sup style="font-size:14px;">k</sup>
+                p<sub>j</sub>(x) · μ<sub>j</sub>(x)
+            </div>
+        </div>
+
+        <!-- Variance -->
+        <div class="equation-block">
+            <div class="equation-label">Uncertainty — Law of Total Variance</div>
+            <div class="equation">
+                Var(Y | X) =
+                <span class="within-class" style="font-size:32px;">∑</span><sub style="font-size:14px;">j</sub>
+                <span class="within-class">p<sub>j</sub> · σ<sub>j</sub>²</span>
+                &nbsp;+&nbsp;
+                <span class="between-class" style="font-size:32px;">∑</span><sub style="font-size:14px;">j</sub>
+                <span class="between-class">p<sub>j</sub> · (μ<sub>j</sub> − ŷ)²</span>
+            </div>
+
+            <div class="annotation-row">
+                <div class="annotation-box within">
+                    <div class="annotation-title within-class">Within-class Variance</div>
+                    <div class="annotation-desc">
+                        E[Var(Y | C)]<br>
+                        Aleatoric uncertainty<br>
+                        <em>How spread is Y within each class?</em>
+                    </div>
+                </div>
+                <div class="annotation-box between">
+                    <div class="annotation-title between-class">Between-class Variance</div>
+                    <div class="annotation-desc">
+                        Var(E[Y | C])<br>
+                        Epistemic uncertainty<br>
+                        <em>How much do class means disagree?</em>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Confidence interval -->
+        <div style="text-align:center; margin-top:20px; color:#B0BEC5; font-size:16px;">
+            Calibrated prediction interval: &nbsp;
+            <span style="color:#E0E0E0; font-size:18px; font-weight:bold;">
+                <span class="prediction">ŷ</span> ± z<sub>α</sub> · σ
+            </span>
+        </div>
+    </div>
+</body>
+
+</html>

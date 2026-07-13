@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Training Objective</title>
+    <style>
+        html {
+            overflow: hidden;
+        }
+
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: #0F1B2E;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+
+        .container {
+            max-width: 850px;
+            padding: 40px;
+        }
+
+        .title {
+            text-align: center;
+            color: #4FC3F7;
+            font-size: 26px;
+            font-weight: bold;
+            margin-bottom: 30px;
+        }
+
+        .eq-block {
+            background: #1A2940;
+            border-radius: 10px;
+            padding: 22px 30px;
+            margin: 16px 0;
+        }
+
+        .eq-label {
+            color: #78909C;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 8px;
+        }
+
+        .eq {
+            font-size: 22px;
+            color: #E0E0E0;
+            text-align: center;
+            line-height: 1.7;
+        }
+
+        .eq-sm {
+            font-size: 18px;
+            color: #E0E0E0;
+            text-align: center;
+            line-height: 1.7;
+        }
+
+        .nll {
+            color: #66BB6A;
+            font-weight: bold;
+        }
+
+        .ce {
+            color: #FFA726;
+            font-weight: bold;
+        }
+
+        .total {
+            color: #EF5350;
+            font-weight: bold;
+        }
+
+        .desc {
+            font-size: 13px;
+            color: #B0BEC5;
+            text-align: center;
+            margin-top: 6px;
+        }
+
+        .arrow-down {
+            text-align: center;
+            color: #78909C;
+            font-size: 20px;
+            margin: 4px 0;
+        }
+
+        .derive-label {
+            text-align: center;
+            color: #78909C;
+            font-size: 11px;
+            margin: 2px 0;
+        }
+    </style>
+</head>
+
+<body style="overflow: hidden;">
+    <div class="container">
+        <div class="title">Training Objective</div>
+
+        <!-- Total loss -->
+        <div class="eq-block" style="border: 2px solid #EF5350;">
+            <div class="eq-label" style="color: #EF5350;">Total Loss (trained end-to-end)</div>
+            <div class="eq">
+                <span class="total">L</span> = <span class="nll">L<sub>regression</sub></span> + <span
+                    class="ce">L<sub>classification</sub></span>
+            </div>
+        </div>
+
+        <!-- Regression loss: Start with likelihood -->
+        <div class="eq-block" style="border: 1.5px solid #66BB6A;">
+            <div class="eq-label" style="color: #66BB6A;">Regression Loss — Gaussian Likelihood</div>
+            <div class="eq-sm">
+                Assume p(y | x) = <span class="nll">N</span>(y ; ŷ, σ²)
+            </div>
+            <div class="desc" style="margin-top: 10px; margin-bottom: 4px; color: #78909C;">
+                Maximise log-likelihood ⟹ minimise negative log-likelihood:
+            </div>
+            <div class="eq">
+                <span class="nll">L<sub>reg</sub></span> = − log p(y | x) = &frac12;
+                <span style="font-size:28px;">[</span>
+                log(2π) + log σ² + (y − ŷ)² / σ²
+                <span style="font-size:28px;">]</span>
+            </div>
+            <div class="desc">
+                Trains the model to produce accurate predictions AND calibrated uncertainty
+            </div>
+        </div>
+
+        <!-- Classification loss -->
+        <div class="eq-block" style="border: 1.5px solid #FFA726;">
+            <div class="eq-label" style="color: #FFA726;">Classification Loss — Cross-entropy on discretised targets
+            </div>
+            <div class="eq">
+                <span class="ce">L<sub>cls</sub></span> = −
+                <span style="font-size:28px;">∑</span><sub style="font-size:12px;">j=1</sub><sup
+                    style="font-size:12px;">k</sup>
+                &nbsp;𝟙[y ∈ bin<sub>j</sub>] · log p<sub>j</sub>(x)
+            </div>
+            <div class="desc">
+                Ensures the classifier assigns y to the correct bin (quantile-based boundaries)
+            </div>
+        </div>
+
+        <!-- Why both -->
+        <div style="text-align:center; margin-top:20px; color:#B0BEC5; font-size:14px; line-height:1.8;">
+            <span class="ce">L<sub>cls</sub></span> ensures good class assignments
+            &nbsp;&nbsp;|&nbsp;&nbsp;
+            <span class="nll">L<sub>reg</sub></span> ensures accurate predictions &amp; calibrated uncertainty
+        </div>
+    </div>
+</body>
+
+</html>
