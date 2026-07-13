@@ -1,0 +1,17 @@
+dataset,k,model,mse
+heteroscedastic,3,ClassReg,2.1809
+heteroscedastic,3,ProbReg,1.9872
+heteroscedastic,5,ClassReg,2.2982
+heteroscedastic,5,ProbReg,2.3428
+bimodal,3,ClassReg,3.1201
+bimodal,3,ProbReg,2.3799
+bimodal,5,ClassReg,3.3427
+bimodal,5,ProbReg,2.3699
+piecewise,3,ClassReg,0.3509
+piecewise,3,ProbReg,0.3239
+piecewise,5,ClassReg,0.3206
+piecewise,5,ProbReg,0.2847
+exponential,3,ClassReg,4.0001
+exponential,3,ProbReg,0.446
+exponential,5,ClassReg,3.0434
+exponential,5,ProbReg,0.5997

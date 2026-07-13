@@ -1,0 +1,19 @@
+timestamp	event	sweep	elapsed_s	rc	log_path
+2026-04-20_23:18:46	RUN_START	orchestrator			automl_package/examples/sweep_runs/20260420_231846
+2026-04-20_23:18:46	START	identifiability			automl_package/examples/sweep_runs/20260420_231846/identifiability.log
+2026-04-21_00:16:00	OK	identifiability	3434	0	automl_package/examples/sweep_runs/20260420_231846/identifiability.log
+2026-04-21_00:16:00	START	classreg_k			automl_package/examples/sweep_runs/20260420_231846/classreg_k.log
+2026-04-21_00:17:29	OK	classreg_k	89	0	automl_package/examples/sweep_runs/20260420_231846/classreg_k.log
+2026-04-21_00:17:29	START	full_benchmark			automl_package/examples/sweep_runs/20260420_231846/full_benchmark.log
+2026-04-21_01:21:13	OK	full_benchmark	3824	0	automl_package/examples/sweep_runs/20260420_231846/full_benchmark.log
+2026-04-21_01:21:13	START	probreg_ablation			automl_package/examples/sweep_runs/20260420_231846/probreg_ablation.log
+2026-04-21_01:31:34	OK	probreg_ablation	621	0	automl_package/examples/sweep_runs/20260420_231846/probreg_ablation.log
+2026-04-21_01:31:34	START	flex_nn_ablation			automl_package/examples/sweep_runs/20260420_231846/flex_nn_ablation.log
+2026-04-21_01:52:44	OK	flex_nn_ablation	1270	0	automl_package/examples/sweep_runs/20260420_231846/flex_nn_ablation.log
+2026-04-21_01:52:44	START	ablation_study			automl_package/examples/sweep_runs/20260420_231846/ablation_study.log
+2026-04-21_02:15:29	OK	ablation_study	1365	0	automl_package/examples/sweep_runs/20260420_231846/ablation_study.log
+2026-04-21_02:15:29	START	hpo			automl_package/examples/sweep_runs/20260420_231846/hpo.log
+2026-04-21_02:17:25	OK	hpo	116	0	automl_package/examples/sweep_runs/20260420_231846/hpo.log
+2026-04-21_02:17:25	START	final_report			automl_package/examples/sweep_runs/20260420_231846/final_report.log
+2026-04-21_02:17:29	OK	final_report	4	0	automl_package/examples/sweep_runs/20260420_231846/final_report.log
+2026-04-21_02:17:29	RUN_END	orchestrator			automl_package/examples/sweep_runs/20260420_231846

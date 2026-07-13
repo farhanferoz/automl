@@ -1,0 +1,30 @@
+[
+  {
+    "model": "XGB+HPO",
+    "mse": 0.3227350115776062,
+    "nll": 1.8958420753479004,
+    "seconds": 2.8668582779355347,
+    "dataset": "uci-yacht"
+  },
+  {
+    "model": "LGBM+HPO",
+    "mse": 8.796473825214786,
+    "nll": 2.5429339134519124,
+    "seconds": 0.7552236220799387,
+    "dataset": "uci-yacht"
+  },
+  {
+    "model": "ProbReg+HPO",
+    "mse": 206.04995727539062,
+    "nll": 2.505514144897461,
+    "seconds": 269.6302735011559,
+    "dataset": "uci-yacht"
+  },
+  {
+    "model": "NN+HPO",
+    "mse": 87.89802551269531,
+    "nll": 2.18009877204895,
+    "seconds": 113.375895465957,
+    "dataset": "uci-yacht"
+  }
+]

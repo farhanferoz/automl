@@ -1,0 +1,86 @@
+{
+  "sweeps": [
+    {
+      "name": "identifiability",
+      "status": "OK",
+      "elapsed_s": 3434,
+      "results_dir": "/home/ff235/dev/MLResearch/automl/automl_package/examples/probreg_identifiability_results",
+      "per_sweep_pdfs": [
+        "/home/ff235/dev/MLResearch/automl/automl_package/examples/probreg_identifiability_results/results_bimodal.pdf",
+        "/home/ff235/dev/MLResearch/automl/automl_package/examples/probreg_identifiability_results/results_exponential.pdf",
+        "/home/ff235/dev/MLResearch/automl/automl_package/examples/probreg_identifiability_results/results_heteroscedastic.pdf",
+        "/home/ff235/dev/MLResearch/automl/automl_package/examples/probreg_identifiability_results/results_piecewise.pdf"
+      ],
+      "findings": [
+        "best cell on bimodal: F (MSE=2.305)",
+        "best cell on exponential: A (MSE=0.503)",
+        "best cell on heteroscedastic: C (MSE=1.775)",
+        "best cell on piecewise: D (MSE=0.284)"
+      ]
+    },
+    {
+      "name": "classreg_k",
+      "status": "OK",
+      "elapsed_s": 89,
+      "results_dir": "/home/ff235/dev/MLResearch/automl/automl_package/examples/classreg_k_sweep_results",
+      "per_sweep_pdfs": [
+        "/home/ff235/dev/MLResearch/automl/automl_package/examples/classreg_k_sweep_results/k_sweep.pdf"
+      ],
+      "findings": [
+        "best k on bimodal: k=5 (MSE=2.953)",
+        "best k on exponential: k=7 (MSE=2.800)",
+        "best k on heteroscedastic: k=2 (MSE=1.826)",
+        "best k on piecewise: k=7 (MSE=0.296)"
+      ]
+    },
+    {
+      "name": "full_benchmark",
+      "status": "OK",
+      "elapsed_s": 3824,
+      "results_dir": "/home/ff235/dev/MLResearch/automl/automl_package/examples/full_benchmark_results",
+      "per_sweep_pdfs": [],
+      "findings": [
+        "see /home/ff235/dev/MLResearch/automl/automl_package/examples/full_benchmark_results/REPORT.md"
+      ]
+    },
+    {
+      "name": "probreg_ablation",
+      "status": "OK",
+      "elapsed_s": 621,
+      "results_dir": "/home/ff235/dev/MLResearch/automl/automl_package/examples/probreg_ablation_results",
+      "per_sweep_pdfs": [],
+      "findings": [
+        "b1_gravitational: best = single_head_final_output/soft_gating/nll (MSE=0.037)",
+        "bimodal: best = separate_heads/soft_gating/nll (MSE=2.231)",
+        "heteroscedastic: best = single_head_final_output/soft_gating/nll (MSE=1.612)"
+      ]
+    },
+    {
+      "name": "flex_nn_ablation",
+      "status": "OK",
+      "elapsed_s": 1270,
+      "results_dir": "/home/ff235/dev/MLResearch/automl/automl_package/examples/flex_nn_ablation_results",
+      "per_sweep_pdfs": [],
+      "findings": []
+    },
+    {
+      "name": "ablation_study",
+      "status": "OK",
+      "elapsed_s": 1365,
+      "results_dir": "/home/ff235/dev/MLResearch/automl/automl_package/examples/ablation_study_results",
+      "per_sweep_pdfs": [],
+      "findings": []
+    },
+    {
+      "name": "hpo",
+      "status": "OK",
+      "elapsed_s": 116,
+      "results_dir": "/home/ff235/dev/MLResearch/automl/automl_package/examples/hpo_sweep_results",
+      "per_sweep_pdfs": [],
+      "findings": [
+        "HPO winner on uci-yacht: XGB+HPO (MSE=0.323)"
+      ]
+    }
+  ],
+  "pdf": "automl_package/examples/final_results_report/final_report.pdf"
+}
