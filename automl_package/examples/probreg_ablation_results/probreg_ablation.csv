@@ -1,34 +1,34 @@
 dataset,strategy,selection,regularization,loss,beta,target_transform,opt_strategy,mse,nll,crps,nll_mixture,mean_k,seconds,error
-heteroscedastic,separate_heads,none,none,nll,0.5,none,regression_only,1.5920642614364624,1.3517481088638306,0.6351162866110532,1.6885290038860261,,9.135689066024497,
-heteroscedastic,separate_heads,soft_gating,none,nll,0.5,none,regression_only,1.633374571800232,1.4048477411270142,0.645435633059914,,210274448.0,45.712911913054995,
-heteroscedastic,separate_heads,soft_gating,elbo,nll,0.5,none,regression_only,1.6230677366256714,1.3775367736816406,0.6385403330636432,,2.0,48.043979077017866,
-heteroscedastic,separate_heads,ste,none,nll,0.5,none,regression_only,1.651134967803955,1.5043474435806274,0.6598156614991705,,187904832.0,23.58370242197998,
-heteroscedastic,separate_heads,ste,elbo,nll,0.5,none,regression_only,2.481947898864746,1.8515583276748657,0.8398497991661703,,76056720.0,35.81836413103156,
-heteroscedastic,separate_heads,reinforce,none,nll,0.5,none,regression_only,2.4880106449127197,1.8587602376937866,0.843294256007973,,174483056.0,50.686585300951265,
-heteroscedastic,separate_heads,reinforce,elbo,nll,0.5,none,regression_only,2.4880106449127197,1.8587602376937866,0.843294256007973,,174483056.0,52.18901672505308,
-heteroscedastic,single_head_final_output,none,none,nll,0.5,none,regression_only,2.2988364696502686,1.5828927755355835,0.7668565028106653,,,4.858515332103707,
-heteroscedastic,single_head_final_output,soft_gating,none,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-heteroscedastic,single_head_final_output,soft_gating,elbo,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-heteroscedastic,single_head_final_output,ste,none,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-heteroscedastic,single_head_final_output,ste,elbo,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-heteroscedastic,single_head_final_output,reinforce,none,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-heteroscedastic,single_head_final_output,reinforce,elbo,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-bimodal,separate_heads,none,none,nll,0.5,none,regression_only,2.3625292778015137,1.8499385118484497,0.9245081150399073,1.9045008198795599,,5.611074978951365,
-bimodal,separate_heads,soft_gating,none,nll,0.5,none,regression_only,2.436962842941284,1.8662521839141846,0.9406503429855286,,4.733333587646484,17.31068187195342,
-bimodal,separate_heads,soft_gating,elbo,nll,0.5,none,regression_only,2.3581039905548096,1.8482747077941895,0.9214565878755442,,2.0,20.704169392003678,
-bimodal,separate_heads,ste,none,nll,0.5,none,regression_only,2.3928780555725098,1.8574849367141724,0.9323246409759641,,478709920.0,32.50699819007423,
-bimodal,separate_heads,ste,elbo,nll,0.5,none,regression_only,2.357086181640625,1.8533953428268433,0.9149812704823981,,98426336.0,38.72799990396015,
-bimodal,separate_heads,reinforce,none,nll,0.5,none,regression_only,2.332836627960205,1.8503150939941406,0.9091332217180896,,228170144.0,16.445076080970466,
-bimodal,separate_heads,reinforce,elbo,nll,0.5,none,regression_only,2.3275535106658936,1.8473180532455444,0.9147590816296514,,143165584.0,46.291201333049685,
-bimodal,single_head_final_output,none,none,nll,0.5,none,regression_only,2.3409488201141357,1.8449314832687378,0.9203606505862835,,,4.139462883002125,
-bimodal,single_head_final_output,soft_gating,none,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-bimodal,single_head_final_output,soft_gating,elbo,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-bimodal,single_head_final_output,ste,none,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-bimodal,single_head_final_output,ste,elbo,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-bimodal,single_head_final_output,reinforce,none,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-bimodal,single_head_final_output,reinforce,elbo,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-b1_gravitational,separate_heads,none,none,nll,0.5,none,regression_only,0.11901714652776718,0.06317982822656631,0.1804997964519246,0.4907386377668081,,9.182471431908198,
-b1_gravitational,separate_heads,soft_gating,none,nll,0.5,none,regression_only,,,,,2.0,17.354403553996235,
+heteroscedastic,separate_heads,none,none,nll,0.5,none,regression_only,2.0021979808807373,1.6908073425292969,0.7383299773915317,1.9991118757585515,,8.805522138020024,
+heteroscedastic,separate_heads,soft_gating,none,nll,0.5,none,regression_only,1.9476799964904785,1.501989722251892,0.7193066255690529,,6.5337419509887695,27.26270266296342,
+heteroscedastic,separate_heads,soft_gating,elbo,nll,0.5,none,regression_only,1.6573519706726074,1.443274974822998,0.649263408340832,,2.0,54.86989001580514,
+heteroscedastic,separate_heads,ste,none,nll,0.5,none,regression_only,1.766441822052002,1.5238640308380127,0.6770873557898897,,5.0107526779174805,27.402240813942626,
+heteroscedastic,separate_heads,ste,elbo,nll,0.5,none,regression_only,2.4367315769195557,1.8042027950286865,0.8259493192049896,,3.5837318897247314,38.947798856999725,
+heteroscedastic,separate_heads,reinforce,none,nll,0.5,none,regression_only,2.3586721420288086,1.7714436054229736,0.8178414262253549,,4.247572898864746,49.64078233088367,
+heteroscedastic,separate_heads,reinforce,elbo,nll,0.5,none,regression_only,2.3586721420288086,1.7714436054229736,0.8178414262253549,,4.247572898864746,55.00502818310633,
+heteroscedastic,single_head_final_output,none,none,nll,0.5,none,regression_only,2.2988364696502686,1.5828927755355835,0.7668565028106653,,,7.893318961840123,
+heteroscedastic,single_head_final_output,soft_gating,none,nll,0.5,none,regression_only,1.6249943971633911,1.3874682188034058,0.6331048747329945,,5.313725471496582,15.131262315902859,
+heteroscedastic,single_head_final_output,soft_gating,elbo,nll,0.5,none,regression_only,1.612051248550415,1.3545218706130981,0.6335070782169275,,2.0,29.946383646922186,
+heteroscedastic,single_head_final_output,ste,none,nll,0.5,none,regression_only,1.5574381351470947,1.3743700981140137,0.6281412846593348,,,17.239925351925194,
+heteroscedastic,single_head_final_output,ste,elbo,nll,0.5,none,regression_only,2.373166084289551,1.7120072841644287,0.795437169282187,,4.267543792724609,29.25607321690768,
+heteroscedastic,single_head_final_output,reinforce,none,nll,0.5,none,regression_only,2.0269839763641357,1.626471996307373,0.7397220081156021,,4.375609874725342,29.694282240932807,
+heteroscedastic,single_head_final_output,reinforce,elbo,nll,0.5,none,regression_only,2.218825340270996,1.6962323188781738,0.7633237691793715,,4.247572898864746,31.6351830069907,
+bimodal,separate_heads,none,none,nll,0.5,none,regression_only,2.3629071712493896,1.8583399057388306,0.9252392632372091,1.9174656172830837,,4.944362198002636,
+bimodal,separate_heads,soft_gating,none,nll,0.5,none,regression_only,2.231412649154663,1.8307405710220337,0.8900813103325036,,4.305825233459473,18.052193637005985,
+bimodal,separate_heads,soft_gating,elbo,nll,0.5,none,regression_only,2.413602590560913,1.862810730934143,0.9378349525098871,,2.0,28.896413121838123,
+bimodal,separate_heads,ste,none,nll,0.5,none,regression_only,2.331652879714966,1.8452194929122925,0.9092045019823465,,5.409090518951416,15.387614496983588,
+bimodal,separate_heads,ste,elbo,nll,0.5,none,regression_only,2.3438050746917725,1.8568317890167236,0.9143846581270016,,3.915929079055786,43.660396663006395,
+bimodal,separate_heads,reinforce,none,nll,0.5,none,regression_only,2.4735770225524902,1.88130521774292,0.9403276882446667,,4.654999732971191,32.36282851197757,
+bimodal,separate_heads,reinforce,elbo,nll,0.5,none,regression_only,2.338620662689209,1.8551212549209595,0.9156821933617342,,4.336538791656494,86.96831632219255,
+bimodal,single_head_final_output,none,none,nll,0.5,none,regression_only,2.3409488201141357,1.8449314832687378,0.9203606505862835,,,16.507429527118802,
+bimodal,single_head_final_output,soft_gating,none,nll,0.5,none,regression_only,2.322733163833618,1.8412930965423584,0.920891430858516,,,15.368047959869727,
+bimodal,single_head_final_output,soft_gating,elbo,nll,0.5,none,regression_only,2.3187432289123535,1.8395366668701172,0.9163731190776986,,2.0,43.781972117954865,
+bimodal,single_head_final_output,ste,none,nll,0.5,none,regression_only,2.346608877182007,1.850110411643982,0.9240301341837113,,4.222222328186035,13.335244335001335,
+bimodal,single_head_final_output,ste,elbo,nll,0.5,none,regression_only,2.3383896350860596,1.8443377017974854,0.9149562900960926,,3.9715640544891357,55.95875404495746,
+bimodal,single_head_final_output,reinforce,none,nll,0.5,none,regression_only,2.338696241378784,1.8453786373138428,0.9178912846267621,,4.459183692932129,42.425691697979346,
+bimodal,single_head_final_output,reinforce,elbo,nll,0.5,none,regression_only,2.334930896759033,1.8448607921600342,0.912815716709556,,4.336538791656494,79.30556579004042,
+b1_gravitational,separate_heads,none,none,nll,0.5,none,regression_only,0.10468790680170059,0.10310898721218109,0.17264457522197316,0.26163780675472026,,48.76967587391846,
+b1_gravitational,separate_heads,soft_gating,none,nll,0.5,none,regression_only,,,,,2.0,39.59021279704757,
 b1_gravitational,separate_heads,soft_gating,elbo,nll,0.5,none,,,,,,,,"Expected parameter probs (Tensor of shape (32, 7)) of distribution Categorical(probs: torch.Size([32, 7])) to satisfy the constraint Simplex(), but found invalid values:
 tensor([[nan, nan, nan, nan, nan, nan, nan],
         [nan, nan, nan, nan, nan, nan, nan],
@@ -98,12 +98,45 @@ tensor([[nan, nan, nan, nan, nan, nan, nan],
         [nan, nan, nan, nan, nan, nan, nan],
         [nan, nan, nan, nan, nan, nan, nan]], device='xpu:0',
        grad_fn=<DivBackward0>)"
-b1_gravitational,separate_heads,reinforce,none,nll,0.5,none,regression_only,0.29337480664253235,0.600906252861023,0.1918526074420874,,45335768.0,34.55959207192063,
-b1_gravitational,separate_heads,reinforce,elbo,nll,0.5,none,regression_only,0.29337480664253235,0.600906252861023,0.1918526074420874,,45335768.0,36.0760235079797,
-b1_gravitational,single_head_final_output,none,none,nll,0.5,none,regression_only,0.06562093645334244,-0.47682008147239685,0.11642152236752978,,,8.798514881986193,
-b1_gravitational,single_head_final_output,soft_gating,none,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-b1_gravitational,single_head_final_output,soft_gating,elbo,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-b1_gravitational,single_head_final_output,ste,none,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-b1_gravitational,single_head_final_output,ste,elbo,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-b1_gravitational,single_head_final_output,reinforce,none,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
-b1_gravitational,single_head_final_output,reinforce,elbo,nll,0.5,none,,,,,,,,The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1
+b1_gravitational,separate_heads,reinforce,none,nll,0.5,none,regression_only,0.21542663872241974,1.1290479898452759,0.23560572572299354,,4.308755874633789,236.0098006289918,
+b1_gravitational,separate_heads,reinforce,elbo,nll,0.5,none,regression_only,0.21542663872241974,1.1290479898452759,0.23560572572299354,,4.308755874633789,274.9895023170393,
+b1_gravitational,single_head_final_output,none,none,nll,0.5,none,regression_only,0.06562093645334244,-0.47682008147239685,0.11642152236752978,,,36.943631931208074,
+b1_gravitational,single_head_final_output,soft_gating,none,nll,0.5,none,regression_only,,,,,2.0,14.220413769129664,
+b1_gravitational,single_head_final_output,soft_gating,elbo,nll,0.5,none,regression_only,0.03741651028394699,-0.87721186876297,0.07735828278708742,,2.2977778911590576,85.10278837592341,
+b1_gravitational,single_head_final_output,ste,none,nll,0.5,none,,,,,,,,element 0 of tensors does not require grad and does not have a grad_fn
+b1_gravitational,single_head_final_output,ste,elbo,nll,0.5,none,,,,,,,,"Expected parameter probs (Tensor of shape (32, 7)) of distribution Categorical(probs: torch.Size([32, 7])) to satisfy the constraint Simplex(), but found invalid values:
+tensor([[nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan],
+        [nan, nan, nan, nan, nan, nan, nan]], device='xpu:0',
+       grad_fn=<DivBackward0>)"
+b1_gravitational,single_head_final_output,reinforce,none,nll,0.5,none,regression_only,0.19589249789714813,1.483763575553894,0.1383632689608524,,4.275700569152832,61.37596913496964,
+b1_gravitational,single_head_final_output,reinforce,elbo,nll,0.5,none,regression_only,0.19589249789714813,1.483763575553894,0.1383632689608524,,4.275700569152832,54.69173671700992,

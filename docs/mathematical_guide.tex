@@ -434,6 +434,12 @@ Targets are binned using percentile-based boundaries:
 Duplicate boundaries (from repeated values) are collapsed, and $K$ is
 reduced accordingly.
 
+\begin{implnote}
+The collapse is \emph{silent}: on discrete or heavily tied targets the effective $K$ can be
+smaller than requested, with no warning emitted. Callers should check the returned boundary
+count rather than assume the requested $K$.
+\end{implnote}
+
 \subsection{Stage 1: Classification}
 
 Train a classifier $f: \R^d \to \Delta^K$ (NN, XGBoost, LightGBM, or
@@ -586,6 +592,15 @@ When using dynamic $K$ or a fixed $K < K_{\max}$, classes $k > K$ are masked:
   \end{cases}
 \]
 
+\begin{implnote}
+Masking shares the logits across $K$, but the percentile \emph{bin boundaries} do not nest:
+they are recomputed independently for each candidate $K$ (the $K{=}2$ edges are not a subset of
+the $K{=}3$ edges), so ``class $k$'' denotes a different slice of the target at each $K$. This
+is harmless under likelihood-only training (\texttt{REGRESSION\_ONLY}), where boundaries never
+enter the loss, but it makes the cross-entropy term unsound under dynamic $K$ — see the caveat
+at Eq.~\eqref{eq:total_loss}.
+\end{implnote}
+
 \subsection{Regression Strategies}
 \label{sec:reg_strategies}
 
@@ -646,11 +661,19 @@ Output: $(\hat{y}, \log\hat{\sigma}^2)$ with shape $(B, 2)$, where
 $\log\hat{\sigma}^2 = \log(\max(\hat{\sigma}^2, 10^{-9}))$.
 \end{implnote}
 
-\subsection{Gradient Stop Variant}
+\subsection{Optimization Strategies}
 
 When \texttt{optimization\_strategy = GRADIENT\_STOP}:
 $\tilde{\pi}_k = \mathrm{stopgrad}(\pi_k)$.
 The classifier is updated only by cross-entropy; regression heads only by NLL.
+
+When \texttt{optimization\_strategy = REGRESSION\_ONLY}: the cross-entropy term is disabled
+entirely and the classifier is trained only through the combined predictive likelihood (the
+gradient of $\mathcal{L}_{\mathrm{regression}}$ flowing back through the class probabilities).
+No class-membership targets — and hence no bin boundaries — enter the loss. This is the
+\emph{validated configuration for dynamic $K$}: it is the training mode of the two-stage
+recipe of record (frozen likelihood-only fit, then a post-hoc distilled selector), and it is
+structurally exempt from the class-identity conflict described at Eq.~\eqref{eq:total_loss}.
 
 \subsection{Monotonic Constraints}
 
@@ -832,6 +855,9 @@ Fully differentiable:
 \begin{implnote}
 SoftGating is the best-performing strategy for ProbReg dynamic-$K$.
 It achieves MSE matching the best fixed-$K$ baseline with mean $K \approx 2$.
+Caveat: this ablation predates the dynamic-$K$ class-identity finding (see
+Eq.~\eqref{eq:total_loss}); for deployment, dynamic $K$ is validated only with likelihood-only
+training (\texttt{REGRESSION\_ONLY}).
 \end{implnote}
 
 \subsection{Gumbel-Softmax}
@@ -1025,7 +1051,10 @@ $(\hat{\sigma}^2)^\beta$, discouraging variance inflation.
 \[
   \mathcal{L}_{\mathrm{CE}} = -\log\frac{\exp(\tilde{\ell}_{c^*})}{\sum_{j} \exp(\tilde{\ell}_j)},
 \]
-where $c^*$ is the true bin index and $\tilde{\ell}$ are masked logits.
+where $c^*$ is the true bin index and $\tilde{\ell}$ are masked logits. Under dynamic $K$,
+$c^*$ is computed against the boundary set of the $K$ that sample selected on that forward
+pass; since boundary sets for different $K$ are not refinements of one another, $c^*$ is not a
+stable class identity across $K$ (see below).
 
 \subsection{Combined Training Loss (ProbReg)}
 
@@ -1039,6 +1068,20 @@ where $c^*$ is the true bin index and $\tilde{\ell}$ are masked logits.
 \end{equation}
 
 Currently $\lambda_{\mathrm{CE}} = 1$ (implicit, not tuned).
+
+\begin{implnote}
+\textbf{Caveat (dynamic $K$, verified 2026-07).} With dynamic $K$ the
+$\mathcal{L}_{\mathrm{CE}}$ term is structurally unsound: each sample's target $c^*$ is built
+from the percentile boundaries of that sample's selected $K$, and those boundary sets do not
+nest across $K$. Logit~0 is therefore supervised as ``bottom $1/K$ of $y$'' for whatever $K$
+each sample selects — the same component asked to mean different things at different
+resolutions, with nothing in the input distinguishing the regime. The validated configuration
+for dynamic $K$ is \texttt{REGRESSION\_ONLY} (cross-entropy disabled; see \emph{Optimization
+Strategies}), under which class identity is carried by the shared masked-prefix logits alone
+and remains stable across $K$. Cross-entropy-active dynamic $K$ should be treated as
+unsupported pending a $K$-stable class semantics (e.g.\ boundaries anchored to a single
+$K_{\max}$ grid, or refinement binning).
+\end{implnote}
 
 \subsection{Boundary Regularization Loss}
 

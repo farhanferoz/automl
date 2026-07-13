@@ -4,7 +4,10 @@ Includes:
 - Unit tests for Bug 8 (double log_var), Bug 10 (duplicate build_model)
 - Integration tests for ProbabilisticRegressionModel with fixed k
 - Model comparison tests asserting expected relative performance orderings
+- Work package P (2026-07-11 cascade plan §4.7): P1-P4 ProbReg fixes
 """
+
+import logging
 
 import numpy as np
 import pytest
@@ -14,6 +17,7 @@ from sklearn.model_selection import train_test_split
 from automl_package.enums import (
     MapperType,
     NClassesSelectionMethod,
+    ProbabilisticRegressionOptimizationStrategy,
     RegressionStrategy,
     UncertaintyMethod,
 )
@@ -21,6 +25,22 @@ from automl_package.models.common.losses import calculate_combined_loss
 from automl_package.models.neural_network import PyTorchNeuralNetwork
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
 from automl_package.utils.losses import nll_loss
+from automl_package.utils.numerics import create_bins
+
+
+@pytest.fixture
+def automl_caplog(caplog):
+    """caplog against the "automl_package" logger.
+
+    `automl_package.logger` sets `propagate = False` (see `automl_package/logger.py`), so
+    pytest's normal root-logger-attached caplog handler never observes its records. Attach the
+    handler directly to the named logger for the duration of the test instead.
+    """
+    target_logger = logging.getLogger("automl_package")
+    target_logger.addHandler(caplog.handler)
+    with caplog.at_level(logging.WARNING, logger="automl_package"):
+        yield caplog
+    target_logger.removeHandler(caplog.handler)
 
 # ---------------------------------------------------------------------------
 # Bug 8: Double log_var
@@ -439,6 +459,7 @@ class TestPredictDistribution:
     def test_mixture_mean_matches_predict(self, multimodal_data):
         """Mixture mean from predict_distribution must agree with predict()."""
         import numpy as np
+
         from automl_package.enums import NClassesSelectionMethod, RegressionStrategy, UncertaintyMethod
         from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
 
@@ -460,6 +481,7 @@ class TestPredictDistribution:
     def test_mixture_nll_finite_on_multimodal(self, multimodal_data):
         """log_prob on held-out multimodal data should be finite and reasonable."""
         import numpy as np
+
         from automl_package.enums import NClassesSelectionMethod, RegressionStrategy, UncertaintyMethod
         from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
 
@@ -481,6 +503,7 @@ class TestPredictDistribution:
         """Dynamic-k, SINGLE_HEAD_FINAL_OUTPUT, and symlog should raise NotImplementedError."""
         import numpy as np
         import pytest
+
         from automl_package.enums import NClassesSelectionMethod, RegressionStrategy, UncertaintyMethod
         from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
 
@@ -498,3 +521,190 @@ class TestPredictDistribution:
         m.fit(x, y)
         with pytest.raises(NotImplementedError):
             m.predict_distribution(x)
+
+
+# ---------------------------------------------------------------------------
+# Work package P (cascade_execution_plan_2026-07-11.md §4.7): P1-P4 fixes
+# ---------------------------------------------------------------------------
+
+class _StubProbRegNet:
+    """Minimal stand-in for ProbabilisticRegressionNet's forward output.
+
+    Lets P1's test drive `get_classifier_predictions` with exact, hand-picked classifier
+    logits instead of whatever a trained network happens to produce.
+    """
+
+    def __init__(self, classifier_logits: torch.Tensor, selected_k_values: torch.Tensor):
+        self._classifier_logits = classifier_logits
+        self._selected_k_values = selected_k_values
+
+    def eval(self) -> None:
+        """No-op: matches the nn.Module.eval() call site in get_classifier_predictions."""
+
+    def __call__(self, x: torch.Tensor) -> tuple:
+        n = x.shape[0]
+        return None, self._classifier_logits[:n], self._selected_k_values[:n], None, None
+
+
+class TestP1BinaryClassifierProbabilityFix:
+    """P1: get_classifier_predictions must use one masked-softmax path for every k >= 2.
+
+    Old code special-cased k == 2 as `sigmoid(logits[:, 0])`, which is only the correct
+    2-class softmax positive probability when logit1 == 0. Crafted logits below have
+    logit1 != 0, so the old path would diverge from `torch.softmax`.
+    """
+
+    def _model_with_stub(self, k: int, classifier_logits: torch.Tensor) -> ProbabilisticRegressionModel:
+        model = ProbabilisticRegressionModel(
+            input_size=1,
+            n_classes=k,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.NONE,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            calculate_feature_importance=False,
+        )
+        model.direct_regression = False
+        n = classifier_logits.shape[0]
+        y_true = np.linspace(-1.0, 1.0, n).astype(np.float32)
+        boundaries, _ = create_bins(data=y_true, n_bins=k, min_value=-np.inf, max_value=np.inf)
+        model.precomputed_class_boundaries = {k: boundaries}
+        model.model = _StubProbRegNet(classifier_logits, torch.full((n,), k, dtype=torch.long))
+        return model, y_true
+
+    @pytest.mark.parametrize("k", [2, 3])
+    def test_classifier_proba_matches_softmax_exactly(self, k):
+        n = 6
+        # logit1 != 0 for every row -> exposes the old sigmoid(logit0) k==2 special case.
+        torch.manual_seed(0)
+        classifier_logits = torch.randn(n, k) * 2.0
+        model, y_true = self._model_with_stub(k, classifier_logits)
+        x = np.zeros((n, 1), dtype=np.float32)
+
+        _, y_proba, _ = model.get_classifier_predictions(x, y_true)
+
+        expected = torch.softmax(classifier_logits, dim=1).numpy()
+        assert np.allclose(y_proba, expected, atol=1e-6), f"k={k}: classifier proba does not match torch.softmax exactly"
+        row_sums = y_proba.sum(axis=1)
+        assert np.allclose(row_sums, 1.0, atol=1e-6), f"k={k}: proba rows do not sum to 1 (sums={row_sums})"
+
+
+class TestP2CreateBinsWarning:
+    """P2: create_bins warns once when tied percentile edges force n_bins to shrink."""
+
+    def test_tied_targets_warn_and_shrink(self, automl_caplog):
+        # Only 3 distinct values repeated many times -> percentile edges at k=5 collide.
+        y = np.array([1.0, 2.0, 3.0] * 20)
+        edges, _ = create_bins(data=y, n_bins=5, min_value=-np.inf, max_value=np.inf)
+
+        effective_n_bins = len(edges) - 1
+        assert effective_n_bins < 5, f"expected n_bins to shrink below 5, got {effective_n_bins}"
+        assert "requested n_bins=5" in automl_caplog.text
+        assert f"effective n_bins={effective_n_bins}" in automl_caplog.text
+
+    def test_clean_continuous_target_no_warning(self, automl_caplog):
+        rng = np.random.default_rng(0)
+        y = rng.normal(size=200)
+        edges, _ = create_bins(data=y, n_bins=5, min_value=-np.inf, max_value=np.inf)
+
+        assert len(edges) - 1 == 5, "clean continuous data should not need to shrink n_bins"
+        assert automl_caplog.text == ""
+
+
+class TestP3DynamicKCeGuardWarning:
+    """P3: guard the incoherent dynamic-k + CE combination (plan §3.1 node-0 conflict)."""
+
+    def _fit_dynamic_k(self, opt_strategy: ProbabilisticRegressionOptimizationStrategy) -> ProbabilisticRegressionModel:
+        rng = np.random.default_rng(7)
+        x = rng.uniform(-1, 1, (40, 1)).astype(np.float32)
+        y = rng.uniform(-1, 1, 40).astype(np.float32)
+        model = ProbabilisticRegressionModel(
+            input_size=1,
+            n_classes_selection_method=NClassesSelectionMethod.SOFT_GATING,
+            max_n_classes_for_probabilistic_path=4,
+            optimization_strategy=opt_strategy,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            n_epochs=2,
+            learning_rate=0.01,
+            validation_fraction=0.2,
+            random_seed=42,
+            calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+        return model
+
+    def test_warning_fires_for_ce_active_combo(self, automl_caplog):
+        self._fit_dynamic_k(ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD)
+        assert "node-0 conflict" in automl_caplog.text
+        assert "NOT validated" in automl_caplog.text
+
+    def test_warning_absent_under_regression_only(self, automl_caplog):
+        self._fit_dynamic_k(ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY)
+        assert "node-0 conflict" not in automl_caplog.text
+
+
+class TestP4HygieneGating:
+    """P4: HPO dims and per-class centroid computation gated on the config that consumes them."""
+
+    def test_hpo_space_excludes_gated_dims_for_none_selection(self):
+        model = ProbabilisticRegressionModel(
+            input_size=1,
+            n_classes=3,
+            n_classes_selection_method=NClassesSelectionMethod.NONE,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            calculate_feature_importance=False,
+        )
+        space = model.get_hyperparameter_search_space()
+        assert "gumbel_tau" not in space
+        assert "n_classes_predictor_learning_rate" not in space
+
+    def test_hpo_space_gates_dims_by_selection_strategy(self):
+        gumbel_model = ProbabilisticRegressionModel(
+            input_size=1,
+            n_classes_selection_method=NClassesSelectionMethod.GUMBEL_SOFTMAX,
+            max_n_classes_for_probabilistic_path=4,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            calculate_feature_importance=False,
+        )
+        gumbel_space = gumbel_model.get_hyperparameter_search_space()
+        assert "gumbel_tau" in gumbel_space
+        assert "n_classes_predictor_learning_rate" not in gumbel_space
+
+        reinforce_model = ProbabilisticRegressionModel(
+            input_size=1,
+            n_classes_selection_method=NClassesSelectionMethod.REINFORCE,
+            max_n_classes_for_probabilistic_path=4,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            calculate_feature_importance=False,
+        )
+        reinforce_space = reinforce_model.get_hyperparameter_search_space()
+        assert "n_classes_predictor_learning_rate" in reinforce_space
+        assert "gumbel_tau" not in reinforce_space
+
+    def _fit_tiny(self, **kwargs) -> ProbabilisticRegressionModel:
+        rng = np.random.default_rng(3)
+        x = rng.uniform(-1, 1, (30, 1)).astype(np.float32)
+        y = rng.uniform(-1, 1, 30).astype(np.float32)
+        model = ProbabilisticRegressionModel(
+            input_size=1,
+            n_classes=3,
+            n_classes_selection_method=NClassesSelectionMethod.NONE,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_epochs=1,
+            learning_rate=0.01,
+            validation_fraction=0.2,
+            random_seed=42,
+            calculate_feature_importance=False,
+            **kwargs,
+        )
+        model.fit(x, y)
+        return model
+
+    def test_default_config_skips_centroid_computation(self):
+        model = self._fit_tiny()
+        assert getattr(model, "_per_class_centroids", None) is None
+
+    def test_monotonic_head_config_computes_centroids(self):
+        model = self._fit_tiny(use_monotonic_constraints=True)
+        assert getattr(model, "_per_class_centroids", None) is not None

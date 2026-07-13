@@ -34,7 +34,17 @@ from automl_package.utils.transforms import symexp, symlog
 
 
 class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleClassPenaltyMixin):
-    """A PyTorch-based probabilistic regression model that directly learns both mean and variance."""
+    """A PyTorch-based probabilistic regression model that directly learns both mean and variance.
+
+    Warning:
+        Dynamic n_classes selection (`n_classes_selection_method != NONE`) combined with an
+        optimization_strategy that activates classification cross-entropy (anything other than
+        REGRESSION_ONLY or GRADIENT_STOP) is NOT validated: class boundaries are precomputed
+        independently per k, so per-k re-binned CE targets redefine class identity across k
+        (a node-0 conflict). The validated recipe of record is dynamic n_classes selection with
+        `optimization_strategy=REGRESSION_ONLY` (see
+        docs/plans/width_dial_2026-07-11/cascade_execution_plan_2026-07-11.md §3.1).
+    """
 
     _defaults: ClassVar[dict[str, Any]] = {
         "input_size": None,
@@ -414,8 +424,6 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             {
                 "regression_strategy": {"type": "categorical", "choices": [s.value for s in RegressionStrategy]},
                 "optimization_strategy": {"type": "categorical", "choices": [s.value for s in ProbabilisticRegressionOptimizationStrategy]},
-                "gumbel_tau": {"type": "float", "low": 1e-8, "high": 1.0, "log": True},
-                "n_classes_predictor_learning_rate": {"type": "float", "low": 1e-8, "high": 1e-2, "log": True},
                 "base_classifier_params__hidden_layers": {"type": "int", "low": 1, "high": 2},
                 "base_classifier_params__hidden_size": {"type": "int", "low": 32, "high": 64, "step": 32},
                 "base_classifier_params__use_batch_norm": {"type": "categorical", "choices": [True, False]},
@@ -437,6 +445,14 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             space["direct_regression_head_params__hidden_size"] = {"type": "int", "low": 32, "high": 64, "step": 32}
             space["direct_regression_head_params__use_batch_norm"] = {"type": "categorical", "choices": [True, False]}
             space["direct_regression_head_params__dropout_rate"] = {"type": "float", "low": 0.0, "high": 0.5, "step": 0.1}
+
+            # gumbel_tau only feeds f.gumbel_softmax in GumbelSoftmaxStrategy/SteStrategy
+            # (n_classes_strategies.py); n_classes_predictor_learning_rate only feeds
+            # ReinforceStrategy's policy optimizer. Both are inert dead HPO dims otherwise.
+            if self.n_classes_selection_method in (NClassesSelectionMethod.GUMBEL_SOFTMAX, NClassesSelectionMethod.STE):
+                space["gumbel_tau"] = {"type": "float", "low": 1e-8, "high": 1.0, "log": True}
+            if self.n_classes_selection_method == NClassesSelectionMethod.REINFORCE:
+                space["n_classes_predictor_learning_rate"] = {"type": "float", "low": 1e-8, "high": 1e-2, "log": True}
 
         if self.search_space_override:
             space.update(self.search_space_override)
@@ -491,6 +507,22 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             if y_val is not None:
                 y_val = symlog(torch.tensor(y_val, dtype=torch.float32)).numpy()
 
+        is_ce_active = self.optimization_strategy not in (
+            ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+            ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
+        )
+        if self.n_classes_selection_method != NClassesSelectionMethod.NONE and is_ce_active:
+            logger.warning(
+                "Dynamic n_classes selection (%s) with optimization_strategy=%s activates "
+                "classification cross-entropy: class boundaries are precomputed independently per "
+                "k, so per-k re-binned CE targets redefine class identity across k (node-0 "
+                "conflict). This combination is NOT validated. The validated recipe of record is "
+                "optimization_strategy=REGRESSION_ONLY (see "
+                "docs/plans/width_dial_2026-07-11/cascade_execution_plan_2026-07-11.md §3.1).",
+                self.n_classes_selection_method.value,
+                self.optimization_strategy.value,
+            )
+
         if not self.direct_regression:
             self.precomputed_class_boundaries = {}
             self.class_value_ranges_ = {}
@@ -524,7 +556,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 self._constant_head_init_value = None
 
             # Per-class centroids for monotonic head init (B1 fix) and anchored heads (C6).
-            if self.regression_strategy == RegressionStrategy.SEPARATE_HEADS:
+            # Only computed when one of those two consumers is actually active — otherwise the
+            # result is never read (_initialize_monotonic_head gates on use_monotonic_constraints,
+            # AnchoredHead gates on use_anchored_heads).
+            if self.regression_strategy == RegressionStrategy.SEPARATE_HEADS and (self.use_monotonic_constraints or self.use_anchored_heads):
                 counts = np.bincount(y_binned, minlength=max_k)
                 sums = np.bincount(y_binned, weights=y_flat, minlength=max_k)
                 self._per_class_centroids = list(np.where(counts > 0, sums / counts, 0.0))
@@ -754,12 +789,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             selected_k_values = selected_k_values_tensor.cpu().numpy()
             probabilistic_indices = np.where(selected_k_values != DIRECT_REGRESSION_K_SENTINEL)[0]
 
-            if self.n_classes_selection_method != NClassesSelectionMethod.NONE:
-                if len(probabilistic_indices) == 0:
-                    raise NotImplementedError("No probabilistic predictions were made for the given X. All samples went to direct regression.")
-                n_classes_for_classifier_output = self.max_n_classes_for_probabilistic_path
-            else:
-                n_classes_for_classifier_output = self.n_classes
+            if self.n_classes_selection_method != NClassesSelectionMethod.NONE and len(probabilistic_indices) == 0:
+                raise NotImplementedError("No probabilistic predictions were made for the given X. All samples went to direct regression.")
 
             y_flat = y_true_original.flatten() if y_true_original.ndim > 1 else y_true_original
             y_true_discretized = np.full_like(y_flat, -1, dtype=int)  # Default to -1 (for direct regression)
@@ -793,11 +824,9 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             mask = col_indices < k_values.unsqueeze(1)
             masked_classifier_logits = torch.where(mask, classifier_logits_for_proba, float("-inf"))
 
-            if n_classes_for_classifier_output == 2:
-                proba_positive = torch.sigmoid(masked_classifier_logits[:, 0])  # Assuming binary classification for classifier
-                y_proba_internal = torch.cat((1 - proba_positive.unsqueeze(1), proba_positive.unsqueeze(1)), dim=1).cpu().numpy()
-            else:
-                y_proba_internal = torch.softmax(masked_classifier_logits, dim=1).cpu().numpy()
+            # Single masked-softmax path for every k >= 2 (no k==2 special case: the binary
+            # softmax positive probability is sigmoid(logit1 - logit0), not sigmoid(logit0)).
+            y_proba_internal = torch.softmax(masked_classifier_logits, dim=1).cpu().numpy()
 
             y_pred_internal = np.argmax(y_proba_internal, axis=1)
 

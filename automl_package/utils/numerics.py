@@ -7,6 +7,8 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
+from automl_package.logger import logger
+
 
 def create_bins(
     data: np.ndarray,
@@ -31,6 +33,7 @@ def create_bins(
     """
     if unique_bin_edges is None:
         assert n_bins is not None
+        requested_n_bins = n_bins
         percentiles = np.linspace(0, 100, n_bins + 1)
         bin_edges = np.percentile(data, percentiles)
 
@@ -41,6 +44,15 @@ def create_bins(
             percentiles = np.linspace(0, 100, n_bins + 1)
             bin_edges = np.percentile(data, percentiles)
             unique_bin_edges = np.unique(bin_edges)
+        if n_bins < requested_n_bins:
+            logger.warning(
+                "create_bins: requested n_bins=%d produced tied percentile edges on the target "
+                "distribution; shrunk to effective n_bins=%d (%d unique edge(s) dropped). This "
+                "happens on discrete/tied targets where percentile boundaries coincide.",
+                requested_n_bins,
+                n_bins,
+                requested_n_bins - n_bins,
+            )
         if min_value is not None:
             assert min_value <= unique_bin_edges[0]
             unique_bin_edges[0] = min_value

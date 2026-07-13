@@ -1,17 +1,17 @@
 """ProbReg identifiability sweep — 8-cell experiment matrix.
 
-Tests three orthogonal identifiability fixes (MDN NLL, CE_STOP_GRAD, anchored heads)
-across 4 toy datasets × k ∈ {3, 5} × 3 seeds, plus ClassReg baselines.
+Tests three orthogonal identifiability fixes (MDN NLL, CE_STOP_GRAD, ordering-constraint
+penalty) across 4 toy datasets × k ∈ {3, 5} × 3 seeds, plus ClassReg baselines.
 
-Cells:
-  A: GAUSSIAN_LTV + REGRESSION_ONLY + free heads  (current baseline)
-  B: GAUSSIAN_LTV + REGRESSION_ONLY + anchored heads
-  C: GAUSSIAN_LTV + CE_STOP_GRAD    + free heads
-  D: GAUSSIAN_LTV + CE_STOP_GRAD    + anchored heads
-  E: MDN          + REGRESSION_ONLY + free heads
-  F: MDN          + REGRESSION_ONLY + anchored heads
-  G: MDN          + CE_STOP_GRAD    + free heads
-  H: MDN          + CE_STOP_GRAD    + anchored heads
+Cells (4th column = ordering-constraint penalty on/off):
+  A: GAUSSIAN_LTV + REGRESSION_ONLY + no  ordering  (baseline)
+  B: GAUSSIAN_LTV + REGRESSION_ONLY + yes ordering
+  C: GAUSSIAN_LTV + CE_STOP_GRAD    + no  ordering
+  D: GAUSSIAN_LTV + CE_STOP_GRAD    + yes ordering
+  E: MDN          + REGRESSION_ONLY + no  ordering
+  F: MDN          + REGRESSION_ONLY + yes ordering
+  G: MDN          + CE_STOP_GRAD    + no  ordering
+  H: MDN          + CE_STOP_GRAD    + yes ordering
   ClassReg:        LOOKUP_MEDIAN classifier baseline
 
 Outputs (in probreg_identifiability_results/):
@@ -43,6 +43,7 @@ from automl_package.enums import (
     RegressionStrategy,
     UncertaintyMethod,
 )
+from automl_package.examples._toy_datasets import make_datasets
 from automl_package.models.classifier_regression import ClassifierRegressionModel
 from automl_package.models.neural_network import PyTorchNeuralNetwork
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
@@ -63,6 +64,8 @@ LR = 0.01
 EARLY_STOP = 15
 VAL_FRAC = 0.2
 
+# Cells: (id, loss_type, opt_strategy, use_ordering).
+# use_ordering=True enables the ordering-constraint penalty (see §3.3).
 CELLS = [
     ("A", ProbRegLossType.GAUSSIAN_LTV, ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY, False),
     ("B", ProbRegLossType.GAUSSIAN_LTV, ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY, True),
@@ -73,34 +76,6 @@ CELLS = [
     ("G", ProbRegLossType.MDN, ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD, False),
     ("H", ProbRegLossType.MDN, ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD, True),
 ]
-
-
-# ---------------------------------------------------------------------------
-# Datasets
-# ---------------------------------------------------------------------------
-
-def _make_datasets() -> list[tuple[str, np.ndarray, np.ndarray]]:
-    rng = np.random.default_rng(42)
-
-    x = rng.uniform(-5, 5, 800).reshape(-1, 1).astype(np.float32)
-    y = (np.sin(x.ravel()) * 2 + 0.5 * x.ravel() + rng.normal(0.0, 0.1 + 0.4 * np.abs(x.ravel()))).astype(np.float32)
-    datasets = [("heteroscedastic", x, y)]
-
-    x = rng.uniform(-3, 3, 800).reshape(-1, 1).astype(np.float32)
-    sign = rng.choice([-1.0, 1.0], size=800).reshape(-1, 1)
-    y = (x + sign * 1.5 + rng.normal(0, 0.1, (800, 1))).ravel().astype(np.float32)
-    datasets.append(("bimodal", x, y))
-
-    x = rng.uniform(-5.0, 5.0, 800).reshape(-1, 1).astype(np.float32)
-    y_true = np.where(x.ravel() < 0, 0.5 * x.ravel(), 0.5 * x.ravel() + np.sin(4 * np.pi * x.ravel()))
-    y = (y_true + rng.normal(0, 0.2, 800)).astype(np.float32)
-    datasets.append(("piecewise", x, y))
-
-    x = rng.uniform(-3, 3, 600).reshape(-1, 1).astype(np.float32)
-    y = (np.exp(x.ravel()) + rng.normal(0.0, 0.5, 600)).astype(np.float32)
-    datasets.append(("exponential", x, y))
-
-    return datasets
 
 
 # ---------------------------------------------------------------------------
@@ -155,8 +130,9 @@ def _train_classreg(x_tr: np.ndarray, y_tr: np.ndarray, k: int, seed: int) -> Cl
 
 
 def _train_probreg(x_tr: np.ndarray, y_tr: np.ndarray, k: int, seed: int,
-                   loss_type: ProbRegLossType, opt_strategy: ProbabilisticRegressionOptimizationStrategy, use_anchored: bool) -> ProbabilisticRegressionModel:
-    constrain_mid = not use_anchored
+                   loss_type: ProbRegLossType, opt_strategy: ProbabilisticRegressionOptimizationStrategy, use_ordering: bool) -> ProbabilisticRegressionModel:
+    # margin=0: strict ordering, separation driven by regression loss.
+    # y_range/k margin tried earlier but failed on exponential (non-uniform bin spacing).
     model = ProbabilisticRegressionModel(
         input_size=1,
         n_classes=k,
@@ -164,9 +140,11 @@ def _train_probreg(x_tr: np.ndarray, y_tr: np.ndarray, k: int, seed: int,
         uncertainty_method=UncertaintyMethod.PROBABILISTIC,
         optimization_strategy=opt_strategy,
         prob_reg_loss_type=loss_type,
-        use_anchored_heads=use_anchored,
-        constrain_middle_class=constrain_mid,
+        use_anchored_heads=False,
+        constrain_middle_class=True,
         use_monotonic_constraints=False,
+        ordering_constraint_weight=1.0 if use_ordering else 0.0,
+        ordering_constraint_margin=0.0,
         n_epochs=N_EPOCHS,
         learning_rate=LR,
         early_stopping_rounds=EARLY_STOP,
@@ -419,7 +397,7 @@ def _make_pdf(ds_name: str, seed42_models: dict, summary_df: pd.DataFrame) -> No
 
 def main() -> None:
     """Run the 8-cell ProbReg identifiability sweep and generate result PDFs."""
-    datasets = _make_datasets()
+    datasets = make_datasets()
     all_rows: list[dict] = []
 
     # seed42_models[ds_name][key] = (model, x_tr, y_tr) for PDF plotting
@@ -450,12 +428,11 @@ def main() -> None:
                     print(f" ERROR: {e}")
                     all_rows.append({"dataset": ds_name, "k": k, "seed": seed, "cell": "ClassReg", "mse": float("nan")})
 
-                # ProbReg cells
-                for cell_id, loss_type, opt_strat, use_anchored in CELLS:
+                for cell_id, loss_type, opt_strat, use_ordering in CELLS:
                     run_count += 1
                     print(f"  [{run_count}/{total}] Cell {cell_id} k={k} seed={seed} ...", end="", flush=True)
                     try:
-                        pr = _train_probreg(x_tr, y_tr, k, seed, loss_type, opt_strat, use_anchored)
+                        pr = _train_probreg(x_tr, y_tr, k, seed, loss_type, opt_strat, use_ordering)
                         row = _compute_metrics(pr, x_tr, y_tr, x_te, y_te, cell_id, k, is_classreg=False)
                         row.update({"dataset": ds_name, "k": k, "seed": seed})
                         all_rows.append(row)

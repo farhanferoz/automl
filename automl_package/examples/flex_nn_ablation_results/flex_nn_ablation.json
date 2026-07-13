@@ -8,7 +8,7 @@
     "depth_reg": "none",
     "mse": 0.2783096432685852,
     "mean_depth": 1.0265231132507324,
-    "seconds": 4.831328850938007
+    "seconds": 5.882303645834327
   },
   {
     "dataset": "piecewise",
@@ -19,7 +19,7 @@
     "depth_reg": "none",
     "mse": 0.27858054637908936,
     "mean_depth": 1.010671854019165,
-    "seconds": 4.732755003031343
+    "seconds": 4.094108770834282
   },
   {
     "dataset": "piecewise",
@@ -30,7 +30,7 @@
     "depth_reg": "none",
     "mse": 0.27460724115371704,
     "mean_depth": 1.1166666746139526,
-    "seconds": 8.511997068999335
+    "seconds": 7.77674923511222
   },
   {
     "dataset": "piecewise",
@@ -40,9 +40,8 @@
     "layer_method": "reinforce",
     "depth_reg": "none",
     "mse": 0.26028063893318176,
-    "mean_depth": NaN,
-    "error": "Dimension out of range (expected to be in range of [-1, 0], but got 1)",
-    "seconds": 7.260356893995777
+    "mean_depth": 3.9833335876464844,
+    "seconds": 6.463193498086184
   },
   {
     "dataset": "piecewise",
@@ -53,7 +52,7 @@
     "depth_reg": "elbo",
     "mse": 0.26098501682281494,
     "mean_depth": 2.005707263946533,
-    "seconds": 5.950669156969525
+    "seconds": 5.465801293030381
   },
   {
     "dataset": "piecewise",
@@ -64,7 +63,7 @@
     "depth_reg": "elbo",
     "mse": 0.2649121582508087,
     "mean_depth": 1.3726778030395508,
-    "seconds": 11.141809521941468
+    "seconds": 11.450360877905041
   },
   {
     "dataset": "piecewise",
@@ -75,7 +74,7 @@
     "depth_reg": "elbo",
     "mse": 0.302133709192276,
     "mean_depth": 2.441666841506958,
-    "seconds": 7.721397805027664
+    "seconds": 7.561993800103664
   },
   {
     "dataset": "piecewise",
@@ -84,10 +83,9 @@
     "uq": "constant",
     "layer_method": "reinforce",
     "depth_reg": "elbo",
-    "mse": 0.2656213641166687,
-    "mean_depth": NaN,
-    "error": "Dimension out of range (expected to be in range of [-1, 0], but got 1)",
-    "seconds": 7.452397312968969
+    "mse": 0.2632485032081604,
+    "mean_depth": 3.6750001907348633,
+    "seconds": 12.176000460051
   },
   {
     "dataset": "piecewise",
@@ -98,7 +96,7 @@
     "depth_reg": "depth_penalty",
     "mse": 0.2782627046108246,
     "mean_depth": 1.020269513130188,
-    "seconds": 4.274514696095139
+    "seconds": 4.163811431964859
   },
   {
     "dataset": "piecewise",
@@ -109,7 +107,7 @@
     "depth_reg": "depth_penalty",
     "mse": 0.27848753333091736,
     "mean_depth": 1.0076855421066284,
-    "seconds": 4.321539842057973
+    "seconds": 4.219315914902836
   },
   {
     "dataset": "piecewise",
@@ -120,15 +118,18 @@
     "depth_reg": "depth_penalty",
     "mse": 0.27781206369400024,
     "mean_depth": 1.0208333730697632,
-    "seconds": 3.8831052109599113
+    "seconds": 3.6029615339357406
   },
   {
     "dataset": "piecewise",
     "weights": "shared",
     "max_layers": 5,
+    "uq": "constant",
     "layer_method": "reinforce",
     "depth_reg": "depth_penalty",
-    "error": "Dimension out of range (expected to be in range of [-1, 0], but got 1)"
+    "mse": 0.26254403591156006,
+    "mean_depth": 3.575000286102295,
+    "seconds": 4.779589575016871
   },
   {
     "dataset": "piecewise",
@@ -139,7 +140,7 @@
     "depth_reg": "cost_aware_elbo",
     "mse": 0.29484811425209045,
     "mean_depth": 1.6943299770355225,
-    "seconds": 12.03147883003112
+    "seconds": 12.204375935019925
   },
   {
     "dataset": "piecewise",
@@ -150,7 +151,7 @@
     "depth_reg": "cost_aware_elbo",
     "mse": 0.2898927628993988,
     "mean_depth": 1.135400652885437,
-    "seconds": 12.144473877036944
+    "seconds": 12.27953214594163
   },
   {
     "dataset": "piecewise",
@@ -161,7 +162,7 @@
     "depth_reg": "cost_aware_elbo",
     "mse": 0.2733980715274811,
     "mean_depth": 2.491666793823242,
-    "seconds": 5.947227580938488
+    "seconds": 5.78080456610769
   },
   {
     "dataset": "piecewise",
@@ -170,10 +171,9 @@
     "uq": "constant",
     "layer_method": "reinforce",
     "depth_reg": "cost_aware_elbo",
-    "mse": 0.3075614273548126,
-    "mean_depth": NaN,
-    "error": "Dimension out of range (expected to be in range of [-1, 0], but got 1)",
-    "seconds": 7.00137047492899
+    "mse": 0.27542760968208313,
+    "mean_depth": 2.3500001430511475,
+    "seconds": 12.136356191011146
   },
   {
     "dataset": "b3_two_phase",
@@ -184,7 +184,7 @@
     "depth_reg": "none",
     "mse": 0.09064171463251114,
     "mean_depth": 1.5785651206970215,
-    "seconds": 35.50811918010004
+    "seconds": 34.90206853300333
   },
   {
     "dataset": "b3_two_phase",
@@ -195,7 +195,7 @@
     "depth_reg": "none",
     "mse": 0.08712078630924225,
     "mean_depth": 2.9271373748779297,
-    "seconds": 64.51184592500795
+    "seconds": 59.55050428211689
   },
   {
     "dataset": "b3_two_phase",
@@ -206,7 +206,7 @@
     "depth_reg": "none",
     "mse": 0.08625848591327667,
     "mean_depth": 2.8946666717529297,
-    "seconds": 59.79505485203117
+    "seconds": 57.965562449069694
   },
   {
     "dataset": "b3_two_phase",
@@ -225,7 +225,7 @@
     "depth_reg": "elbo",
     "mse": 0.08497697860002518,
     "mean_depth": 2.0892536640167236,
-    "seconds": 139.04985466599464
+    "seconds": 141.31928468099795
   },
   {
     "dataset": "b3_two_phase",
@@ -236,7 +236,7 @@
     "depth_reg": "elbo",
     "mse": 0.08663921803236008,
     "mean_depth": 1.4565517902374268,
-    "seconds": 88.9264840639662
+    "seconds": 90.55280023696832
   },
   {
     "dataset": "b3_two_phase",
@@ -247,7 +247,7 @@
     "depth_reg": "elbo",
     "mse": 0.08500205725431442,
     "mean_depth": 2.628000020980835,
-    "seconds": 150.74256948707625
+    "seconds": 149.26074684108607
   },
   {
     "dataset": "b3_two_phase",
@@ -266,7 +266,7 @@
     "depth_reg": "depth_penalty",
     "mse": 0.09749442338943481,
     "mean_depth": 1.2477551698684692,
-    "seconds": 46.49094509403221
+    "seconds": 44.046369462041184
   },
   {
     "dataset": "b3_two_phase",
@@ -277,7 +277,7 @@
     "depth_reg": "depth_penalty",
     "mse": 0.08481157571077347,
     "mean_depth": 1.4756232500076294,
-    "seconds": 107.24374018190429
+    "seconds": 103.83238051016815
   },
   {
     "dataset": "b3_two_phase",
@@ -288,7 +288,7 @@
     "depth_reg": "depth_penalty",
     "mse": 0.08654952794313431,
     "mean_depth": 1.343666672706604,
-    "seconds": 100.24567425996065
+    "seconds": 91.64333203202114
   },
   {
     "dataset": "b3_two_phase",
@@ -307,7 +307,7 @@
     "depth_reg": "cost_aware_elbo",
     "mse": 0.08234844356775284,
     "mean_depth": 1.7717618942260742,
-    "seconds": 125.22937894403003
+    "seconds": 127.399683695985
   },
   {
     "dataset": "b3_two_phase",
@@ -318,7 +318,7 @@
     "depth_reg": "cost_aware_elbo",
     "mse": 0.08566457033157349,
     "mean_depth": 1.2286090850830078,
-    "seconds": 107.39924605702981
+    "seconds": 103.83796992292628
   },
   {
     "dataset": "b3_two_phase",
@@ -329,7 +329,7 @@
     "depth_reg": "cost_aware_elbo",
     "mse": 0.08822571486234665,
     "mean_depth": 2.369333267211914,
-    "seconds": 146.08507698599715
+    "seconds": 142.30166800599545
   },
   {
     "dataset": "b3_two_phase",

@@ -8,12 +8,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 1.5920642614364624,
-    "nll": 1.3517481088638306,
-    "crps": 0.6351162866110532,
-    "nll_mixture": 1.6885290038860261,
+    "mse": 2.0021979808807373,
+    "nll": 1.6908073425292969,
+    "crps": 0.7383299773915317,
+    "nll_mixture": 1.9991118757585515,
     "mean_k": null,
-    "seconds": 9.135689066024497
+    "seconds": 8.805522138020024
   },
   {
     "dataset": "heteroscedastic",
@@ -24,12 +24,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 1.633374571800232,
-    "nll": 1.4048477411270142,
-    "crps": 0.645435633059914,
+    "mse": 1.9476799964904785,
+    "nll": 1.501989722251892,
+    "crps": 0.7193066255690529,
     "nll_mixture": null,
-    "mean_k": 210274448.0,
-    "seconds": 45.712911913054995
+    "mean_k": 6.5337419509887695,
+    "seconds": 27.26270266296342
   },
   {
     "dataset": "heteroscedastic",
@@ -40,12 +40,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 1.6230677366256714,
-    "nll": 1.3775367736816406,
-    "crps": 0.6385403330636432,
+    "mse": 1.6573519706726074,
+    "nll": 1.443274974822998,
+    "crps": 0.649263408340832,
     "nll_mixture": null,
     "mean_k": 2.0,
-    "seconds": 48.043979077017866
+    "seconds": 54.86989001580514
   },
   {
     "dataset": "heteroscedastic",
@@ -56,12 +56,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 1.651134967803955,
-    "nll": 1.5043474435806274,
-    "crps": 0.6598156614991705,
+    "mse": 1.766441822052002,
+    "nll": 1.5238640308380127,
+    "crps": 0.6770873557898897,
     "nll_mixture": null,
-    "mean_k": 187904832.0,
-    "seconds": 23.58370242197998
+    "mean_k": 5.0107526779174805,
+    "seconds": 27.402240813942626
   },
   {
     "dataset": "heteroscedastic",
@@ -72,12 +72,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 2.481947898864746,
-    "nll": 1.8515583276748657,
-    "crps": 0.8398497991661703,
+    "mse": 2.4367315769195557,
+    "nll": 1.8042027950286865,
+    "crps": 0.8259493192049896,
     "nll_mixture": null,
-    "mean_k": 76056720.0,
-    "seconds": 35.81836413103156
+    "mean_k": 3.5837318897247314,
+    "seconds": 38.947798856999725
   },
   {
     "dataset": "heteroscedastic",
@@ -88,12 +88,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 2.4880106449127197,
-    "nll": 1.8587602376937866,
-    "crps": 0.843294256007973,
+    "mse": 2.3586721420288086,
+    "nll": 1.7714436054229736,
+    "crps": 0.8178414262253549,
     "nll_mixture": null,
-    "mean_k": 174483056.0,
-    "seconds": 50.686585300951265
+    "mean_k": 4.247572898864746,
+    "seconds": 49.64078233088367
   },
   {
     "dataset": "heteroscedastic",
@@ -104,12 +104,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 2.4880106449127197,
-    "nll": 1.8587602376937866,
-    "crps": 0.843294256007973,
+    "mse": 2.3586721420288086,
+    "nll": 1.7714436054229736,
+    "crps": 0.8178414262253549,
     "nll_mixture": null,
-    "mean_k": 174483056.0,
-    "seconds": 52.18901672505308
+    "mean_k": 4.247572898864746,
+    "seconds": 55.00502818310633
   },
   {
     "dataset": "heteroscedastic",
@@ -125,7 +125,7 @@
     "crps": 0.7668565028106653,
     "nll_mixture": null,
     "mean_k": null,
-    "seconds": 4.858515332103707
+    "seconds": 7.893318961840123
   },
   {
     "dataset": "heteroscedastic",
@@ -135,7 +135,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 1.6249943971633911,
+    "nll": 1.3874682188034058,
+    "crps": 0.6331048747329945,
+    "nll_mixture": null,
+    "mean_k": 5.313725471496582,
+    "seconds": 15.131262315902859
   },
   {
     "dataset": "heteroscedastic",
@@ -145,7 +151,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 1.612051248550415,
+    "nll": 1.3545218706130981,
+    "crps": 0.6335070782169275,
+    "nll_mixture": null,
+    "mean_k": 2.0,
+    "seconds": 29.946383646922186
   },
   {
     "dataset": "heteroscedastic",
@@ -155,7 +167,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 1.5574381351470947,
+    "nll": 1.3743700981140137,
+    "crps": 0.6281412846593348,
+    "nll_mixture": null,
+    "mean_k": null,
+    "seconds": 17.239925351925194
   },
   {
     "dataset": "heteroscedastic",
@@ -165,7 +183,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 2.373166084289551,
+    "nll": 1.7120072841644287,
+    "crps": 0.795437169282187,
+    "nll_mixture": null,
+    "mean_k": 4.267543792724609,
+    "seconds": 29.25607321690768
   },
   {
     "dataset": "heteroscedastic",
@@ -175,7 +199,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 2.0269839763641357,
+    "nll": 1.626471996307373,
+    "crps": 0.7397220081156021,
+    "nll_mixture": null,
+    "mean_k": 4.375609874725342,
+    "seconds": 29.694282240932807
   },
   {
     "dataset": "heteroscedastic",
@@ -185,7 +215,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 2.218825340270996,
+    "nll": 1.6962323188781738,
+    "crps": 0.7633237691793715,
+    "nll_mixture": null,
+    "mean_k": 4.247572898864746,
+    "seconds": 31.6351830069907
   },
   {
     "dataset": "bimodal",
@@ -196,12 +232,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 2.3625292778015137,
-    "nll": 1.8499385118484497,
-    "crps": 0.9245081150399073,
-    "nll_mixture": 1.9045008198795599,
+    "mse": 2.3629071712493896,
+    "nll": 1.8583399057388306,
+    "crps": 0.9252392632372091,
+    "nll_mixture": 1.9174656172830837,
     "mean_k": null,
-    "seconds": 5.611074978951365
+    "seconds": 4.944362198002636
   },
   {
     "dataset": "bimodal",
@@ -212,12 +248,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 2.436962842941284,
-    "nll": 1.8662521839141846,
-    "crps": 0.9406503429855286,
+    "mse": 2.231412649154663,
+    "nll": 1.8307405710220337,
+    "crps": 0.8900813103325036,
     "nll_mixture": null,
-    "mean_k": 4.733333587646484,
-    "seconds": 17.31068187195342
+    "mean_k": 4.305825233459473,
+    "seconds": 18.052193637005985
   },
   {
     "dataset": "bimodal",
@@ -228,12 +264,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 2.3581039905548096,
-    "nll": 1.8482747077941895,
-    "crps": 0.9214565878755442,
+    "mse": 2.413602590560913,
+    "nll": 1.862810730934143,
+    "crps": 0.9378349525098871,
     "nll_mixture": null,
     "mean_k": 2.0,
-    "seconds": 20.704169392003678
+    "seconds": 28.896413121838123
   },
   {
     "dataset": "bimodal",
@@ -244,12 +280,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 2.3928780555725098,
-    "nll": 1.8574849367141724,
-    "crps": 0.9323246409759641,
+    "mse": 2.331652879714966,
+    "nll": 1.8452194929122925,
+    "crps": 0.9092045019823465,
     "nll_mixture": null,
-    "mean_k": 478709920.0,
-    "seconds": 32.50699819007423
+    "mean_k": 5.409090518951416,
+    "seconds": 15.387614496983588
   },
   {
     "dataset": "bimodal",
@@ -260,12 +296,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 2.357086181640625,
-    "nll": 1.8533953428268433,
-    "crps": 0.9149812704823981,
+    "mse": 2.3438050746917725,
+    "nll": 1.8568317890167236,
+    "crps": 0.9143846581270016,
     "nll_mixture": null,
-    "mean_k": 98426336.0,
-    "seconds": 38.72799990396015
+    "mean_k": 3.915929079055786,
+    "seconds": 43.660396663006395
   },
   {
     "dataset": "bimodal",
@@ -276,12 +312,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 2.332836627960205,
-    "nll": 1.8503150939941406,
-    "crps": 0.9091332217180896,
+    "mse": 2.4735770225524902,
+    "nll": 1.88130521774292,
+    "crps": 0.9403276882446667,
     "nll_mixture": null,
-    "mean_k": 228170144.0,
-    "seconds": 16.445076080970466
+    "mean_k": 4.654999732971191,
+    "seconds": 32.36282851197757
   },
   {
     "dataset": "bimodal",
@@ -292,12 +328,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 2.3275535106658936,
-    "nll": 1.8473180532455444,
-    "crps": 0.9147590816296514,
+    "mse": 2.338620662689209,
+    "nll": 1.8551212549209595,
+    "crps": 0.9156821933617342,
     "nll_mixture": null,
-    "mean_k": 143165584.0,
-    "seconds": 46.291201333049685
+    "mean_k": 4.336538791656494,
+    "seconds": 86.96831632219255
   },
   {
     "dataset": "bimodal",
@@ -313,7 +349,7 @@
     "crps": 0.9203606505862835,
     "nll_mixture": null,
     "mean_k": null,
-    "seconds": 4.139462883002125
+    "seconds": 16.507429527118802
   },
   {
     "dataset": "bimodal",
@@ -323,7 +359,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 2.322733163833618,
+    "nll": 1.8412930965423584,
+    "crps": 0.920891430858516,
+    "nll_mixture": null,
+    "mean_k": null,
+    "seconds": 15.368047959869727
   },
   {
     "dataset": "bimodal",
@@ -333,7 +375,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 2.3187432289123535,
+    "nll": 1.8395366668701172,
+    "crps": 0.9163731190776986,
+    "nll_mixture": null,
+    "mean_k": 2.0,
+    "seconds": 43.781972117954865
   },
   {
     "dataset": "bimodal",
@@ -343,7 +391,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 2.346608877182007,
+    "nll": 1.850110411643982,
+    "crps": 0.9240301341837113,
+    "nll_mixture": null,
+    "mean_k": 4.222222328186035,
+    "seconds": 13.335244335001335
   },
   {
     "dataset": "bimodal",
@@ -353,7 +407,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 2.3383896350860596,
+    "nll": 1.8443377017974854,
+    "crps": 0.9149562900960926,
+    "nll_mixture": null,
+    "mean_k": 3.9715640544891357,
+    "seconds": 55.95875404495746
   },
   {
     "dataset": "bimodal",
@@ -363,7 +423,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 2.338696241378784,
+    "nll": 1.8453786373138428,
+    "crps": 0.9178912846267621,
+    "nll_mixture": null,
+    "mean_k": 4.459183692932129,
+    "seconds": 42.425691697979346
   },
   {
     "dataset": "bimodal",
@@ -373,7 +439,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 2.334930896759033,
+    "nll": 1.8448607921600342,
+    "crps": 0.912815716709556,
+    "nll_mixture": null,
+    "mean_k": 4.336538791656494,
+    "seconds": 79.30556579004042
   },
   {
     "dataset": "b1_gravitational",
@@ -384,12 +456,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 0.11901714652776718,
-    "nll": 0.06317982822656631,
-    "crps": 0.1804997964519246,
-    "nll_mixture": 0.4907386377668081,
+    "mse": 0.10468790680170059,
+    "nll": 0.10310898721218109,
+    "crps": 0.17264457522197316,
+    "nll_mixture": 0.26163780675472026,
     "mean_k": null,
-    "seconds": 9.182471431908198
+    "seconds": 48.76967587391846
   },
   {
     "dataset": "b1_gravitational",
@@ -405,7 +477,7 @@
     "crps": NaN,
     "nll_mixture": null,
     "mean_k": 2.0,
-    "seconds": 17.354403553996235
+    "seconds": 39.59021279704757
   },
   {
     "dataset": "b1_gravitational",
@@ -446,12 +518,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 0.29337480664253235,
-    "nll": 0.600906252861023,
-    "crps": 0.1918526074420874,
+    "mse": 0.21542663872241974,
+    "nll": 1.1290479898452759,
+    "crps": 0.23560572572299354,
     "nll_mixture": null,
-    "mean_k": 45335768.0,
-    "seconds": 34.55959207192063
+    "mean_k": 4.308755874633789,
+    "seconds": 236.0098006289918
   },
   {
     "dataset": "b1_gravitational",
@@ -462,12 +534,12 @@
     "beta": 0.5,
     "target_transform": "none",
     "opt_strategy": "regression_only",
-    "mse": 0.29337480664253235,
-    "nll": 0.600906252861023,
-    "crps": 0.1918526074420874,
+    "mse": 0.21542663872241974,
+    "nll": 1.1290479898452759,
+    "crps": 0.23560572572299354,
     "nll_mixture": null,
-    "mean_k": 45335768.0,
-    "seconds": 36.0760235079797
+    "mean_k": 4.308755874633789,
+    "seconds": 274.9895023170393
   },
   {
     "dataset": "b1_gravitational",
@@ -483,7 +555,7 @@
     "crps": 0.11642152236752978,
     "nll_mixture": null,
     "mean_k": null,
-    "seconds": 8.798514881986193
+    "seconds": 36.943631931208074
   },
   {
     "dataset": "b1_gravitational",
@@ -493,7 +565,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": NaN,
+    "nll": NaN,
+    "crps": NaN,
+    "nll_mixture": null,
+    "mean_k": 2.0,
+    "seconds": 14.220413769129664
   },
   {
     "dataset": "b1_gravitational",
@@ -503,7 +581,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 0.03741651028394699,
+    "nll": -0.87721186876297,
+    "crps": 0.07735828278708742,
+    "nll_mixture": null,
+    "mean_k": 2.2977778911590576,
+    "seconds": 85.10278837592341
   },
   {
     "dataset": "b1_gravitational",
@@ -513,7 +597,7 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "error": "element 0 of tensors does not require grad and does not have a grad_fn"
   },
   {
     "dataset": "b1_gravitational",
@@ -523,7 +607,7 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "error": "Expected parameter probs (Tensor of shape (32, 7)) of distribution Categorical(probs: torch.Size([32, 7])) to satisfy the constraint Simplex(), but found invalid values:\ntensor([[nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan],\n        [nan, nan, nan, nan, nan, nan, nan]], device='xpu:0',\n       grad_fn=<DivBackward0>)"
   },
   {
     "dataset": "b1_gravitational",
@@ -533,7 +617,13 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 0.19589249789714813,
+    "nll": 1.483763575553894,
+    "crps": 0.1383632689608524,
+    "nll_mixture": null,
+    "mean_k": 4.275700569152832,
+    "seconds": 61.37596913496964
   },
   {
     "dataset": "b1_gravitational",
@@ -543,6 +633,12 @@
     "loss": "nll",
     "beta": 0.5,
     "target_transform": "none",
-    "error": "The size of tensor a (7) must match the size of tensor b (32) at non-singleton dimension 1"
+    "opt_strategy": "regression_only",
+    "mse": 0.19589249789714813,
+    "nll": 1.483763575553894,
+    "crps": 0.1383632689608524,
+    "nll_mixture": null,
+    "mean_k": 4.275700569152832,
+    "seconds": 54.69173671700992
   }
 ]
