@@ -1,0 +1,101 @@
+{
+  "seed": 0,
+  "convergence": {
+    "converged": true,
+    "hit_cap": false,
+    "trustworthy": true,
+    "still_improving_at_stop": false,
+    "diverged": false,
+    "stop_epoch": 4000,
+    "best_val": 0.06746084478218109,
+    "best_epoch": 1500,
+    "recent_improvement": -0.008087997460097529,
+    "trajectory": [
+      [
+        250,
+        1.5841490387916566
+      ],
+      [
+        500,
+        0.23574460726231336
+      ],
+      [
+        750,
+        0.11824991549365223
+      ],
+      [
+        1000,
+        0.08585446330253035
+      ],
+      [
+        1250,
+        0.07423078168649226
+      ],
+      [
+        1500,
+        0.06746084478218109
+      ],
+      [
+        1750,
+        0.06916992201586254
+      ],
+      [
+        2000,
+        0.0696003386634402
+      ],
+      [
+        2250,
+        0.06999573447392322
+      ],
+      [
+        2500,
+        0.07043951226805803
+      ],
+      [
+        2750,
+        0.07111294915375765
+      ],
+      [
+        3000,
+        0.07179634254716802
+      ],
+      [
+        3250,
+        0.07277892303245607
+      ],
+      [
+        3500,
+        0.07375930660200539
+      ],
+      [
+        3750,
+        0.07466203633521218
+      ],
+      [
+        4000,
+        0.07554884224227862
+      ]
+    ]
+  },
+  "router_features": {
+    "input": "flattened raw one-hot word",
+    "in_dim": 40,
+    "word_len_x_n_gen": "10x4",
+    "n_route_columns": 5,
+    "label_source": "cheapest-within-tolerance over the held-out per-T error table (sw._cheapest_within_tolerance_labels); NO t*/stratum/length oracle",
+    "oracle_depth_labels_used": false
+  },
+  "deploy": {
+    "mse_hardpick": 0.02266666666666667,
+    "mean_executed_width": 8.0,
+    "mse_best_fixed": 0.04933333333333333,
+    "best_fixed_k": 10,
+    "se_paired": 0.00248642448141171,
+    "accuracy_preserved": true,
+    "compute_saved": true,
+    "deploy_pass": true,
+    "router_spearman": 1.0,
+    "router_spearman_pass": true,
+    "s3_pass": true
+  }
+}

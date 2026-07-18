@@ -1,0 +1,101 @@
+{
+  "seed": 1,
+  "convergence": {
+    "converged": true,
+    "hit_cap": false,
+    "trustworthy": true,
+    "still_improving_at_stop": false,
+    "diverged": false,
+    "stop_epoch": 4000,
+    "best_val": 0.11638513968791812,
+    "best_epoch": 1500,
+    "recent_improvement": -0.016927133663557484,
+    "trajectory": [
+      [
+        250,
+        1.7549764573574067
+      ],
+      [
+        500,
+        0.37987109627574683
+      ],
+      [
+        750,
+        0.15435381103307008
+      ],
+      [
+        1000,
+        0.1229675289709121
+      ],
+      [
+        1250,
+        0.11792656226316467
+      ],
+      [
+        1500,
+        0.11638513968791812
+      ],
+      [
+        1750,
+        0.11765247893636115
+      ],
+      [
+        2000,
+        0.11941044488921762
+      ],
+      [
+        2250,
+        0.12138611630070954
+      ],
+      [
+        2500,
+        0.1233133645990165
+      ],
+      [
+        2750,
+        0.12515904340252745
+      ],
+      [
+        3000,
+        0.12678548892436084
+      ],
+      [
+        3250,
+        0.12846645129320677
+      ],
+      [
+        3500,
+        0.1302120092572295
+      ],
+      [
+        3750,
+        0.13179649957164657
+      ],
+      [
+        4000,
+        0.1333122733514756
+      ]
+    ]
+  },
+  "router_features": {
+    "input": "flattened raw one-hot word",
+    "in_dim": 40,
+    "word_len_x_n_gen": "10x4",
+    "n_route_columns": 5,
+    "label_source": "cheapest-within-tolerance over the held-out per-T error table (sw._cheapest_within_tolerance_labels); NO t*/stratum/length oracle",
+    "oracle_depth_labels_used": false
+  },
+  "deploy": {
+    "mse_hardpick": 0.04488888888888889,
+    "mean_executed_width": 7.9911111111111115,
+    "mse_best_fixed": 0.07666666666666666,
+    "best_fixed_k": 10,
+    "se_paired": 0.0028200536395058488,
+    "accuracy_preserved": true,
+    "compute_saved": true,
+    "deploy_pass": true,
+    "router_spearman": 0.99333885189784,
+    "router_spearman_pass": true,
+    "s3_pass": true
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "seed": 1,
+  "max_depth": 4,
+  "floor": 0.0025000000000000005,
+  "fit_pass_multiple": 1.25,
+  "hungry_stall_multiple": 2.0,
+  "rows": [
+    {
+      "width": 3,
+      "depth1": {
+        "m_hard": 0.05647886544466019,
+        "ratio_hard": 22.59154617786407,
+        "m_easy": 0.0032206580508500338,
+        "ratio_easy": 1.2882632203400133,
+        "trustworthy": true
+      },
+      "depth4": {
+        "m_hard": 0.05102157220244408,
+        "ratio_hard": 20.408628880977627,
+        "m_easy": 0.002419131575152278,
+        "ratio_easy": 0.967652630060911,
+        "trustworthy": true
+      }
+    },
+    {
+      "width": 4,
+      "depth1": {
+        "m_hard": 0.004735132213681936,
+        "ratio_hard": 1.894052885472774,
+        "m_easy": 0.0027927951887249947,
+        "ratio_easy": 1.1171180754899976,
+        "trustworthy": true
+      },
+      "depth4": {
+        "m_hard": 0.0023356080055236816,
+        "ratio_hard": 0.9342432022094724,
+        "m_easy": 0.0024209250696003437,
+        "ratio_easy": 0.9683700278401373,
+        "trustworthy": true
+      }
+    },
+    {
+      "width": 5,
+      "depth1": {
+        "m_hard": 0.0028439827729016542,
+        "ratio_hard": 1.1375931091606615,
+        "m_easy": 0.0026666049379855394,
+        "ratio_easy": 1.0666419751942156,
+        "trustworthy": true
+      },
+      "depth4": {
+        "m_hard": 0.0023771775886416435,
+        "ratio_hard": 0.9508710354566572,
+        "m_easy": 0.00242251087911427,
+        "ratio_easy": 0.9690043516457079,
+        "trustworthy": true
+      }
+    },
+    {
+      "width": 6,
+      "depth1": {
+        "m_hard": 0.0024543674662709236,
+        "ratio_hard": 0.9817469865083692,
+        "m_easy": 0.002463730052113533,
+        "ratio_easy": 0.985492020845413,
+        "trustworthy": true
+      },
+      "depth4": {
+        "m_hard": 0.002318465616554022,
+        "ratio_hard": 0.9273862466216085,
+        "m_easy": 0.002446482190862298,
+        "ratio_easy": 0.978592876344919,
+        "trustworthy": true
+      }
+    },
+    {
+      "width": 8,
+      "depth1": {
+        "m_hard": 0.002357957884669304,
+        "ratio_hard": 0.9431831538677213,
+        "m_easy": 0.0025719173718243837,
+        "ratio_easy": 1.0287669487297533,
+        "trustworthy": true
+      },
+      "depth4": {
+        "m_hard": 0.002466853940859437,
+        "ratio_hard": 0.9867415763437746,
+        "m_easy": 0.002436222042888403,
+        "ratio_easy": 0.974488817155361,
+        "trustworthy": true
+      }
+    }
+  ],
+  "control": {
+    "width": 32,
+    "m_hard": 0.002483829390257597,
+    "ratio_hard": 0.9935317561030386,
+    "trustworthy": true
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "table": {
+    "n_classes": 60,
+    "n_gen": 4,
+    "rows": [
+      {
+        "t": 1,
+        "support": 4,
+        "identity_count": 0,
+        "bayes_acc": 0.25,
+        "tv_to_uniform": 0.9333333333333331
+      },
+      {
+        "t": 2,
+        "support": 10,
+        "identity_count": 4,
+        "bayes_acc": 0.25,
+        "tv_to_uniform": 0.8333333333333331
+      },
+      {
+        "t": 3,
+        "support": 22,
+        "identity_count": 6,
+        "bayes_acc": 0.140625,
+        "tv_to_uniform": 0.6437499999999998
+      },
+      {
+        "t": 4,
+        "support": 34,
+        "identity_count": 34,
+        "bayes_acc": 0.1328125,
+        "tv_to_uniform": 0.6083333333333332
+      },
+      {
+        "t": 5,
+        "support": 54,
+        "identity_count": 90,
+        "bayes_acc": 0.0966796875,
+        "tv_to_uniform": 0.5651041666666665
+      },
+      {
+        "t": 6,
+        "support": 60,
+        "identity_count": 366,
+        "bayes_acc": 0.08935546875,
+        "tv_to_uniform": 0.5260416666666665
+      },
+      {
+        "t": 7,
+        "support": 60,
+        "identity_count": 1190,
+        "bayes_acc": 0.07342529296875,
+        "tv_to_uniform": 0.4864908854166667
+      },
+      {
+        "t": 8,
+        "support": 60,
+        "identity_count": 4462,
+        "bayes_acc": 0.068084716796875,
+        "tv_to_uniform": 0.4484049479166667
+      },
+      {
+        "t": 9,
+        "support": 60,
+        "identity_count": 15726,
+        "bayes_acc": 0.05998992919921875,
+        "tv_to_uniform": 0.4120279947916667
+      },
+      {
+        "t": 10,
+        "support": 60,
+        "identity_count": 58198,
+        "bayes_acc": 0.05550193786621094,
+        "tv_to_uniform": 0.3778483072916667
+      }
+    ]
+  },
+  "s2_ceiling_a5": 0.35,
+  "ladder_check": {
+    "ladder": [
+      6,
+      8,
+      10
+    ],
+    "n_classes": 60,
+    "per_t": {
+      "6": {
+        "support": 60,
+        "full_coverage": true
+      },
+      "8": {
+        "support": 60,
+        "full_coverage": true
+      },
+      "10": {
+        "support": 60,
+        "full_coverage": true
+      }
+    },
+    "coverage_safe": true
+  }
+}
