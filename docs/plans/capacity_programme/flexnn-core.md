@@ -235,9 +235,12 @@ Structure (execution-level TOC): (1) The FlexNN idea — one network, per-input 
 (2) Width: the shared-readout break + certified per-width-heads result (G-WIDTH, verdict §10);
 (3) Depth: why smooth toys can't show depth (negative note), the group-composition result
 (G-DEPTH D5/D8b), the feedforward 2×2 pilot outcome (F5) — whichever way it lands;
-(4) Selection = distillation: the error-table router, incl. the honest ELBO-collapse refutation
-(M0) and why in-training selection lost; (5) MoE comparison (F6 numbers, symmetric
-where-wins table); (6) Open problems: G-JOINT three-family post-mortem (J-1/J-2 substrate,
+(4) Selection = distillation — THREE certified instances of the same law (in-training selection
+fails; held-out distillation works): width (W-strand), depth (D8), and **k (K6 — the SOFT
+responsibility-labelled router ≤ global-k on 9/9 audited cases; arbiter-not-knee readout, R2)**;
+incl. the honest ELBO-collapse refutation (M0) and the ProbReg linspace-prior precedent;
+cross-reference the F10 k-selection report rather than re-deriving; (5) MoE comparison (F6
+numbers, symmetric where-wins table); (6) Open problems: G-JOINT three-family post-mortem (J-1/J-2 substrate,
 group-order confound, R1 entanglement) stated as open, NOT as failure theater; (7) Roadmap:
 per-token/per-module capacity in transformers — our depth substrate is the Universal-Transformer
 shape (weight-tied looped layer + per-position halting, Dehghani et al. arXiv:1807.03819,
@@ -281,6 +284,35 @@ tiles, knee collapses; R2). Known boundary to state in docstrings: adaptive-mode
 **Non-goals:** no change to fixed-k behavior or report-(a) configs; no Basis-B work (separate
 open research item); no removal of existing selection strategies; no variational-EM harness
 port (research instrument, stays in examples).
+
+### Task F10: ProbReg k-selection report — the missing report (added 2026-07-18)
+
+**Files:**
+- Read FIRST: `automl_package/examples/capacity_ladder_results/RESULTS.md` (audited results of
+  record, incl. K4/K5/K6 + R1–R4 verdicts + independent review 2026-07-10),
+  `docs/probreg_kselection_findings.md` + `docs/kselection_variational_em_2026-06-13/` (June
+  Basis-A/variational-EM arc — historical context to absorb, not the results of record).
+- Create: `docs/reports/probreg_kselection/` (own folder; md + PDF per [[reference_pdf_build]])
+- Modify: move/supersede the loose `docs/probreg_kselection_findings.{md,pdf}` into the new
+  folder (no stray files in docs/ root)
+
+**Orchestration:** parallel: yes (pure writing; all numbers landed) · deps: none · tier:
+session-model draft + adjudicator cold-reads · scale: static · shape: execution · verify:
+`research-report` skill gates pass; every number traces to `capacity_ladder_results/` artifacts;
+byline = user, no AI provenance
+
+Gap this fills (verified 2026-07-18): report (a) covers ProbReg-vs-baselines ONLY — zero
+mentions of k-selection/arbiter/router. The July ladder programme (K4 nested-k prefix ladder =
+the k-dropout scheme; R2 arbiter-not-knee; K6 distilled per-input router 9/9) exists only as
+working verdicts + a June-era findings note that PREDATES the ladder certification. Structure:
+the k question (resolution dial, not component count); why prefix-masking an unordered mixture
+failed (R1); the nested-k construction; the arbiter readout; the distilled router result;
+honest negatives (toy E 2/3 seeds, V3 under-resolution ceiling); relation to the FlexNN
+selection law (pointer to F7). ProbReg is framed as a CLASSIFIER over k classes throughout
+([[feedback_explain_probreg_as_classifier]]).
+
+**Non-goals:** no new experiments; no Basis-B (open research, listed as future work); no
+package-API content (F9's docstrings own that).
 
 ### Task F8: transformer/coding-model roadmap amendment
 
@@ -374,7 +406,8 @@ and fast-decaying. R2/R3 design rounds happen at their own stages under the spec
   IT (width = hidden units, depth = layer count, demands drawn independently — a substrate that
   may dodge R1's one-word entanglement; needs its own confound analysis). Deciding before F5b
   would spend a design round without that information.
-- **Wave 2 (parallel):** F2 (width module) · F4 (convergence promote) · F5b (pilot build+run)
+- **Wave 2 (parallel):** F2 (width module) · F4 (convergence promote) · F5b (pilot build+run) ·
+  F10 (k-selection report; pure writing, disjoint)
 - **Wave 3:** F3 (router; touches both model files — after F1/F2 land)
 - **Wave 4 (parallel, disjoint writes):** F6 (battery; ~1–2 h CPU detached, ≤3–4 concurrent
   heavy per environment rules) · F9 (ProbReg dynamic-k port; touches only
