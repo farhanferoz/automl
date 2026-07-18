@@ -1,0 +1,10 @@
+# Shrink-only baseline: intentional FUTURE artifacts (Create targets not yet built).
+# The shrink-only gate fails once an entry lands or stops being cited -- remove it then.
+# NO typo may ever be parked here.
+automl_package/examples/moe_flexnn_comparison.py
+automl_package/models/flexible_width_network.py
+automl_package/models/common/distilled_router.py
+automl_package/utils/convergence.py
+tests/test_flexible_width_network.py
+tests/test_distilled_router.py
+docs/depth_capacity/ff_depth_toy_spec.md
