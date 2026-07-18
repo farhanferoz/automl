@@ -8,3 +8,5 @@ automl_package/utils/convergence.py
 tests/test_flexible_width_network.py
 tests/test_distilled_router.py
 docs/depth_capacity/ff_depth_toy_spec.md
+docs/roadmap_groundwork/python_instruction_datasets.md
+docs/roadmap_groundwork/dgx_spark_training_envelope.md

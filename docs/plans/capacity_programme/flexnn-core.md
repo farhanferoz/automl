@@ -152,11 +152,17 @@ relevant test files green; a deliberately-diverging fit (lr=10) yields `trustwor
 
 **Non-goals:** no gating inside HPO/CV loops (surface the flag only); no changes to other models.
 
-### Task F5: feedforward-depth pilot — spec, USER GO, build, run (2 seeds)
+### Task F5: feedforward-depth pilot — spec, ADJUDICATOR GO, build, run (2 seeds)
 
-**F5a — author the spec** (`docs/depth_capacity/ff_depth_toy_spec.md`), then **⛔ USER GO gate**
-([[feedback_toy_design_needs_reviewed_spec]]: written spec + adversarial review DELIVERED before
-any build; do not improvise mid-run).
+**F5a — author the spec** (`docs/depth_capacity/ff_depth_toy_spec.md`), then **⛔ ADJUDICATOR GO
+gate (user away — ratified 2026-07-18: no user questions mid-run).**
+[[feedback_toy_design_needs_reviewed_spec]] is satisfied unattended as follows: the written spec
++ adversarial review are still MANDATORY before any build; the GO call is made by an adjudicator
+(Opus/xhigh) instead of the user. Verdict SOUND, or SOUND-WITH-FIXES whose fixes are mechanical →
+fold fixes, log the verdict, BUILD. Verdict UNSOUND, or any fix that is a PI design decision →
+**PARK F5b** (do not improvise, do not redesign), log it under "Batched user questions", and
+carry on with every other unblocked task. Spec + review verdict are delivered for post-hoc user
+review either way.
 
 **Files (F5a):** Create: `docs/depth_capacity/ff_depth_toy_spec.md`
 **Orchestration (F5a):** parallel: yes · deps: none · tier: opus/high (design) + adversarial
@@ -229,7 +235,9 @@ HPO beyond the tuned-α clause.
 **Orchestration:** parallel: no · deps: F5b, F6, M0 (done) · tier: session-model draft +
 adjudicator cold-reads · scale: static · shape: execution · verify: `research-report` skill gates
 pass (self-contained, cold-readable, no code refs); every number traces to a ledger JSON; byline
-= user, zero AI provenance; supersession of reports (b)/(c) noted in `flexnn-moe.md`
+= user, zero AI provenance; supersession of reports (b)/(c) noted in `flexnn-moe.md`.
+**Contingency (unattended):** if F5b is PARKED or F6 partially fails, F7 still runs on the
+evidence that DID land — missing pieces become explicit "pending" statements, never blockers.
 
 Structure (execution-level TOC): (1) The FlexNN idea — one network, per-input capacity;
 (2) Width: the shared-readout break + certified per-width-heads result (G-WIDTH, verdict §10);
@@ -313,6 +321,32 @@ selection law (pointer to F7). ProbReg is framed as a CLASSIFIER over k classes 
 
 **Non-goals:** no new experiments; no Basis-B (open research, listed as future work); no
 package-API content (F9's docstrings own that).
+
+### Task F11: roadmap groundwork dossiers R5a + R5b (promoted from the roadmap; runs Wave 1)
+
+**Files:**
+- Create: `docs/roadmap_groundwork/python_instruction_datasets.md` (R5a) and
+  `docs/roadmap_groundwork/dgx_spark_training_envelope.md` (R5b) — own folder, two dossiers.
+
+**Orchestration:** parallel: yes (two independent task-workers, one per dossier) · deps: none ·
+tier: sonnet · scale: static · shape: research · verify: every factual claim carries a source
+URL fetched THIS run (WebSearch/WebFetch — no memory citations); unresolved items listed as
+OPEN, never asserted
+
+R5a brief: inventory public Python instruction-level coding datasets. Seed anchors (verified
+2026-07-18): CodeAlpaca-20k, Evol-CodeAlpaca-V1, Magicoder-OSS-Instruct-75K (arXiv:2312.02120),
+OpenCodeInstruct. Must resolve: license per dataset (The Stack v2 terms explicitly),
+size/token counts, generation provenance (human vs model-generated — flags for contamination),
+dedup practice, and a recommended Python-only corpus mix with total token estimate.
+R5b brief: DGX Spark training envelope. Verified base specs (2026-07-18): GB10, 128 GB unified
+LPDDR5X, ~1 PFLOP FP4, 31 TFLOPS FP32, 4 TB NVMe. Must resolve (sourced): BF16/FP8/NVFP4
+*training* (not inference) support and realistic sustained throughput, memory budget arithmetic
+for training (params+optimizer+activations) at candidate sizes {~125M, ~350M, ~1B}, scaling-law
+token budgets (cite the law used), wall-clock estimates, and a go/no-go read on "1B-class Python
+model trainable on one unit".
+
+**Non-goals:** no purchases/recommendations of specific vendors; no dataset downloads; no
+architecture content (R4's job).
 
 ### Task F8: transformer/coding-model roadmap amendment
 
@@ -399,13 +433,13 @@ and fast-decaying. R2/R3 design rounds happen at their own stages under the spec
 ## Dispatch waves (for the orchestration session)
 
 - **Wave 1 (parallel, disjoint writes):** F0 (MASTER) · F1 (flexnn fixes) · F5a (FF spec author →
-  review) · F8 (research_plan §5) · *optional, budget-permitting:* R5a/R5b research dossiers
-  (independent, read-only inputs, own output folders — `docs/roadmap_groundwork/`)
-- **⛔ USER GO:** F5 spec ONLY. **The G-JOINT Option 1/3 decision is DEFERRED to after F5b lands**
-  (ratified 2026-07-18): if the feedforward substrate passes, the joint toy may be rebuildable on
-  IT (width = hidden units, depth = layer count, demands drawn independently — a substrate that
-  may dodge R1's one-word entanglement; needs its own confound analysis). Deciding before F5b
-  would spend a design round without that information.
+  review) · F8 (research_plan §5) · F11 (R5a/R5b groundwork dossiers — NOT optional; user agreed
+  to run them early, 2026-07-18)
+- **⛔ ADJUDICATOR GO on F5 spec** (see F5a — user away; park F5b on UNSOUND/PI-fix, never ask).
+  **The G-JOINT Option 1/3 decision stays a USER decision and is NOT taken this run** — it blocks
+  no F-task (the report scopes G-JOINT as open regardless); batch it. Context for the eventual
+  decision: a passing feedforward substrate may host an entanglement-free joint toy (width =
+  hidden units, depth = layer count, independent draws — needs its own confound analysis).
 - **Wave 2 (parallel):** F2 (width module) · F4 (convergence promote) · F5b (pilot build+run) ·
   F10 (k-selection report; pure writing, disjoint)
 - **Wave 3:** F3 (router; touches both model files — after F1/F2 land)
@@ -414,10 +448,33 @@ and fast-decaying. R2/R3 design rounds happen at their own stages under the spec
   `probabilistic_regression.py` + its tests)
 - **Wave 5:** F7 (report; cold-read loop)
 
-Estimated orchestration cost: ~8 worker dispatches (sonnet) + 1 design + 1 adjudicator review +
-report cold-reads (opus-tier); CPU batteries ~2–3 h wall detached. Commits: everything remains
-user-gated; the end-of-run commit should now cover capacity programme + this strand's artifacts
-in one focused pass (carried decision, 2026-07-17 eve).
+Estimated orchestration cost: ~11 worker dispatches (mostly sonnet) + 1 design + adjudicator
+review/cold-reads (opus-tier) + 2 research dossiers; CPU batteries ~2–3 h wall detached.
+
+## Unattended-run contract (binding on the orchestrating session; ratified 2026-07-18)
+
+1. **No user questions, ever, mid-run.** Every gate in this plan is either mechanical (verify
+   command) or adjudicator-resolved (F5a GO). Anything that would genuinely need the user —
+   an UNSOUND F5 verdict, a PI-level design fork, an irreversible/outward-facing action — is
+   PARKED and logged under `RESUME.md` "### Batched user questions"; the run continues.
+2. **Never idle while any unblocked task remains.** After each wave (or any single task)
+   completes, immediately re-derive the unblocked set from `deps:` + disjoint write sets and
+   dispatch ALL of it concurrently. A parked task blocks only its own dependents. The run ends
+   only when every remaining task is blocked-by-park or done.
+3. **Drive to conclusion = verified on disk.** A task is done when its `verify:` line passes,
+   run by the orchestrator against disk — never on a worker's claim.
+4. **Result-vs-bar ambiguity → adjudicator, never improvisation.** Pre-registered bars are
+   evaluated mechanically; if a result is genuinely ambiguous against its bar, dispatch the
+   adjudicator for a verdict and log it. No bar is adjusted after its run (Decision 9).
+5. **Orchestrator tier: Sonnet/xhigh is SUFFICIENT** — the plan pins every judgment-heavy
+   subtask to the adjudicator/opus tier (F5a design + review, F7 cold-reads, rule 4 above); the
+   orchestrator's own job is dispatch + disk verification, which is execution-shaped. Route via
+   `executing-plans`/`subagent-driven-development` per MASTER; scale is static (11 tasks) — no
+   Workflow needed.
+6. **End-of-run (in order): focused commit pass is PRE-APPROVED** (authored as user, exclude
+   RESUME/CHANGELOG/memory/CLAUDE.md and any AI-instruction files) → `/checkpoint --final`
+   (with `--tidy` if end of day) → batched user questions listed at the top of RESUME. Stop all
+   agents before the boundary (enumerate-probe; commit before any kill).
 
 ## Done ledger
 
