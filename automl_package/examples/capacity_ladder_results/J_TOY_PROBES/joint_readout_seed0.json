@@ -1,0 +1,310 @@
+{
+  "seed": 0,
+  "width_mode": "readout",
+  "n_per_cell": 1000,
+  "convergence": {
+    "converged": true,
+    "hit_cap": false,
+    "trustworthy": true,
+    "still_improving_at_stop": false,
+    "diverged": false,
+    "stop_epoch": 10500,
+    "best_val": 0.46501868963241577,
+    "best_epoch": 8000,
+    "recent_improvement": -0.026758819818496704,
+    "trajectory": [
+      [
+        250,
+        2.4464964866638184
+      ],
+      [
+        500,
+        2.118211269378662
+      ],
+      [
+        750,
+        1.858811616897583
+      ],
+      [
+        1000,
+        1.6477330923080444
+      ],
+      [
+        1250,
+        1.4606232643127441
+      ],
+      [
+        1500,
+        1.2821481227874756
+      ],
+      [
+        1750,
+        1.1345040798187256
+      ],
+      [
+        2000,
+        1.0114455223083496
+      ],
+      [
+        2250,
+        0.9578593969345093
+      ],
+      [
+        2500,
+        0.907187283039093
+      ],
+      [
+        2750,
+        0.8078058958053589
+      ],
+      [
+        3000,
+        0.758676290512085
+      ],
+      [
+        3250,
+        0.7281286120414734
+      ],
+      [
+        3500,
+        0.6685922741889954
+      ],
+      [
+        3750,
+        0.626329243183136
+      ],
+      [
+        4000,
+        0.6059170961380005
+      ],
+      [
+        4250,
+        0.5952730178833008
+      ],
+      [
+        4500,
+        0.5740282535552979
+      ],
+      [
+        4750,
+        0.5475865006446838
+      ],
+      [
+        5000,
+        0.5249516367912292
+      ],
+      [
+        5250,
+        0.5184463262557983
+      ],
+      [
+        5500,
+        0.5109094381332397
+      ],
+      [
+        5750,
+        0.5066031217575073
+      ],
+      [
+        6000,
+        0.49708613753318787
+      ],
+      [
+        6250,
+        0.4953719973564148
+      ],
+      [
+        6500,
+        0.4883962571620941
+      ],
+      [
+        6750,
+        0.4847453236579895
+      ],
+      [
+        7000,
+        0.47996002435684204
+      ],
+      [
+        7250,
+        0.4721507132053375
+      ],
+      [
+        7500,
+        0.4681100845336914
+      ],
+      [
+        7750,
+        0.46597880125045776
+      ],
+      [
+        8000,
+        0.46501868963241577
+      ],
+      [
+        8250,
+        0.4678328037261963
+      ],
+      [
+        8500,
+        0.4672695994377136
+      ],
+      [
+        8750,
+        0.4701383709907532
+      ],
+      [
+        9000,
+        0.4713778495788574
+      ],
+      [
+        9250,
+        0.4729415476322174
+      ],
+      [
+        9500,
+        0.4724370539188385
+      ],
+      [
+        9750,
+        0.4864526391029358
+      ],
+      [
+        10000,
+        0.48289498686790466
+      ],
+      [
+        10250,
+        0.48334866762161255
+      ],
+      [
+        10500,
+        0.4917775094509125
+      ]
+    ]
+  },
+  "s1": {
+    "per_cell": {
+      "a=1,t=6": 0.788,
+      "a=1,t=8": 0.756,
+      "a=1,t=10": 0.746,
+      "a=2,t=6": 0.734,
+      "a=2,t=8": 0.667,
+      "a=2,t=10": 0.662,
+      "a=3,t=6": 0.692,
+      "a=3,t=8": 0.6446666666666667,
+      "a=3,t=10": 0.634,
+      "a=4,t=6": 0.6765,
+      "a=4,t=8": 0.6015,
+      "a=4,t=10": 0.5765
+    },
+    "s1_pass": false
+  },
+  "w_bar": {
+    "subpop_a": 4,
+    "n_subpop": 1500,
+    "acc_w_max": 0.168,
+    "acc_w_min": 0.06333333333333334,
+    "gap": 0.10466666666666667,
+    "gap_pass": false,
+    "width_spearman": 0.40782152176830005,
+    "width_spearman_pass": false,
+    "w_bar_pass": false
+  },
+  "d_bar": {
+    "per_stratum": {
+      "t=6": {
+        "acc_at_t_star": 0.8844,
+        "acc_at_full_t": 0.7038,
+        "knee_ratio": 1.2566069906223358,
+        "knee_pass": true,
+        "acc_at_t_star_minus_2": 0.0006,
+        "ceiling": 0.35,
+        "ceiling_pass": true
+      },
+      "t=8": {
+        "acc_at_t_star": 0.7492,
+        "acc_at_full_t": 0.643,
+        "knee_ratio": 1.1651632970451011,
+        "knee_pass": true,
+        "acc_at_t_star_minus_2": 0.003,
+        "ceiling": 0.35,
+        "ceiling_pass": true
+      },
+      "t=10": {
+        "acc_at_t_star": 0.6278,
+        "acc_at_full_t": 0.6278,
+        "knee_ratio": 1.0,
+        "knee_pass": true,
+        "acc_at_t_star_minus_2": 0.006,
+        "ceiling": 0.35,
+        "ceiling_pass": true
+      }
+    },
+    "knee_ceiling_pass": true,
+    "depth_spearman": 0.4439562056345943,
+    "depth_spearman_pass": false,
+    "d_bar_pass": false
+  },
+  "x_bar": {
+    "joint_deploy_pass": false,
+    "joint_mean_compute": 173.44533333333334,
+    "vs_width_only": {
+      "acc_no_worse_2se": true,
+      "compute_strictly_less": true,
+      "se_paired": 0.005620702621970966,
+      "marginal_mean_compute": 240.66666666666666,
+      "beats": true
+    },
+    "vs_depth_only": {
+      "acc_no_worse_2se": false,
+      "compute_strictly_less": true,
+      "se_paired": 0.005955533882723925,
+      "marginal_mean_compute": 489.04533333333336,
+      "beats": false
+    },
+    "beats_width_only": true,
+    "beats_depth_only": false,
+    "x_bar_pass": false
+  },
+  "width_only_deploy": {
+    "mse_hardpick": 0.6566666666666666,
+    "mean_executed_width": 24.066666666666666,
+    "mse_best_fixed": 0.576,
+    "best_fixed_k": 48,
+    "se_paired": 0.004719638473511927,
+    "accuracy_preserved": false,
+    "compute_saved": true,
+    "deploy_pass": false
+  },
+  "depth_only_deploy": {
+    "mse_hardpick": 0.507,
+    "mean_executed_width": 7.641333333333334,
+    "mse_best_fixed": 0.5763333333333334,
+    "best_fixed_k": 10,
+    "se_paired": 0.005221775690129239,
+    "accuracy_preserved": true,
+    "compute_saved": true,
+    "deploy_pass": true
+  },
+  "joint_deploy": {
+    "mse_hardpick": 0.6401666666666667,
+    "mean_executed_compute": 173.44533333333334,
+    "mse_best_fixed": 0.576,
+    "best_fixed_w": 48,
+    "best_fixed_t": 10,
+    "best_fixed_compute": 480,
+    "se_paired": 0.006192823441152217,
+    "accuracy_preserved": false,
+    "compute_saved": true,
+    "deploy_pass": false
+  },
+  "router_features": {
+    "input": "flattened raw one-hot (K_MAX tracks x N_SYMBOLS) per step, L steps",
+    "in_dim": 200,
+    "n_joint_columns": 20,
+    "label_source": "cheapest-within-tolerance over the held-out per-(w,T) error table (sw._cheapest_within_tolerance_labels); NO (A,T*) oracle",
+    "oracle_labels_used": false
+  },
+  "pilot_pass": false
+}

@@ -1,0 +1,123 @@
+{
+  "orthogonality": {
+    "n": 4000,
+    "pearson_a_vs_t": -0.027726485387246112,
+    "min_cell_count": 303,
+    "n_cells": 12,
+    "cells_all_populated": true
+  },
+  "class_balance": {
+    "t_star": 8,
+    "n": 3000,
+    "classes_hit": 60,
+    "min_count": 4,
+    "max_count": 123,
+    "mean": 50.0
+  },
+  "joint_bayes_ceiling": {
+    "t*=6,readT=2": {
+      "g": 4,
+      "per_track_bayes": 0.1328,
+      "joint_a1": 0.1328,
+      "joint_a4": 0.0003
+    },
+    "t*=6,readT=4": {
+      "g": 2,
+      "per_track_bayes": 0.25,
+      "joint_a1": 0.25,
+      "joint_a4": 0.0039
+    },
+    "t*=6,readT=6": {
+      "g": 0,
+      "per_track_bayes": 1.0,
+      "joint_a1": 1.0,
+      "joint_a4": 1.0
+    },
+    "t*=6,readT=8": {
+      "g": 0,
+      "per_track_bayes": 1.0,
+      "joint_a1": 1.0,
+      "joint_a4": 1.0
+    },
+    "t*=6,readT=10": {
+      "g": 0,
+      "per_track_bayes": 1.0,
+      "joint_a1": 1.0,
+      "joint_a4": 1.0
+    },
+    "t*=8,readT=2": {
+      "g": 6,
+      "per_track_bayes": 0.0894,
+      "joint_a1": 0.0894,
+      "joint_a4": 0.0001
+    },
+    "t*=8,readT=4": {
+      "g": 4,
+      "per_track_bayes": 0.1328,
+      "joint_a1": 0.1328,
+      "joint_a4": 0.0003
+    },
+    "t*=8,readT=6": {
+      "g": 2,
+      "per_track_bayes": 0.25,
+      "joint_a1": 0.25,
+      "joint_a4": 0.0039
+    },
+    "t*=8,readT=8": {
+      "g": 0,
+      "per_track_bayes": 1.0,
+      "joint_a1": 1.0,
+      "joint_a4": 1.0
+    },
+    "t*=8,readT=10": {
+      "g": 0,
+      "per_track_bayes": 1.0,
+      "joint_a1": 1.0,
+      "joint_a4": 1.0
+    },
+    "t*=10,readT=2": {
+      "g": 8,
+      "per_track_bayes": 0.0681,
+      "joint_a1": 0.0681,
+      "joint_a4": 0.0
+    },
+    "t*=10,readT=4": {
+      "g": 6,
+      "per_track_bayes": 0.0894,
+      "joint_a1": 0.0894,
+      "joint_a4": 0.0001
+    },
+    "t*=10,readT=6": {
+      "g": 4,
+      "per_track_bayes": 0.1328,
+      "joint_a1": 0.1328,
+      "joint_a4": 0.0003
+    },
+    "t*=10,readT=8": {
+      "g": 2,
+      "per_track_bayes": 0.25,
+      "joint_a1": 0.25,
+      "joint_a4": 0.0039
+    },
+    "t*=10,readT=10": {
+      "g": 0,
+      "per_track_bayes": 1.0,
+      "joint_a1": 1.0,
+      "joint_a4": 1.0
+    }
+  },
+  "width_info_floor": {
+    "1": {
+      "bits_needed": 5.91
+    },
+    "2": {
+      "bits_needed": 11.81
+    },
+    "3": {
+      "bits_needed": 17.72
+    },
+    "4": {
+      "bits_needed": 23.63
+    }
+  }
+}
