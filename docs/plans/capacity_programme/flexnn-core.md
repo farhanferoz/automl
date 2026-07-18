@@ -249,6 +249,39 @@ small Python-code LM (staged, see F8).
 **Non-goals:** no new experiments (ledger numbers only); no UCI/real data; no claims past the
 toys tested (boundary stated explicitly); no G-JOINT verdict (it is open).
 
+### Task F9: ProbReg dynamic-k port — the SAME refactor FlexNN is getting (added 2026-07-18)
+
+**Files:**
+- Read FIRST: `automl_package/examples/_capacity_ladder_nested.py` (K4 nested-k surrogate — the
+  VALID prefix ladder, trained per-sample `k ~ Uniform{1..k_max}` = the user's k-dropout scheme,
+  strictly probabilistic, no penalties), `automl_package/examples/capacity_ladder_k6.py` (K6
+  distilled router π(x): SOFT responsibility-labelled router ≤ global-k on 9/9 audited cases),
+  `automl_package/examples/capacity_ladder_results/{R2_verdict.md,RESULTS.md}` (arbiter — not
+  knee — is the faithful per-input readout; toy E = honest negative 2/3 seeds),
+  `automl_package/models/probabilistic_regression.py` (current in-training dynamic-k).
+- Modify: `automl_package/models/probabilistic_regression.py`
+- Test: extend the relevant ProbReg test file (locate via `tests/test_phase3_dynamic_k.py` first)
+
+**Orchestration:** parallel: yes (disjoint from F6) · deps: F3 · tier: sonnet · scale: static ·
+shape: execution · verify: relevant ProbReg tests green; a synthetic 2-regime case shows the
+distilled-k routed model ≥ the best global fixed k on held-out NLL (the K6 result, reproduced
+through the package API); ruff clean
+
+Spec: (1) add a **nested-k training mode** to the package model implementing the K4 scheme
+(per-sample uniform k over the renormalized first-k prefix; component 1 = bypass rung; no k
+input to the network) — lift semantics from `_capacity_ladder_nested.py`, cite it; (2) wire
+**per-input k at inference via `DistilledCapacityRouter`** (F3) with K6's SOFT
+(responsibility-style) labels as the labeling rule — k is just another capacity axis on the
+same API; (3) demote the in-training `NClassesSelectionMethod`/ELBO selection to labeled
+comparison arms in docs (they remain functional; the distilled path is the recommended one);
+(4) expose the held-out arbiter read as a diagnostic utility (the certified readout — eff-count
+tiles, knee collapses; R2). Known boundary to state in docstrings: adaptive-mode drift cases
+(toy-E-like) are NOT certified — 2/3 seeds negative.
+
+**Non-goals:** no change to fixed-k behavior or report-(a) configs; no Basis-B work (separate
+open research item); no removal of existing selection strategies; no variational-EM harness
+port (research instrument, stays in examples).
+
 ### Task F8: transformer/coding-model roadmap amendment
 
 **Files:**
@@ -343,7 +376,9 @@ and fast-decaying. R2/R3 design rounds happen at their own stages under the spec
   would spend a design round without that information.
 - **Wave 2 (parallel):** F2 (width module) · F4 (convergence promote) · F5b (pilot build+run)
 - **Wave 3:** F3 (router; touches both model files — after F1/F2 land)
-- **Wave 4:** F6 (battery; ~1–2 h CPU detached, ≤3–4 concurrent heavy per environment rules)
+- **Wave 4 (parallel, disjoint writes):** F6 (battery; ~1–2 h CPU detached, ≤3–4 concurrent
+  heavy per environment rules) · F9 (ProbReg dynamic-k port; touches only
+  `probabilistic_regression.py` + its tests)
 - **Wave 5:** F7 (report; cold-read loop)
 
 Estimated orchestration cost: ~8 worker dispatches (sonnet) + 1 design + 1 adjudicator review +
