@@ -1,0 +1,44 @@
+{
+  "grad_check": {
+    "n_predictor_grad_norm": 7.434901595115662,
+    "n_params_with_nonnull_grad": 4,
+    "n_params_total": 4,
+    "passed": true
+  },
+  "n_configs": 2,
+  "n_seeds": 5,
+  "by_config": {
+    "elbo": {
+      "n_seeds": 5,
+      "n_trustworthy": 5,
+      "n_hit_cap": 0,
+      "mean_test_mse": 0.2245548725128174,
+      "mean_spearman_depth_vs_regime": NaN,
+      "mean_selected_depth_linear_regime": 1.0,
+      "mean_selected_depth_sin_regime": 1.0,
+      "seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    "none": {
+      "n_seeds": 5,
+      "n_trustworthy": 5,
+      "n_hit_cap": 0,
+      "mean_test_mse": 0.24872907996177673,
+      "mean_spearman_depth_vs_regime": 0.4081156232194165,
+      "mean_selected_depth_linear_regime": 1.621311475409836,
+      "mean_selected_depth_sin_regime": 2.118520645400942,
+      "seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    }
+  }
+}

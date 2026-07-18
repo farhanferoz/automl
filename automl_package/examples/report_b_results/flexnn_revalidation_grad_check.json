@@ -1,0 +1,6 @@
+{
+  "n_predictor_grad_norm": 7.434901595115662,
+  "n_params_with_nonnull_grad": 4,
+  "n_params_total": 4,
+  "passed": true
+}
