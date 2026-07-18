@@ -70,6 +70,17 @@ _CONSISTENCY_TOL = 1e-5
 
 HETERO_NOISE_SIGMA = 0.05
 HETERO_R_DEFAULT = 4.0 * math.pi
+HETERO3_NOISY_SIGMA = 0.5  # WP-3 noisy-easy region: 10x the quiet-region sigma (docs/plans/width_mse_2026-07-16 §WP-3).
+
+
+class Toy(enum.Enum):
+    """Which synthetic generator a run uses (`--toy`; closed set, width-MSE program WP-3/WP-4).
+
+    `docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §WP-3, §WP-4.
+    """
+
+    HETERO = "hetero"  # 2-region easy-linear + hard-sine (`make_hetero`); WP-2/WP-4 ladder toy.
+    HETERO3 = "hetero3"  # 3-region: adds a NOISY-easy tail (`make_hetero3`); WP-3 discriminating control.
 
 
 class WidthSchedule(enum.Enum):
@@ -80,6 +91,7 @@ class WidthSchedule(enum.Enum):
 
     NESTED = "nested"  # W1: per-example uniform width draw each epoch (default; sinc keeps using this).
     SANDWICH = "sandwich"  # W2 fix: every step ALWAYS trains width=1 and width=w_max (+2 random mid).
+    UNIFORM = "uniform"  # W5 ablation: draw N widths uniformly per step, NO always-include-{1, w_max} guarantee.
 
 
 class NestedWidthNet(nn.Module):
@@ -207,13 +219,141 @@ class IndependentWidthNet(nn.Module):
         return torch.cat(means, dim=1), torch.cat(logvars, dim=1)
 
 
+class SharedTrunkPerWidthHeadNet(nn.Module):
+    """Width-MSE program's Contingency C: `NestedWidthNet` with ONE change -- per-width mean heads.
+
+    Same shared `Linear(1 -> w_max)` trunk and the SAME prefix-masking mechanism as
+    `NestedWidthNet.forward_width` (`h[:, k:] = 0` before the readout), but width `k` reads its OWN
+    `mean_head_k = Linear(w_max -> 1)` instead of the one `mean_head` shared across every width. This
+    isolates the readout-sharing variable ALONE -- mirroring how `IndependentWidthNet` above isolates
+    trunk sharing by breaking everything at once -- so a WP-2 comparison against `NestedWidthNet`
+    (shared trunk AND shared readout) and `IndependentWidthNet` (neither shared) attributes a pass/fail
+    here to the shared READOUT specifically, not to a confound from also changing the readout's
+    parameterization (a genuine Matryoshka-style dedicated `Linear(k -> 1)` head per width, as in
+    `matryoshka_width_net.MatryoshkaWidthNet`, changes both the sharing AND the parameter count per
+    width; kept out of this class on purpose so exactly one variable moves;
+    `docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` WP-2 Contingency C: "the middle rung").
+
+    MSE-only (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §0: no variance fitting anywhere) --
+    `forward_width`/`all_widths_forward` return a `log_var` of zeros to match the `(mean, log_var)`
+    interface every caller expects, but it is never read by `_width_mse` and carries no gradient.
+    """
+
+    def __init__(self, w_max: int = W_MAX_DEFAULT, activation: type[nn.Module] = nn.Tanh) -> None:
+        """Builds the shared trunk plus `w_max` independent `Linear(w_max -> 1)` mean heads.
+
+        Args:
+            w_max: maximum hidden width (the largest prefix the net can express).
+            activation: hidden-layer nonlinearity class (instantiated with no args); tanh per the
+                plan's fixed hyperparameter (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §5).
+        """
+        super().__init__()
+        self.w_max = int(w_max)
+        self.trunk = nn.Linear(1, self.w_max)
+        self.activation = activation()
+        self.mean_heads = nn.ModuleList(nn.Linear(self.w_max, 1) for _ in range(self.w_max))
+
+    def hidden(self, x: torch.Tensor) -> torch.Tensor:
+        """`(N, 1) -> (N, w_max)` post-activation hidden representation (identical to `NestedWidthNet.hidden`)."""
+        return self.activation(self.trunk(x))
+
+    def forward_width(self, x: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """`(mean, log_var)` at one FIXED width `k` (1..w_max) via width-k's OWN mean head, each `(N, 1)`.
+
+        Prefix-masks `h[:, k:] = 0` before the readout -- the same masking `NestedWidthNet.forward_width`
+        uses -- then reads `mean_head_k` off the masked hidden vector. `log_var` is a dummy zero tensor
+        (MSE-only; never in this loss's autograd graph, see class docstring).
+        """
+        if not (1 <= k <= self.w_max):
+            raise ValueError(f"k={k} out of range [1, {self.w_max}]")
+        h = self.hidden(x)
+        mask = torch.zeros_like(h)
+        mask[:, :k] = 1.0
+        h_masked = h * mask
+        mean = self.mean_heads[k - 1](h_masked)
+        return mean, torch.zeros_like(mean)
+
+    def all_widths_forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """`(mean, log_var)` at every width `k=1..w_max`, each shape `(N, w_max)`; column k-1 is width-k's own head.
+
+        No cumsum trick (unlike `NestedWidthNet`) -- each width's head is an independent parameter set,
+        not a linear function of a shared readout -- so this is `w_max` masked-`Linear(w_max -> 1)`
+        matmuls, one per width (same loop shape as `IndependentWidthNet.all_widths_forward`).
+        """
+        means, logvars = [], []
+        for k in range(1, self.w_max + 1):
+            mean_k, logvar_k = self.forward_width(x, k)
+            means.append(mean_k)
+            logvars.append(logvar_k)
+        return torch.cat(means, dim=1), torch.cat(logvars, dim=1)
+
+
+class SharedReadoutPerWidthAffineNet(nn.Module):
+    """Minimum-seam arm: NestedWidthNet's SHARED readout plus a 2-parameter per-width affine.
+
+    Width k's prediction is `a_k * mean_head(h_masked) + c_k` with the ONE shared `mean_head`
+    of `NestedWidthNet` and per-width scalars `a_k` (init 1) / `c_k` (init 0) — 2 params per
+    width vs w_max+1 for `SharedTrunkPerWidthHeadNet`. Pins WHERE between 0 and w_max+1
+    per-width parameters the readout interference (width-MSE verdict §3) is resolved.
+    MSE-only: `log_var` is a dummy zero tensor (never in the loss graph).
+    """
+
+    def __init__(self, w_max: int = W_MAX_DEFAULT, activation: type[nn.Module] = nn.Tanh) -> None:
+        """Builds the shared trunk, ONE shared mean head, and the per-width affine scalars."""
+        super().__init__()
+        self.w_max = int(w_max)
+        self.trunk = nn.Linear(1, self.w_max)
+        self.activation = activation()
+        self.mean_head = nn.Linear(self.w_max, 1)
+        self.affine_scale = nn.Parameter(torch.ones(self.w_max))
+        self.affine_bias = nn.Parameter(torch.zeros(self.w_max))
+
+    def hidden(self, x: torch.Tensor) -> torch.Tensor:
+        """`(N, 1) -> (N, w_max)` post-activation hidden representation (as `NestedWidthNet.hidden`)."""
+        return self.activation(self.trunk(x))
+
+    def forward_width(self, x: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """`(mean, log_var)` at width k: shared readout of the masked hidden, then width-k's affine."""
+        if not (1 <= k <= self.w_max):
+            raise ValueError(f"k={k} out of range [1, {self.w_max}]")
+        h = self.hidden(x)
+        mask = torch.zeros_like(h)
+        mask[:, :k] = 1.0
+        mean = self.affine_scale[k - 1] * self.mean_head(h * mask) + self.affine_bias[k - 1]
+        return mean, torch.zeros_like(mean)
+
+    def all_widths_forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """`(mean, log_var)` at every width, each `(N, w_max)`; cumsum trick + per-width affine.
+
+        The shared readout is linear, so the masked-prefix table is the same cumsum as
+        `NestedWidthNet.all_widths_forward`; the affine then applies column-wise.
+        """
+        h = self.hidden(x)
+        contrib = h * self.mean_head.weight.squeeze(0)
+        mean_all = torch.cumsum(contrib, dim=1) + self.mean_head.bias
+        mean_all = mean_all * self.affine_scale + self.affine_bias
+        return mean_all, torch.zeros_like(mean_all)
+
+
 def gaussian_log_likelihood(mean: torch.Tensor, log_var: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     """Per-example Gaussian log-likelihood — same formula as `capacity_ladder_f2._fixed_depth_log_likelihood`."""
     variance = torch.exp(log_var)
     return -0.5 * (math.log(2.0 * math.pi) + log_var + (y - mean) ** 2 / variance)
 
 
-def make_hetero(n: int, seed: int, r: float = HETERO_R_DEFAULT) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _width_mse(net: NestedWidthNet | IndependentWidthNet | SharedTrunkPerWidthHeadNet, k: int, x_t: torch.Tensor, y_t: torch.Tensor) -> torch.Tensor:
+    """Mean squared error of width-k's MEAN readout only (width-MSE program's `--loss mse`).
+
+    Architecture-agnostic — both `NestedWidthNet` and `IndependentWidthNet` expose `forward_width` —
+    the MSE twin of `converged_width_experiment._width_nll`, which trains widths via Gaussian NLL.
+    `logvar_head` is not read here, so it is never in this loss's autograd graph and stays untouched
+    (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §0: no variance fitting anywhere).
+    """
+    mean, _log_var = net.forward_width(x_t, k)
+    return ((mean.squeeze(1) - y_t) ** 2).mean()
+
+
+def make_hetero(n: int, seed: int, r: float = HETERO_R_DEFAULT, sigma: float = HETERO_NOISE_SIGMA) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """W2 heterogeneous toy: a flat-easy line spliced to a width-hungry-but-learnable sine (§6 W2 toy).
 
     `x ~ Uniform(-r, r)`. Easy region (`x < 0`): `y = (0.5/r) * x` (a straight line — width-flat,
@@ -222,7 +362,7 @@ def make_hetero(n: int, seed: int, r: float = HETERO_R_DEFAULT) -> tuple[np.ndar
     frequency ~1, which a small net can learn — unlike a packed `sin(2*pi*P*x)` on `[0,1]`, which
     is UNLEARNABLE by a small net, the same spectral-bias wall as the tent map, confirmed in
     `scratchpad/hetero_toy_probe.py` for P=2,3,4). Both branches are 0 at `x=0`, so `y`'s noise-free
-    signal is continuous there. Gaussian noise, `sigma=HETERO_NOISE_SIGMA`, is added to `y`. Probed
+    signal is continuous there. Gaussian noise, std `sigma`, is added to `y`. Probed
     learnable with a clean per-region width gradient in `scratchpad/hetero_toy_probe_v2.py` (easy
     flat ~1.2-2x the noise floor at every width; hard 52x(w=1) -> 1.3x(w=10)).
 
@@ -230,6 +370,10 @@ def make_hetero(n: int, seed: int, r: float = HETERO_R_DEFAULT) -> tuple[np.ndar
         n: number of points.
         seed: RNG seed (`np.random.default_rng`).
         r: domain half-width; `x ~ Uniform(-r, r)` (default `4*pi`, per the plan's W2 toy spec).
+        sigma: Gaussian noise std, COMMON-MODE across both regions (default `HETERO_NOISE_SIGMA=0.05`).
+            The width-MSE program's WP-4 data-size x noise ladder sweeps this on BOTH regions
+            uniformly, so the analytic per-region noise floor stays `sigma**2` and the fit-bar formula
+            (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §5) remains computable.
 
     Returns:
         `(x, y, region)`, each shape `(n,)`, `x`/`y` float32. `region` is an int array: `0` = easy
@@ -241,9 +385,51 @@ def make_hetero(n: int, seed: int, r: float = HETERO_R_DEFAULT) -> tuple[np.ndar
     rng = np.random.default_rng(seed)
     x = rng.uniform(-r, r, n)
     y_signal = np.where(x < 0, (0.5 / r) * x, 0.5 * np.sin(x))
-    y = (y_signal + rng.normal(0.0, HETERO_NOISE_SIGMA, n)).astype(np.float32)
+    y = (y_signal + rng.normal(0.0, sigma, n)).astype(np.float32)
     region = (x >= 0).astype(int)
     return x.astype(np.float32), y, region
+
+
+def make_hetero3(n: int, seed: int, r: float = HETERO_R_DEFAULT) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """WP-3 discriminating control: `make_hetero` plus a third NOISY-easy region (the negative control).
+
+    `x ~ Uniform(-r, 2r)` — three equal-length regions of width `r` (default `4*pi`), so per-region
+    density matches the 2-region toy when `n` is scaled by 3/2:
+
+      - region `0` (easy-linear, `x in [-r, 0)`): `y = (0.5/r) * x`, noise std `HETERO_NOISE_SIGMA=0.05`.
+      - region `1` (hard-sine, `x in [0, r)`): `y = 0.5 * sin(x)`, noise std `HETERO_NOISE_SIGMA=0.05`.
+      - region `2` (NOISY-easy-linear, `x in [r, 2r)`): `y = (0.5/r) * (x - r)`, noise std
+        `HETERO3_NOISY_SIGMA=0.5` (10x the quiet regions).
+
+    The noise-free signal is continuous at both seams: at `x=0` easy and hard both give `0`; at `x=r`
+    the hard sine gives `0.5*sin(r)=0.5*sin(4*pi)=0` and the noisy-easy line starts at `(0.5/r)*0=0`.
+
+    THE POINT (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §WP-3): noise is COMMON-MODE across
+    widths at a fixed input, so no width fits it down — the noisy-easy per-width MSE curve is FLAT at a
+    high level (`~HETERO3_NOISY_SIGMA**2`), and the honest capacity verdict there is "stay NARROW". A
+    dial that keys on capacity-hunger reads this correctly; a dial that keys on raw error magnitude
+    over-feeds it. This is the width edition of the k-selection program's smooth-negative-control.
+
+    Args:
+        n: number of points (scale by 3/2 vs the 2-region toy to keep per-region density equal).
+        seed: RNG seed (`np.random.default_rng`).
+        r: per-region width; domain is `[-r, 2r)` (default `4*pi`).
+
+    Returns:
+        `(x, y, region)`, each shape `(n,)`, `x`/`y` float32; `region` int in `{0, 1, 2}`. Same NON-
+        standardized-`x` contract as `make_hetero` (callers standardize on TRAIN stats).
+    """
+    rng = np.random.default_rng(seed)
+    x = rng.uniform(-r, 2.0 * r, n)
+    region = np.select([x < 0.0, x < r], [0, 1], default=2)
+    y_signal = np.select(
+        [region == 0, region == 1],
+        [(0.5 / r) * x, 0.5 * np.sin(x)],
+        default=(0.5 / r) * (x - r),
+    )
+    noise_sigma = np.where(x >= r, HETERO3_NOISY_SIGMA, HETERO_NOISE_SIGMA)  # region 2 <=> x >= r
+    y = (y_signal + rng.normal(0.0, 1.0, n) * noise_sigma).astype(np.float32)
+    return x.astype(np.float32), y, region.astype(int)
 
 
 def train_nested_width(

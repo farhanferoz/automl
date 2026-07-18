@@ -86,6 +86,7 @@ NOISE_FLOOR_GAP_NAT = 0.5 * math.log(NOISE_FLOOR_MULTIPLE)  # LL gap equivalent 
 DEPLOY_ORACLE_TOL_NAT = 0.02
 _BOOT_N = 1000
 _BOOT_SEED = 0
+_SINC_ZERO_TOL = 1e-9  # |x| below this is treated as x==0 for sinc(x)'s removable singularity
 
 
 @dataclass
@@ -107,7 +108,7 @@ class RunConfig:
 
 def ramped_sinc(x: np.ndarray) -> np.ndarray:
     """`sinc(x) + 0.04*x` — the ramped-sinc target function, `x` in `[-5*pi, 5*pi]`."""
-    s = np.where(np.abs(x) < 1e-9, 1.0, np.sin(x) / np.where(x == 0, 1.0, x))
+    s = np.where(np.abs(x) < _SINC_ZERO_TOL, 1.0, np.sin(x) / np.where(x == 0, 1.0, x))
     return s + 0.04 * x
 
 
@@ -313,6 +314,245 @@ def _deploy_bar(selector_nll: float, per_k_nll: dict[int, float], oracle_nll: fl
         "gap_to_oracle_nat": gap_to_oracle,
         "within_oracle_bar": within_oracle,
         "deploy_pass": bool(matches_or_beats_global and within_oracle),
+    }
+
+
+# ---------------------------------------------------------------------------
+# MSE-only bars + selector (width-MSE program, docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md §5)
+# — a second set of readouts for `--loss mse` runs, parallel to the LL-based CONSTRUCTION/RECOVERY/
+# DEPLOY bars above (those functions are UNCHANGED). `_recovery_bar` above IS reused verbatim for the
+# MSE dial bar below — its "difference between two groups' means, > 2*SE" check is metric-agnostic,
+# so no new function is needed for that one (search-before-write: it already does the job).
+# ---------------------------------------------------------------------------
+
+FIT_BAR_PASS_MULTIPLE = 1.25  # M_hard(w_max) <= 1.25 * floor_hard -> pass (§5 bar 1)
+FIT_BAR_STRONG_MULTIPLE = 1.10  # ... <= 1.10 * floor_hard -> strong pass
+CURVE_GATE_HARD_DROP_MULTIPLE = 0.5  # M_hard(k_mid) <= 0.5 * M_hard(1) (§5 bar 2)
+CURVE_GATE_HARD_PLATEAU_MULTIPLE = 1.2  # M_hard(w_max) <= 1.2 * min_k M_hard(k)
+CURVE_GATE_EASY_FLAT_MULTIPLE = 1.3  # M_easy(k_easy_lo) <= 1.3 * M_easy(w_max)
+DELTA_TIE = 0.25  # cheapest-within-tolerance selector-target tolerance (§5 selector targets)
+NOISY_EASY_STAY_NARROW_SLACK = 1.0  # width(noisy-easy) <= width(easy) + this -> "stays narrow" (§5 bar 4, WP-3)
+# Region labels (make_hetero / make_hetero3): closed set, NAMED so §5.4's noisy-easy read is not a bare magic 2.
+REGION_EASY, REGION_HARD, REGION_NOISY_EASY = 0, 1, 2
+
+
+def _score_all_widths_mse(net: nwn.NestedWidthNet | nwn.IndependentWidthNet, norm: dict, x: np.ndarray, y: np.ndarray, device: str) -> np.ndarray:
+    """`(N, w_max)` held-out squared-error table, ORIGINAL y-units, at every width in one pass.
+
+    MSE twin of `_score_all_widths`: reads only the MEAN readout — `logvar_head` is untouched/unused
+    under `--loss mse` (the plan's charter: no variance anywhere in this program).
+    """
+    x_n = (x - norm["mx"]) / norm["sx"]
+    x_t = torch.as_tensor(x_n, dtype=torch.float32, device=device).reshape(-1, 1)
+    net.eval()
+    with torch.no_grad():
+        mean_n, _logvar_n = net.all_widths_forward(x_t)  # (N, w_max), normalized-y space
+    mean_orig = mean_n * norm["sy"] + norm["my"]
+    y_t = torch.as_tensor(y, dtype=torch.float32, device=device).reshape(-1, 1)
+    err2 = (y_t - mean_orig) ** 2  # broadcasts y_t over the w_max columns
+    return err2.cpu().numpy().astype(np.float64)
+
+
+def _region_mse(err2_by_width: dict[int, np.ndarray], mask: np.ndarray, k: int) -> float:
+    """`M_region(k)` (§5 notation): mean squared error at width `k`, restricted to `mask`."""
+    return float(err2_by_width[k][mask].mean())
+
+
+def _fit_bar_mse(err2_by_width: dict[int, np.ndarray], region_labels: np.ndarray, w_max: int, floor_hard: float) -> dict:
+    """§5 bar 1 — FIT: hard-region MSE at `w_max` vs the analytic noise floor `floor_hard = sigma_hard**2`."""
+    mask_hard = region_labels == 1
+    m_hard_wmax = _region_mse(err2_by_width, mask_hard, w_max)
+    ratio = m_hard_wmax / floor_hard
+    return {
+        "m_hard_wmax": m_hard_wmax,
+        "floor_hard": floor_hard,
+        "ratio_to_floor": ratio,
+        "pass": bool(ratio <= FIT_BAR_PASS_MULTIPLE),
+        "strong_pass": bool(ratio <= FIT_BAR_STRONG_MULTIPLE),
+    }
+
+
+def _curve_shape_gate_mse(err2_by_width: dict[int, np.ndarray], region_labels: np.ndarray, w_max: int) -> dict:
+    """§5 bar 2 — per-seed CURVE-SHAPE gate, read BEFORE the dial bar. Fail -> quarantine the seed.
+
+    Generalizes the plan's literal w_max=12 read points to any `w_max`, the same convention
+    `_construction_bar` already uses for its `k_mid`: `k_mid = max(2, w_max // 2)` (== 6 at
+    w_max=12); `k_easy_lo = min(2, w_max)` (== 2 at w_max=12).
+    """
+    mask_hard = region_labels == 1
+    mask_easy = region_labels == 0
+    k_mid = max(2, w_max // 2)
+    k_easy_lo = min(2, w_max)
+
+    m_hard_1 = _region_mse(err2_by_width, mask_hard, 1)
+    m_hard_mid = _region_mse(err2_by_width, mask_hard, k_mid)
+    m_hard_wmax = _region_mse(err2_by_width, mask_hard, w_max)
+    m_hard_min = min(_region_mse(err2_by_width, mask_hard, k) for k in range(1, w_max + 1))
+    hard_drops_to_mid = bool(m_hard_mid <= CURVE_GATE_HARD_DROP_MULTIPLE * m_hard_1)
+    hard_plateaus_at_wmax = bool(m_hard_wmax <= CURVE_GATE_HARD_PLATEAU_MULTIPLE * m_hard_min)
+
+    m_easy_lo = _region_mse(err2_by_width, mask_easy, k_easy_lo)
+    m_easy_wmax = _region_mse(err2_by_width, mask_easy, w_max)
+    easy_flat = bool(m_easy_lo <= CURVE_GATE_EASY_FLAT_MULTIPLE * m_easy_wmax)
+
+    return {
+        "k_mid": k_mid,
+        "k_easy_lo": k_easy_lo,
+        "m_hard_1": m_hard_1,
+        "m_hard_mid": m_hard_mid,
+        "m_hard_wmax": m_hard_wmax,
+        "m_hard_min": m_hard_min,
+        "hard_drops_to_mid": hard_drops_to_mid,
+        "hard_plateaus_at_wmax": hard_plateaus_at_wmax,
+        "m_easy_lo": m_easy_lo,
+        "m_easy_wmax": m_easy_wmax,
+        "easy_flat": easy_flat,
+        "curve_gate_pass": bool(hard_drops_to_mid and hard_plateaus_at_wmax and easy_flat),
+    }
+
+
+def _cheapest_within_tolerance_labels(err2: np.ndarray, delta_tie: float = DELTA_TIE) -> np.ndarray:
+    """§5 selector targets, PRIMARY (pre-registered): smallest k with `err2[i,k] <= (1+delta_tie)*min_j err2[i,j]`.
+
+    Returns `(N,)` 0-based column index (`k-1`) per row, for `capacity_ladder_k6._train_router`'s
+    `hard_labels`. `argmax` on a boolean row returns the FIRST True — the smallest qualifying k,
+    since columns are k=1..w_max ascending.
+    """
+    min_err2 = err2.min(axis=1, keepdims=True)
+    within_tol = err2 <= (1.0 + delta_tie) * min_err2
+    return within_tol.argmax(axis=1)
+
+
+def _soft_targets_mse(err2: np.ndarray) -> np.ndarray:
+    """§5 selector targets, SENSITIVITY ARM (report only): `softmax_k(-err2[i,k] / (2*s_B**2))`.
+
+    `s_B**2 = median_i min_k err2[i,k]` — ONE global scale computed from slice B, not tuned.
+    """
+    s2_b = float(np.median(err2.min(axis=1)))
+    logits = -err2 / (2.0 * s2_b)
+    logits = logits - logits.max(axis=1, keepdims=True)
+    w = np.exp(logits)
+    return w / w.sum(axis=1, keepdims=True)
+
+
+def _fit_selector_mse(
+    err2_p2: np.ndarray, x_p2: np.ndarray, w_max: int, seed: int, device: str, *, delta_tie: float = DELTA_TIE, hidden: tuple[int, ...] = ck6.HIDDEN
+) -> torch.nn.Module:
+    """Distills the PRIMARY hard-label cheapest-within-tolerance router off slice-B's MSE table.
+
+    `hidden` (default `capacity_ladder_k6.HIDDEN`) is width-cert W6's router-capacity sensitivity
+    knob — passed straight through to `ck6._train_router`; unchanged callers get the identical
+    default router MLP.
+    """
+    labels = _cheapest_within_tolerance_labels(err2_p2, delta_tie)
+    return ck6._train_router(x_p2, n_cols=w_max, device=device, hard_labels=labels, seed=seed, n_epochs=ck6.N_EPOCHS, lr=ck6.LR, hidden=hidden)
+
+
+def _fit_selector_mse_soft(err2_p2: np.ndarray, x_p2: np.ndarray, w_max: int, seed: int, device: str) -> torch.nn.Module:
+    """Sensitivity-arm router (report only): soft targets off the same MSE table."""
+    q_soft = _soft_targets_mse(err2_p2)
+    return ck6._train_router(x_p2, n_cols=w_max, device=device, soft_targets=q_soft, seed=seed, n_epochs=ck6.N_EPOCHS, lr=ck6.LR)
+
+
+def _selector_eval_mse(router: torch.nn.Module, err2: np.ndarray, x: np.ndarray, device: str) -> tuple[float, np.ndarray]:
+    """Soft-blend MSE + per-input expected width for a router (works for hard- or soft-trained routers).
+
+    MSE twin of `_selector_eval`'s blended-NLL/expected-width shape. The blended MSE here EXECUTES
+    ALL widths (probability-weighted) — a labeled secondary, not the deploy claim (see
+    `_route_hardpick_mse`/`_deploy_bar_mse` for the hard-pick primary the compute claim may cite).
+    """
+    x_t = torch.as_tensor(x, dtype=torch.float32, device=device).reshape(-1, 1)
+    router.eval()
+    with torch.no_grad():
+        probs = nnf.softmax(router(x_t), dim=1).cpu().numpy().astype(np.float64)
+    blended_mse = float((probs * err2).sum(axis=1).mean())
+    k_grid = np.arange(1, err2.shape[1] + 1, dtype=np.float64)
+    expected_width = (probs * k_grid[None, :]).sum(axis=1)
+    return blended_mse, expected_width
+
+
+def _route_hardpick_mse(router: torch.nn.Module, err2: np.ndarray, x: np.ndarray, device: str) -> tuple[np.ndarray, np.ndarray]:
+    """Hard-pick per-input routing (deploy primary): argmax width, only that prefix executed.
+
+    Reuses `capacity_ladder_k6._route` verbatim (argmax over router logits). Returns
+    `(err2_hardpick, executed_width)`, each length N; `executed_width` is the routed width VALUE
+    (`col_idx + 1`), not a probability-weighted mean — the number the compute claim may cite.
+    """
+    col_idx = ck6._route(router, x, device)
+    rows = np.arange(err2.shape[0])
+    return err2[rows, col_idx], (col_idx + 1).astype(np.float64)
+
+
+def _deploy_bar_mse(err2_hardpick: np.ndarray, executed_width: np.ndarray, err2_by_width: dict[int, np.ndarray]) -> dict:
+    """§5 bar 5 — DEPLOY: hard-pick preserves accuracy (paired bootstrap SE) AND saves compute."""
+    per_k_mse = {k: float(v.mean()) for k, v in err2_by_width.items()}
+    best_fixed_k = min(per_k_mse, key=per_k_mse.get)
+    mse_best_fixed = per_k_mse[best_fixed_k]
+    mse_hardpick = float(err2_hardpick.mean())
+    mean_executed_width = float(executed_width.mean())
+
+    paired_delta = err2_hardpick - err2_by_width[best_fixed_k]
+    se_paired = _plain_boot_se(paired_delta)
+    accuracy_preserved = bool(mse_hardpick <= mse_best_fixed + 2.0 * se_paired)
+    compute_saved = bool(mean_executed_width < best_fixed_k)
+    return {
+        "mse_hardpick": mse_hardpick,
+        "mean_executed_width": mean_executed_width,
+        "mse_best_fixed": mse_best_fixed,
+        "best_fixed_k": best_fixed_k,
+        "se_paired": se_paired,
+        "accuracy_preserved": accuracy_preserved,
+        "compute_saved": compute_saved,
+        "deploy_pass": bool(accuracy_preserved and compute_saved),
+    }
+
+
+def _deploy_bar_mse_valselected(err2_p2_by_width: dict[int, np.ndarray], err2_te_by_width: dict[int, np.ndarray]) -> dict:
+    """Width-cert W7 — DEPLOY baseline, VAL-selected (beside, not replacing, `_deploy_bar_mse`).
+
+    `_deploy_bar_mse`'s `best_fixed_k`/`mse_best_fixed` are picked using the TEST set's own MSE
+    table — a hindsight choice (verdict-doc §6 caveat: the baseline gets to look at the data it is
+    then scored on). This picks `best_fixed_k` using only SLICE-B (`err2_p2_by_width`, the
+    router-train half; TEST is never touched for selection), then reports THAT k's TEST MSE — the
+    non-hindsight, actually-deployable fixed-width comparator.
+    """
+    per_k_mse_p2 = {k: float(v.mean()) for k, v in err2_p2_by_width.items()}
+    best_fixed_k_valselected = min(per_k_mse_p2, key=per_k_mse_p2.get)
+    mse_best_fixed_valselected_test = float(err2_te_by_width[best_fixed_k_valselected].mean())
+    return {
+        "best_fixed_k_valselected": best_fixed_k_valselected,
+        "mse_best_fixed_valselected_test": mse_best_fixed_valselected_test,
+    }
+
+
+def _noisy_easy_bar_mse(expected_width: np.ndarray, region_labels: np.ndarray) -> dict:
+    """§5 bar 4 (WP-3 only) — the noisy-easy NEGATIVE control: the dial reads capacity-hunger, not raw error.
+
+    Region labels (`make_hetero3`): `REGION_EASY=0`, `REGION_HARD=1`, `REGION_NOISY_EASY=2`. Two clauses,
+    both must hold (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §5 bar 4):
+      (a) STAY NARROW — `width(noisy-easy) <= width(easy) + NOISY_EASY_STAY_NARROW_SLACK`. Noise is
+          common-mode across widths at a fixed input, so no width fits the noisy-easy region down; the
+          honest capacity verdict is "stay narrow". A dial keyed on raw error magnitude would over-feed
+          it (that is the failure this control catches).
+      (b) HARD STILL WINS — `width(hard) - width(noisy-easy) > 2*SE` (two-sample bootstrap SE, same
+          estimator as the dial bar): the genuinely capacity-hungry region is still fed more than the
+          merely-noisy one.
+    """
+    easy = expected_width[region_labels == REGION_EASY]
+    hard = expected_width[region_labels == REGION_HARD]
+    noisy = expected_width[region_labels == REGION_NOISY_EASY]
+    w_easy, w_hard, w_noisy = float(easy.mean()), float(hard.mean()), float(noisy.mean())
+    stays_narrow = bool(w_noisy <= w_easy + NOISY_EASY_STAY_NARROW_SLACK)
+    se_hard_noisy = _two_sample_boot_se(hard, noisy)
+    hard_beats_noisy = bool((w_hard - w_noisy) > 2.0 * se_hard_noisy)
+    return {
+        "mean_width_easy": w_easy,
+        "mean_width_hard": w_hard,
+        "mean_width_noisy_easy": w_noisy,
+        "stays_narrow": stays_narrow,
+        "se_hard_vs_noisy": se_hard_noisy,
+        "hard_beats_noisy_2se": hard_beats_noisy,
+        "noisy_easy_pass": bool(stays_narrow and hard_beats_noisy),
     }
 
 

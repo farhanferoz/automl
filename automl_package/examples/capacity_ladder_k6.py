@@ -99,6 +99,7 @@ def _train_router(
     n_epochs: int = N_EPOCHS,
     lr: float = LR,
     seed: int = 0,
+    hidden: tuple[int, ...] = HIDDEN,
 ) -> _RouterMLP:
     """Trains one router: hard cross-entropy if `hard_labels` given, else soft-label CE to `soft_targets`.
 
@@ -116,6 +117,9 @@ def _train_router(
         n_epochs: full-batch Adam epochs.
         lr: Adam learning rate.
         seed: torch RNG seed for init (reproducibility).
+        hidden: router MLP hidden-layer sizes (default `HIDDEN=(32, 32)`; width-cert W6 threads a
+            non-default value through here to probe whether the deploy/dial bars are sensitive to
+            router capacity, not just net capacity).
 
     Returns:
         The trained `_RouterMLP`, in eval mode.
@@ -123,7 +127,7 @@ def _train_router(
     if (hard_labels is None) == (soft_targets is None):
         raise ValueError("exactly one of hard_labels or soft_targets must be given")
     torch.manual_seed(seed)
-    model = _RouterMLP(n_cols).to(device)
+    model = _RouterMLP(n_cols, hidden=hidden).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     x_t = torch.as_tensor(np.asarray(x, dtype=np.float32), device=device).reshape(-1, 1)
     if hard_labels is not None:

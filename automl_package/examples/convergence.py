@@ -34,6 +34,9 @@ _STILL_IMPROVING_EPS = 5e-3  # residual improvement over the patience window abo
 _MIN_TRAJ_POINTS_FOR_SLOPE = 2  # fewer checkpoints than this => can't estimate a recent-improvement slope
 _TEST_TOL = 1e-6  # selftest float-compare tolerance
 
+DIVERGENCE_ABS_EPS = 0.2  # nats; mandatory absolute floor (a pure ratio misfires near zero best_val)
+DIVERGENCE_REL_FACTOR = 0.5  # divergence threshold = max(DIVERGENCE_ABS_EPS, this * best_val)
+
 
 @dataclass
 class ConvergenceResult:
@@ -53,9 +56,25 @@ class ConvergenceResult:
         return self.recent_improvement > _STILL_IMPROVING_EPS
 
     @property
+    def diverged(self) -> bool:
+        """True if the loss exploded past its best and never recovered back within tolerance.
+
+        Patience-based stopping alone can certify a run `trustworthy` even when its held-out loss spiked
+        then plateaued (or is still declining from) a much worse level than its best epoch — best-weights
+        restore limits the reported-METRIC damage, but the flag itself would still lie. Compares the last
+        trajectory point to `best_val` against a floor that is the larger of an absolute epsilon and a
+        fraction of `best_val`; the absolute floor is mandatory because a pure ratio misfires near zero
+        (e.g. best 0.0015 with a harmless 0.003 final => ratio 3, a false positive without the floor).
+        """
+        if not self.trajectory:
+            return False
+        final_trajectory_point_loss = self.trajectory[-1][1]
+        return (final_trajectory_point_loss - self.best_val) > max(DIVERGENCE_ABS_EPS, DIVERGENCE_REL_FACTOR * self.best_val)
+
+    @property
     def trustworthy(self) -> bool:
-        """A result is safe to CONCLUDE from only if it flattened AND was not still visibly creeping at stop."""
-        return self.converged and not self.hit_cap and not self.still_improving
+        """A result is safe to CONCLUDE from only if it flattened, was not still visibly creeping, and did not diverge."""
+        return self.converged and not self.hit_cap and not self.still_improving and not self.diverged
 
     def summary(self) -> dict:
         """JSON-able summary (trajectory kept in full so the curve is always inspectable)."""
@@ -64,6 +83,7 @@ class ConvergenceResult:
             "hit_cap": self.hit_cap,
             "trustworthy": self.trustworthy,
             "still_improving_at_stop": self.still_improving,
+            "diverged": self.diverged,
             "stop_epoch": self.stop_epoch,
             "best_val": self.best_val,
             "best_epoch": self.best_epoch,
@@ -232,6 +252,20 @@ def run_selftest() -> bool:
     ok_c = abs(r.best_val - 0.29) < _TEST_TOL and r.best_epoch < r.stop_epoch
     print(f"[convergence selftest] (c) keeps best-not-last: best={r.best_val:.4f}@{r.best_epoch} stop@{r.stop_epoch}  {'PASS' if ok_c else 'FAIL'}")
     ok = ok and ok_c
+
+    # (d) explodes then plateaus high (patience-stops without recovering) → diverged=True, trustworthy=False.
+    #     Mirrors the real Z120 seed-1 shared_readout case: best CE 1.339 -> final 3.032.
+    r = _scripted_run([1.0, 0.5, 0.3, 0.25, 0.24, 5.0, 4.9, 4.8], patience=3, min_delta=1e-3)
+    ok_d = r.diverged and not r.trustworthy
+    print(f"[convergence selftest] (d) spike-plateau→diverged: diverged={r.diverged} trustworthy={r.trustworthy} best={r.best_val:.4f}  {'PASS' if ok_d else 'FAIL'}")
+    ok = ok and ok_d
+
+    # (e) healthy near-zero trajectory: harmless wobble off a tiny best must NOT trip the ratio term —
+    #     this is exactly why the absolute floor (DIVERGENCE_ABS_EPS) is mandatory.
+    r = _scripted_run([0.02, 0.01, 0.005, 0.003, 0.0015, 0.002, 0.003, 0.0045], patience=3, min_delta=1e-4)
+    ok_e = not r.diverged and abs(r.best_val - 0.0015) < _TEST_TOL
+    print(f"[convergence selftest] (e) near-zero wobble→not diverged: diverged={r.diverged} best={r.best_val:.4f} final={r.trajectory[-1][1]:.4f}  {'PASS' if ok_e else 'FAIL'}")
+    ok = ok and ok_e
 
     print(f"[convergence selftest] {'PASS' if ok else 'FAIL'}")
     return ok

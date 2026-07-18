@@ -103,8 +103,8 @@ We hold every method to the same three pre-registered tests
    asks whether the per-input width is **read back correctly**. (Reported as the width difference
    `hard − easy`; positive and clear = pass.)
 3. **Deploy** — does routing each input to its own width **match or beat** the single best global
-   width, and land within a hair (0.02 nat) of the per-input oracle? This asks whether it is
-   *useful in practice*.
+   width, and land within a hair (0.02 nat) of the per-input oracle (⚠️ this oracle bar is void — see
+   the correction below)? This asks whether it is *useful in practice*.
 
 Two standing caveats about the bars, so the tables below are not misread:
 
@@ -112,9 +112,16 @@ Two standing caveats about the bars, so the tables below are not misread:
   work, purely because of an over-strict "easy half must be perfectly flat" sub-clause. The meaningful
   construction signal is the hard-region fit reaching the floor, which is reported separately. The
   easy-flat clause is a known-too-strict bar on the recalibration list.
-- The **0.02-nat deploy sub-clause is unmet by every method**, again because it is too tight for this
-  toy. The meaningful deploy signal is "matches or beats the best single global width," reported
-  separately.
+- The **0.02-nat deploy sub-clause is void, not merely too tight.** ⚠️ **Correction (2026-07-16):** the
+  per-input test-set oracle it measures against is **unreachable by construction** — it selects the
+  best width *on the evaluation draw itself*, using each width's fitted variance, which is not a valid
+  held-out procedure. On the runs where it was measured it scored 0.14–0.19 nat *above* the analytic
+  noise-floor ceiling (eq. 2) — impossible for a genuine held-out quantity, and direct evidence of the
+  construction flaw rather than of the toy being hard. The 0.02-nat threshold is therefore struck. The
+  meaningful deploy signal is "matches or beats the best single global width," reported separately —
+  and even that comparison is currently quality-only: the selector evaluated so far deploys as a soft
+  blend that executes *every* width, so no compute claim can yet be made from it
+  (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md`, WP-2 measures the hard-pick case).
 
 ### 1.4 The convergence rule (why it matters here)
 
@@ -288,16 +295,23 @@ Two consequences follow, and both showed up in the runs:
   distillation) address a *different* failure — gradient **starvation**, making sure every width
   receives training signal. They do not create identity or ordering. That is why, on the under-trained
   runs, they appeared not to rescue the toy.
-- The honest nuance from our converged runs (see §7): with **enough** training the shared net *does*
-  reach the noise floor and recover the dial — but by brute-force joint convergence, not by getting a
-  clean ordering for free. The nonlinear net loses the cheap linear guarantee; it can still be made to
-  work, it just pays for it in convergence.
+- The honest nuance from our converged runs (see §7): with **enough** training a nonlinear net *does*
+  reach the noise floor and recover the dial by brute-force joint convergence, not by getting a clean
+  ordering for free. ⚠️ **Correction (2026-07-16):** the only converged run in this program
+  (`W_KDROPOUT_CONVERGED`, §3.3) trained `IndependentWidthNet` (K× parameters, no weight sharing) — not
+  the shared, truncatable architecture this section is arguing about. That the *shared* net specifically
+  converges to the same result is **UNVERIFIED**, superseded by the WP-2 experiment in
+  `docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md`. What is confirmed: the nonlinear net loses the
+  cheap linear guarantee, and can still be made to work with enough training — for the
+  independent-weights case.
 
 Everything in §§3–6 is a different response to this single fact. The **cascade** tries to *supply* all
 three properties by construction (boosting generalizes past linearity) — and fails empirically here.
 **Matryoshka** supplies only the self-contained read-out and leaves identity/ordering alone — it fits,
-but its per-input dial is not robust. The **converged shared net** supplies none of them explicitly and
-instead pays the convergence cost — and works.
+but its per-input dial is not robust. The **converged K×-parameter net** (labeled a "shared net" in the
+text below — corrected in §3.3) supplies none of the three properties explicitly and instead pays the
+convergence cost — and works; whether a genuinely *shared*, 1×-parameter net does the same is still
+open (§3.3).
 
 ---
 
@@ -314,8 +328,9 @@ Gaussian negative log-likelihood.
 **Result (2,500 epochs):** hard-region fit stalls at about **−0.4 nat** — roughly **2.0 nat below the
 floor** — and construction fails on all 3 seeds. On its face, "shared-nested width does not work."
 
-This is the result the pre-run design docs enshrined as "shared-nested fails all three properties." It
-is misleading, for the reason in §3.3.
+This is the result the pre-run design docs enshrined as "shared-nested fails all three properties." At
+the time this document was first written, §3.3 was believed to show this was purely a convergence
+artifact; ⚠️ that read is now itself corrected — see §3.3 below.
 
 ### 3.2 Independent weights per width, converged — the existence proof (`W_CONVERGED`)
 
@@ -329,16 +344,32 @@ should be recoverable here.
 hard inputs (width difference `hard − easy` of +1.9 to +3.3, all statistically clear). This is the
 positive control: the signal is real and recoverable. The cost is the K× parameter blow-up.
 
-### 3.3 The convergence correction — shared-nested actually works (`W_KDROPOUT_CONVERGED`)
+### 3.3 The convergence correction — the joint sandwich *schedule* works at convergence (with independent weights) (`W_KDROPOUT_CONVERGED`)
 
-**Idea.** The *same* single shared net as §3.1 (1× parameters, cheap prefix inference), trained with
-the k-dropout sandwich schedule — but run **to convergence** (up to 300,000 epochs) instead of a fixed
-2,500.
+**Idea (as originally written, then corrected).** The original framing here described this as *the
+same* single shared net as §3.1 (1× parameters, cheap prefix inference), trained with the k-dropout
+sandwich schedule but run **to convergence** (up to 300,000 epochs) instead of a fixed 2,500.
+
+⚠️ **Correction (2026-07-16):** that framing is wrong. The script that produced this arm,
+`automl_package/examples/kdropout_converged_width_experiment.py`, instantiates **`IndependentWidthNet`**
+(`nested_width_net.py:164`) — K disjoint sub-nets, K× parameters, **no weight sharing, no prefix
+property**. `IndependentWidthNet` is explicitly built to "deliberately break the shared-trunk prefix
+property of `NestedWidthNet`" (`nested_width_net.py:167`). It is **not** the same net as §3.1's `W2`,
+which does use `NestedWidthNet` (the true 1× shared/nested architecture). The per-width best-state
+restoration this arm relies on (`net.subnets[k-1]`) is only possible *because* the weights are disjoint
+— it would not make sense for a genuinely shared net. What this arm actually establishes is that the
+k-dropout sandwich **training schedule**, applied to independently-weighted per-width nets, reaches the
+floor and recovers the dial once run to convergence. Whether the *true* shared/nested architecture
+(`NestedWidthNet`) does the same has **never been tested to convergence** — see
+`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §1 for the corrected arm matrix and WP-2, the
+experiment designed to fill this gap.
 
 **Result:** hard-region fit **reaches the floor on all 3 seeds** (gap 0.03 to 0.08 nat), and the
 selector **recovers the dial on all 3 seeds** (width difference +2.1 to +2.9, all clear). In other
-words, **the cheap shared net does everything the expensive independent nets do — once it is allowed to
-converge.**
+words, **the joint sandwich schedule matches per-width separate training (§3.2) once both are run to
+convergence — the schedule was never the obstruction.** Because both this arm and §3.2 use
+`IndependentWidthNet`, this result is silent on weight-sharing; it is not evidence about the cheap
+shared net.
 
 **Why the "untrustworthy seed" flags do not weaken this (the load-bearing check).** Seeds 1 and 2 are
 flagged untrustworthy, but the flag is triggered per *width*, and the widths that fell short are **not**
@@ -361,11 +392,16 @@ So the correction is firm on the existing data: **the flags are about middle-run
 width-12 fit or the recovery direction.** No re-run is needed to trust the conclusion (an all-seeds,
 all-widths re-run at a higher cap would only remove a cosmetic flag).
 
-**This overturns §3.1.** "Shared-nested fails" was an under-training artifact, not a real property of
-the architecture. On this data-rich toy the honest payoff of per-input width is therefore **compute,
-not accuracy**: a single global width also reaches the floor given enough data, so routing buys you
-cheaper inference rather than a better fit. (Whether it buys *accuracy* is the small-data / high-noise
-question flagged as future work.)
+**Does this overturn §3.1?** UNVERIFIED — superseded by the WP-2 experiment in
+`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md`. §3.1's `W2` and this arm do not share an
+architecture (`NestedWidthNet` vs `IndependentWidthNet`), so this result cannot by itself distinguish
+"under-training artifact" from "a real property of the true shared architecture." What this arm
+establishes cleanly is only that the *schedule* is not the obstruction, holding weights independent.
+Whether per-input width can be delivered at genuine 1× params (`NestedWidthNet`, trained to
+convergence) is the open charter question — WP-2 is the definitive run that fills it. Separately, the
+claim that the payoff of routing is "compute, not accuracy" is also unmeasured as stated: the selector
+evaluated here deploys as a **soft blend that executes every width**, so no compute has actually been
+saved yet — that requires a hard-pick evaluation (WP-2).
 
 ---
 
@@ -570,13 +606,36 @@ For width cap `K = 12` and a single hidden layer on 1-D input (`W = K`), the par
 The headline: the **cascade is the only capacity-nested arm whose parameters stay linear in `K`** (≈ a
 single net), while Matryoshka and the independent battery both grow quadratically — Matryoshka because
 it carries a private head per width, the independent battery because it carries a whole net per width.
-The converged shared-nested net (§3.3) shares the cascade's linear `4K + 2` budget *and* recovers the
-dial — which is why it, not Matryoshka, is the efficient winner. On this 1-D toy every count is tiny in
-absolute terms; the table is about the *shape*, which is what decides cost at real width.
+⚠️ **Correction (2026-07-16):** the arm previously described here as the "converged shared-nested net
+(§3.3)" trained `IndependentWidthNet`, so it belongs in the **independent per width** row above (`2K²`
+params), not the linear `4K + 2` row — see §3.3's correction. No arm in this document combines the
+linear 1× parameter budget with a dial recovered at convergence; that combination is **UNVERIFIED**,
+superseded by the WP-2 experiment in `docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md`. On this 1-D
+toy every count is tiny in absolute terms; the table is about the *shape*, which is what decides cost
+at real width.
 
 ---
 
 ## 6. Results at a glance
+
+⚠️ **Correction (2026-07-16) — verified arm matrix.** Every row below was re-checked against source
+code and summary JSON (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md`, §1). In particular, the
+**architecture** for `W_KDROPOUT_CONVERGED` in the results table further below is wrong — see §3.3's
+correction. The verified accounting:
+
+| Arm (result dir) | Driver | Architecture | Params | Budget | Hard fit @12 | Dial |
+| --- | --- | --- | ---: | --- | --- | --- |
+| `W2` | `hetero_width_experiment.py` | `NestedWidthNet` (true nesting) | 1× | 2.5k ep — under-trained | fails (~2 nat short) | — |
+| `W_INDEP` | `independent_width_experiment.py` | `IndependentWidthNet` | K× | 2.5k ep | mixed (1.37/1.55/1.51) | 3/3 direction |
+| `W_CONVERGED` | `converged_width_experiment.py` | `IndependentWidthNet` | K× | per-width, converged | floor 3/3 | 3/3, ≥2·SE |
+| `W_KDROPOUT_CONVERGED` | `kdropout_converged_width_experiment.py` | **`IndependentWidthNet`** | K× | joint sandwich, converged | floor 3/3 | 3/3, ≥2·SE |
+| `W_MRL` | matryoshka driver | shared trunk + per-width heads | ~1× trunk + K heads | 120k | floor 3/3 | mixed (1 clean / 1 inverted) |
+| `W_CASCADE` | cascade driver | additive frozen blocks | ~1× | staged | fails (~1.7 nat short) | inverted 0/3 |
+
+`W2` above is the same run discussed in §3.1. `W_INDEP` is a shorter-budget independent-weights arm not
+separately walked through in §3.2/§3.3 (those cover the converged independent arms `W_CONVERGED` and
+`W_KDROPOUT_CONVERGED`). Read the "weights"/"params" columns for `W_KDROPOUT_CONVERGED` in the table
+immediately below as `K×` (independent), not `1×` (shared).
 
 Held-out log-likelihood, hard region, at maximum width (12). Ceiling = **1.577**. "Dial recovery" =
 does the learned selector give more width to hard inputs (positive, statistically clear)?
@@ -584,16 +643,21 @@ does the learned selector give more width to hard inputs (positive, statisticall
 | Approach | weights | hard-region fit @ w12 | gap to floor | dial recovery | params | verdict |
 | --- | --- | ---: | ---: | --- | ---: | --- |
 | Shared-nested, 2.5k epochs (`W2`) | shared (1×) | ~ −0.4 | ~2.0 | — (fit fails) | 1× | fails — **under-training artifact** |
-| Shared-nested, k-dropout, converged (`W_KDROPOUT_CONVERGED`) | shared (1×) | 1.49 – 1.55 | 0.03 – 0.08 | **3/3 pass** (+2.1…+2.9) | 1× | **floor + robust dial at 1× params — the winner** |
+| Joint sandwich schedule, converged (`W_KDROPOUT_CONVERGED`) | independent (K×) — see 2026-07-16 correction above | 1.49 – 1.55 | 0.03 – 0.08 | **3/3 pass** (+2.1…+2.9) | K× | floor + robust dial with independent weights — schedule confirmed; shared-1×-params claim **UNVERIFIED, superseded by WP-2** |
 | Independent per width, converged (`W_CONVERGED`) | K× separate | 1.53 – 1.56 | 0.02 – 0.05 | **3/3 pass** (+1.9…+3.3) | K× | **works** (floor + robust dial), but K× params |
 | Frozen residual cascade (`W_CASCADE`) | additive 1× | −0.11 … −0.22 | ~1.7 | 0/3 (inverted) | 1× | **fails both** — greedy stalls; β-NLL worse |
 | Matryoshka heads (`W_MRL`) | shared trunk + per-width heads | 1.52 – 1.57 | 0.004 – 0.06 | 1 clean / 1 inverted | ~medium | **best fit, weakest dial** (inversion diagnosed) |
 
 Deployment, briefly: every method's "matches-or-beats the best global width" holds where the fit works
 (the Matryoshka selector matches or beats the global width on all 3 seeds; the converged baselines
-tie). No method clears the 0.02-nat oracle sub-clause — that bar is too tight for this toy. On this
-data-rich toy the payoff of routing is **cheaper inference, not better accuracy**, because a single
-global width already reaches the floor.
+tie) — but the evaluated selector deploys as a **soft blend that executes every width**, so this is a
+quality-only comparison; it says nothing about compute saved. No method clears the 0.02-nat oracle
+sub-clause; ⚠️ **that sub-clause is now understood to be void, not merely tight** — the per-point oracle
+is unreachable by construction (selection on the evaluation draw with fitted variances) and scored
+0.14–0.19 nat *above* the analytic ceiling on the runs that measured it, which is impossible for valid
+held-out scoring (§1.3). On this data-rich toy the payoff of routing is **cheaper inference, not better
+accuracy** in principle — but the compute claim itself is unmeasured until a hard-pick (not soft-blend)
+selector is evaluated (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md`, WP-2).
 
 ---
 
@@ -606,10 +670,17 @@ global width already reaches the floor.
   converged shared k-dropout net (3/3) and the independent nets (3/3) — every separation clearing 2·SE.
   The recovery is *structurally anchored*: on every seed the hard region's per-width fit climbs steeply
   to the noise floor while the easy region saturates by width 2, which forces the correct allocation.
-- **The cheapest architecture is the one that delivers it.** A 1× shared net (k-dropout, trained to
-  convergence) both reaches the noise floor *and* recovers the dial — you do not need K× separate nets.
-  Its "reaches the floor" claim rests on width 12, which is fully converged on all 3 seeds; the
-  untrustworthy flags are middle-rung creep of <0.015 nat and do not touch either bar (§3.3).
+- ⚠️ **UNVERIFIED — superseded by the WP-2 experiment**
+  (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md`). This bullet originally read: "the cheapest
+  architecture is the one that delivers it — a 1× shared net (k-dropout, trained to convergence) both
+  reaches the noise floor *and* recovers the dial, you do not need K× separate nets." **Correction
+  (2026-07-16):** the arm behind that claim, `W_KDROPOUT_CONVERGED`, actually trained
+  `IndependentWidthNet` (K× parameters, no weight sharing) — see §3.3. What is actually established: the
+  joint sandwich *schedule*, run to convergence with independent weights, reaches the noise floor and
+  recovers the dial (width 12 is fully converged on all 3 seeds; the untrustworthy flags are middle-rung
+  creep of <0.015 nat and do not touch either bar). Whether the true 1× shared/nested architecture
+  (`NestedWidthNet`) does the same at convergence remains the open charter question — the converged cell
+  for it is empty, and WP-2 is the definitive run that fills it.
 - **Frozen greedy additivity (the cascade) is refuted on this toy.** It was the primary hypothesis and
   it failed cleanly; the pre-registered β-NLL rescue made it worse. Forcing stable identity + ordering
   by freezing is unnecessary and, here, harmful.
@@ -628,19 +699,32 @@ global width already reaches the floor.
   reasonably firm, but a handful of extra seeds on the shared net would make it airtight for
   publication. This is optional hardening, not a correctness gap — the conclusion does not depend on it.
 
-**The correction (important).** The pre-run design docs
+**The correction (2026-07-13, and now itself corrected — see below).** The pre-run design docs
 (`docs/plans/width_dial_2026-07-11/nested_architecture_research_2026-07-11.md`) conclude that
 shared-nested width "fails all three properties" and that the sandwich schedule "did not rescue" it.
-That conclusion rests on the under-trained `W2` run. The **converged** run of the same idea
-(`W_KDROPOUT_CONVERGED`) reaches the floor and recovers the dial on all 3 seeds. So the design docs'
-"shared-nested fails" claim is a convergence artifact and should be read as superseded by the converged
-batteries. This is the same lesson that governs the whole program: **read the loss trajectory, per
-width, before concluding — never a fixed epoch budget.**
+That conclusion rests on the under-trained `W2` run. This document originally claimed the **converged**
+run of "the same idea" (`W_KDROPOUT_CONVERGED`) reaches the floor and recovers the dial on all 3 seeds,
+overturning the design docs' verdict.
 
-**Net picture.** "Can we vary width per input?" — **yes**, demonstrably: a cheap 1× shared net, trained
-to convergence, both fits the hard region to the noise floor *and* recovers the per-input width dial
-robustly (6/6 seeds with the independent-net battery). The single remaining open edge is whether it buys
-*accuracy* somewhere, not just cheaper compute — the small-data / high-noise regime is where to look.
+⚠️ **Correction (2026-07-16):** `W_KDROPOUT_CONVERGED` is **not** the same idea — it trained
+`IndependentWidthNet` (K× parameters, no weight sharing), not the shared/nested `NestedWidthNet` that
+`W2` and the design docs are about (§3.3). So the design docs' "shared-nested fails" claim, for the
+*true* shared architecture, is **not** overturned by this run — it remains untested to convergence.
+What genuinely is established is that the sandwich *schedule* is not the obstruction (§3.3). The lesson
+that governs the whole program still holds regardless of this correction: **read the loss trajectory,
+per width, before concluding — never a fixed epoch budget.** The open question this correction reopens
+— does the true 1× shared/nested net work at convergence — is filled by WP-2 in
+`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md`.
+
+**Net picture.** "Can we vary width per input?" — **yes**, demonstrably, but so far only **with
+independent per-width weights (K× params)**: the converged independent-net battery (§3.2) and the
+converged joint-sandwich-schedule battery (§3.3 — also `IndependentWidthNet`, not a shared net; see the
+2026-07-16 correction there) both fit the hard region to the noise floor and recover the per-input width
+dial robustly (6/6 seeds). Whether that dial survives at the cheap 1× shared/nested parameter budget is
+**UNVERIFIED** — superseded by the WP-2 experiment in `docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md`,
+which trains the true shared architecture to convergence for the first time. The other open edge is
+unchanged: whether routing buys *accuracy* somewhere, not just cheaper compute — the small-data /
+high-noise regime is where to look.
 
 ---
 
