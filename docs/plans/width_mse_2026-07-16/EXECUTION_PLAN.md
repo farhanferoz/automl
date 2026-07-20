@@ -1,4 +1,10 @@
-# Variable width per input, MSE-only — execution plan (2026-07-16)
+# Variable width per input, MSE-only — ⛔ FROZEN / COMPLETE. NEVER DISPATCH FROM THIS FILE.
+
+> **FROZEN 2026-07-20. COMPLETE (WP-0..5).** Live plan of record:
+> `docs/plans/capacity_programme/` — the width verdict it produced is carried by
+> `docs/plans/capacity_programme/width-cert.md`, and its §5 bars are re-used by reference across
+> that programme. This file is width-only and MSE-only; its one ProbReg line (§8 parked ledger) was
+> **wrong and is corrected in place** — see that row.
 
 Plan of record for the next phase of the width program. Supersedes
 `docs/plans/width_dial_2026-07-11/` for forward work (those docs remain the historical record of the
@@ -297,7 +303,7 @@ after the WP-2 pilot, then frozen (doctrine §2.4).
 | Item | Why parked | Pointer |
 | --- | --- | --- |
 | Variance/uncertainty fitting, incl. simultaneously with variable structure | Charter decision 2026-07-16 — after width (and depth) | this doc §0 |
-| Failing test `test_probabilistic_nll_beats_constant_on_heteroscedastic` (ProbReg 1.843 vs constant-σ 1.688) | Variance-fitting bug by hypothesis (joint-μσ pathology vs under-training — undiagnosed) | `tests/test_phase1_probabilistic_regression.py:243`; repro: run that test on HEAD |
+| Failing test `test_probabilistic_nll_beats_constant_on_heteroscedastic` (ProbReg 1.843 vs constant-σ 1.688) | ~~Variance-fitting bug by hypothesis (joint-μσ pathology vs under-training — undiagnosed)~~ **CORRECTED 2026-07-20: it was ALREADY DIAGNOSED the same day this line was written.** Root cause is config/protocol (a single coarse k=5 on a single seed), NOT a variance pathology — the variance head was shown well-behaved. Full diagnosis: `docs/plans/capacity_programme/shared/hetero_nll_diagnosis.md` | `tests/test_phase1_probabilistic_regression.py:243`; repro: run that test on HEAD |
 | Heteroscedastic *scoring* experiments (calibration, NLL bars) | Need variance; note WP-3 keeps heteroscedastic-*data* dial tests in scope | §WP-3 |
 | ProbReg / real-model ports of the dial | After the toy verdict | `docs/research_plan.md` |
 | Hardcoded `/home/ff235` paths in 4 launcher scripts | Hygiene, orthogonal; do opportunistically | RESUME ### Next |

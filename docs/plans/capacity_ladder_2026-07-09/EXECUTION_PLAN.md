@@ -1,9 +1,28 @@
-# Capacity-ladder execution plan (LIVE — single source of truth)
+# Capacity-ladder execution plan — ⛔ FROZEN / SUPERSEDED. NEVER DISPATCH FROM THIS FILE.
 
-**Created 2026-07-09. Status: DRAFT pending user ratification (⛔ RATIFY-0) — no
-execution before sign-off.** This is the ONLY execution-level plan for the
-capacity-ladder program in this repo. It is updated in place as tasks complete
-(superseded content is deleted, not copied — the autocast live-plan convention).
+> **FROZEN 2026-07-20. This is HISTORY, not a plan.** Every lane in it is complete and audited
+> (§8.6). The live plan of record is `docs/plans/capacity_programme/` — read `MASTER.md` plus the
+> ONE strand you are working. **All ProbReg work is owned by
+> `docs/plans/capacity_programme/probreg.md`**; this file's ProbReg content is superseded by it.
+>
+> **Two known defects in this file — do not trust its own status markers:**
+> 1. Its §8.5 table still shows X1–X4 as pending while its own DISPOSITION paragraph (same day) says
+>    they completed 2026-07-10. The DISPOSITION text is right; the glyphs are stale.
+> 2. Its ⛔ K7 task reads as still-gated, but K7's functional scope was executed later as task F9 in
+>    a different plan file, with no cross-reference added back here.
+>
+> **Ground-truth rule (learned the hard way, 2026-07-20):** for anything in this generation of
+> planning, `automl_package/examples/capacity_ladder_results/RESULTS.md` is the ONLY reliable record
+> of what completed. No plan file's inline status glyph in this directory is trustworthy — several
+> tasks are recorded as done in the results ledger while their own plan file still shows them open.
+>
+> *(This header previously read "LIVE — single source of truth" and "the ONLY execution-level plan
+> for the capacity-ladder program in this repo" — five days after it stopped being either. A
+> superseded plan that still advertises itself as live is how a reader gets sent to dispatch
+> finished work.)*
+
+**Created 2026-07-09. Historical status line, retained as written:** DRAFT pending user ratification
+(⛔ RATIFY-0) — no execution before sign-off. Updated in place as tasks completed.
 Companions in this folder with fixed roles:
 
 - `INPUT_SCOPE_DOC.md` — the user's 2026-07-09 scope document + task framing (frozen input).

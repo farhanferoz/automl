@@ -1,4 +1,23 @@
-# Frozen residual cascade vs Matryoshka heads — firmed mathematics + execution plan (2026-07-11)
+# Frozen residual cascade vs Matryoshka heads — ⛔ FROZEN. NEVER DISPATCH FROM THIS FILE.
+
+> **FROZEN 2026-07-20.** Width content superseded by `docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md`
+> and then by `docs/plans/capacity_programme/width-cert.md`. Live plan of record:
+> `docs/plans/capacity_programme/`.
+>
+> **This file retains genuinely load-bearing ProbReg reasoning — read it, do not dispatch it:**
+> - **§3.1** — the diagnosis of the cross-k class-identity conflict (one component asked to be
+>   correct at several resolutions at once) **and its resolution**: the recipe of record sets
+>   `optimization_strategy=REGRESSION_ONLY`, which makes the cross-entropy branch structurally never
+>   fire. That carve-out is now baked into the shipped source
+>   (`automl_package/models/probabilistic_regression.py:53-60` and `:531-543`).
+> - **§4.7 "Work package P"** — four ProbReg library fixes. **All four verified landed at current
+>   HEAD on 2026-07-20**, and until that check none of them had a completion record in ANY plan
+>   document. Owner going forward: `docs/plans/capacity_programme/probreg.md`.
+>
+> **Known rot in this file and its annex:** citations to
+> `automl_package/models/probabilistic_regression.py:796-798` no longer resolve to the quoted code —
+> the file grew by ~200 lines and `get_classifier_predictions` moved to roughly `:1010`, where the
+> bug they describe is already fixed. Re-verify any line citation here before building on it.
 
 **Status.** This is the build plan that follows the research record
 (`docs/plans/width_dial_2026-07-11/nested_architecture_research_2026-07-11.md`). §1 is the review

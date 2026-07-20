@@ -1,4 +1,15 @@
-# Per-input selector program — EXECUTION PLAN (ratified 2026-07-10)
+# Per-input selector program — ⛔ FROZEN / COMPLETE. NEVER DISPATCH FROM THIS FILE.
+
+> **FROZEN 2026-07-20. COMPLETE — verified against the results ledger, not against this file.** Its
+> ProbReg tasks S1, S2, T2, T3 and H1 all carry adjudicated GO verdicts in
+> `automl_package/examples/capacity_ladder_results/RESULTS.md`, all completed 2026-07-10 — **even
+> though this file's own inline status markers were never updated to say so.** Trust the results
+> ledger, never the glyphs here.
+>
+> Live plan of record: `docs/plans/capacity_programme/`. **All ProbReg work is owned by
+> `docs/plans/capacity_programme/probreg.md`.**
+
+*Historical header, as ratified 2026-07-10:*
 
 Successor program to `docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md` (the
 capacity-ladder program, COMPLETE + certified). That program settled the MEASUREMENT
