@@ -152,8 +152,7 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
         ):
             probabilities = probabilities.detach()
 
-        preds = self.regression_module(probabilities, boundaries=boundaries)
-        return preds
+        return self.regression_module(probabilities, boundaries=boundaries)
 
     def forward(self, x_input: torch.Tensor, boundaries: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         """Performs the forward pass through the network."""
