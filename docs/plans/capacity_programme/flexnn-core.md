@@ -1,6 +1,30 @@
-# Strand: FlexNN core — refactor, feedforward-depth pilot, unified report
+# Strand: FlexNN core — MoE comparison (F6) + unified report (F7)
 
-**Ratified by user 2026-07-18 (live):** (1) **FlexNN is the umbrella** — all width/depth/joint
+> ## ⚠️ SCOPE REDUCED 2026-07-20 — this file now holds TWO live tasks: **F6** and **F7**.
+>
+> The split MASTER had been carrying as pending is **applied.** `flexnn-package.md` **FP-0**
+> recorded a disposition for every one of this file's 15 task headings in
+> `shared/CORE-DISPOSITIONS.tsv`, and the root applied them. **Every heading is still here** — the
+> thirteen non-live ones now carry a pointer instead of a spec, so no incoming citation breaks and
+> nobody has to guess where the work went.
+>
+> | disposition | tasks | where the work lives now |
+> |---|---|---|
+> | **retain (LIVE)** | F6, F7 | here |
+> | moved | F2, F3, F13 | `flexnn-package.md` |
+> | moved | F5 and its repair block | `depth-selection.md` (full text in its History section) |
+> | moved | F12 | `probreg.md` |
+> | superseded (landed) | F0, F1, F4, F8, F9, F10, F11 | verified on disk 2026-07-20 |
+>
+> **Why this mattered:** this file was 54KB holding four workstreams, and that grab-bag is what let
+> three contradictory ProbReg model definitions coexist unnoticed. **One strand file per workstream
+> is the rule** (user, 2026-07-20). It also held live tasks whose write sets collided with the four
+> strand plans — a task here could have created a file a newer strand owns.
+>
+> **The `## Dispatch waves` section near the bottom is STALE and carries its own banner. Do not
+> dispatch from it.** The live order is each strand file's own §4.
+
+**Ratified by user 2026-07-18 (live), and still binding where it is not superseded above:** (1) **FlexNN is the umbrella** — all width/depth/joint
 capacity work IS the FlexNN programme; the rigorous mechanisms get refactored INTO the package
 FlexNN family. (2) Plan is execution-level; **orchestration runs in a SEPARATE session** — nothing
 in this file is built in the planning session. (3) A **unified research report** covering all
@@ -35,261 +59,31 @@ strategy in `layer_selection_strategies.py` and `hard_forward`), HPO depth cap 3
 
 ### Task F0: MASTER reframe — FlexNN umbrella naming + strand registration
 
-**Files:**
-- Modify: `docs/plans/capacity_programme/MASTER.md`
-- Modify (if the gate test asserts strand rows): `docs/plans/capacity_programme/test_plan_gates.py`,
-  `docs/plans/capacity_programme/gates_baseline.txt`
-
-**Orchestration:** parallel: yes · deps: none · tier: sonnet · scale: static · shape: execution ·
-verify: `~/dev/.venv/bin/python -m pytest docs/plans/capacity_programme/test_plan_gates.py -q` green
-
-Spec: retitle MASTER "Capacity programme" → "FlexNN programme (flexible-capacity networks)";
-add naming-key line: "**FlexNN** = the umbrella for ALL per-input capacity work; strands are its
-width/depth/joint/MoE/core facets; the package family is `flexible_neural_network.py` +
-`flexible_width_network.py` (F2)". Register this strand as row 6 (gated on: none; dispatchable).
-Amend row 5: M3–M5 → "M3 rescoped as flexnn-core F6; M4/M5 superseded by F7 (user 2026-07-18)".
-Update priority order: flexnn-core waves first; `width-depth.md` J0 marked PARKED (pending user
-Option 1/3). Do NOT rewrite strand history or Decision register entries — append, never reword.
-
-**Non-goals:** no edits to strand files other than MASTER (F6 owns the `flexnn-moe.md` amendment);
-no RESUME/CHANGELOG edits (local-only).
+**⤳ SUPERSEDED — the reframe has LANDED.** `MASTER.md` is retitled *FlexNN programme (flexible-capacity networks)*, carries the FlexNN-umbrella naming key, and registers every strand. Verified on disk 2026-07-20. Nothing to execute.
 
 ### Task F1: package hygiene fixes in `flexible_neural_network.py`
 
-**Files:**
-- Modify: `automl_package/models/flexible_neural_network.py`
-- Test: `tests/test_phase2_flexible_nn.py` (extend, don't rewrite)
-
-**Orchestration:** parallel: yes · deps: none · tier: sonnet · scale: static · shape: execution ·
-verify: `~/dev/.venv/bin/python -m pytest tests/test_phase2_flexible_nn.py -q` green; ruff clean
-
-Spec (all evidence-backed, none speculative):
-1. **Docstring fix** (line 29): active layers are the FIRST n blocks (`blocks[0..n-1]`); the last
-   `max_hidden_layers − n` are skipped. Fix class + `FlexibleNNModule` docstrings to match code.
-2. **ELBO prior → uniform default.** Replace `linspace(3,1)` categorical prior with uniform
-   (`torch.zeros(max_hidden_layers)` logits) in `DepthRegularization.ELBO`; `COST_AWARE_ELBO`
-   becomes uniform base − `cost_aware_lambda·cost` (keep the cost term). Rationale to cite in the
-   commit: M0 revalidation measured complete depth-collapse to the linspace prior
-   (`report_b_results/`, flexnn-moe.md Done ledger M0); identical trap removed from ProbReg's
-   k-prior. Add a regression test: with ELBO on, depth posterior does NOT collapse to argmax of
-   the prior on a 2-cluster synthetic where deep is needed for one cluster.
-3. **HPO range:** `max_hidden_layers` high 3 → 6.
-4. NO other behavior changes (REINFORCE/Gumbel/STE paths untouched).
-
-**Non-goals:** no distillation (F3), no width (F2), no convergence gating (F4), no strategy
-rewrites.
+**⤳ SUPERSEDED — LANDED, and the residual work is now `depth-selection.md` DSEL-3's.** Verified on disk 2026-07-20: the uniform prior and its removal comment are at `automl_package/models/flexible_neural_network.py:300`, and the HPO range is `high: 6` at `:557`. This task's write set is DSEL-3's; retaining it would put two writers on one file.
 
 ### Task F2: `FlexibleWidthNN` — port the certified width mechanism into the package
 
-**Files:**
-- Read FIRST: `automl_package/examples/nested_width_net.py:222` (`SharedTrunkPerWidthHeadNet` —
-  the G-WIDTH certified pattern: shared full-width trunk, prefix-mask `state[:, w:]=0`, PER-WIDTH
-  heads) + its training loop (joint multi-width loss) + selftest pattern;
-  `automl_package/models/base_pytorch.py` (fit contract).
-- Create: `automl_package/models/flexible_width_network.py` (`FlexibleWidthNN(PyTorchModelBase)`)
-- Create: `tests/test_flexible_width_network.py`
-- Modify: `automl_package/enums.py` (new `WidthSelectionMethod(StrEnum)`: `NONE` (fixed w),
-  `DISTILLED` — closed set ⇒ enum, house rule)
-
-**Orchestration:** parallel: yes · deps: F1 (same-file conflicts: none — new module) · tier:
-sonnet · scale: static · shape: execution · verify: new test file green (fit/predict at each
-width on synthetic; per-width heads present; prefix-nesting property: activations at width w are
-a prefix of w_max's); ruff clean
-
-Spec: constructor takes `widths: tuple[int,...]` (default `(16, 32, 48, 64)`), trunk depth/act
-per existing FlexNN defaults; training = sum of per-width losses (the certified regime — lift
-from the example, cite it in the docstring); `predict(x, width=...)` for fixed,
-`inference_mode="routed"` via F3's router once F3 lands (until then raise NotImplementedError
-with pointer). MSE + CE tasks (mirror FlexNN's criterion selection). Search-first clause: reuse
-`nested_width_net.py` code by import where clean, else copy with provenance comment — state in
-the PR note which was done and why.
-
-**Non-goals:** no NestedWidthNet (#1, failed) or IndependentWidthNet (#3, control) ports; no
-in-training width selection strategies (distillation only, Decision 13); no examples changes.
+**⤳ MOVED to `flexnn-package.md` FP-2.** Bringing the certified width architectures into the package is owned there, together with the ruling on when the four accounting dispatch branches move. Do not execute from here.
 
 ### Task F3: `DistilledCapacityRouter` — Decision-13 selection as a package API
 
-**Files:**
-- Read FIRST: `automl_package/examples/sinc_width_experiment.py`
-  (`_cheapest_within_tolerance_labels`, `DELTA_TIE` — the programme's labeling rule, reused
-  verbatim-in-spirit), `automl_package/examples/depth_selection_toy.py:590-601`
-  (`_VectorRouterMLP` — vector-input router + why `ck6._RouterMLP` doesn't generalize),
-  `automl_package/examples/capacity_ladder_k6.py:75` (router hyperparameter conventions).
-- Create: `automl_package/models/common/distilled_router.py`
-- Create: `tests/test_distilled_router.py`
-- Modify: `automl_package/models/flexible_neural_network.py` (+`inference_mode="routed"`),
-  `automl_package/models/flexible_width_network.py` (same)
-
-**Orchestration:** parallel: no · deps: F1, F2 · tier: sonnet · scale: static · shape: execution ·
-verify: test green: on a synthetic 2-regime task the routed model beats the worst fixed capacity
-and its mean deployed cost < max capacity's; router never sees oracle difficulty labels; ruff clean
-
-Spec: `DistilledCapacityRouter.fit(eval_fn, x_val, y_val, capacity_grid, tolerance, cost_fn)` —
-`eval_fn(x, capacity) → per-sample error`; builds the held-out per-capacity error table; labels =
-cheapest capacity within `tolerance` of each input's best (lift the sinc rule); trains a small
-MLP router on raw inputs → capacity index; `route(x) → capacity`. Grid is a list of tuples so the
-SAME class serves 1-D (depth), 1-D (width), and 2-D (w, T) later — no joint-specific code now.
-Cost default: analytic FLOPs per capacity via `shared/metrics-accounting.md` S2 accounting
-(import the S2 helpers; do not re-derive).
-
-**Non-goals:** no in-training routing; no transformer/token routing; no changes to selection
-strategies.
+**⤳ MOVED to `flexnn-package.md` FP-5.** Router reconciliation is owned there. `automl_package/models/common/distilled_router.py` exists but is a behavioural SUBSET of the research routers (no soft-target training, no blend-likelihood path) — FP-5 owns closing or documenting that gap. Do not execute from here.
 
 ### Task F4: convergence gating — promote the trajectory rule into the package
 
-**Files:**
-- Read FIRST: `automl_package/examples/convergence.py` (the `diverged`/trustworthy trajectory
-  rule every certified result uses).
-- Create: `automl_package/utils/convergence.py` (moved logic; keep a thin re-export in
-  `automl_package/examples/convergence.py` so example imports keep working — verify by grepping importers)
-- Modify: `automl_package/models/flexible_neural_network.py`,
-  `automl_package/models/flexible_width_network.py` — expose `self.convergence_summary_` from
-  `_fit_single` val-loss history; add `trustworthy` to `get_params()` output dict.
-
-**Orchestration:** parallel: yes · deps: F2 · tier: sonnet · scale: static · shape: execution ·
-verify: `grep -rn "import convergence\|from convergence" automl_package/ tests/` all resolve;
-relevant test files green; a deliberately-diverging fit (lr=10) yields `trustworthy=False`
-
-**Non-goals:** no gating inside HPO/CV loops (surface the flag only); no changes to other models.
+**⤳ SUPERSEDED — LANDED.** Verified on disk 2026-07-20: `automl_package/utils/convergence.py` holds the logic and `automl_package/examples/convergence.py` is the thin re-export shim. That shim is the migration precedent `flexnn-package.md` FP-1 copies for the accounting module, and is now ratified programme-wide as `MASTER.md` Decision 19.
 
 ### Task F5: feedforward-depth pilot — spec, ADJUDICATOR GO, build, run (2 seeds)
 
-**F5a — author the spec** (`docs/depth_capacity/ff_depth_toy_spec.md`), then **⛔ ADJUDICATOR GO
-gate (user away — ratified 2026-07-18: no user questions mid-run).**
-[[feedback_toy_design_needs_reviewed_spec]] is satisfied unattended as follows: the written spec
-+ adversarial review are still MANDATORY before any build; the GO call is made by an adjudicator
-(Opus/xhigh) instead of the user. Verdict SOUND, or SOUND-WITH-FIXES whose fixes are mechanical →
-fold fixes, log the verdict, BUILD. Verdict UNSOUND, or any fix that is a PI design decision →
-**PARK F5b** (do not improvise, do not redesign), log it under "Batched user questions", and
-carry on with every other unblocked task. Spec + review verdict are delivered for post-hoc user
-review either way.
-
-**Files (F5a):** Create: `docs/depth_capacity/ff_depth_toy_spec.md`
-**Orchestration (F5a):** parallel: yes · deps: none · tier: opus/high (design) + adversarial
-review pass (adjudicator) · scale: static · shape: design · verify: spec contains generative
-math, the 2×2 grid below, pre-registered bars with numeric thresholds, confound ledger
-(param-count-grows-with-depth for untied arms → param-matched reads mandatory), review verdict §
-
-Design core (settled in main session 2026-07-18, to be made numeric in the spec): task = A5
-word composition, L=10, involution generators (reuse `depth_composition_toy.py` machinery — the
-certified substrate; input = flattened one-hot word, 50-dim). **2×2 architecture grid** isolating
-WHY depth wins there:
-
-| | flat input (all letters at layer 0) | per-step input (letter t at layer t) |
-|---|---|---|
-| **untied weights** | plain deep MLP — *the user's original claim* | untied unrolled stack |
-| **tied weights** | tied stack on flat input | = `RecurrentComposer` (already certified ≥0.90) |
-
-plus the certified wide-shallow control. Depth ladder for stack arms: d ∈ {4, 7, 10}, width 64.
-Bars (freeze numerically in spec): FF-CLAIM passes iff the untied-flat arm at some d ≤ 10 reaches
-held-out ≥ 0.90 while param-matched wide-shallow ≤ 0.60 (the graded-pilot fit/stall thresholds);
-attribution read = which cells generalize, ordered; convergence-gated; 2 seeds. Either outcome is
-reportable: PASS → flexible depth demonstrated on a straightforward feedforward net where depth
-is provably non-substitutable; FAIL with tied cells passing → weight-tying is the load-bearing
-ingredient (goes in F7 + informs the transformer roadmap: weight-tied = the Universal
-Transformer shape, arXiv:1807.03819).
-
-**F5b — build + run: RAN 2026-07-18 → ⛔ INVALID (2026-07-20). Superseded by F5c.**
-The build landed (`NetKind.TIED_FLAT`, `UNTIED_PERSTEP` + builders + driver flags in
-`automl_package/examples/depth_composition_toy.py`) and 28 runs produced
-`.../D_TOY_PROBES/ff_depth_pilot_a5_seed{0,1}.json`. **No bar may be read from them**, on three
-independent grounds, each verified on disk 2026-07-20:
-1. **Positive control FAILED (MASTER Decision 14).** Cell 4 (`RecurrentComposer`, the certified
-   arm, made a MANDATORY confirm run by the F5a reviewer precisely to validate the protocol) is
-   trustworthy on **1 of 2 seeds**: seed 1 = 0.9257 clean; seed 0 climbed to 0.830 by epoch 3000
-   then **collapsed to 0.097**, `diverged=true`. Spec §6 requires ≥2 trustworthy seeds. The
-   protocol did not reproduce a known-good result ⇒ nothing else in the battery is readable.
-2. **Protocol parity breach (MASTER Decision 15).** These runs used `depth_composition_toy.py`'s
-   `train_clf`, which applies **no gradient clipping**, at A5/L=10 — while
-   `automl_package/examples/depth_selection_toy.py` sets `GRAD_CLIP_MAX_NORM = 1.0` commented
-   "L=10 needs clipping to stay GD-trainable". Single unswept `LR = 1e-2`, no schedule/warmup,
-   across arms spanning 12,476–89,660 params.
-3. **Gate/bar metric mismatch (MASTER Decision 17).** `trustworthy` is computed on val CE; the
-   bars read val accuracy. Val CE explodes (overconfidence) while val accuracy sits flat.
-4. **Decision 9 never satisfied.** Runs self-terminated by patience at ~2,750 epochs against a
-   40,000 cap; the required early-stop-OFF confirmation at ≥4× budget was never run.
-
-**Recorded observations (NOT findings — no bar attaches):** untied-flat fails to fit the TRAIN
-set at d=7 (train 0.195) and d=10 (train 0.055) ⇒ under-fit per Decision 16, an optimization
-signal, not an architecture verdict. Shallow (d=4) and deep (d=10) arms fail *differently*
-(instability/overconfidence vs. no learning at all) — one protocol fix may not cover both.
+**⤳ MOVED to `depth-selection.md`** (strand 9), which owns this object end to end. The full original text is preserved verbatim in that file's History section; the live successors are DSEL-1 (the settled diagnosis), DSEL-1b (the replacement all-rungs training scheme) and DSEL-2 (the primary claim). Do not execute from here.
 
 ### Task F5c: depth protocol repair + diagnosis (replaces F5b's run; added 2026-07-20, user-approved)
 
-**Staged — each stage GATES the next. No stage may be skipped or reordered.**
-
-**F5c-a — spec first (~30 min), then ⛔ ADJUDICATOR GO.**
-Create: `docs/depth_capacity/ff_depth_protocol_repair_spec.md`. Must contain: (i) a line-by-line
-**training-loop diff** between `depth_composition_toy.py::train_clf` and `depth_selection_toy.py`'s
-loop, every difference justified or removed (Decision 15); (ii) the **escalation ladder** — which
-remedies, in what fixed order, with the stopping rule (Decision 16); (iii) **instrumentation
-plan** for per-layer gradient norms (the vanishing/exploding hypothesis must be MEASURED, not
-asserted — no artifact currently exists for it anywhere in the repo); (iv) the convergence gate
-recomputed on **val accuracy** as well as CE (Decision 17); (v) bars **unchanged** from
-`ff_depth_toy_spec.md` §6 — FIT 0.90 / STALL 0.60, frozen (Decision 9: no bar moves after a run).
-*Orchestration:* parallel: yes · deps: none · tier: opus/high design + adjudicator review ·
-shape: design · verify: spec contains all five items + a review verdict §.
-
-**F5c-b — positive control ALONE (Decision 14 gate).** `RecurrentComposer`, A5, L=10, 2 seeds,
-repaired protocol, plain single-readout (same `train_clf` protocol as the grid arms).
-**PASS BAR: held-out ≥ 0.90 AND `trustworthy=true` on BOTH seeds.** FAIL ⇒ **HALT**, escalate the
-ladder, re-run this stage only. **No compute is spent on any other arm until this passes.**
-*Orchestration:* deps: F5c-a GO · tier: sonnet · verify: 2 JSONs, both ≥0.90 and trustworthy.
-
-**RESULT 2026-07-20 at Rung 0 (`lr=3e-3`, `clip_max_norm=1.0`, dual gate) — ⛔ FAIL, both seeds.**
-Artifacts: `automl_package/examples/capacity_ladder_results/D_TOY_PROBES/f5c_poscontrol_a5_seed{0,1}.json`.
-
-| seed | train_acc | val_acc (bar 0.90) | trustworthy_acc | stop epoch (cap 40k) | clip engagement |
-|---|---|---|---|---|---|
-| 0 | 0.9697 | **0.4324** | true | 10,500 | 98 % |
-| 1 | 1.0000 | **0.7442** | true | 7,500 | 59 % |
-
-Both runs are `INTERMEDIATE`, both converged cleanly (not `hit_cap`, not `still_improving`, not
-`diverged` on accuracy), and both show the SAME shape: `val_acc` rises then goes flat for the final
-third while **held-out CE diverges monotonically** after its minimum (seed 1: 1.374 @ 3,750 →
-2.325 @ 7,500; seed 0: 1.55 @ 1,250 → 4.87 @ 10,250; `ce_gate.diverged=true` both). Note this is
-also the vindication of the dual gate: best-CE weight restore would have selected ~epoch 3,750 for
-seed 1, i.e. a *lower* accuracy than the run's own best — the exact selection defect that invalidated
-the previous attempt.
-
-**The failure mode is memorization-without-generalization, NOT under-fitting** — and that is a
-problem the ladder cannot address. Every rung (L1 LR, L2 warmup, L3 init) is an *optimization*
-remedy, but at `train_acc` 0.97/1.00 the optimizer has already fit the training set completely; there
-is no optimization failure left to fix. Concretely, both seeds already SATISFY Decision 16's
-exoneration condition (`train_acc ≥ 0.90`) while failing the §5 positive-control bar. Two seeds
-differing by 31 pp on held-out accuracy (0.432 vs 0.744) from initialization alone is a further sign
-this protocol is fragile on this substrate rather than mis-tuned.
-
-**⛔ ESCALATED TO USER — do NOT resolve this without a ruling.** §2.5 step 2 mechanically prescribes
-L1; M7 makes the fail branch a PI-level call. The evidence says L1 is aimed at the wrong problem and
-the informative experiment is M6's discriminator (does the certified anytime configuration still
-reproduce its ≥ 0.90 per-stratum numbers? — reproduced ⇒ single-exit supervision genuinely cannot do
-this task, a substantive finding; not reproduced ⇒ environmental/regression and NOTHING may be
-claimed from today's runs), which the spec currently gates behind L3 exhaustion. Running M6 before
-L1 is a spec deviation and needs the ruling. F5c-c/F5c-d remain HALTED either way.
-
-**Correction to the prior session's hand-off note:** it recorded "FAIL → run the M6 discriminator".
-That contradicts the spec — §2.5 step 2 escalates to L1; M6 is gated at L3 exhaustion (§M6/M7). The
-spec is the plan of record.
-
-**F5c-c — instrumented diagnosis of the untied arms.** Only after F5c-b passes. Log per-layer
-gradient norms across training for untied-flat d ∈ {4,7,10}; land them as an artifact. Answers
-the actual question: does the deep untied stack starve (vanishing) or destabilize (exploding),
-and are these two different failure modes? *Orchestration:* deps: F5c-b PASS · tier: sonnet ·
-verify: a grad-norm artifact JSON/CSV exists per depth; the mechanism claim cites it (new Rule:
-no claim without an artifact).
-
-**F5c-d — the 2×2 grid re-run + verdict.** Only after F5c-b/c. Full matrix per `ff_depth_toy_spec.md`
-§9 under the repaired protocol, incl. the Decision 9 early-stop-OFF confirmation at ≥4× budget for
-any load-bearing cell. Append the results § to `docs/depth_capacity/verdict_per_input_depth.md`
-(the record that F5b owed and never wrote — it records what ran and what is quarantined, and
-renders a verdict ONLY where a bar is validly evaluable).
-*Orchestration:* deps: F5c-c · tier: sonnet · scale: static · shape: execution · verify: JSONs
-exist AND every reported cell is `trustworthy=true` on ≥2 seeds AND bars evaluated in the verdict §;
-runs detached per environment rules.
-
-**Non-goals:** no L > 10 (MOD-1 GD wall), no new groups, no selection/router in the pilot
-(substrate question only), no curriculum tricks (future work if FF fails).
+**⤳ MOVED to `depth-selection.md`; the HALT it escalated is CLOSED.** The user ruling recorded in DSEL-1 and written up at `docs/plans/capacity_programme/shared/dsel1_nested_diagnosis.md` settles it: the failed arm had no nested structure — one loss at full depth — so the optimisation escalation ladder was aimed at the wrong problem and no re-run is owed. The staged a/b/c/d sequence is **retired, not pending.** Full text preserved in that strand's History section. Do not execute from here.
 
 ### Task F6: FlexNN-vs-MoE comparison battery (rescopes M3; UNGATED from G-JOINT)
 
@@ -361,303 +155,27 @@ toys tested (boundary stated explicitly); no G-JOINT verdict (it is open).
 
 ### Task F9: ProbReg dynamic-k port — the SAME refactor FlexNN is getting (added 2026-07-18)
 
-**Files:**
-- Read FIRST: `automl_package/examples/_capacity_ladder_nested.py` (K4 nested-k surrogate — the
-  VALID prefix ladder, trained per-sample `k ~ Uniform{1..k_max}` = the user's k-dropout scheme,
-  strictly probabilistic, no penalties), `automl_package/examples/capacity_ladder_k6.py` (K6
-  distilled router π(x): SOFT responsibility-labelled router ≤ global-k on 9/9 audited cases),
-  `automl_package/examples/capacity_ladder_results/{R2_verdict.md,RESULTS.md}` (arbiter — not
-  knee — is the faithful per-input readout; toy E = honest negative 2/3 seeds),
-  `automl_package/models/probabilistic_regression.py` (current in-training dynamic-k).
-- Modify: `automl_package/models/probabilistic_regression.py`
-- Test: extend the relevant ProbReg test file (locate via `tests/test_phase3_dynamic_k.py` first)
-
-**Orchestration:** parallel: yes (disjoint from F6) · deps: F3 · tier: sonnet · scale: static ·
-shape: execution · verify: relevant ProbReg tests green; a synthetic 2-regime case shows the
-distilled-k routed model ≥ the best global fixed k on held-out NLL (the K6 result, reproduced
-through the package API); ruff clean
-
-Spec: (1) add a **nested-k training mode** to the package model implementing the K4 scheme
-(per-sample uniform k over the renormalized first-k prefix; component 1 = bypass rung; no k
-input to the network) — lift semantics from `_capacity_ladder_nested.py`, cite it; (2) wire
-**per-input k at inference via `DistilledCapacityRouter`** (F3) with K6's SOFT
-(responsibility-style) labels as the labeling rule — k is just another capacity axis on the
-same API; (3) demote the in-training `NClassesSelectionMethod`/ELBO selection to labeled
-comparison arms in docs (they remain functional; the distilled path is the recommended one);
-(4) expose the held-out arbiter read as a diagnostic utility (the certified readout — eff-count
-tiles, knee collapses; R2). Known boundary to state in docstrings: adaptive-mode drift cases
-(toy-E-like) are NOT certified — 2/3 seeds negative.
-
-**STATUS 2026-07-20: LOGIC LANDS, DEVICE BUG OPEN.** Verified on disk: both F9 deliverable tests
-(`TestNestedKTraining::test_nested_bypass_rung_differs_from_mixture_rung`,
-`TestNestedKDistilledRouting::test_distilled_router_matches_or_beats_best_global_fixed_k`) **PASS
-on CPU** (42 s) and **FAIL on XPU** with `Expected all tensors to be on the same device`.
-**F9-fix: DONE + VERIFIED ON XPU HARDWARE 2026-07-20.**
-
-⚠️ **The orchestrator's inspection-time hypothesis was WRONG and is recorded here so it is not
-re-proposed.** It guessed `probabilistic_regression.py:246-247` (`unique_k`/`probabilistic_indices`
-created as bare CPU `torch.tensor([])`). Refuted by reproduction and re-verified independently:
-both are *unconditionally* reassigned from device-correct sources before any use — `:281-282`
-(`if probabilistic_indices.numel() == 0: … torch.where(selected_k_values …)`) and `:289-290`
-(`if not torch.is_tensor(unique_k) or unique_k.numel() == 0: … torch.unique(k_values_prob)`) —
-so the CPU placeholders never reach a device op. `probabilistic_regression.py` needed NO change.
-
-**Actual root cause: the two failing TESTS, not production code.**
-`ProbabilisticRegressionNet.forward_at_k`/`forward` deliberately do no device transfer; every
-production call site transfers first (`probabilistic_regression.py:741,812,827`;
-`base_pytorch.py:148`) — an established convention. The two tests built input tensors without
-`.to(model.device)` (and called `.numpy()` without `.cpu()`), while every other tensor site in the
-same file already followed the convention. Fixed in `tests/test_phase3_dynamic_k.py`, plus a new
-accelerator-only regression test (`test_forward_at_k_runs_on_accelerator_device`,
-skipif CPU) that walks every rung and asserts output device.
-
-**Also landed:** `automl_package/models/common/distilled_router.py` device default
-`"cpu"` → `None` ⇒ `get_device()` (was the only hardcoded device string in `models/`; no import
-cycle — `pytorch_utils` imports only `enums`/`utils.numerics`). Side-effect checked by the
-orchestrator: `tests/test_distilled_router.py` constructs the router with no device arg in ~7
-places; re-run after the change → **15 passed** (includes the new F13 parity guard).
-
-**Verified:** `AUTOML_DEVICE=cpu` full file → 32 passed, 1 skipped. On real XPU
-(`torch.xpu.is_available()` True): the two named tests FAILED on unmodified code with the exact
-reported error, then PASSED after the fix; `TestNestedKTraining` 5 passed, `TestNestedKDistilledRouting`
-5 passed. Ruff: only 6 pre-existing findings, none on touched lines (confirmed against a stashed
-baseline). **Lesson for the programme: a device bug is invisible on CPU — the suite as normally run
-cannot see this class at all.**
-
-**SECOND DEFECT (F9-fix-b), found by F12-a 2026-07-20, orchestrator-verified — SILENT WRONG
-RESULTS.** `fit()` symlog-transforms `y_train`/`y_val` internally
-(`automl_package/models/probabilistic_regression.py:526-529`), so the network's `forward_at_k`
-outputs live in **symlog space**. But `fit_router()` takes the caller's `y_val`, converts it with
-`np.asarray` unchanged, and computes the per-sample Gaussian NLL against those outputs
-(`:808`, inside `eval_fn`) — i.e. **raw-space y against symlog-space predictions**. No transform,
-no check, no exception: the error table is silently wrong, so the distilled router is silently
-wrong. The trap is an API asymmetry — passing RAW `y` to `fit()` is correct, so doing the same for
-`fit_router()` looks correct too. Hits exactly the heavy-tailed datasets F12 targets
-(Superconductivity, Kepler). **Fix: make `fit_router` transform `y_val` when
-`target_transform="symlog"` (or reject raw input explicitly); document the contract either way;
-add a regression test that a symlog-fitted model routes identically whether given raw or
-pre-transformed y.** MUST be serialised after F9-fix (same file, single-writer rule).
-
-**F9-fix-b VERIFIED 2026-07-20 — and the proof-of-failure caught that the first regression tests
-were BLIND.** Source fix is at `probabilistic_regression.py:813-818` with the contract documented in
-the `fit_router` docstring (`:782-787`). Verification ran in both directions, as the new Rule
-requires: fix present → **3 passed**; fix removed (block deleted, restored from a checksummed backup
-afterwards) → **3 failed**. The first pass of that check is the finding: the *original* two tests
-**both passed with the fix removed**, i.e. they never protected anything.
-
-Two independent causes, both measured (`AUTOML_DEVICE=cpu`, 400 heavy-tailed points, `max_k=3`,
-150 epochs; per-capacity error-table mean, correct vs unit-mismatched):
-
-| data seed | correct | unit-mismatched | labels differing | `route_index` differing |
-|---|---|---|---|---|
-| 0 | 1.057 | 20.920 | 3.00 % | **none** |
-| 1 | 0.959 | 15.369 | 1.75 % | **none** |
-
-1. **The routing test asserted on a lossy view of the fix.** `DistilledCapacityRouter.fit` trains a
-   cross-entropy MLP on labels that are ~97 % capacity-0 on this fixture, so it collapses to a
-   constant router in *both* arms and compares equal even when the tables underneath differ by 20×.
-   Routing equality is the *contract statement*; it is not a *detector*. Now asserted innermost-out:
-   error table → cheapest-within-tolerance labels → routing.
-2. **The sanity bound sat inside the failure range.** `_SYMLOG_ROUTER_NLL_SANITY_BOUND = 20.0` while
-   the mismatched value on the single seed the test used was 15.37 — it passed. Retightened to
-   **5.0** (≈5× above correct, ≈3× below the smallest mismatched value), calibration recorded at the
-   constant, and the test parametrized over both data seeds since the blowup magnitude is
-   seed-dependent.
-
-**Programme lesson (companion to the device-bug lesson above): a regression test is not evidence
-until it has been shown to FAIL on the unfixed code.** "Tests green" and "the bug is caught" are
-different claims; only the removal run distinguishes them. This is the third silent-failure class to
-survive a green suite. Ruff on the touched file: 6 findings, all pre-existing, none on touched lines.
-
-**THIRD (documentation, F12-a): `predict_distribution` is unavailable for variable-k and for
-symlog** (`:660-663`, `:664-668`), so the variable-k arm cannot emit a mixture. F12's spec works
-around this by fixing a moment-matched Gaussian in original units as the single comparable object
-for all six models; the API limitation itself is recorded here, not fixed by F12.
-
-**Non-goals:** no change to fixed-k behavior or report-(a) configs; no Basis-B work (separate
-open research item); no removal of existing selection strategies; no variational-EM harness
-port (research instrument, stays in examples).
+**⤳ SUPERSEDED — LANDED and verified in BOTH directions.** The device bug and the symlog units bug are both fixed; `probreg.md` §3 D1 carries the record, and the programme lesson (*a regression test is not evidence until shown to FAIL on the unfixed code*) is now a `MASTER.md` rule. This task's write set is P1/PA's.
 
 ### Task F10: ProbReg k-selection report — the missing report (added 2026-07-18)
 
-**Files:**
-- Read FIRST: `automl_package/examples/capacity_ladder_results/RESULTS.md` (audited results of
-  record, incl. K4/K5/K6 + R1–R4 verdicts + independent review 2026-07-10),
-  `docs/reports/probreg_kselection/historical/probreg_kselection_findings.md` (moved there by this
-  task) + `docs/kselection_variational_em_2026-06-13/` (June
-  Basis-A/variational-EM arc — historical context to absorb, not the results of record).
-- Create: `docs/reports/probreg_kselection/` (own folder; md + PDF per [[reference_pdf_build]])
-- Modify: move/supersede the loose `docs/probreg_kselection_findings.{md,pdf}` into the new
-  folder (no stray files in docs/ root)
-
-**Orchestration:** parallel: yes (pure writing; all numbers landed) · deps: none · tier:
-session-model draft + adjudicator cold-reads · scale: static · shape: execution · verify:
-`research-report` skill gates pass; every number traces to `capacity_ladder_results/` artifacts;
-byline = user, no AI provenance
-
-Gap this fills (verified 2026-07-18): report (a) covers ProbReg-vs-baselines ONLY — zero
-mentions of k-selection/arbiter/router. The July ladder programme (K4 nested-k prefix ladder =
-the k-dropout scheme; R2 arbiter-not-knee; K6 distilled per-input router 9/9) exists only as
-working verdicts + a June-era findings note that PREDATES the ladder certification. Structure:
-the k question (resolution dial, not component count); why prefix-masking an unordered mixture
-failed (R1); the nested-k construction; the arbiter readout; the distilled router result;
-honest negatives (toy E 2/3 seeds, V3 under-resolution ceiling); relation to the FlexNN
-selection law (pointer to F7). ProbReg is framed as a CLASSIFIER over k classes throughout
-([[feedback_explain_probreg_as_classifier]]).
-
-**Non-goals:** no new experiments; no Basis-B (open research, listed as future work); no
-package-API content (F9's docstrings own that).
+**⤳ SUPERSEDED — the report EXISTS.** Verified on disk 2026-07-20: `docs/reports/probreg_kselection/probreg_kselection.md` and its PDF are both present. That directory is `probreg.md` P6's write set; P6 CORRECTS the framing to the three-model set rather than appending to it.
 
 ### Task F11: roadmap groundwork dossiers R5a + R5b (promoted from the roadmap; runs Wave 1)
 
-**Files:**
-- Create: `docs/roadmap_groundwork/python_instruction_datasets.md` (R5a) and
-  `docs/roadmap_groundwork/dgx_spark_training_envelope.md` (R5b) — own folder, two dossiers.
-
-**Orchestration:** parallel: yes (two independent task-workers, one per dossier) · deps: none ·
-tier: sonnet · scale: static · shape: research · verify: every factual claim carries a source
-URL fetched THIS run (WebSearch/WebFetch — no memory citations); unresolved items listed as
-OPEN, never asserted
-
-R5a brief: inventory public Python instruction-level coding datasets. Seed anchors (verified
-2026-07-18): CodeAlpaca-20k, Evol-CodeAlpaca-V1, Magicoder-OSS-Instruct-75K (arXiv:2312.02120),
-OpenCodeInstruct. Must resolve: license per dataset (The Stack v2 terms explicitly),
-size/token counts, generation provenance (human vs model-generated — flags for contamination),
-dedup practice, and a recommended Python-only corpus mix with total token estimate.
-R5b brief: DGX Spark training envelope. Verified base specs (2026-07-18): GB10, 128 GB unified
-LPDDR5X, ~1 PFLOP FP4, 31 TFLOPS FP32, 4 TB NVMe. Must resolve (sourced): BF16/FP8/NVFP4
-*training* (not inference) support and realistic sustained throughput, memory budget arithmetic
-for training (params+optimizer+activations) at candidate sizes {~125M, ~350M, ~1B}, scaling-law
-token budgets (cite the law used), wall-clock estimates, and a go/no-go read on "1B-class Python
-model trainable on one unit".
-
-**Non-goals:** no purchases/recommendations of specific vendors; no dataset downloads; no
-architecture content (R4's job).
+**⤳ SUPERSEDED — both dossiers LANDED.** Verified on disk 2026-07-20: `docs/roadmap_groundwork/python_instruction_datasets.md` and `docs/roadmap_groundwork/dgx_spark_training_envelope.md`. Roadmap groundwork; owned by no capacity strand.
 
 ### Task F8: transformer/coding-model roadmap amendment
 
-**Files:**
-- Modify: `docs/research_plan.md` §5 + Paper C paragraph
-
-**Orchestration:** parallel: yes · deps: none (content finalizes after F7 drafts §7 — light
-touch-up allowed then) · tier: sonnet · scale: static · shape: execution · verify: §5 keeps the
-"no sequence transformers IN THE TABULAR PACKAGE" verdict intact and adds the staged path
-without contradicting it
-
-Spec: append the staged path (each stage gated on the previous): (i) tabular FT-Transformer
-block-depth gating (existing Paper C, unchanged) → (ii) weight-tied sequence-transformer toy
-with per-token distilled halting on an algorithmic task (the D8-style router, UT-shaped;
-sits OUTSIDE the tabular package, own examples module) → (iii) per-module (encoder/decoder
-block) flexible capacity, MoD/MoDE-style top-k routing with OUR distilled (not in-training)
-router as the comparison axis → (iv) **probabilistically-grounded architecture research
-(ratified theme, 2026-07-18):** start from the STANDARD transformer block (for baseline
-comparability), then explore replacing its arbitrary components (Q/K/V projections, heuristic
-gating, tuned auxiliary penalties) with statistically/probabilistically motivated constructions —
-the programme's standing theme (no arbitrary penalties; coherent probabilistic objectives; cf.
-ProbReg ELBO, distilled cheapest-sufficient routing). Research aim, stated as a BET not a
-promise: can probabilistic grounding of capacity allocation yield large efficiency gains over
-SOTA MoE transformers? Requires a dedicated **literature review task** (deep-research fan-out:
-probabilistic/kernel/Bayesian interpretations of attention, principled routing, adaptive-compute
-theory — every anchor verified, none from memory) BEFORE any architecture is proposed →
-(v) small Python-code LM demonstration (compute plan TBD — explicitly flagged as needing
-hardware beyond this box). Cite the two verified anchors (UT arXiv:1807.03819, MoD
-arXiv:2404.02258).
-
-**Non-goals:** no implementation; no package scope change; no promises of LM-scale results on
-current hardware (state the constraint honestly).
+**⤳ SUPERSEDED — LANDED.** Verified on disk 2026-07-20: `docs/research_plan.md` carries the staged path and both verified anchors (arXiv:1807.03819, arXiv:2404.02258). Owned by no capacity strand.
 
 ### Task F12: ProbReg benchmark — shared-k vs variable-k vs baselines, on REAL data (added 2026-07-20, user-ratified)
 
-**Authority:** MASTER Decision 3 as amended 2026-07-20 (user, live). This is the scope change
-from "reports are toys-only" — it binds THIS task and F10's results §, not the width/depth reports.
-
-**Files:**
-- Read FIRST: `automl_package/examples/model_comparison.py` — the EXISTING baseline-comparison
-  harness (XGBoost / LightGBM / PyTorch NN / ProbReg on 3 synthetic sets, Apr 2026). **Extend it;
-  do not reinvent** (repo search-before-write rule). Also `docs/research_plan.md` §6 (dataset
-  dossier, incl. published baselines) and §4 (the missing-baselines analysis).
-- Create: `docs/probreg_benchmark/benchmark_spec.md` (F12-a, spec first)
-- Create: `automl_package/examples/probreg_benchmark.py` (driver)
-- Create (by runs): `automl_package/examples/probreg_benchmark_results/*.json`
-
-**F12-a — spec first, then ⛔ ADJUDICATOR GO** (same discipline as F5c-a; a benchmark grid
-improvised mid-run is exactly what invalidated F5b). Spec must freeze, BEFORE any run: the model
-set, dataset list + provenance, metrics, split protocol, seed count, and **how tuning budget is
-matched across models** (an unmatched comparison is not evidence — `research_plan.md` §3 fixes a
-per-model-per-dataset wall-clock budget; reuse it rather than inventing one). Pre-register what
-result would count as a win, a loss, and a null, for each claim.
-
-**Models (6).** (1) **shared-k** ProbReg — fixed `n_classes`; (2) **variable-k** ProbReg —
-per-input k via `DistilledCapacityRouter` (F9). Treated as two DISTINCT models per the MASTER
-Naming key. Baselines: (3) XGBoost, (4) LightGBM, (5) CatBoost, (6) standard PyTorch NN. *(The
-wider UQ baseline set — NGBoost, MDN, Deep Ensembles, quantile NN — is `research_plan.md` §4
-future work, NOT this task.)*
-
-**Datasets — real, in two tiers.** Tier 1 (tests OUR specific claims, run first):
-`Kepler Objects of Interest` (NASA Exoplanet Archive; predict planet radius — genuinely
-**multimodal** across rocky / sub-Neptune / Jupiter populations, the strongest real test of the
-classification-bottleneck idea), `UCI Superconductivity` (n=21,263, d=81; heavy-tailed T_c 0–185 K
-⇒ real symlog test; published XGBoost RMSE ≈ 9.5 K to beat), `UCI Airfoil Self-Noise` (n=1,503,
-d=6; heteroscedastic). Tier 2 (literature comparability, Hernández-Lobato & Adams 2015 protocol):
-Concrete, Energy, Naval, Power Plant, Protein/CASP, Wine red+white, Yacht. **Boston excluded**
-(removed from scikit-learn 1.2). **Every dataset URL in `research_plan.md` §6 must be re-verified
-live before download** — no-guessing rule; they were written 2026-04.
-
-**Metrics:** RMSE + NLL + CRPS + calibration (PIT / interval coverage). The headline read is
-**variable-k vs shared-k** (does per-input k pay on real data?) and **both vs the tree baselines**.
-Prior evidence to reproduce-or-contradict, not to assume: K6 found the per-input router ≤ global-k
-on **9/9** synthetic cases (`automl_package/examples/capacity_ladder_results/RESULTS.md`).
-
-**Orchestration:** parallel: yes (disjoint from all F-tasks) · deps: **F9-fix** (variable-k must
-work on the run device) · tier: opus/high spec + adjudicator review, then sonnet execution ·
-scale: static · shape: design → execution · verify: spec has a review verdict §; every run
-convergence-gated (Decisions 9/17); a known-good configuration passes first (Decision 14); results
-JSONs carry per-seed numbers, not just means.
-
-**Non-goals:** no astrophysics headline analysis (that is Paper A/B); no NGBoost/MDN/Deep-Ensemble
-baselines; no HPO beyond the frozen matched budget; no width/depth content (F7 owns that).
+**⤳ MOVED to `probreg.md`** (P0 / P0-b1 for the spec, P4 for the driver and the run). ⚠️ Its six-model set here is **SUPERSEDED** by `probreg.md` §1's three-model set, and its baseline list is superseded by `MASTER.md` Decision 3's correction (LightGBM, a plain single-output NN, linear regression; XGBoost and CatBoost dropped). Do not execute from here.
 
 ### Task F13: refactor debt from the F2/F3/F4 package port (added 2026-07-20)
 
-Audit run 2026-07-20 after the F1–F4 refactor landed. **No live bug was found** — the duplicated
-logic is currently byte-equivalent in behaviour — but the duplication is real and, until F13, only
-partly guarded.
-
-**DONE 2026-07-20 (no further action):**
-- **Parity guard landed.** `tests/test_distilled_router.py::TestLabellingRuleParityWithCertifiedOriginal`
-  pins `models/common/distilled_router._cheapest_within_tolerance_labels` to the certified original
-  `examples/sinc_width_experiment._cheapest_within_tolerance_labels` across error magnitudes and
-  hand-built tie/degenerate rows, and asserts `DEFAULT_TOLERANCE == DELTA_TIE`. Verified identical:
-  0 disagreements over 500 random tables spanning 1e-3…1e3. 15 tests green, ruff clean.
-- **Dead code removed:** `debug_independent_weights_nn.py` (176 lines, formerly under
-  `automl_package/examples/`; junk-named per the repo hygiene rule, referenced by nothing in any file
-  type). Recoverable: `git checkout 27c7159 -- automl_package/examples/debug_independent_weights_nn.py`.
-  *(Deliberately not written as a live path citation — the file no longer resolves, and the citation
-  gate correctly rejected the first draft of this line.)*
-
-**OPEN — the migration itself:**
-1. **`_cheapest_within_tolerance_labels` exists twice.** The package copied rather than imported,
-   because a package module importing from `automl_package/examples/` would invert the dependency
-   (production depending on research scripts). Correct end-state is the REVERSE migration: the three
-   certified drivers (`depth_selection_toy.py`, `joint_capacity_toy.py`,
-   `kdropout_converged_width_experiment.py`) import the PACKAGE function, making it the single source
-   of truth. **This edits certified drivers ⇒ MASTER Decision 15 applies:** it is a protocol-parity
-   change requiring a before/after equivalence run, not a drive-by edit. The parity test above is the
-   interim guard.
-2. **Four router-MLP implementations now coexist:** `capacity_ladder_t2._RouterMLP`,
-   `capacity_ladder_k6._RouterMLP`, `depth_selection_toy._VectorRouterMLP`, and the package's
-   `distilled_router._CapacityRouterMLP`. The package one is canonical; the three example copies are
-   historical and back certified results. Consolidate only under the same Decision 15 discipline.
-3. **`FlexibleWidthNN` is a documented PORT** of `examples/nested_width_net.SharedTrunkPerWidthHeadNet`
-   (copy with provenance, not import) — same pattern, same remedy, lowest priority since the example
-   is a frozen research artifact.
-
-**Orchestration:** parallel: yes (disjoint from F5c/F9/F12) · deps: none for items 2-3; item 1 should
-follow F9-fix so `probabilistic_regression.py` is settled · tier: sonnet · shape: execution · verify:
-the parity test still green AND a before/after equivalence run on each migrated certified driver.
-
-**Non-goals:** no behaviour change of any kind; no deletion of the example copies until their
-importers are migrated; no touching frozen result JSONs.
+**⤳ MOVED to `flexnn-package.md`.** Item 1 (the duplicated cheapest-within-tolerance labeller) is FP-9's; item 2 (the coexisting router MLPs) is FP-5's; item 3 (the `FlexibleWidthNN` port) is FP-2's. All three are specified there in more detail than here. The parity guard and the dead-code removal recorded under this heading are DONE and stay recorded. Do not execute from here.
 
 ---
 
@@ -709,7 +227,20 @@ gates known, needs its own spec/design round before any build.
 de-risks the endpoint and sizes every intermediate decision; defer R4a to its gate — expensive
 and fast-decaying. R2/R3 design rounds happen at their own stages under the spec-first rule.
 
-## Dispatch waves (for the orchestration session)
+## Dispatch waves — ⛔ STALE. NEVER DISPATCH FROM THIS SECTION.
+
+**Frozen 2026-07-20 when the dispositions were applied.** Every wave below names tasks that have
+since **landed, moved to another strand, or been superseded** — F0/F1/F4/F8/F9/F10/F11 are done,
+F2/F3/F13 belong to `flexnn-package.md`, F5 and its repair block belong to `depth-selection.md`, and F12 belongs to
+`probreg.md`. A dispatcher working from this list would re-run completed work and execute tasks
+another strand now owns, on write sets that strand's tasks are actively using.
+
+**The live dispatch order is each strand file's own §4 Tasks section**, partitioned into waves by
+`deps:` + write-set overlap. Only **F6** and **F7** remain live in THIS file, and their order is
+stated at their own headings. Retained verbatim below solely as the historical record of how the
+refactor was sequenced.
+
+<!-- citecheck-ignore: frozen historical wave list, superseded by the strand files -->
 
 - **Wave 1 (parallel, disjoint writes):** F0 (MASTER) · F1 (flexnn fixes) · F5a (FF spec author →
   review) · F8 (research_plan §5) · F11 (R5a/R5b groundwork dossiers — NOT optional; user agreed

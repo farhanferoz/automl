@@ -149,7 +149,7 @@ Older prose in this file still says "shared-k" and "variable-k" (the superseded 
 
 | Older wording | Means now | Note |
 |---|---|---|
-| "shared-k" | **M1** — one k for the dataset, chosen by the arbiter | the *training* difference is gone: M1 now uses k-dropout like the others |
+| "shared-k" | **M1** — one k for the dataset, chosen by the arbiter | the *training* difference between M1 and M2 is gone: M1 now uses k-dropout like M2. **CORRECTED 2026-07-20**: this row previously said "like the others" (plural) — false as written. M3 is the exception: it is trained ORDINARILY per k, not with k-dropout (`docs/plans/capacity_programme/probreg.md` §1). |
 | "variable-k" | **M2** — a k per input, chosen by the distilled selector | unchanged in substance |
 | *(no older term)* | **M3** — the per-k sweep reference | new; wherever an old passage compares only two ProbReg arms it is incomplete, not wrong |
 
@@ -161,10 +161,16 @@ makes the document safe to build from in the meantime.
 
 ### 2.0 What the three ProbReg models isolate, and what the old pair got wrong
 
-Definition of record: `docs/plans/capacity_programme/probreg.md` §1. **All three ProbReg models
-train identically — with k-dropout** (`NClassesSelectionMethod.NESTED`, per-sample
-`k ~ Uniform{1..k_max}`). Training is therefore NOT a variable. They differ in exactly one thing:
-how k is chosen.
+Definition of record: `docs/plans/capacity_programme/probreg.md` §1. **CORRECTED 2026-07-20 (user
+ruling; this section previously said "all three ProbReg models train identically — with k-dropout",
+which is superseded and was in force until this correction).** **M1 and M2 train identically — with
+k-dropout** (`NClassesSelectionMethod.NESTED`, per-sample `k ~ Uniform{1..k_max}`) and are read off
+the SAME trained network. **M3 does NOT use k-dropout: each of its per-k models is trained
+ORDINARILY at its own fixed k** (`NClassesSelectionMethod.NONE`) — a model dedicated to that k, not
+the same network read at a different point, because M3 is the expensive reference the cheap methods
+are measured against, not an arm in the controlled contrast. Training is therefore NOT a variable
+**between M1 and M2**; they differ in exactly one thing: how k is chosen. The single-difference rule
+does not bind M3.
 
 🔑 **Each ProbReg model IS the complete system, selection machinery included** — **M1 = ProbReg +
 arbiter, M2 = ProbReg + distillation, M3 = ProbReg + sweep selector.** Every metric in every table is
@@ -194,7 +200,7 @@ no reference to be measured against.
 ```python
 ProbabilisticRegressionModel(
     input_size=d,
-    n_classes_selection_method=NClassesSelectionMethod.NESTED,   # k-dropout, SAME as M2/M3
+    n_classes_selection_method=NClassesSelectionMethod.NESTED,   # k-dropout, SAME as M2 (CORRECTED 2026-07-20: M3 does NOT use k-dropout — see §1)
     max_n_classes_for_probabilistic_path=10,                     # FROZEN, §3.2
     uncertainty_method=UncertaintyMethod.PROBABILISTIC,
     regression_strategy=RegressionStrategy.SEPARATE_HEADS,
@@ -274,16 +280,21 @@ so that the shared-k/variable-k contrast is a contrast in *selection*, not in ro
 
 ### 2.3 Model 3 — per-k sweep ProbReg (the expensive reference M1 is measured against)
 
-Train a **separate** k-dropout model for each `k` in the sweep grid (§3.1), score each on held-out
-data, keep the best. This is the honest, expensive way to pick one global k; M1's entire claim is
-that it reaches this answer far more cheaply.
+Train a **separate** model for each `k` in the sweep grid (§3.1), each trained ORDINARILY at its own
+fixed k (`NClassesSelectionMethod.NONE`, **not** k-dropout — **CORRECTED 2026-07-20**; this
+paragraph previously said "a separate k-dropout model for each k", which is superseded, see §1),
+score each on held-out data, keep the best. This is the honest, expensive way to pick one global k;
+M1's entire claim is that it reaches this answer far more cheaply.
 
 **Reuse, do not rewrite.** `select_k_for_toy`
 (`automl_package/examples/report_a_benchmark.py:331`) already implements exactly this loop — fit at
 each candidate k, score on held-out, `argmin` val NLL — and returns the per-k score table alongside
-the selected k. The driver **generalises that function** (its ProbReg builder becomes the k-dropout
-one of §2.1, and its `argmin` becomes whatever rule §2.1's open question settles, so M1 and M3 are
-scored by the SAME rule on the SAME curve). Writing a second sweep loop is a defect.
+the selected k. The driver **generalises that function** (its ProbReg builder **stays the ordinary
+fixed-k builder it already uses**, `_probreg_fixed` (`:185-191`, `NClassesSelectionMethod.NONE`) —
+**CORRECTED 2026-07-20**: this sentence previously said the builder "becomes the k-dropout one of
+§2.1", which is exactly the confound §1 rules out for M3 — and its `argmin` becomes whatever rule
+§2.1's open question settles, so M1 and M3 are scored by the SAME selection rule on the SAME curve,
+read from differently-trained networks). Writing a second sweep loop is a defect.
 
 **Two things M3 must emit, because both halves of the efficiency claim are read off it:**
 - the **selected k** (compared against M1's — the *same choice* half), and
@@ -352,7 +363,7 @@ beat least squares on a dataset has not earned its complexity there.
 | §3.1 **M3 sweep grid** (was: shared-k `n_classes` range) | `{1, 2, 3, 5, 7, 10}` | **Changed 2026-07-20 with the §2 rewrite.** No longer an Optuna range — no ProbReg arm tunes `n_classes` (C1). It is now M3's sweep: the k values at which a dedicated model is trained. `1` (the bypass) is ADDED so M3 competes over the same rung set M1 and M2 reach (C3); the old grid's omission of it was the confound. Still capped at 10 = `max_n_classes_for_probabilistic_path`. |
 | §3.2 `max_n_classes_for_probabilistic_path` | `10` **+ a binding ceiling check** | Package default (`probabilistic_regression.py:67`), not a code limit — it is a constructor argument and the rung grid is derived from it, so nothing is hardcoded. **But a frozen ceiling censors the answer if it binds.** ⇒ **CEILING CHECK (binding, added 2026-07-20):** if any (dataset, seed) selects `k = k_max` for M1 or M3, or M2 routes a material share of inputs to the top rung, the ceiling **is** the result and the true answer is unknown. That cell is **re-run at a raised ceiling** (`k_max = 20`) and the raise is reported. Never report a selected k equal to the ceiling as if it were a free choice. *(Related hardcode worth knowing: the Optuna search space falls back to a literal `10` upper bound at `probabilistic_regression.py:464` when `n_classes_inf` is infinite. It does not bite here — no arm tunes this — but it is a real hardcode and would bite anyone who did.)* |
 | §3.3 `regression_strategy` | `SEPARATE_HEADS` | The only strategy with per-class `(μ, σ)` (`predict_distribution` rejects `SINGLE_HEAD_FINAL_OUTPUT`, `probabilistic_regression.py:656-659`) and the certified configuration of record. Not swept. |
-| §3.4 `optimization_strategy` | `REGRESSION_ONLY` | Mandatory under k-dropout: the class docstring records that dynamic-k + CE is **not validated** (`probabilistic_regression.py:54-62`). Identical across all three ProbReg arms. *(This cell previously claimed the two ProbReg arms "differ in exactly one thing". That was **false** — they also differed in training scheme. It is true of the §2.0 three-model set, which is the point of the rewrite.)* |
+| §3.4 `optimization_strategy` | `REGRESSION_ONLY` | **Identical across all three ProbReg arms**, and it must stay that way — but for two different reasons, which the earlier wording conflated. **CORRECTED 2026-07-20:** this cell read *"Mandatory under k-dropout"*, which is imprecise now that M3 does not use k-dropout. For **M1 and M2** (k-dropout) it is mandatory: the class docstring records that dynamic-k + CE is **not validated** (`probabilistic_regression.py:54-62`), and freezing `REGRESSION_ONLY` is what keeps the k ladder coherent by making the cross-entropy branch never fire (the cross-k class-identity conflict, `probreg.md` §2.5 / D4). For **M3** (ordinary per-k models) the CE branch is not the hazard, but the setting is held identical anyway **so the objective is not a second difference between the reference and the arms it is the reference for**. *(This cell previously claimed the two ProbReg arms "differ in exactly one thing". That was **false** — they also differed in training scheme. It is true of the §2.0 three-model set, which is the point of the rewrite.)* |
 | §3.5 router hyperparameters | package defaults, untuned | §2.2. |
 | §3.6 device | `AUTOML_DEVICE=cpu` | MASTER environment rule (`MASTER.md:138`). |
 
@@ -1127,11 +1138,32 @@ either way.
 structural: the old shared-k arm used `NClassesSelectionMethod.NONE`, and the bypass head is built
 **only** on the dynamic branch (`automl_package/models/architectures/probabilistic_regression_net.py:84`,
 with the `None` assignment on the non-dynamic `else` branch at `:96` — verified 2026-07-20), so that
-arm could not select the bypass at all while variable-k could route every input to it. Under §2.0 all
-three ProbReg arms use `NESTED`, so **all three build the bypass head and compete over the identical
-rung set `1..10`**. The "a win just means the bypass was available" confound is gone by construction.
-**Standing condition:** M1's rung set, once §2.1's open selection question is settled, MUST be
-`1..10` including the bypass. Any narrower grid re-creates this exact defect.
+arm could not select the bypass at all while variable-k could route every input to it.
+
+**⚠️ CORRECTED 2026-07-20 (second pass), after the M3 training ruling.** This paragraph previously
+read: *"Under §2.0 all three ProbReg arms use `NESTED`, so **all three build the bypass head and
+compete over the identical rung set `1..10`**."* **The first clause is false under §1 as ruled.**
+M3 does NOT use `NESTED` — each of its per-k models is ordinary (`NClassesSelectionMethod.NONE`),
+which takes the **non-dynamic** branch, where `direct_regression_head` is set to `None`
+(`automl_package/models/architectures/probabilistic_regression_net.py:93-96`; the head is built only
+on the dynamic branch at `:84-92` — both re-verified on disk 2026-07-20). **M3 therefore builds no
+bypass head at all.**
+
+**What survives, and what does not:**
+- **The practical claim survives, by a DIFFERENT mechanism.** M3 still competes over the same rung
+  set because `1` is an explicit member of its sweep grid (§3.1): M3 reaches the bypass by training
+  a **dedicated `n_classes=1` model**, not by routing to a bypass head. The confound C3 names — one
+  arm structurally unable to select direct regression — is still gone.
+- **The equivalence is NOT established, and is recorded here as OPEN rather than assumed.** A
+  dedicated `n_classes=1` model and the `direct_regression_head` are *architecturally different
+  objects*: the former passes through the classification bottleneck with a single class, the latter
+  is a separate MLP. They are expected to behave similarly and neither is obviously favoured, but
+  nothing in this repo has measured it. **Do not present M3's k=1 rung as identical to M1/M2's
+  bypass rung** — report it as the dedicated k=1 model it is. If a headline result turns on the
+  bypass comparison specifically, this gap must be closed first.
+
+**Standing condition (unchanged):** M1's rung set, once §2.1's open selection question is settled,
+MUST be `1..10` including the bypass. Any narrower grid re-creates this exact defect.
 
 *Original finding, retained as the reason the condition exists:* §3.1 fixed shared-k's grid at
 `{2,3,5,7,10}`; §2.2 fixes

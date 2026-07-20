@@ -1,0 +1,44 @@
+#task-id	disposition	target	note
+# FP-0 deliverable. One row per task heading in flexnn-core.md (15 headings, 2026-07-20).
+# Every claim of "landed" below was verified against DISK at the root before writing, not
+# taken from the strand file status lines. flexnn-core.md itself is ROOT-ONLY: this file
+# RECORDS the dispositions; the root APPLIES them.
+F0	supersede-with-pointer	docs/plans/capacity_programme/MASTER.md	LANDED (verified: MASTER title line 1 reads "FlexNN programme (flexible-capacity networks)"; FlexNN-umbrella naming-key entry present). Nothing left to execute.
+F1	supersede-with-pointer	docs/plans/capacity_programme/depth-selection.md DSEL-3	LANDED (verified: uniform prior + removal comment at flexible_neural_network.py:300; HPO max_hidden_layers high=6 at :557). Write set (flexible_neural_network.py, tests/test_phase2_flexible_nn.py) is DSEL-3s; retaining it would be two writers on one file.
+F2	move	docs/plans/capacity_programme/flexnn-package.md FP-2	The width-architecture port into the package. FP-2 owns moving the four nested_width_net.py classes and dropping capacity_accounting.py to a pure re-export. Write set collides with WSEL-1/WSEL-2/FP-3.
+F3	move	docs/plans/capacity_programme/flexnn-package.md FP-5	The router. FP-5 owns reconciling the four router implementations and recording what the package version does not cover. distilled_router.py exists (verified) but is a behavioural SUBSET per flexnn-package.md 1.2.
+F4	supersede-with-pointer	docs/plans/capacity_programme/flexnn-package.md FP-1	LANDED (verified: automl_package/utils/convergence.py and the examples/convergence.py re-export shim both exist). That shim is the migration precedent FP-1 copies for the accounting module.
+F5	move	docs/plans/capacity_programme/depth-selection.md DSEL-1, DSEL-1b	The feed-forward depth pilot (F5a spec, F5b run ruled INVALID). depth-selection.md absorbs the whole F5 block; DSEL-1 records the settled nested-structure diagnosis, DSEL-1b builds the replacement all-rungs scheme.
+F5c	move	docs/plans/capacity_programme/depth-selection.md DSEL-1	The protocol-repair block, including the live HALT marker at flexnn-core.md:269 (verified present, 1 occurrence). DSEL-1 closes that halt by user ruling; the root applies the replacement line DSEL-1 emits.
+F6	retain	-	MoE comparison battery. Verified NOT RUN (moe_comparison_results/ does not exist). Stays live in flexnn-core.md per MASTER. WRITE-SET CONFLICT RECORDED, not resolved here: see the conflict block below.
+F7	retain	-	Unified FlexNN report. Not run (docs/reports/flexnn_unified/ absent). Stays live in flexnn-core.md per MASTER. Write set is its own report folder; no collision with any strand.
+F9	supersede-with-pointer	docs/plans/capacity_programme/probreg.md section 3 (D1)	LANDED and verified in both directions (F9-fix device bug; F9-fix-b symlog units bug). probreg.md D1 already carries it. Write set (probabilistic_regression.py, tests/test_phase3_dynamic_k.py) is P1/PAs.
+F10	supersede-with-pointer	docs/plans/capacity_programme/probreg.md P6	LANDED (verified: docs/reports/probreg_kselection/probreg_kselection.md and .pdf both exist). That directory is P6s write set; P6 corrects the framing rather than appending.
+F11	supersede-with-pointer	docs/roadmap_groundwork/	LANDED (verified: python_instruction_datasets.md and dgx_spark_training_envelope.md both exist). Roadmap groundwork, owned by no capacity strand.
+F8	supersede-with-pointer	docs/research_plan.md	LANDED (verified: 3 occurrences of the two verified anchors arXiv:1807.03819 / arXiv:2404.02258 in research_plan.md). Roadmap amendment, owned by no capacity strand.
+F12	move	docs/plans/capacity_programme/probreg.md P0, P0-b1, P4	The real-data ProbReg benchmark. Its spec (docs/probreg_benchmark/benchmark_spec.md) is P0/P0-b1s write set and its driver (automl_package/examples/probreg_benchmark.py, verified absent) is P4s Create target. F12s 6-model set is SUPERSEDED by probreg.md section 1s three-model set.
+F13	move	docs/plans/capacity_programme/flexnn-package.md FP-5, FP-9	Refactor debt. Item 1 (the duplicated cheapest-within-tolerance labeller) is FP-9s; item 2 (four router MLPs) is FP-5s; item 3 (the FlexibleWidthNN port) is FP-2s. All three are already specified there in more detail than here.
+#
+# ============================ RECORDED CONFLICTS ============================
+# FP-0 records these; it does not resolve them by editing either file.
+#
+# CONFLICT 1 -- automl_package/examples/moe_flexnn_comparison.py
+#   Belongs to F6, a RETAIN row. Also a mandatory migration target for
+#   flexnn-package.md FP-3 (its verify (a) requires `grep -rn inference_mode
+#   automl_package/ tests/` to print NOTHING, and names :413,414 explicitly)
+#   and for width.md WSEL-2 (verify: `grep -n inference_mode
+#   automl_package/examples/moe_flexnn_comparison.py` returns nothing).
+#   width.md:127 additionally cites :309-336 as a wrong-rule global readout.
+#   NOT caught by the mechanical intersection check above: that check matches
+#   only backtick-delimited paths ending `.py`, and every one of these
+#   citations carries a `:line` suffix, so the pattern cannot see them.
+#   ROOT RESOLUTION (single-writer, serialised): FP-3 and WSEL-2 own the
+#   CALL-SITE migration in this file; F6 retains ownership of the battery
+#   content (grid, hypotheses, driver logic). They do not overlap in
+#   substance. F6 has not run (moe_comparison_results/ verified absent), so
+#   there is nothing to invalidate -- but F6 must RE-READ this file after the
+#   migration lands rather than working from its current text.
+#
+# CONFLICT 2 -- none. F7's write set (docs/reports/flexnn_unified/) is cited
+#   by no strand plan; verified clean.
+# ===========================================================================

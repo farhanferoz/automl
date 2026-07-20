@@ -20,9 +20,9 @@ copy (gate: `test_plan_gates.py`).
 | 5 | `flexnn-moe.md` | MoE build (M0-M2 early) + reports (b), (c) | build: none; comparisons+reports: **G-JOINT** | **DONE — M0-M2 DONE 2026-07-16**; M3 rescoped as flexnn-core F6; M4/M5 superseded by F7 (user 2026-07-18) |
 | 6 | `flexnn-core.md` | Package refactor + FF-depth pilot + unified report | — | **yes** — but see the SPLIT note below; this file is 4 workstreams in one |
 | 7 | `probreg.md` | **ProbReg k-selection: models M1/M2/M3, defects, battery, report** | — | **yes — the live workstream (user, 2026-07-20)** |
-| 8 | `width.md` | **Width SELECTION: the three ways of choosing a width, the studies, battery, report.** Architecture certification stays in `width-cert.md` (CLOSED) | `flexnn-package.md` FP-3, FP-9 | in repair 2026-07-20 |
-| 9 | `depth-selection.md` | **FEED-FORWARD depth (the object) + depth selection.** Recurrent arm PARKED. Absorbs the FF-depth study out of `flexnn-core.md` | `flexnn-package.md` FP-3, FP-5, FP-6, FP-9 | in repair 2026-07-20 |
-| 10 | `flexnn-package.md` | **The codebase**: package-vs-scripts boundary, the ONE selection API, router de-duplication, shared selection primitives, cleanup | — | in repair 2026-07-20 |
+| 8 | `width.md` | **Width SELECTION: the three ways of choosing a width, the studies, battery, report.** Architecture certification stays in `width-cert.md` (CLOSED) | `flexnn-package.md` FP-3, FP-9 | **yes — DISPATCHABLE** (repair closed 2026-07-20; WSEL-9 ⏸ PARKED, toys-only) |
+| 9 | `depth-selection.md` | **FEED-FORWARD depth (the object) + depth selection.** Recurrent arm PARKED. Absorbs the FF-depth study out of `flexnn-core.md` | `flexnn-package.md` FP-3, FP-5, FP-6, FP-9 | **yes — DISPATCHABLE** (repair closed 2026-07-20; DSEL-11 ⏸ PARKED, toys-only) |
+| 10 | `flexnn-package.md` | **The codebase**: package-vs-scripts boundary, the ONE selection API, router de-duplication, shared selection primitives, cleanup | — | **yes — DISPATCHABLE** (repair closed 2026-07-20; boundary rule ratified as Decision 19) |
 
 **⚠ SPLIT PENDING on `flexnn-core.md` (opened 2026-07-20).** That file is 54KB holding FOUR
 workstreams — package refactor (F0–F4/F8/F13), the feed-forward depth attribution study (F5), the
@@ -219,6 +219,31 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     blocker:** a sensitivity sweep would make it measured rather than inherited. Do not run
     pre-emptively; run it if a reviewer leans on the constant.
 
+19. **The package/experiment BOUNDARY RULE (ratified 2026-07-20 by `flexnn-package.md` FP-0).**
+    Authored in `flexnn-package.md` §2; stated here once because it binds every strand:
+    - `automl_package/models/` and `automl_package/utils/` contain **library code** — reusable
+      architectures, selection mechanisms, the selection API, accounting. They **never** import from
+      `automl_package/examples/`.
+    - `automl_package/examples/` contains **experiment drivers** — protocols, preregistered
+      batteries, toy generators, result production. They may import freely from the package. A
+      driver may hold a local implementation ONLY when it encodes an experiment-specific protocol
+      the library does not and should not express, and it must say so in a comment, naming what
+      differs.
+
+    **The dependency arrow points ONE way.** Today it points both ways, and that is the defect:
+    `automl_package/examples/capacity_accounting.py:62-63` imports two model classes from the
+    package at module level, while `automl_package/models/flexible_width_network.py:290` and
+    `automl_package/models/flexible_neural_network.py:492` import `executed_flops` back from that
+    example **inside method bodies**, commented as avoiding a load-time circular import. Shipping
+    code depending on a research script, held together by deferred imports. → **FP-1** breaks it.
+
+    **The sanctioned migration shape is a re-export shim**, and the precedent already exists in this
+    repo: `automl_package/examples/convergence.py` is a thin re-export over
+    `automl_package/utils/convergence.py`, so existing scripts' imports keep resolving while the
+    logic lives in the package. **Move the logic, leave the shim, do not rewrite callers** — a shim
+    is NOT a deletion and passes `shared/PROTECTED.tsv`'s manifest check, because the path still
+    exists.
+
 ## Rules (cache discipline)
 
 ⚠️ **THE NUMBERS GATE IS PARTIAL — strengthen it before the next planning round.**
@@ -325,6 +350,25 @@ Run from repo root:
   STALE (N1 fixed at HEAD; N3 appears fixed at HEAD — see strand 2 re-audit task).
 
 ## Corrections
+
+- **2026-07-20, WHAT THE TWO CLOSED GATES DID AND DID NOT CERTIFY** (recorded by `width.md`
+  WSEL-0 and `depth-selection.md` DSEL-0; emitted by those tasks, applied by the root). Both gates
+  are PASS and neither is reopened — but both were being read as covering more than they do, and
+  the two selection strands exist precisely because of the gap.
+  - **`G-WIDTH = PASS` (2026-07-16) certifies the ARCHITECTURE — `SharedTrunkPerWidthHeadNet` —
+    and NONE of the three ways of choosing a width.** Its two pre-registered clauses
+    (`width-cert.md:308-318`) are both about the dial's behaviour; neither is about selection.
+    `width-cert.md` owns that certification and is **CLOSED**; `width.md` owns everything about
+    *choosing* a width and never restates it. **W-SHARED does not exist as library code at all**
+    — the only cheap global readouts are script-level `argmin`, which is the wrong rule per
+    `width.md` §1.
+  - **`G-DEPTH = PASS` (2026-07-17) certifies the RECURRENT arm under supervision-at-every-depth,**
+    and covers neither the feed-forward mechanism nor any of `depth-selection.md` §1b's three
+    choices. `depth.md` owns that certification and is **CLOSED**; the recurrent arm is **⏸ PARKED**
+    — cite it, never run it. For feed-forward depth, **nothing is established.**
+  - **Neither gate may be cited as evidence about selection.** A toys-only or architecture-only
+    result presented as though it had survived a selection comparison is the misreading these two
+    strands were created to correct, and each strand's report is bound to say so explicitly.
 
 - **2026-07-20, ProbReg had THREE contradictory model definitions live at once — root cause was
   organisational.** ProbReg content sat in 15 files across 5 plan directories with **no owning

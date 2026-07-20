@@ -37,7 +37,6 @@ docs/width_benchmark/benchmark_spec.md                              # WSEL-9 (PA
 # verify line. NOTE the directory names are hyphen-FREE (DSEL1b, not DSEL-1b) -- corrected during
 # this repair to match all 34 existing result dirs and the other two strands. Task IDs keep their
 # hyphens; only the paths dropped them.
-docs/plans/capacity_programme/shared/dsel1_nested_diagnosis.md      # DSEL-1
 automl_package/examples/capacity_ladder_results/DSEL1b/frozen.json  # DSEL-1b
 tests/test_depth_composition_toy.py                                 # DSEL-1b
 automl_package/examples/depth_dsel2.py                              # DSEL-2
@@ -67,5 +66,3 @@ docs/plans/capacity_programme/shared/p5_middle_k_coherence.md       # P5
 # MASTER.md, flexnn-package.md and depth-selection.md in both relative and repo-root form, so both
 # spellings are parked. Surfaced only after `tsv` was added to the citation gate's extension list --
 # it had been invisible, along with shared/PROTECTED.tsv.
-docs/plans/capacity_programme/shared/CORE-DISPOSITIONS.tsv          # FP-0 (write set L218)
-shared/CORE-DISPOSITIONS.tsv                                        # FP-0 (relative spelling)

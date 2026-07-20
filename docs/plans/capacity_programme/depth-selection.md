@@ -730,3 +730,162 @@ No reopening of `G-DEPTH = PASS`. No revival of smooth one-dimensional depth toy
 theorem (§2), four candidates, not to be relitigated. No new toy construction without a reviewed
 written spec. No package-structure or API work (owned by `flexnn-package.md`). No joint width+depth
 work (`width-depth.md`). No revival of in-training depth selection as a primary (MASTER Decision 13).
+
+---
+
+## 6. History — the feed-forward depth pilot (absorbed from `flexnn-core.md`, 2026-07-20)
+
+Moved here verbatim by **DSEL-0** so no depth content survives in two places (`flexnn-core.md`
+now carries a pointer only). **This is HISTORY: read it, never dispatch from it.** It records
+the original pilot (F5), the run that was ruled INVALID on four independent grounds (F5b), and
+the protocol-repair attempt whose positive control failed on both seeds (F5c).
+
+**Superseded by this strand as follows.** The halt F5c escalated is **CLOSED** by the user
+ruling recorded in DSEL-1 and written up at
+`docs/plans/capacity_programme/shared/dsel1_nested_diagnosis.md`: the failed arm had **no
+nested structure** — a single loss at full depth — so the overfitting needed no further
+diagnosis and the escalation ladder was aimed at the wrong problem. DSEL-1b builds the
+replacement all-rungs training scheme; DSEL-2 carries the primary claim. The staged F5c-a/b/c/d
+sequence below is **retired, not pending** — do not resume it.
+
+<!-- citecheck-ignore: historical record, superseded; retained for provenance -->
+
+### Task F5: feedforward-depth pilot — spec, ADJUDICATOR GO, build, run (2 seeds)
+
+**F5a — author the spec** (`docs/depth_capacity/ff_depth_toy_spec.md`), then **⛔ ADJUDICATOR GO
+gate (user away — ratified 2026-07-18: no user questions mid-run).**
+[[feedback_toy_design_needs_reviewed_spec]] is satisfied unattended as follows: the written spec
++ adversarial review are still MANDATORY before any build; the GO call is made by an adjudicator
+(Opus/xhigh) instead of the user. Verdict SOUND, or SOUND-WITH-FIXES whose fixes are mechanical →
+fold fixes, log the verdict, BUILD. Verdict UNSOUND, or any fix that is a PI design decision →
+**PARK F5b** (do not improvise, do not redesign), log it under "Batched user questions", and
+carry on with every other unblocked task. Spec + review verdict are delivered for post-hoc user
+review either way.
+
+**Files (F5a):** Create: `docs/depth_capacity/ff_depth_toy_spec.md`
+**Orchestration (F5a):** parallel: yes · deps: none · tier: opus/high (design) + adversarial
+review pass (adjudicator) · scale: static · shape: design · verify: spec contains generative
+math, the 2×2 grid below, pre-registered bars with numeric thresholds, confound ledger
+(param-count-grows-with-depth for untied arms → param-matched reads mandatory), review verdict §
+
+Design core (settled in main session 2026-07-18, to be made numeric in the spec): task = A5
+word composition, L=10, involution generators (reuse `depth_composition_toy.py` machinery — the
+certified substrate; input = flattened one-hot word, 50-dim). **2×2 architecture grid** isolating
+WHY depth wins there:
+
+| | flat input (all letters at layer 0) | per-step input (letter t at layer t) |
+|---|---|---|
+| **untied weights** | plain deep MLP — *the user's original claim* | untied unrolled stack |
+| **tied weights** | tied stack on flat input | = `RecurrentComposer` (already certified ≥0.90) |
+
+plus the certified wide-shallow control. Depth ladder for stack arms: d ∈ {4, 7, 10}, width 64.
+Bars (freeze numerically in spec): FF-CLAIM passes iff the untied-flat arm at some d ≤ 10 reaches
+held-out ≥ 0.90 while param-matched wide-shallow ≤ 0.60 (the graded-pilot fit/stall thresholds);
+attribution read = which cells generalize, ordered; convergence-gated; 2 seeds. Either outcome is
+reportable: PASS → flexible depth demonstrated on a straightforward feedforward net where depth
+is provably non-substitutable; FAIL with tied cells passing → weight-tying is the load-bearing
+ingredient (goes in F7 + informs the transformer roadmap: weight-tied = the Universal
+Transformer shape, arXiv:1807.03819).
+
+**F5b — build + run: RAN 2026-07-18 → ⛔ INVALID (2026-07-20). Superseded by F5c.**
+The build landed (`NetKind.TIED_FLAT`, `UNTIED_PERSTEP` + builders + driver flags in
+`automl_package/examples/depth_composition_toy.py`) and 28 runs produced
+`.../D_TOY_PROBES/ff_depth_pilot_a5_seed{0,1}.json`. **No bar may be read from them**, on three
+independent grounds, each verified on disk 2026-07-20:
+1. **Positive control FAILED (MASTER Decision 14).** Cell 4 (`RecurrentComposer`, the certified
+   arm, made a MANDATORY confirm run by the F5a reviewer precisely to validate the protocol) is
+   trustworthy on **1 of 2 seeds**: seed 1 = 0.9257 clean; seed 0 climbed to 0.830 by epoch 3000
+   then **collapsed to 0.097**, `diverged=true`. Spec §6 requires ≥2 trustworthy seeds. The
+   protocol did not reproduce a known-good result ⇒ nothing else in the battery is readable.
+2. **Protocol parity breach (MASTER Decision 15).** These runs used `depth_composition_toy.py`'s
+   `train_clf`, which applies **no gradient clipping**, at A5/L=10 — while
+   `automl_package/examples/depth_selection_toy.py` sets `GRAD_CLIP_MAX_NORM = 1.0` commented
+   "L=10 needs clipping to stay GD-trainable". Single unswept `LR = 1e-2`, no schedule/warmup,
+   across arms spanning 12,476–89,660 params.
+3. **Gate/bar metric mismatch (MASTER Decision 17).** `trustworthy` is computed on val CE; the
+   bars read val accuracy. Val CE explodes (overconfidence) while val accuracy sits flat.
+4. **Decision 9 never satisfied.** Runs self-terminated by patience at ~2,750 epochs against a
+   40,000 cap; the required early-stop-OFF confirmation at ≥4× budget was never run.
+
+**Recorded observations (NOT findings — no bar attaches):** untied-flat fails to fit the TRAIN
+set at d=7 (train 0.195) and d=10 (train 0.055) ⇒ under-fit per Decision 16, an optimization
+signal, not an architecture verdict. Shallow (d=4) and deep (d=10) arms fail *differently*
+(instability/overconfidence vs. no learning at all) — one protocol fix may not cover both.
+
+### Task F5c: depth protocol repair + diagnosis (replaces F5b's run; added 2026-07-20, user-approved)
+
+**Staged — each stage GATES the next. No stage may be skipped or reordered.**
+
+**F5c-a — spec first (~30 min), then ⛔ ADJUDICATOR GO.**
+Create: `docs/depth_capacity/ff_depth_protocol_repair_spec.md`. Must contain: (i) a line-by-line
+**training-loop diff** between `depth_composition_toy.py::train_clf` and `depth_selection_toy.py`'s
+loop, every difference justified or removed (Decision 15); (ii) the **escalation ladder** — which
+remedies, in what fixed order, with the stopping rule (Decision 16); (iii) **instrumentation
+plan** for per-layer gradient norms (the vanishing/exploding hypothesis must be MEASURED, not
+asserted — no artifact currently exists for it anywhere in the repo); (iv) the convergence gate
+recomputed on **val accuracy** as well as CE (Decision 17); (v) bars **unchanged** from
+`ff_depth_toy_spec.md` §6 — FIT 0.90 / STALL 0.60, frozen (Decision 9: no bar moves after a run).
+*Orchestration:* parallel: yes · deps: none · tier: opus/high design + adjudicator review ·
+shape: design · verify: spec contains all five items + a review verdict §.
+
+**F5c-b — positive control ALONE (Decision 14 gate).** `RecurrentComposer`, A5, L=10, 2 seeds,
+repaired protocol, plain single-readout (same `train_clf` protocol as the grid arms).
+**PASS BAR: held-out ≥ 0.90 AND `trustworthy=true` on BOTH seeds.** FAIL ⇒ **HALT**, escalate the
+ladder, re-run this stage only. **No compute is spent on any other arm until this passes.**
+*Orchestration:* deps: F5c-a GO · tier: sonnet · verify: 2 JSONs, both ≥0.90 and trustworthy.
+
+**RESULT 2026-07-20 at Rung 0 (`lr=3e-3`, `clip_max_norm=1.0`, dual gate) — ⛔ FAIL, both seeds.**
+Artifacts: `automl_package/examples/capacity_ladder_results/D_TOY_PROBES/f5c_poscontrol_a5_seed{0,1}.json`.
+
+| seed | train_acc | val_acc (bar 0.90) | trustworthy_acc | stop epoch (cap 40k) | clip engagement |
+|---|---|---|---|---|---|
+| 0 | 0.9697 | **0.4324** | true | 10,500 | 98 % |
+| 1 | 1.0000 | **0.7442** | true | 7,500 | 59 % |
+
+Both runs are `INTERMEDIATE`, both converged cleanly (not `hit_cap`, not `still_improving`, not
+`diverged` on accuracy), and both show the SAME shape: `val_acc` rises then goes flat for the final
+third while **held-out CE diverges monotonically** after its minimum (seed 1: 1.374 @ 3,750 →
+2.325 @ 7,500; seed 0: 1.55 @ 1,250 → 4.87 @ 10,250; `ce_gate.diverged=true` both). Note this is
+also the vindication of the dual gate: best-CE weight restore would have selected ~epoch 3,750 for
+seed 1, i.e. a *lower* accuracy than the run's own best — the exact selection defect that invalidated
+the previous attempt.
+
+**The failure mode is memorization-without-generalization, NOT under-fitting** — and that is a
+problem the ladder cannot address. Every rung (L1 LR, L2 warmup, L3 init) is an *optimization*
+remedy, but at `train_acc` 0.97/1.00 the optimizer has already fit the training set completely; there
+is no optimization failure left to fix. Concretely, both seeds already SATISFY Decision 16's
+exoneration condition (`train_acc ≥ 0.90`) while failing the §5 positive-control bar. Two seeds
+differing by 31 pp on held-out accuracy (0.432 vs 0.744) from initialization alone is a further sign
+this protocol is fragile on this substrate rather than mis-tuned.
+
+**⛔ ESCALATED TO USER — do NOT resolve this without a ruling.** §2.5 step 2 mechanically prescribes
+L1; M7 makes the fail branch a PI-level call. The evidence says L1 is aimed at the wrong problem and
+the informative experiment is M6's discriminator (does the certified anytime configuration still
+reproduce its ≥ 0.90 per-stratum numbers? — reproduced ⇒ single-exit supervision genuinely cannot do
+this task, a substantive finding; not reproduced ⇒ environmental/regression and NOTHING may be
+claimed from today's runs), which the spec currently gates behind L3 exhaustion. Running M6 before
+L1 is a spec deviation and needs the ruling. F5c-c/F5c-d remain HALTED either way.
+
+**Correction to the prior session's hand-off note:** it recorded "FAIL → run the M6 discriminator".
+That contradicts the spec — §2.5 step 2 escalates to L1; M6 is gated at L3 exhaustion (§M6/M7). The
+spec is the plan of record.
+
+**F5c-c — instrumented diagnosis of the untied arms.** Only after F5c-b passes. Log per-layer
+gradient norms across training for untied-flat d ∈ {4,7,10}; land them as an artifact. Answers
+the actual question: does the deep untied stack starve (vanishing) or destabilize (exploding),
+and are these two different failure modes? *Orchestration:* deps: F5c-b PASS · tier: sonnet ·
+verify: a grad-norm artifact JSON/CSV exists per depth; the mechanism claim cites it (new Rule:
+no claim without an artifact).
+
+**F5c-d — the 2×2 grid re-run + verdict.** Only after F5c-b/c. Full matrix per `ff_depth_toy_spec.md`
+§9 under the repaired protocol, incl. the Decision 9 early-stop-OFF confirmation at ≥4× budget for
+any load-bearing cell. Append the results § to `docs/depth_capacity/verdict_per_input_depth.md`
+(the record that F5b owed and never wrote — it records what ran and what is quarantined, and
+renders a verdict ONLY where a bar is validly evaluable).
+*Orchestration:* deps: F5c-c · tier: sonnet · scale: static · shape: execution · verify: JSONs
+exist AND every reported cell is `trustworthy=true` on ≥2 seeds AND bars evaluated in the verdict §;
+runs detached per environment rules.
+
+**Non-goals:** no L > 10 (MOD-1 GD wall), no new groups, no selection/router in the pilot
+(substrate question only), no curriculum tricks (future work if FF fails).
+
