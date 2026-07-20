@@ -22,12 +22,14 @@ comparable to `capacity_ladder_results/W_CONVERGED/w_converged_summary.json`. Th
 changes is the training scheme (k-dropout sandwich vs per-width separate).
 
 Width-MSE program extension (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` WP-1): `--arch`
-selects `NestedWidthNet` (shared trunk + shared heads, 1x params -- the charter question) or
-`IndependentWidthNet` (K disjoint sub-nets, the old default / positive control); `--loss` selects
-Gaussian NLL (old default, unchanged) or plain MSE on the mean output (`logvar_head` untouched). MSE
-runs are scored with a separate MSE score table + the WP-1 fit/curve-shape/dial/deploy bars
-(`sinc_width_experiment._score_all_widths_mse` and friends) instead of the LL-based bars. `--loss
-nll --arch independent` (the defaults) reproduce the pre-existing path bit-for-bit.
+selects `NestedWidthNet` (shared trunk + shared heads, 1x params -- the charter question),
+`IndependentWidthNet` (K disjoint sub-nets, the old default / positive control), or
+`SharedTrunkPerWidthHeadNet` (shared trunk + per-width heads -- the G-WIDTH certified arm and, since
+`docs/plans/capacity_programme/width.md`'s WD4 fix, the CLI default); `--loss` selects Gaussian NLL (old default, unchanged) or plain
+MSE on the mean output (`logvar_head` untouched). MSE runs are scored with a separate MSE score table
++ the WP-1 fit/curve-shape/dial/deploy bars (`sinc_width_experiment._score_all_widths_mse` and
+friends) instead of the LL-based bars. `--loss nll --arch independent` reproduces the pre-existing
+path bit-for-bit (no longer the CLI defaults -- pass both flags explicitly).
 
 Usage:
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/kdropout_converged_width_experiment.py --selftest
@@ -546,7 +548,7 @@ def main() -> None:
     parser.add_argument("--selftest", action="store_true", help="Tiny wiring check, then exit.")
     parser.add_argument("--smoke", action="store_true", help="Tiny config (w_max=4, n_train=200, n_test=100, low cap, 1 seed); no save.")
     parser.add_argument("--config", type=int, default=None, help="One seed only (any int, W9 5-seed bump; default = all seeds).")
-    parser.add_argument("--arch", choices=[a.value for a in Arch], default=Arch.INDEPENDENT.value, help="Width-net architecture (default: independent, the old default).")
+    parser.add_argument("--arch", choices=[a.value for a in Arch], default=Arch.SHARED_TRUNK.value, help="Width-net architecture (default: shared_trunk, G-WIDTH certified).")
     parser.add_argument("--loss", choices=[loss_type.value for loss_type in LossType], default=LossType.NLL.value, help="Per-width training loss (default: nll, the old default).")
     parser.add_argument("--max-epochs", type=int, default=DEFAULT_MAX_EPOCHS, help="Safety cap (convergence decides the real stop).")
     parser.add_argument("--check-every", type=int, default=cvg.DEFAULT_CHECK_EVERY, help="Epochs between per-width held-out checkpoints.")

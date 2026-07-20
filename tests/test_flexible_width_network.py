@@ -11,7 +11,7 @@ import pytest
 import torch
 from sklearn.model_selection import train_test_split
 
-from automl_package.enums import ActivationFunction, TaskType, WidthSelectionMethod
+from automl_package.enums import ActivationFunction, TaskType, UncertaintyMethod, WidthSelectionMethod
 from automl_package.models.flexible_width_network import FlexibleWidthNN
 from automl_package.utils.pytorch_utils import get_device
 
@@ -257,3 +257,47 @@ class TestFlexibleWidthNNRouting:
 
         for i, width in enumerate(model.widths):
             assert router.costs_[i] == pytest.approx(executed_flops(model.model, width))
+
+
+class TestFlexibleWidthNNPredictUncertainty:
+    """WD1: `predict_uncertainty` must be correct for every `uncertainty_method`, or raise.
+
+    `CONSTANT` / `BINNED_RESIDUAL_STD` never touch the stacked-over-widths `forward()` output
+    and must keep working; `MC_DROPOUT` / `PROBABILISTIC` cannot be served by this architecture
+    (no dropout layer, no log-variance head) and must raise explicitly rather than silently
+    mis-indexing that `(len(widths), N, output_size)` tensor.
+    """
+
+    def test_constant_uncertainty_returns_one_value_per_sample(self, simple_linear_data):
+        x, y = simple_linear_data
+        model = _make_width_model()  # default uncertainty_method=CONSTANT
+        model.fit(x, y)
+
+        uncertainty = model.predict_uncertainty(x)
+        assert uncertainty.shape == (len(x),)
+        assert np.all(uncertainty >= 0)
+
+    def test_binned_residual_std_uncertainty_returns_one_value_per_sample(self, simple_linear_data):
+        x, y = simple_linear_data
+        model = _make_width_model(uncertainty_method=UncertaintyMethod.BINNED_RESIDUAL_STD)
+        model.fit(x, y)
+        model.calibrate_uncertainty(x, y)
+
+        uncertainty = model.predict_uncertainty(x)
+        assert uncertainty.shape == (len(x),)
+
+    def test_mc_dropout_uncertainty_raises_explicit_error(self, simple_linear_data):
+        x, y = simple_linear_data
+        model = _make_width_model(uncertainty_method=UncertaintyMethod.MC_DROPOUT)
+        model.fit(x, y)
+
+        with pytest.raises(NotImplementedError, match="MC_DROPOUT"):
+            model.predict_uncertainty(x)
+
+    def test_probabilistic_uncertainty_raises_explicit_error(self, simple_linear_data):
+        x, y = simple_linear_data
+        model = _make_width_model(uncertainty_method=UncertaintyMethod.PROBABILISTIC)
+        model.fit(x, y)
+
+        with pytest.raises(NotImplementedError, match="PROBABILISTIC"):
+            model.predict_uncertainty(x)

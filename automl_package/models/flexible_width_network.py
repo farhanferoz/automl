@@ -38,7 +38,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import ActivationFunction, ExplainerType, TaskType, WidthSelectionMethod
+from automl_package.enums import ActivationFunction, ExplainerType, TaskType, UncertaintyMethod, WidthSelectionMethod
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.common.distilled_router import DEFAULT_TOLERANCE, DistilledCapacityRouter
 from automl_package.utils.convergence import DEFAULT_PATIENCE, ConvergenceTracker
@@ -296,6 +296,41 @@ class FlexibleWidthNN(PyTorchModelBase):
         router.fit(eval_fn=eval_fn, x_val=x_val, y_val=y_val, capacity_grid=capacity_grid, tolerance=tolerance, cost_fn=cost_fn)
         self.capacity_router_ = router
         return router
+
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+        """Estimates prediction uncertainty for regression (fixed width, WD1).
+
+        `CONSTANT` and `BINNED_RESIDUAL_STD` delegate straight to the inherited
+        (`PyTorchModelBase` / `BaseModel`) implementation: `CONSTANT` only reads
+        `self._train_residual_std`, and `BINNED_RESIDUAL_STD` only calls `self.predict()`
+        (overridden above) -- neither ever touches `FlexibleWidthNNModule.forward`'s raw
+        `(len(widths), N, output_size)` stacked-over-widths output, so nothing about this
+        architecture breaks them.
+
+        `MC_DROPOUT` and `PROBABILISTIC` raise explicitly instead of silently mis-indexing
+        that stacked tensor (the WD1 defect): `FlexibleWidthNNModule` has no dropout layer
+        (`dropout_rate` is never wired into it, unlike `FlexibleHiddenLayersNN`), so MC
+        sampling would be deterministic and silently report zero uncertainty; and its heads
+        emit only the raw regression target, never a `(mean, log_variance)` pair, so there is
+        no variance to read out for `PROBABILISTIC` (see module docstring: that branch is out
+        of scope for this port).
+        """
+        if not self.is_regression_model:
+            raise ValueError("predict_uncertainty is only available for regression models.")
+        if self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
+            raise NotImplementedError(
+                "uncertainty_method=UncertaintyMethod.MC_DROPOUT is not supported by FlexibleWidthNN: "
+                "FlexibleWidthNNModule has no dropout layer, so MC sampling would be deterministic and "
+                "silently report zero uncertainty. Use CONSTANT or BINNED_RESIDUAL_STD instead."
+            )
+        if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
+            raise NotImplementedError(
+                "uncertainty_method=UncertaintyMethod.PROBABILISTIC is not supported by FlexibleWidthNN: "
+                "its heads emit only the raw regression target, never a (mean, log_variance) pair (see "
+                "module docstring -- the PROBABILISTIC branch is out of scope for this port). Use CONSTANT "
+                "or BINNED_RESIDUAL_STD instead."
+            )
+        return super().predict_uncertainty(x, filter_data=filter_data)
 
     def get_params(self) -> dict[str, Any]:
         """Gets the parameters of the model."""

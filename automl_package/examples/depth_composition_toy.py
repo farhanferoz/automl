@@ -821,6 +821,8 @@ def run_positive_control(
         "seed": seed,
         "n_classes": data["n_classes"],
         "chance": 1.0 / data["n_classes"],
+        "n_train": int(data["x_tr"].shape[0]),
+        "n_val": int(data["x_val"].shape[0]),
         "rec_state_width": rec_state_width,
         "params": count_params(net),
         "hyperparameters": {
