@@ -209,7 +209,7 @@ for it.)
 | router hidden / depth / epochs / lr | **DSEL-9** | `automl_package/examples/capacity_ladder_results/DSEL9/frozen.json`, else the frozen defaults at `automl_package/models/common/distilled_router.py:57-60` if invariant |
 | labelling tolerance | **DSEL-9** | same file as the row above |
 | depth ladder ceiling raise (if §3.5's "ceiling binds" branch fires) | **DSEL-10** (DSEL-11 is ⏸ PARKED — would apply there too if a later ruling unparks it) | the per-cell result JSON under `automl_package/examples/capacity_ladder_results/DSEL10/` (or `.../DSEL11/`, dormant) that recorded the bind |
-| positive-control bar (feed-forward full-depth control, DSEL-2 (i)/(ii); also the HALT condition in §3.5) | **not set by any task in this strand — imported unchanged** | `docs/plans/capacity_programme/flexnn-core.md:235` (F5c's PASS BAR). **Value, stated once here so no task re-derives it:** held-out accuracy ≥ 0.90 AND `trustworthy=true`, on BOTH seeds. |
+| positive-control bar (feed-forward full-depth control, DSEL-2 (i)/(ii); also the HALT condition in §3.5) | **not set by any task in this strand — imported unchanged** | `docs/plans/capacity_programme/depth-selection.md:833` (F5c-b's PASS BAR, absorbed into §6 of this file by DSEL-0). **Value, stated once here so no task re-derives it:** held-out accuracy ≥ 0.90 AND `trustworthy=true`, on BOTH seeds. *(Citation repaired 2026-07-20 at the root: it read `flexnn-core.md:235`, which was correct before that file was split 760 → 254 lines and now points at frozen dispatch-wave prose. The citations gate passed throughout — a resolving path is not a correct one.)* |
 
 **Feed-forward rule (binding):** if DSEL-11 runs at a value not justified by the artifact named here,
 its results are **not reportable**.
@@ -442,6 +442,37 @@ parts, both of which must hold before any per-depth reading is trusted:
       depth here, the substrate carries no depth signal and the run stops.
 **One variable at a time:** this task varies depth only; the training scheme, substrate and protocol
 are fixed by DSEL-1b and are not touched here.
+
+**⚠️ CARRIED RULING (root, 2026-07-20) — DSEL-1b's readout comparison is UNRESOLVED and DSEL-2 owns
+it.** DSEL-1b ran the two pre-registered readout arms and the result is **not readable as a verdict**:
+its own artifacts self-label `readable_as_verdict=false`
+(`automl_package/examples/capacity_ladder_results/DSEL1b/readout_comparison_a5_n6_seed{0,1}.json`)
+because the `per_depth` arm carries `trustworthy=false` on **both** seeds — a diverged arm did not
+lose, it failed to train (Decision 16) — and the two arms differ in **two** ways at once, readout
+structure **and** 2.8× parameters (2,780 vs 7,880; Decision 15). **Therefore:**
+1. Both readout arms run again here, **parameter-matched** — equalise via trunk width, and record
+   both arms' parameter counts in every JSON so the match is checkable, not asserted.
+2. Both arms are **dual-gated** (Decision 17): `trustworthy` computed on the metric the bar reads,
+   held-out accuracy, **and** on the loss, with both reported. An arm failing the gate is escalated
+   through the Decision-16 ladder before any comparison is read from it.
+3. **The open design question must be settled in writing, not by default.** The certified verdict's
+   "each depth hands the readout a different representation" argument may bind to the **per-step
+   consumption** shape (`UntiedPerStepComposer`, letter *t* enters at layer *t*) and NOT to a
+   whole-input MLP, where `blocks[0]` sees the entire word at every depth so all depths start from
+   identical information. Never specified anywhere. State which shape this task runs, and say
+   explicitly which of the two the readout finding does and does not license.
+
+**⚠️ PRIOR EVIDENCE THE CONTROL MUST BE READ AGAINST — do not discover this after spending compute.**
+The full-depth feed-forward control has never cleared 0.90 on this substrate at any configuration
+tried: DSEL-1b's pilot peaked at val acc **0.28** at full depth (both readout arms, the JSONs above),
+and F5c-b's repaired-protocol control on the harder A5/L=10 configuration failed at **0.432 / 0.744**
+with `train_acc` 0.97/1.00 — memorization-without-generalization, an exhausted Decision-16 ladder, and
+an **open user escalation** (§6, F5c-b). ⇒ Clause (i) is a live risk, not a formality. This task may
+scale **capacity and data** (trunk width, `n_train`, epoch cap) to give the control a fair chance —
+those are not the controlled variable — and must log every such change with its before/after number.
+It may **not** change the substrate, the all-rungs training scheme, or the bar. If the control still
+fails, that is §3.5 HALT #1: **stop, land the evidence, report; do not run the ladder, and do not
+resolve the standing escalation.**
 **Non-goals:** **no recurrent runs of any kind.** No selection machinery (DSEL-6/7 build it). No new
 toy construction — the smooth one-dimensional lane is closed by theorem (§2) and is not revisited.
 *Orchestration:* parallel: no · deps: DSEL-1, **DSEL-1b** · tier: sonnet high (execution against a
