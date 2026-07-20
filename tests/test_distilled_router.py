@@ -9,11 +9,15 @@ of this test.
 """
 
 import inspect
+import os
+import sys
 
 import numpy as np
 import pytest
 
-from automl_package.models.common.distilled_router import DistilledCapacityRouter, _cheapest_within_tolerance_labels
+from automl_package.models.common.distilled_router import DEFAULT_TOLERANCE, DistilledCapacityRouter, _cheapest_within_tolerance_labels
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "automl_package", "examples"))
 
 RANDOM_SEED = 0
 N_SAMPLES = 400
@@ -194,3 +198,56 @@ class TestDistilledCapacityRouterValidation:
         router.fit(eval_fn=eval_fn, x_val=x, y_val=y, capacity_grid=CAPACITY_GRID)
         with pytest.raises(RuntimeError, match="cost_fn"):
             router.mean_deployed_cost(x)
+
+
+class TestLabellingRuleParityWithCertifiedOriginal:
+    """Guards the ONE duplicated function in the F3 refactor against silent divergence.
+
+    `distilled_router._cheapest_within_tolerance_labels` is a deliberate COPY of
+    `sinc_width_experiment._cheapest_within_tolerance_labels` -- the package cannot import from
+    `automl_package/examples/` (production depending on research scripts is backwards), so the
+    labelling rule now exists in two places. Three certified example drivers
+    (`depth_selection_toy`, `joint_capacity_toy`, `kdropout_converged_width_experiment`) still
+    import the ORIGINAL, so a correction applied to one copy and not the other would silently
+    desynchronise the package from the certified width/depth/joint results, with nothing in the
+    suite to catch it. These tests are that catch, until the examples are migrated onto the
+    package function (recorded as a separate task -- migrating certified drivers is a
+    protocol-parity change, MASTER Decision 15, not a drive-by edit).
+    """
+
+    @staticmethod
+    def _certified_original():
+        """The examples-side original; skips rather than fails if `examples/` is not importable."""
+        return pytest.importorskip("sinc_width_experiment")
+
+    def test_default_tolerance_matches_certified_constant(self):
+        assert DEFAULT_TOLERANCE == self._certified_original().DELTA_TIE
+
+    @pytest.mark.parametrize("scale", [1e-3, 1.0, 1e3])
+    def test_labels_identical_on_random_error_tables(self, scale):
+        """Agreement must hold across error magnitudes -- the rule is relative, so scale is the
+        axis along which a subtly different formulation would diverge first.
+        """
+        original = self._certified_original()
+        rng = np.random.default_rng(RANDOM_SEED)
+        for _ in range(100):
+            table = rng.random((40, 6)) * scale
+            np.testing.assert_array_equal(
+                original._cheapest_within_tolerance_labels(table, DEFAULT_TOLERANCE),
+                _cheapest_within_tolerance_labels(table, DEFAULT_TOLERANCE),
+            )
+
+    def test_labels_identical_on_ties_and_degenerate_rows(self):
+        """Hand-built edge cases random tables essentially never produce."""
+        table = np.array(
+            [
+                [1.0, 1.0, 1.0],  # exact three-way tie -> cheapest column must win
+                [1.0, 0.80, 0.79],  # an earlier column sits inside tolerance of a later minimum
+                [0.0, 0.0, 1.0],  # zero minimum: the relative tolerance degenerates to equality
+                [5.0, 1.0, 2.0],  # strict minimum in the middle column
+            ]
+        )
+        np.testing.assert_array_equal(
+            self._certified_original()._cheapest_within_tolerance_labels(table, DEFAULT_TOLERANCE),
+            _cheapest_within_tolerance_labels(table, DEFAULT_TOLERANCE),
+        )

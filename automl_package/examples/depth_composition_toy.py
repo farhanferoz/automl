@@ -47,6 +47,8 @@ Usage:
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/depth_composition_toy.py --selftest
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/depth_composition_toy.py \
         --pilot --group s5 --seq-len 5 --net mlp --seed 0
+    AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/depth_composition_toy.py \
+        --poscontrol --seed 0 --max-epochs 40000  # F5c-b positive control (repair spec §5)
 """
 
 from __future__ import annotations
@@ -57,6 +59,7 @@ import itertools
 import json
 import os
 import sys
+from collections.abc import Callable
 
 import numpy as np
 import torch
@@ -112,6 +115,29 @@ STALL_ACC = 0.60  # wide-shallow "stalls" at <= this held-out accuracy (well bel
 
 DEFAULT_OUT_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "D_TOY_PROBES")
 
+# ---------------------------------------------------------------------------
+# F5c-a protocol-repair constants (`docs/depth_capacity/ff_depth_protocol_repair_spec.md`).
+# Rung 0 (spec §1.3, MASTER Decision 15 -- applied regardless of benefit, not a ladder rung): the
+# LR/clip values every certified A5/S5 L=10 loop uses. `train_clf`'s own LR/CHECK_EVERY/PATIENCE/
+# MIN_DELTA above are untouched (they remain the F5b-call-site defaults, see `train_clf`'s docstring);
+# these RUNG0_* values are what the new positive-control entry point (`run_positive_control`) passes.
+# ---------------------------------------------------------------------------
+
+RUNG0_LR = 3e-3  # every certified A5/S5 L=10 run uses this; depth_graded_toy.py:74 -- "1e-2 stalls the deep unroll, 3e-3 reaches 0.99"
+RUNG0_CLIP_MAX_NORM = 1.0  # depth_selection_toy.py:114 -- "L=10 needs clipping to stay GD-trainable"
+
+# Dual-metric convergence gate (spec §4, MASTER Decision 17; spec review M1-M3). These are GATE
+# constants (decide when a run is "done" and "trustworthy"), never BARS -- FIT_ACC/STALL_ACC above
+# remain the only thresholds a result must clear, and none of these move them.
+ACC_MIN_DELTA = 1e-3  # n_val=10,000 -> one example is 1e-4; 1e-3 = 10 examples, above split jitter
+ACC_CHECK_EVERY = CHECK_EVERY  # identical to the CE series so both trajectories stay index-aligned
+ACC_PATIENCE = PATIENCE  # identical to the CE series, for the same reason
+ACC_DIVERGENCE_ABS_EPS = 0.05  # 5pp collapse on the bounded [0,1] metric; M3: no relative term -- it
+# only loosens the flag, and loosens most exactly where the bar is read (high accuracy)
+ACC_STILL_IMPROVING_EPS = 0.01  # M2: the CE-scaled 5e-3 misfires on clean accuracy runs (spec measured
+# positive-control seed1 recent_improvement=+0.0067, wide_w435 seed1=+0.0095); 1pp clears both observed
+# clean-run residuals with margin while staying well below the 5pp divergence floor
+
 
 class Group(enum.StrEnum):
     """Which group the word-problem toy composes over (closed set)."""
@@ -128,6 +154,16 @@ class NetKind(enum.StrEnum):
     RECURRENT = "recurrent"  # weight-shared block applied once per word position (the natural sequential form)
     TIED_FLAT = "tied_flat"  # F5b Cell 3: shared block iterated d times over a once-injected flat word (params constant in d)
     UNTIED_PERSTEP = "untied_perstep"  # F5b Cell 2: RecurrentComposer shape but with L distinct (untied) per-step blocks
+
+
+class GateMode(enum.StrEnum):
+    """Which convergence gate `train_clf` runs (closed set; F5c-a protocol-repair spec §1/§4)."""
+
+    CE_ONLY = "ce_only"  # legacy F5b gate: `cvg.fit_to_convergence` on val CE alone, best weights on CE.
+    # DEFAULT -- reproduces `train_clf`'s original (pre-F5c) behaviour exactly; MASTER Decision 15's
+    # cross-caller constraint (`depth_selection_toy.py:570`) requires this to stay the default.
+    DUAL = "dual"  # F5c repaired gate (Decision 17): a CE tracker AND a val-accuracy tracker, AND-stop,
+    # best weights restored on accuracy. Used by `run_positive_control` and the future F5c-d grid.
 
 
 # ---------------------------------------------------------------------------
@@ -398,49 +434,182 @@ def count_params(module: nn.Module) -> int:
 # ---------------------------------------------------------------------------
 
 
-def train_clf(net: nn.Module, data: dict, device: str = "cpu", max_epochs: int = MAX_EPOCHS) -> tuple[cvg.ConvergenceResult, float, float]:
-    """Full-batch Adam + cross-entropy, gated by `convergence.fit_to_convergence` on val CE.
+def train_clf(
+    net: nn.Module,
+    data: dict,
+    device: str = "cpu",
+    max_epochs: int = MAX_EPOCHS,
+    *,
+    lr: float = LR,
+    clip_max_norm: float | None = None,
+    gate_mode: GateMode = GateMode.CE_ONLY,
+) -> tuple[cvg.ConvergenceResult, float, float]:
+    """Full-batch Adam + cross-entropy, gated by `gate_mode` (F5c-a protocol-repair spec §1/§4).
 
-    Returns `(convergence_result, train_acc, val_acc)`; accuracies are top-1 on the (unseen) val words
-    and on the train words, both in `[0,1]`. `convergence_result` also carries a `val_acc_trajectory`
-    attribute (`list[(epoch, val_acc)]`, same checkpoint cadence as its own val-CE `trajectory`) so
-    callers can read the full val-accuracy curve, not just the endpoint (F5a spec §6c) — attached
-    post-hoc rather than widening `ConvergenceResult` itself, so existing 3-tuple callers are unaffected.
+    Returns `(convergence_result, train_acc, val_acc)` — UNCHANGED SHAPE from the original F5b trainer.
+    `depth_selection_toy.py:570`'s `_train_clf_generic(net, probe_data, device=device,
+    max_epochs=max_epochs)` call site (S3 surface probe, certified `depth_selection_surface_seed{0,1}.json`)
+    passes none of the new keyword-only args, so `lr=LR` (1e-2), `clip_max_norm=None` (no clipping) and
+    `gate_mode=GateMode.CE_ONLY` (the exact `cvg.fit_to_convergence`-on-val-CE path this function always
+    ran) all reproduce today's behaviour exactly — MASTER Decision 15 / F5c-a spec review M4's
+    cross-caller constraint: parameterize rather than mutate this function's behaviour for its existing
+    callers.
+
+    `convergence_result` carries `val_acc_trajectory`, `train_acc_trajectory` and `train_ce_trajectory`
+    (`list[(epoch, value)]`, same checkpoint cadence as the val-CE `trajectory`) attached post-hoc, so
+    existing 3-tuple callers are unaffected (F5a spec §6c / F5c-a spec §4.3 items 1-2). In `GateMode.DUAL`
+    it additionally carries `acc_gate` (a dict: `converged`/`hit_cap`/`still_improving`/`diverged`/
+    `trustworthy`/`stop_epoch`/`best_val`/`best_epoch`/`recent_improvement`/`trajectory`, computed
+    EXPLICITLY from the accuracy tracker's raw fields — F5c-a spec review M1: `ConvergenceResult`'s
+    `.trustworthy`/`.diverged`/`.still_improving` properties are hard-wired to the CE-scaled module
+    globals in `automl_package/utils/convergence.py` and must never be read for the accuracy series) and
+    `clip_engagement_rate` (R1: fraction of steps whose pre-clip grad norm exceeded `clip_max_norm`;
+    `None` if `clip_max_norm` is `None`).
     """
     net.to(device)
     x_tr = torch.as_tensor(data["x_tr"], dtype=torch.float32, device=device)
     y_tr = torch.as_tensor(data["y_tr"], dtype=torch.long, device=device)
     x_val = torch.as_tensor(data["x_val"], dtype=torch.float32, device=device)
     y_val = torch.as_tensor(data["y_val"], dtype=torch.long, device=device)
-    opt = torch.optim.Adam(net.parameters(), lr=LR)
+    opt = torch.optim.Adam(net.parameters(), lr=lr)
     ce = nn.CrossEntropyLoss()
+
     val_acc_trajectory: list[tuple[int, float]] = []
+    train_acc_trajectory: list[tuple[int, float]] = []
+    train_ce_trajectory: list[tuple[int, float]] = []
     checkpoint_count = 0
+    clip_steps = 0
+    total_steps = 0
 
     def step_fn() -> None:
+        nonlocal clip_steps, total_steps
         opt.zero_grad()
         loss = ce(net(x_tr), y_tr)
         loss.backward()
+        total_steps += 1
+        if clip_max_norm is not None:
+            grad_norm = torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=clip_max_norm)
+            if float(grad_norm) > clip_max_norm:
+                clip_steps += 1
         opt.step()
 
-    def val_fn() -> float:
-        nonlocal checkpoint_count
-        net.eval()
-        with torch.no_grad():
-            v = ce(net(x_val), y_val).item()
-            acc = float((net(x_val).argmax(1) == y_val).float().mean().item())
-        net.train()
-        checkpoint_count += 1
-        val_acc_trajectory.append((checkpoint_count * CHECK_EVERY, acc))  # mirrors fit_to_convergence's own epoch-numbering (check_every * #checkpoints)
-        return v
+    if gate_mode is GateMode.CE_ONLY:
 
-    result = cvg.fit_to_convergence(net, step_fn, val_fn, max_epochs=max_epochs, check_every=CHECK_EVERY, patience=PATIENCE, min_delta=MIN_DELTA)
+        def val_fn() -> float:
+            nonlocal checkpoint_count
+            net.eval()
+            with torch.no_grad():
+                v = ce(net(x_val), y_val).item()
+                acc = float((net(x_val).argmax(1) == y_val).float().mean().item())
+                tr_ce = ce(net(x_tr), y_tr).item()
+                tr_acc = float((net(x_tr).argmax(1) == y_tr).float().mean().item())
+            net.train()
+            checkpoint_count += 1
+            epoch_num = checkpoint_count * CHECK_EVERY  # mirrors fit_to_convergence's own epoch-numbering (check_every * #checkpoints)
+            val_acc_trajectory.append((epoch_num, acc))
+            train_acc_trajectory.append((epoch_num, tr_acc))
+            train_ce_trajectory.append((epoch_num, tr_ce))
+            return v
+
+        result = cvg.fit_to_convergence(net, step_fn, val_fn, max_epochs=max_epochs, check_every=CHECK_EVERY, patience=PATIENCE, min_delta=MIN_DELTA)
+        acc_gate = None
+    else:
+        result, acc_gate = _train_dual_gate(
+            net, step_fn, ce, x_tr, y_tr, x_val, y_val, max_epochs,
+            val_acc_trajectory, train_acc_trajectory, train_ce_trajectory,
+        )
+
     result.val_acc_trajectory = val_acc_trajectory
+    result.train_acc_trajectory = train_acc_trajectory
+    result.train_ce_trajectory = train_ce_trajectory
+    result.acc_gate = acc_gate
+    result.clip_engagement_rate = (clip_steps / total_steps) if (clip_max_norm is not None and total_steps > 0) else None
+
     net.eval()
     with torch.no_grad():
         train_acc = float((net(x_tr).argmax(1) == y_tr).float().mean().item())
         val_acc = float((net(x_val).argmax(1) == y_val).float().mean().item())
     return result, train_acc, val_acc
+
+
+def _train_dual_gate(
+    net: nn.Module,
+    step_fn: Callable[[], None],
+    ce: nn.Module,
+    x_tr: torch.Tensor,
+    y_tr: torch.Tensor,
+    x_val: torch.Tensor,
+    y_val: torch.Tensor,
+    max_epochs: int,
+    val_acc_trajectory: list[tuple[int, float]],
+    train_acc_trajectory: list[tuple[int, float]],
+    train_ce_trajectory: list[tuple[int, float]],
+) -> tuple[cvg.ConvergenceResult, dict]:
+    """F5c-a spec §4.2 dual-metric gate: a CE tracker AND a val-accuracy tracker, jointly patience-stopped.
+
+    AND, not OR — an OR would leave the CE clock firing at its old ~2,750-epoch stop on arms whose
+    accuracy is still climbing, spec §4.1 harm (c). Best weights are restored on ACCURACY (harm (d)).
+
+    The accuracy tracker runs on `-val_acc` (`ConvergenceTracker`'s lower-is-better contract, unchanged
+    — spec §4.2 "reuse, do not reinvent"). Its `diverged`/`still_improving`/`trustworthy` flags are
+    computed HERE from the tracker's raw fields (`best_val`, `trajectory`, `recent_improvement`,
+    `converged`, `hit_cap`) using the `ACC_*` module constants — never via `ConvergenceResult`'s own
+    properties, which read `automl_package/utils/convergence.py`'s CE-scaled globals (spec review M1).
+    """
+    ce_tracker = cvg.ConvergenceTracker(patience=PATIENCE, min_delta=MIN_DELTA)
+    acc_tracker = cvg.ConvergenceTracker(patience=ACC_PATIENCE, min_delta=ACC_MIN_DELTA)
+    best_state: dict | None = None
+    final_epoch = max_epochs
+
+    net.train()
+    for epoch in range(1, max_epochs + 1):
+        step_fn()
+        if epoch % ACC_CHECK_EVERY == 0:
+            net.eval()
+            with torch.no_grad():
+                v_ce = ce(net(x_val), y_val).item()
+                v_acc = float((net(x_val).argmax(1) == y_val).float().mean().item())
+                tr_ce = ce(net(x_tr), y_tr).item()
+                tr_acc = float((net(x_tr).argmax(1) == y_tr).float().mean().item())
+            net.train()
+            val_acc_trajectory.append((epoch, v_acc))
+            train_acc_trajectory.append((epoch, tr_acc))
+            train_ce_trajectory.append((epoch, tr_ce))
+
+            ce_tracker.update(epoch, v_ce)
+            is_new_best_acc = acc_tracker.update(epoch, -v_acc)
+            if is_new_best_acc:
+                best_state = {k: t.detach().clone() for k, t in net.state_dict().items()}
+
+            if ce_tracker.done and acc_tracker.done:  # AND, not OR -- spec §4.2
+                final_epoch = epoch
+                break
+
+    if best_state is not None:
+        net.load_state_dict(best_state)
+
+    ce_result = ce_tracker.result(final_epoch=final_epoch)
+    acc_result_neg = acc_tracker.result(final_epoch=final_epoch)  # fields below are on the NEGATED (-acc) series
+
+    best_acc = -acc_result_neg.best_val
+    final_val_acc = -acc_result_neg.trajectory[-1][1] if acc_result_neg.trajectory else float("nan")
+    diverged_acc = bool((best_acc - final_val_acc) > ACC_DIVERGENCE_ABS_EPS)  # M3: absolute floor only, no relative term
+    still_improving_acc = bool(acc_result_neg.recent_improvement > ACC_STILL_IMPROVING_EPS)  # M2
+    trustworthy_acc = bool(acc_result_neg.converged and not acc_result_neg.hit_cap and not still_improving_acc and not diverged_acc)
+
+    acc_gate = {
+        "converged": acc_result_neg.converged,
+        "hit_cap": acc_result_neg.hit_cap,
+        "still_improving": still_improving_acc,
+        "diverged": diverged_acc,
+        "trustworthy": trustworthy_acc,
+        "stop_epoch": acc_result_neg.stop_epoch,
+        "best_val": best_acc,
+        "best_epoch": acc_result_neg.best_epoch,
+        "recent_improvement": acc_result_neg.recent_improvement,
+        "trajectory": [[int(e), float(-v)] for e, v in acc_result_neg.trajectory],
+    }
+    return ce_result, acc_gate
 
 
 # ---------------------------------------------------------------------------
@@ -596,6 +765,93 @@ def run_and_save_pilot(
     with open(path, "w") as f:
         json.dump(pilot, f, indent=2)
     return pilot
+
+
+def run_positive_control(
+    seed: int,
+    out_dir: str = DEFAULT_OUT_DIR,
+    device: str = "cpu",
+    max_epochs: int = MAX_EPOCHS,
+    seq_len: int = 10,
+    rec_state_width: int = REC_STATE_WIDTH,
+    lr: float = RUNG0_LR,
+    clip_max_norm: float | None = RUNG0_CLIP_MAX_NORM,
+) -> dict:
+    """F5c-b (MASTER Decision 14 gate): the plain single-readout `RecurrentComposer` positive control.
+
+    A5, L=10, at the repaired Rung-0 protocol (spec §1.3) under the dual-metric gate (spec §4) — the
+    SAME `train_clf` protocol the grid arms will use (spec §1.3's "uniformity rule"). This is the ONLY
+    arm this function trains; no other arm may be trained until it passes (`flexnn-core.md` §F5c-b:
+    "No compute is spent on any other arm until this passes").
+
+    Bar (unchanged, `ff_depth_toy_spec.md` §6 / spec §5): held-out accuracy >= `FIT_ACC` AND
+    `acc_gate["trustworthy"]`, on BOTH seeds — read by the CALLER off this function's returned dict (or
+    the landed JSON); this function does not itself render a pass/fail verdict (Decision 9: no bar is
+    adjusted after a run, and none is evaluated informally either).
+
+    Lands one JSON per seed at `{out_dir}/f5c_poscontrol_a5_seed{seed}.json` — named apart from the
+    invalid, committed-as-evidence F5b files (`ff_depth_pilot_a5_seed{0,1}.json`), which this function
+    never reads or writes.
+    """
+    group = Group.A5
+    data = make_word_data(group, seq_len, seed)
+    torch.manual_seed(seed)
+    net = RecurrentComposer(rec_state_width, data["n_gen"], data["n_classes"])
+
+    result, train_acc, val_acc = train_clf(
+        net, data, device=device, max_epochs=max_epochs, lr=lr, clip_max_norm=clip_max_norm, gate_mode=GateMode.DUAL,
+    )
+
+    max_train_acc = max((a for _, a in result.train_acc_trajectory), default=train_acc)
+    if val_acc >= FIT_ACC:
+        fit_status = "GENERALIZED"
+    elif train_acc >= FIT_ACC and val_acc <= STALL_ACC:
+        fit_status = "MEMORIZED"
+    elif max_train_acc < FIT_ACC:
+        fit_status = "UNDER_FIT"
+    else:
+        fit_status = "INTERMEDIATE"
+
+    acc_gate = result.acc_gate
+    out = {
+        "arm": "positive_control",
+        "net_kind": NetKind.RECURRENT.value,
+        "group": group.value,
+        "seq_len": seq_len,
+        "seed": seed,
+        "n_classes": data["n_classes"],
+        "chance": 1.0 / data["n_classes"],
+        "rec_state_width": rec_state_width,
+        "params": count_params(net),
+        "hyperparameters": {
+            "lr": lr,
+            "clip_max_norm": clip_max_norm,
+            "max_epochs": max_epochs,
+            "gate_mode": GateMode.DUAL.value,
+            "ce_check_every": CHECK_EVERY, "ce_patience": PATIENCE, "ce_min_delta": MIN_DELTA,
+            "acc_check_every": ACC_CHECK_EVERY, "acc_patience": ACC_PATIENCE, "acc_min_delta": ACC_MIN_DELTA,
+            "acc_divergence_abs_eps": ACC_DIVERGENCE_ABS_EPS, "acc_still_improving_eps": ACC_STILL_IMPROVING_EPS,
+        },
+        "fit_acc": FIT_ACC,
+        "stall_acc": STALL_ACC,
+        "fit_status": fit_status,
+        "train_acc": train_acc,
+        "val_acc": val_acc,
+        "clip_engagement_rate": result.clip_engagement_rate,
+        "trustworthy_ce": bool(result.trustworthy),
+        "ce_gate": result.summary(),
+        "trustworthy_acc": bool(acc_gate["trustworthy"]) if acc_gate is not None else None,
+        "acc_gate": acc_gate,
+        "val_acc_trajectory": [[int(e), float(a)] for e, a in result.val_acc_trajectory],
+        "train_acc_trajectory": [[int(e), float(a)] for e, a in result.train_acc_trajectory],
+        "train_ce_trajectory": [[int(e), float(v)] for e, v in result.train_ce_trajectory],
+    }
+
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"f5c_poscontrol_{group.value}_seed{seed}.json")
+    with open(path, "w") as f:
+        json.dump(out, f, indent=2)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -794,10 +1050,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selftest", action="store_true", help="No-training group-axiom / product / data / net-wiring checks.")
     parser.add_argument("--pilot", action="store_true", help="Train the narrow depth ladder + wide-shallow control and report held-out accuracy.")
+    parser.add_argument(
+        "--poscontrol", action="store_true",
+        help="F5c-b (Decision 14 gate): plain single-readout RecurrentComposer, A5, seq_len=10, repaired Rung-0 protocol + dual gate. Writes f5c_poscontrol_a5_seed{seed}.json.",
+    )
     parser.add_argument("--group", type=str, choices=[g.value for g in Group], default=Group.S5.value, help="Group to compose over (default s5).")
     parser.add_argument("--net", type=str, choices=[k.value for k in NetKind], default=NetKind.MLP.value, help="Architecture (default mlp).")
     parser.add_argument("--seq-len", type=int, default=5, help="Word length = number of composition steps (per-input depth difficulty knob).")
     parser.add_argument("--seed", type=int, default=0, help="RNG seed.")
+    parser.add_argument("--max-epochs", type=int, default=MAX_EPOCHS, help="Safety cap on training epochs (--poscontrol; Decision 9: pass explicitly for confirmation runs).")
     parser.add_argument("--out-dir", type=str, default=DEFAULT_OUT_DIR, help="Directory for pilot JSON output.")
     parser.add_argument("--narrow-width", type=int, default=NARROW_WIDTH, help="Hidden width for flat-input narrow arms (mlp Cell 1 / tied_flat Cell 3).")
     parser.add_argument("--wide-width", type=int, default=WIDE_WIDTH, help="Width of the wide-shallow control (set per F5a spec §5's matched-width table).")
@@ -821,6 +1082,18 @@ def main() -> None:
             battery = json.load(f)
         print(f"[depth_comp] merged battery -> {battery_path}")
         print(f"  arms ({len(battery['arms'])}): {sorted(battery['arms'].keys())}")
+        sys.exit(0)
+
+    if args.poscontrol:
+        device = os.environ.get("AUTOML_DEVICE", "cpu")
+        out = run_positive_control(args.seed, out_dir=args.out_dir, device=device, max_epochs=args.max_epochs, rec_state_width=args.rec_state_width)
+        path = os.path.join(args.out_dir, f"f5c_poscontrol_{out['group']}_seed{args.seed}.json")
+        print(f"[depth_comp] F5c-b positive control -> {path}")
+        print(f"  seed={args.seed} params={out['params']} lr={out['hyperparameters']['lr']} clip_max_norm={out['hyperparameters']['clip_max_norm']}")
+        print(f"  val_acc={out['val_acc']:.4f} train_acc={out['train_acc']:.4f} fit_status={out['fit_status']}")
+        print(f"  trustworthy_ce={out['trustworthy_ce']} trustworthy_acc={out['trustworthy_acc']} clip_engagement_rate={out['clip_engagement_rate']}")
+        print("    " + _format_traj_pairs(out["val_acc_trajectory"], "val_acc_traj  "))
+        print("    " + _format_traj_pairs(out["train_acc_trajectory"], "train_acc_traj"))
         sys.exit(0)
 
     if args.pilot:

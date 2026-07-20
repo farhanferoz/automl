@@ -1,5 +1,6 @@
 """Probabilistic Regression model implemented in PyTorch."""
 
+from collections.abc import Callable
 from typing import Any, ClassVar
 
 import numpy as np
@@ -20,6 +21,7 @@ from automl_package.enums import (
 from automl_package.logger import logger
 from automl_package.models.architectures.probabilistic_regression_net import ProbabilisticRegressionNet
 from automl_package.models.base_pytorch import PyTorchModelBase
+from automl_package.models.common.distilled_router import DEFAULT_TOLERANCE, DistilledCapacityRouter
 from automl_package.models.common.losses import calculate_combined_loss
 from automl_package.models.common.middle_class_penalty_mixin import MiddleClassPenaltyMixin
 from automl_package.models.common.mixins import BoundaryLossMixin
@@ -35,6 +37,18 @@ from automl_package.utils.transforms import symexp, symlog
 
 class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleClassPenaltyMixin):
     """A PyTorch-based probabilistic regression model that directly learns both mean and variance.
+
+    ProbReg is a CLASSIFIER over k classes with per-class (mean, log_var) regression heads,
+    combined via the law of total variance -- not a Gaussian mixture model in the
+    latent-component sense.
+
+    Recommended dynamic-k path (capacity-programme Task F9, MASTER Decision 13 -- selection is
+    DISTILLED, never in-training): train with `n_classes_selection_method=NESTED` (per-sample k
+    drawn as a training schedule, ported from `_capacity_ladder_nested.py`), then call
+    `fit_router()` + `predict(x, inference_mode="routed")` for per-input k at inference. The
+    other dynamic strategies -- SOFT_GATING, GUMBEL_SOFTMAX, STE, REINFORCE, and
+    `NClassesRegularization` (K_PENALTY/ELBO) -- remain fully functional but are labeled
+    COMPARISON ARMS, not the recommended path.
 
     Warning:
         Dynamic n_classes selection (`n_classes_selection_method != NONE`) combined with an
@@ -127,6 +141,13 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             self.n_classes_regularization = NClassesRegularization[self.n_classes_regularization.upper()]
         if isinstance(self.prob_reg_loss_type, str):
             self.prob_reg_loss_type = ProbRegLossType[self.prob_reg_loss_type.upper()]
+
+        if self.n_classes_selection_method == NClassesSelectionMethod.NESTED and self.uncertainty_method != UncertaintyMethod.PROBABILISTIC:
+            raise ValueError(
+                "n_classes_selection_method=NESTED requires uncertainty_method=PROBABILISTIC: the nested-k "
+                "scheme is a strictly-probabilistic Gaussian-NLL training objective "
+                "(automl_package/examples/_capacity_ladder_nested.py), not defined for constant/MC-dropout heads."
+            )
 
         if self.use_monotonic_constraints and self.regression_strategy != RegressionStrategy.SEPARATE_HEADS:
             logger.warning("Monotonic constraints are only supported for the 'SEPARATE_HEADS' regression strategy.")
@@ -574,13 +595,31 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
         return super()._fit_single(x_train, y_train, x_val, y_val, forced_iterations, forward_pass_kwargs=forward_pass_kwargs)
 
-    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
+    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True, inference_mode: str = "soft") -> np.ndarray:
         """Predicts on x, applying inverse target transform if configured.
 
         For symlog, predictions are computed as the MC mean of ``symexp(samples)`` so
         that the reported point estimate is consistent with the std produced by
         :meth:`predict_uncertainty` (both come from the same posterior sample).
+
+        Args:
+            x: Input features.
+            filter_data: Whether to filter input columns to those seen at fit time.
+            inference_mode: "soft" (default) uses the trained selection strategy/full forward
+                pass. "routed" uses a `DistilledCapacityRouter` fitted via `fit_router()` to
+                pick a per-sample rung post-hoc (capacity-programme Task F9; MASTER
+                Decision 13) -- mirrors `FlexibleHiddenLayersNN.predict(inference_mode=...)`.
         """
+        if inference_mode not in ("soft", "routed"):
+            raise ValueError(f"Unknown inference_mode: {inference_mode!r}")
+        if inference_mode == "routed":
+            mean, log_var = self._forward_routed(x, filter_data=filter_data)
+            if self.target_transform == "symlog":
+                std_symlog = np.sqrt(np.exp(log_var))
+                mean_orig, _ = self._symlog_mc_moments(mean, std_symlog)
+                return mean_orig
+            return mean
+
         predictions = super().predict(x, filter_data=filter_data)
         if self.target_transform == "symlog":
             std_symlog = super().predict_uncertainty(x, filter_data=filter_data)
@@ -652,7 +691,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         stds = np.sqrt(np.exp(log_var))
         return MixtureOfGaussiansDistribution(weights=weights, means=means, stds=stds)
 
-    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True, inference_mode: str = "soft") -> np.ndarray:
         """Estimates uncertainty, converting from symlog space if configured.
 
         For symlog targets the linearized Jacobian (``exp(|μ|)``) is inaccurate
@@ -660,13 +699,221 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         We instead push samples from ``N(μ_symlog, σ_symlog²)`` through ``symexp``
         and report the empirical std — this is exact in the limit of many samples
         and adds negligible cost (~one extra forward of arithmetic).
+
+        Args:
+            x: Input features.
+            filter_data: Whether to filter input columns to those seen at fit time.
+            inference_mode: see :meth:`predict`.
         """
+        if inference_mode not in ("soft", "routed"):
+            raise ValueError(f"Unknown inference_mode: {inference_mode!r}")
+        if inference_mode == "routed":
+            mean, log_var = self._forward_routed(x, filter_data=filter_data)
+            std = np.sqrt(np.exp(log_var))
+            if self.target_transform == "symlog":
+                _, std_orig = self._symlog_mc_moments(mean, std)
+                return std_orig
+            return std
+
         std = super().predict_uncertainty(x, filter_data=filter_data)
         if self.target_transform == "symlog":
             mean_symlog = super().predict(x, filter_data=filter_data)
             _, std_orig = self._symlog_mc_moments(mean_symlog, std)
             return std_orig
         return std
+
+    def _forward_routed(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> tuple[np.ndarray, np.ndarray]:
+        """Per-sample (mean, log_var) from the `DistilledCapacityRouter`-routed rung.
+
+        Each sample's rung -- `(1,)` the bypass, `(k,)` for `k>=2` the renormalized k-class
+        mixture -- is picked by `self.capacity_router_` (fit via `fit_router()`), then forced
+        through `ProbabilisticRegressionNet.forward_at_k`. Values are in whatever space the
+        model was fit in (symlog-transformed if `target_transform="symlog"`); callers apply the
+        same MC push-through `predict`/`predict_uncertainty` already use for the non-routed path.
+        """
+        if self.model is None:
+            raise RuntimeError("Model has not been fitted yet.")
+        if getattr(self, "capacity_router_", None) is None:
+            raise RuntimeError("No router fitted; call fit_router() before predict(inference_mode='routed').")
+        if filter_data:
+            x = self._filter_predict_data(x)
+        x_array = x.values if hasattr(x, "values") else x
+        x_tensor = torch.tensor(x_array, dtype=torch.float32).to(self.device)
+
+        k_np = np.array([capacity[0] for capacity in self.capacity_router_.route(x_array)], dtype=np.int64)
+        out = torch.zeros(x_tensor.size(0), self.model.regression_output_size, device=self.device)
+        self.model.eval()
+        with torch.no_grad():
+            for k in np.unique(k_np):
+                mask = k_np == k
+                out[mask] = self.model.forward_at_k(x_tensor[mask], int(k))
+        mean = out[:, 0].cpu().numpy()
+        log_var = out[:, 1].cpu().numpy()
+        return mean, log_var
+
+    def fit_router(
+        self,
+        x_val: np.ndarray,
+        y_val: np.ndarray,
+        capacity_grid: list[tuple[int, ...]] | None = None,
+        tolerance: float = DEFAULT_TOLERANCE,
+        cost_fn: Callable[[tuple[int, ...]], float] | None = None,
+    ) -> DistilledCapacityRouter:
+        """Fits a `DistilledCapacityRouter` post-hoc for `predict(..., inference_mode="routed")`.
+
+        Decision 13 (distilled, never in-training): trains an MLP mapping raw `x_val` to a rung,
+        entirely separate from the trained selection strategy. `eval_fn` forces every sample
+        through a fixed rung via `ProbabilisticRegressionNet.forward_at_k` (bypassing the
+        selection strategy for that call) and scores it with per-sample Gaussian NLL -- the
+        natural error metric for a probabilistic model (unlike
+        `FlexibleHiddenLayersNN`/`FlexibleWidthNN`'s squared-error `eval_fn`, which have no
+        predictive variance to score against).
+
+        Requires `n_classes_selection_method=NESTED`: routing assumes every rung's k-class
+        mixture is individually well-calibrated (the K4 nesting property -- "the first c rungs
+        are a genuine c-component mixture for every c"), which only the NESTED training scheme
+        guarantees. Reading a per-rung ladder off one of the OTHER dynamic strategies would
+        reproduce the R1 catastrophe those strategies were never audited against: prefix-slicing
+        an unordered/non-nested mixture is invalid (`docs/plans/capacity_programme/...`,
+        `automl_package/examples/capacity_ladder_results/R1_verdict.md`).
+
+        Args:
+            x_val: held-out inputs.
+            y_val: held-out targets, in the SAME space as `fit()`'s `y_train`/`y_val` -- i.e.
+                raw/original target units. When `target_transform="symlog"`, `y_val` is
+                auto-transformed internally (via the same `symlog` helper `fit()` uses) before
+                scoring, to match `forward_at_k`'s symlog-space outputs; do NOT pre-transform it
+                yourself. This mirrors `fit()`'s contract exactly so callers can pass the same
+                `y_val` array to both.
+            capacity_grid: candidate rungs as 1-tuples, e.g. `[(1,), (2,), (3,)]` (`(1,)` is the
+                bypass). Defaults to every rung `1..max_n_classes_for_probabilistic_path`.
+            tolerance: cheapest-within-tolerance labeling tolerance (see `DistilledCapacityRouter`).
+            cost_fn: `cost_fn(capacity) -> float`. Unlike `FlexibleHiddenLayersNN`/
+                `FlexibleWidthNN`, no default is wired here -- no `executed_flops` accounting
+                exists yet for this architecture (capacity-programme scope). Pass one explicitly
+                to use `mean_deployed_cost`; `None` (default) leaves it disabled.
+
+        Returns:
+            The fitted `DistilledCapacityRouter` (also stored as `self.capacity_router_`).
+
+        Raises:
+            RuntimeError: the model has not been fitted, or was not trained with
+                `n_classes_selection_method=NESTED`.
+        """
+        if self.model is None:
+            raise RuntimeError("Model has not been fitted yet.")
+        if self.n_classes_selection_method != NClassesSelectionMethod.NESTED:
+            raise RuntimeError(
+                "fit_router requires n_classes_selection_method=NESTED (the certified prefix-nesting "
+                f"property; got {self.n_classes_selection_method.value}). See fit_router docstring."
+            )
+        if capacity_grid is None:
+            capacity_grid = [(k,) for k in range(1, self.max_n_classes_for_probabilistic_path + 1)]
+
+        y_val_arr = np.asarray(y_val, dtype=np.float64)
+        if self.target_transform == "symlog":
+            # forward_at_k's outputs live in symlog space (fit() transforms y_train/y_val before
+            # training, :526-529) -- eval_fn below must score against y_val in that same space, or
+            # the per-capacity error table is silently wrong (F9-fix-b).
+            y_val_arr = symlog(torch.tensor(y_val_arr, dtype=torch.float32)).numpy().astype(np.float64)
+
+        def eval_fn(x: np.ndarray, capacity: tuple[int, ...]) -> np.ndarray:
+            k = capacity[0]
+            x_tensor = torch.tensor(x, dtype=torch.float32, device=self.device)
+            self.model.eval()
+            with torch.no_grad():
+                out = self.model.forward_at_k(x_tensor, k)
+            mean = out[:, 0].cpu().numpy()
+            log_var = out[:, 1].cpu().numpy()
+            return 0.5 * (log_var + (y_val_arr - mean) ** 2 / np.exp(log_var))
+
+        router = DistilledCapacityRouter(device=self.device)
+        router.fit(eval_fn=eval_fn, x_val=x_val, y_val=y_val, capacity_grid=capacity_grid, tolerance=tolerance, cost_fn=cost_fn)
+        self.capacity_router_ = router
+        return router
+
+    def _per_sample_log_likelihood_at_k(self, x: np.ndarray, y: np.ndarray, k: int) -> np.ndarray:
+        """Per-sample Gaussian log-likelihood of rung `k`'s forced readout (bypasses selection)."""
+        x_tensor = torch.tensor(x, dtype=torch.float32, device=self.device)
+        self.model.eval()
+        with torch.no_grad():
+            out = self.model.forward_at_k(x_tensor, k)
+        mean = out[:, 0].cpu().numpy()
+        log_var = out[:, 1].cpu().numpy()
+        return -0.5 * (np.log(2.0 * np.pi) + log_var + (y - mean) ** 2 / np.exp(log_var))
+
+    def held_out_arbiter_advantage(
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        width: float = 0.075,
+        top_k: int | None = None,
+    ) -> np.ndarray:
+        """Certified per-input capacity readout: the held-out ARBITER A(x) -- NOT the per-input knee.
+
+        R2 (`automl_package/examples/capacity_ladder_results/R2_verdict.md`) certified that the
+        per-input latent component count is recovered via this neighbour-averaged ARBITER --
+        ``A(x) = mean_{x' near x}[ ll_top_k(x', y') - ll_bypass(x', y') ]``, the held-out
+        advantage of the top rung (`top_k`, default `max_n_classes_for_probabilistic_path`)
+        over the k=1 direct-regression bypass -- while the per-input hard KNEE (walking the
+        ladder rung by rung, stopping at the first non-improving step,
+        `capacity_ladder_k5.perinput_knee_curve`) was found NOT faithful: "noisy and wrong on
+        D" (R2 §1). This is the readout F7/F10 point to instead of re-deriving it. COPIED
+        (not imported) from `_capacity_ladder.perinput_curve`'s box-car neighbourhood average --
+        package code under `models/` does not depend on `examples/` (see
+        `models/common/distilled_router.py` module docstring for the same convention).
+
+        Known boundary (state, do not hide): certified on toy D (fixed-mode staircase, monotone
+        recovery on all 3 seeds); toy-E-like MOVING-mode drift cases are seed-fragile (2 of 3
+        seeds negative, R2 §1) -- NOT certified. Requires `n_classes_selection_method=NESTED`
+        for the same nesting reason `fit_router` does (see its docstring). The neighbourhood
+        here is a Euclidean box-car, which reduces to the certified 1-D box-car when `x` is
+        scalar; multi-dimensional `x` is an unaudited generalization.
+
+        Args:
+            x: held-out inputs, `(N,)` or `(N, in_dim)`.
+            y: held-out targets, `(N,)`.
+            width: neighbourhood box-car half-width, in units of `x` (Euclidean distance if
+                `in_dim > 1`). Default 0.075 matches the certified toy-suite read
+                (`capacity_ladder_k5.WIDTH`) -- re-tune for feature scales outside `[0, 1]`.
+            top_k: top rung compared against the bypass. Defaults to
+                `max_n_classes_for_probabilistic_path`.
+
+        Returns:
+            `(N,)` neighbour-averaged advantage A(x) at every row of `x` (positive = the top
+            rung beats the bypass in that neighbourhood; NaN where no neighbour falls within
+            `width`).
+
+        Raises:
+            RuntimeError: the model has not been fitted, or was not trained with
+                `n_classes_selection_method=NESTED`.
+        """
+        if self.model is None:
+            raise RuntimeError("Model has not been fitted yet.")
+        if self.n_classes_selection_method != NClassesSelectionMethod.NESTED:
+            raise RuntimeError(
+                "held_out_arbiter_advantage requires n_classes_selection_method=NESTED (the certified "
+                f"prefix-nesting property; got {self.n_classes_selection_method.value}). See docstring."
+            )
+        top_k = top_k or self.max_n_classes_for_probabilistic_path
+
+        x_arr = np.asarray(x, dtype=np.float64)
+        if x_arr.ndim == 1:
+            x_arr = x_arr.reshape(-1, 1)
+        y_arr = np.asarray(y, dtype=np.float64).ravel()
+
+        ll_bypass = self._per_sample_log_likelihood_at_k(x_arr, y_arr, 1)
+        ll_top = self._per_sample_log_likelihood_at_k(x_arr, y_arr, top_k)
+        delta = ll_top - ll_bypass  # (N,)
+
+        dist = np.linalg.norm(x_arr[None, :, :] - x_arr[:, None, :], axis=-1)  # (N, N)
+        mask = (dist <= width).astype(np.float64)
+        counts = mask.sum(axis=1)
+        summed = mask @ delta
+        with np.errstate(invalid="ignore", divide="ignore"):
+            out = summed / counts
+        out[counts == 0] = np.nan
+        return out
 
     @staticmethod
     def _symlog_mc_moments(mean_symlog: np.ndarray, std_symlog: np.ndarray, n_samples: int = 200, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:

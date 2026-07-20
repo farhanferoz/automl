@@ -1,5 +1,6 @@
 """N-classes selection strategies for probabilistic regression models."""
 
+import math
 from typing import Any
 
 import torch
@@ -7,6 +8,9 @@ import torch.nn.functional as f
 
 from automl_package.enums import ProbabilisticRegressionOptimizationStrategy, RegressionStrategy
 from automl_package.models.selection_strategies.base_selection_strategy import BaseSelectionStrategy
+
+# UncertaintyMethod.PROBABILISTIC heads emit (mean, log_var) -- this is that fixed width, not a tunable.
+_PROBABILISTIC_HEAD_OUTPUT_SIZE = 2
 
 
 class NoneStrategy(BaseSelectionStrategy):
@@ -164,3 +168,117 @@ class ReinforceStrategy(BaseSelectionStrategy):
             policy_loss = -torch.stack(epoch_log_probs).mean() * reward
             policy_loss.backward()
             self.policy_optimizer.step()
+
+
+class NestedStrategy(BaseSelectionStrategy):
+    """Nested-k training: per-sample k draws as a SCHEDULE (capacity-ladder Task F9 port).
+
+    Ports `_capacity_ladder_nested.NestedKSurrogate`'s per-sample ``k ~ Uniform{1..k_max}``
+    "k-dropout" schedule (`automl_package/examples/_capacity_ladder_nested.py`) onto
+    `ProbabilisticRegressionModel`'s existing k-class mixture ladder, the SAME way
+    `layer_selection_strategies.NestedStrategy` ports it onto FlexNN depth: rung 1 is the
+    direct-regression BYPASS (the k=1 single-Gaussian rung, `direct_regression_head`); rungs
+    2..k_max are the renormalized k-class mixture `_compute_predictions_for_k` already produces
+    (masked softmax over the first k classifier logits, weighted-combined through the SAME
+    shared regression heads every rung reuses). That masked-softmax renormalization is exactly
+    `NestedKSurrogate.masked_prefix_nll`'s prefix property -- "the first c rungs are a genuine
+    c-component mixture for every c" -- so ProbReg's existing architecture gets K4's nesting
+    guarantee for free, without a new component-head architecture. No `n_classes_predictor` is
+    built for this strategy (`logits` is ignored; no k input to the network -- mirrors
+    `layer_selection_strategies.NestedStrategy` / `NoneStrategy`).
+
+    Known compatibility boundary (do not hide): this strategy always returns
+    ``per_head_outputs=None`` (each sample trains a different rung, so there is no single
+    per-head correspondence for a batch-level penalty). MDN loss (`ProbRegLossType.MDN`),
+    the ordering-identifiability penalty, the middle-class NLL penalty, and boundary
+    regularization all silently no-op under NESTED rather than erroring -- pair NESTED with
+    `ProbRegLossType.GAUSSIAN_LTV` and leave those penalties off (the strictly-probabilistic,
+    no-arbitrary-penalty premise `_capacity_ladder_nested.py` documents). Use one of the
+    labeled comparison-arm strategies (GumbelSoftmax/SoftGating/STE/REINFORCE) if per-head
+    penalties are required.
+    """
+
+    def setup_optimizers(self, policy_params: Any) -> None:
+        """No policy optimizer needed: NESTED has no n_classes_predictor to train."""
+
+    def on_epoch_end(self, **kwargs: Any) -> None:
+        """No epoch-end action: the draw distribution is fixed (uniform), nothing anneals."""
+
+    def all_rung_outputs(self, x_input: torch.Tensor, boundaries: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+        """Every rung's (mean, log_var) readout, computed via the shared classifier/heads.
+
+        Args:
+            x_input: Input tensor, shape (batch, in_features).
+            boundaries: Optional HARDSIGMOID boundary tensor, forwarded to
+                `_compute_predictions_for_k` (ignored by the bypass rung, matching the other
+                strategies' `direct_regression_head` calls).
+
+        Returns:
+            outputs: Shape (batch, n_classes, regression_output_size); column 0 is the bypass
+                rung (k=1); column i (i >= 1) is the renormalized k=(i+1)-class mixture -- the
+                prefix-of-first-(i+1)-rungs nesting property `_capacity_ladder_nested.py`
+                requires (see class docstring).
+            classifier_raw_logits: Shape (batch, n_classes) -- for downstream loss/logging
+                bookkeeping (matches every other strategy's return contract).
+        """
+        classifier_raw_logits = self.model.classifier_layers(x_input)
+        rungs = [self.model.direct_regression_head(x_input)]
+        for k_val in range(2, self.model.n_classes + 1):
+            rungs.append(self.model._compute_predictions_for_k(classifier_raw_logits, k_val, boundaries=boundaries))
+        return torch.stack(rungs, dim=1), classifier_raw_logits
+
+    def all_rung_log_likelihood(self, x_input: torch.Tensor, y_target: torch.Tensor) -> torch.Tensor:
+        """Per-sample Gaussian log-likelihood at every rung, from ONE call to `all_rung_outputs`.
+
+        Requires `UncertaintyMethod.PROBABILISTIC` (native (mean, log_var) heads). This is the
+        all-rung score table `ProbabilisticRegressionModel.held_out_arbiter_advantage` and
+        F7/F10's report reads consume -- mirrors
+        `layer_selection_strategies.NestedStrategy.all_depth_log_likelihood`.
+
+        Args:
+            x_input: Input tensor, shape (batch, in_features).
+            y_target: Targets, shape (batch,) or (batch, 1).
+
+        Returns:
+            Shape (batch, n_classes); higher is better.
+        """
+        all_outputs, _ = self.all_rung_outputs(x_input)
+        if all_outputs.size(-1) != _PROBABILISTIC_HEAD_OUTPUT_SIZE:
+            raise ValueError("all_rung_log_likelihood requires UncertaintyMethod.PROBABILISTIC (mean, log_var) heads.")
+        mean = all_outputs[..., 0]
+        log_var = all_outputs[..., 1]
+        variance = torch.exp(log_var)
+        y = y_target.reshape(-1, 1).to(all_outputs.device)
+        return -0.5 * (math.log(2 * math.pi) + log_var + (y - mean) ** 2 / variance)
+
+    def forward(
+        self, x_input: torch.Tensor, _logits: torch.Tensor | None, boundaries: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None]:
+        """Draws a per-sample rung ~ Uniform{1..k_max}; returns that rung's own readout.
+
+        Args:
+            x_input: Input tensor.
+            _logits: Ignored -- NESTED does not condition on an n_classes_predictor.
+            boundaries: Optional boundaries for the HARDSIGMOID transformation.
+
+        Returns:
+            tuple: (final predictions at each sample's own drawn rung, selected k values --
+            the direct-regression sentinel for the bypass rung else k=i+1, None log_prob, the
+            classifier raw logits, per_head_outputs=None -- see class docstring).
+        """
+        all_outputs, classifier_raw_logits = self.all_rung_outputs(x_input, boundaries=boundaries)
+        n_rungs = all_outputs.size(1)
+        rung_idx = torch.randint(0, n_rungs, (x_input.size(0),), device=x_input.device)
+        gather_index = rung_idx.view(-1, 1, 1).expand(-1, 1, all_outputs.size(-1))
+        final_predictions = all_outputs.gather(1, gather_index).squeeze(1)
+
+        inf_sentinel = self._DIRECT_REGRESSION_K_SENTINEL
+        selected_k_values = torch.where(
+            rung_idx == 0,
+            torch.tensor(inf_sentinel, dtype=torch.long, device=x_input.device),
+            (rung_idx + 1).to(torch.long),
+        )
+        n_probs = f.one_hot(rung_idx, num_classes=n_rungs).float()
+        self.mode_selection_probs = n_probs
+
+        return final_predictions, selected_k_values, None, classifier_raw_logits, None

@@ -9,7 +9,7 @@ from automl_package.enums import NClassesSelectionMethod, ProbabilisticRegressio
 from automl_package.models.common.monotonicity_config_mixin import MonotonicityConfigMixin
 from automl_package.models.common.regression_heads import SeparateHeadsRegressionModule, SingleHeadFinalOutputRegressionModule, SingleHeadNOutputsRegressionModule
 from automl_package.models.neural_network import PyTorchNeuralNetwork
-from automl_package.models.selection_strategies.n_classes_strategies import GumbelSoftmaxStrategy, NoneStrategy, ReinforceStrategy, SoftGatingStrategy, SteStrategy
+from automl_package.models.selection_strategies.n_classes_strategies import GumbelSoftmaxStrategy, NestedStrategy, NoneStrategy, ReinforceStrategy, SoftGatingStrategy, SteStrategy
 
 
 class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
@@ -58,21 +58,28 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
             NClassesSelectionMethod.SOFT_GATING: SoftGatingStrategy,
             NClassesSelectionMethod.STE: SteStrategy,
             NClassesSelectionMethod.REINFORCE: ReinforceStrategy,
+            NClassesSelectionMethod.NESTED: NestedStrategy,
         }
         self.n_classes_strategy = strategy_map[n_classes_selection_method](self)
 
         if self.n_classes_selection_method != NClassesSelectionMethod.NONE:
             self.n_classes = self.max_n_classes_for_probabilistic_path
-            n_classes_predictor_output_size = (self.max_n_classes_for_probabilistic_path - 2 + 1) + 1
-            n_classes_predictor_instance = PyTorchNeuralNetwork(
-                input_size=input_size,
-                output_size=n_classes_predictor_output_size,
-                task_type=TaskType.CLASSIFICATION,
-                device=self.device,
-                **base_classifier_params,
-            )
-            n_classes_predictor_instance.build_model()
-            self.n_classes_predictor = n_classes_predictor_instance.get_internal_model()
+
+            if self.n_classes_selection_method == NClassesSelectionMethod.NESTED:
+                # NESTED draws k as a per-sample SCHEDULE (n_classes_strategies.NestedStrategy) --
+                # no k input to the network, so no n_classes_predictor is built at all.
+                self.n_classes_predictor = None
+            else:
+                n_classes_predictor_output_size = (self.max_n_classes_for_probabilistic_path - 2 + 1) + 1
+                n_classes_predictor_instance = PyTorchNeuralNetwork(
+                    input_size=input_size,
+                    output_size=n_classes_predictor_output_size,
+                    task_type=TaskType.CLASSIFICATION,
+                    device=self.device,
+                    **base_classifier_params,
+                )
+                n_classes_predictor_instance.build_model()
+                self.n_classes_predictor = n_classes_predictor_instance.get_internal_model()
 
             direct_regression_head_instance = PyTorchNeuralNetwork(
                 input_size=input_size,
@@ -150,13 +157,39 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
 
     def forward(self, x_input: torch.Tensor, boundaries: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         """Performs the forward pass through the network."""
-        n_classes_predictor_logits = self.n_classes_predictor(x_input) if self.n_classes_selection_method != NClassesSelectionMethod.NONE else None
+        # NESTED builds no n_classes_predictor (no k input to the network -- see
+        # NestedStrategy), so this gate is on the predictor's existence, not just the
+        # selection method, and naturally yields None logits for it.
+        n_classes_predictor_logits = self.n_classes_predictor(x_input) if self.n_classes_predictor is not None else None
 
         final_predictions, selected_k_values, log_prob_for_reinforce, classifier_logits_out, per_head_outputs = self.n_classes_strategy.forward(
             x_input, n_classes_predictor_logits, boundaries=boundaries
         )
 
         return final_predictions, classifier_logits_out, selected_k_values, log_prob_for_reinforce, per_head_outputs
+
+    def forward_at_k(self, x_input: torch.Tensor, k: int, boundaries: torch.Tensor | None = None) -> torch.Tensor:
+        """Forces every sample through rung `k`, bypassing the selection strategy entirely.
+
+        `k=1` is the direct-regression bypass (`direct_regression_head`); `k>=2` is the
+        renormalized k-class mixture (`_compute_predictions_for_k`). Used by
+        `ProbabilisticRegressionModel.fit_router`'s per-capacity held-out error table and by
+        `held_out_arbiter_advantage`'s certified readout (capacity-programme Task F9) --
+        mirrors `FlexibleNNModule.forward_at_depth` / `FlexibleWidthNNModule.forward_width`.
+
+        Raises:
+            RuntimeError: `k=1` requested but no `direct_regression_head` was built (only
+                a dynamic `n_classes_selection_method != NONE` model has a bypass rung).
+            ValueError: `k` outside `[1, self.n_classes]`.
+        """
+        if not (1 <= k <= self.n_classes):
+            raise ValueError(f"k={k} out of range [1, {self.n_classes}]")
+        if k == 1:
+            if self.direct_regression_head is None:
+                raise RuntimeError("forward_at_k(k=1) requires a dynamic n_classes_selection_method (no direct_regression_head built).")
+            return self.direct_regression_head(x_input)
+        classifier_raw_logits = self.classifier_layers(x_input)
+        return self._compute_predictions_for_k(classifier_raw_logits, k, boundaries=boundaries)
 
     def get_num_parameters(self) -> int:
         """Returns the total number of trainable parameters in the model."""

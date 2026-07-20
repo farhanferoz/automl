@@ -13,7 +13,22 @@ from automl_package.enums import (
     RegressionStrategy,
     UncertaintyMethod,
 )
+from automl_package.models.common.distilled_router import DEFAULT_TOLERANCE, DistilledCapacityRouter, _cheapest_within_tolerance_labels
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+from automl_package.utils.pytorch_utils import get_device
+from automl_package.utils.transforms import symlog
+
+# Calibrated against measured error-table means on TestFitRouterSymlogSpaceAlignment's fixture
+# (400 heavy-tailed points, max_k=3, 150 epochs), fix present vs fix removed:
+#   data seed 0: correct 1.057 | unit-mismatched 20.920
+#   data seed 1: correct 0.959 | unit-mismatched 15.369
+# The original 20.0 bound landed INSIDE the mismatched range and let seed 1 (the seed the test
+# used) pass with the fix removed -- the bound must sit well below the smallest mismatched value.
+_SYMLOG_ROUTER_NLL_SANITY_BOUND = 5.0  # ~5x above the correct value, ~3x below the smallest mismatched one
+_BATCHED_TENSOR_NDIM = 2  # (N, regression_output_size) vs a bare (N,) tensor
+_MSE_CONVERGENCE_THRESHOLD = 10.0  # "didn't explode" bar for these small toy fits, not a tuned target
+_MIN_UNCERTAINTY_NOISE_CORRELATION = 0.2
+_REGIME_SPLIT_X = 0.5  # _two_regime_data's boundary between its unimodal and bimodal halves
 
 
 class TestBugs1to4DynamicStrategiesNoCrash:
@@ -24,6 +39,7 @@ class TestBugs1to4DynamicStrategiesNoCrash:
         NClassesSelectionMethod.SOFT_GATING,
         NClassesSelectionMethod.STE,
         NClassesSelectionMethod.REINFORCE,
+        NClassesSelectionMethod.NESTED,
     ])
     def test_dynamic_strategy_trains(self, heteroscedastic_data, method):
         """Each dynamic n_classes strategy should train without crash."""
@@ -70,7 +86,7 @@ class TestBugN2SteGradientPath:
                 p.grad.zero_()
         preds, _, _, _, _ = model.model(x_t)
         # preds is (N, regression_output_size) — use column 0 (mean) for loss.
-        mean_pred = preds[:, 0] if preds.dim() == 2 else preds.ravel()
+        mean_pred = preds[:, 0] if preds.dim() == _BATCHED_TENSOR_NDIM else preds.ravel()
         loss = ((mean_pred - y_t) ** 2).mean()
         loss.backward()
 
@@ -196,7 +212,7 @@ class TestDynamicKModelComparison:
         y_pred = model.predict(x_test)
         mse = float(np.mean((y_test - y_pred) ** 2))
 
-        assert mse < 10.0, f"Dynamic-k MSE ({mse:.4f}) is too high — model didn't converge"
+        assert mse < _MSE_CONVERGENCE_THRESHOLD, f"Dynamic-k MSE ({mse:.4f}) is too high — model didn't converge"
 
     def test_dynamic_k_nll_competitive_with_fixed_k(self, heteroscedastic_data):
         """Dynamic-k ProbReg NLL should be competitive with fixed-k=5."""
@@ -255,7 +271,7 @@ class TestDynamicKModelComparison:
         pred_std = model.predict_uncertainty(x_test)
 
         correlation = np.corrcoef(noise_test.ravel(), pred_std.ravel())[0, 1]
-        assert correlation > 0.2, (
+        assert correlation > _MIN_UNCERTAINTY_NOISE_CORRELATION, (
             f"Dynamic-k predicted uncertainty poorly correlates with actual noise "
             f"(r={correlation:.3f}). Uncertainty estimation may be broken."
         )
@@ -288,7 +304,7 @@ class TestELBOkSelection:
         y_pred = model.predict(x)
         mse = float(np.mean((y - y_pred) ** 2))
 
-        assert mse < 10.0, f"ELBO-k model MSE={mse:.4f} — did not converge"
+        assert mse < _MSE_CONVERGENCE_THRESHOLD, f"ELBO-k model MSE={mse:.4f} — did not converge"
 
     def test_elbo_raises_mode_selection_entropy_vs_unregularized(self, heteroscedastic_data):
         """Uniform-prior ELBO (default) pulls q(k|not-bypass) toward uniform, so the
@@ -383,14 +399,328 @@ class TestELBOkSelection:
         )
 
 
-def _compute_nll(model, x, y):
+def _compute_nll(model, x, y, inference_mode="soft"):
     """Helper: compute gaussian NLL from model predictions + uncertainty."""
-    y_pred = model.predict(x)
-    y_std = model.predict_uncertainty(x)
+    y_pred = model.predict(x, inference_mode=inference_mode)
+    y_std = model.predict_uncertainty(x, inference_mode=inference_mode)
     log_var = 2 * np.log(np.clip(y_std, 1e-6, None))
     nll = 0.5 * np.mean(log_var + ((y - y_pred) ** 2) / np.exp(log_var))
     return float(nll)
 
+
+def _two_regime_data(n: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
+    """Synthetic 2-regime problem for the F9 distilled-router verify bullet (K6 reproduction).
+
+    x < 0.5: unimodal linear trend + small noise -- the bypass (k=1) wins here
+    ([[project_kselection_bypass_confound]]: smooth unimodal data is a negative control for any
+    k>=2 mixture). x >= 0.5: bimodal (y = trend +/- 1.5, separation >> noise) -- no fixed k=1
+    bypass can represent this, k=2 wins. No single GLOBAL fixed k is best on both regimes, so a
+    per-input router should beat every global fixed k.
+    """
+    rng = np.random.default_rng(seed)
+    x = rng.uniform(0.0, 1.0, n)
+    y = np.empty(n, dtype=np.float64)
+    low = x < _REGIME_SPLIT_X
+    high = ~low
+    y[low] = 2.0 * x[low] + rng.normal(0.0, 0.1, int(low.sum()))
+    sign = rng.choice([-1.0, 1.0], size=int(high.sum()))
+    y[high] = 2.0 * x[high] + sign * 1.5 + rng.normal(0.0, 0.1, int(high.sum()))
+    return x.reshape(-1, 1).astype(np.float32), y.astype(np.float32)
+
+
+class TestNestedKTraining:
+    """Task F9 item 1: the nested-k training mode (ported from `_capacity_ladder_nested.py`)."""
+
+    def _fit_nested(self, x, y, max_k=5, n_epochs=15, **kwargs):
+        defaults = {
+            "input_size": 1, "n_classes": 3, "max_n_classes_for_probabilistic_path": max_k,
+            "uncertainty_method": UncertaintyMethod.PROBABILISTIC,
+            "n_classes_selection_method": NClassesSelectionMethod.NESTED,
+            "regression_strategy": RegressionStrategy.SEPARATE_HEADS,
+            "n_epochs": n_epochs, "learning_rate": 0.01, "random_seed": 42,
+            "calculate_feature_importance": False,
+        }
+        defaults.update(kwargs)
+        model = ProbabilisticRegressionModel(**defaults)
+        model.fit(x, y)
+        return model
+
+    def test_nested_trains_without_crash(self, heteroscedastic_data):
+        """Mirrors TestBugs1to4DynamicStrategiesNoCrash for the new NESTED strategy."""
+        x, y, _, _ = heteroscedastic_data
+        model = self._fit_nested(x, y)
+        y_pred = model.predict(x)
+        assert y_pred.shape == (len(x),)
+        assert not np.any(np.isnan(y_pred))
+
+    def test_nested_no_n_classes_predictor_built(self, heteroscedastic_data):
+        """No k input to the network: n_classes_predictor must not be built for NESTED."""
+        x, y, _, _ = heteroscedastic_data
+        model = self._fit_nested(x, y, n_epochs=2)
+        assert model.model.n_classes_predictor is None
+        assert model.model.direct_regression_head is not None
+
+    def test_nested_requires_probabilistic_uncertainty(self):
+        """K4's scheme is a strictly-probabilistic Gaussian-NLL objective."""
+        with pytest.raises(ValueError, match="NESTED requires uncertainty_method"):
+            ProbabilisticRegressionModel(
+                input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
+                uncertainty_method=UncertaintyMethod.CONSTANT,
+                n_classes_selection_method=NClassesSelectionMethod.NESTED,
+                calculate_feature_importance=False,
+            )
+
+    def test_nested_bypass_rung_differs_from_mixture_rung(self, multimodal_data):
+        """forward_at_k(k=1) (bypass) and forward_at_k(k>=2) (mixture) must be genuinely
+        different sub-networks, not the same computation under two names."""
+        x, y = multimodal_data
+        model = self._fit_nested(x, y, max_k=4, n_epochs=20)
+        x_t = torch.tensor(x[:16], dtype=torch.float32).to(model.device)
+        with torch.no_grad():
+            out_bypass = model.model.forward_at_k(x_t, 1)
+            out_mixture = model.model.forward_at_k(x_t, 3)
+        assert not torch.allclose(out_bypass, out_mixture, atol=1e-4)
+
+    @pytest.mark.skipif(get_device().type == "cpu", reason="requires a non-CPU device (CUDA/XPU) to exercise cross-device placement in forward_at_k")
+    def test_forward_at_k_runs_on_accelerator_device(self, multimodal_data):
+        """Regression guard: `forward_at_k` (used directly here, and internally by
+        `fit_router`/`predict(inference_mode="routed")`) takes a raw tensor and does no device
+        transfer of its own -- callers must place the input on `model.device` first. Every
+        production call site already does this (see `_forward_routed`/`fit_router` in
+        `probabilistic_regression.py`); this test would have caught the two now-fixed sibling
+        tests above, which called `forward_at_k` with a CPU-default `torch.tensor(...)` while the
+        model itself was on `xpu`."""
+        x, y = multimodal_data
+        model = self._fit_nested(x, y, max_k=3, n_epochs=5)
+        assert model.device.type != "cpu"
+
+        x_t = torch.tensor(x[:8], dtype=torch.float32).to(model.device)
+        with torch.no_grad():
+            for k in range(1, 4):
+                out = model.model.forward_at_k(x_t, k)
+                assert out.device.type == model.device.type
+
+
+class TestNestedKDistilledRouting:
+    """Task F9 items 2 & 4: DistilledCapacityRouter-routed inference + the arbiter diagnostic."""
+
+    def _fit_nested(self, x, y, max_k=3, n_epochs=250, seed=0):
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=max_k,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+            n_epochs=n_epochs, learning_rate=0.01, random_seed=seed,
+            calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+        return model
+
+    def test_fit_router_requires_nested_strategy(self, heteroscedastic_data):
+        x, y, _, _ = heteroscedastic_data
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.GUMBEL_SOFTMAX,
+            n_epochs=5, random_seed=42, calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+        with pytest.raises(RuntimeError, match="NESTED"):
+            model.fit_router(x, y)
+
+    def test_predict_routed_requires_fitted_router(self, heteroscedastic_data):
+        x, y, _, _ = heteroscedastic_data
+        model = self._fit_nested(x, y, max_k=4, n_epochs=15)
+        with pytest.raises(RuntimeError, match="No router fitted"):
+            model.predict(x, inference_mode="routed")
+
+    def test_held_out_arbiter_advantage_requires_nested_strategy(self, heteroscedastic_data):
+        x, y, _, _ = heteroscedastic_data
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.GUMBEL_SOFTMAX,
+            n_epochs=5, random_seed=42, calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+        with pytest.raises(RuntimeError, match="NESTED"):
+            model.held_out_arbiter_advantage(x.ravel(), y)
+
+    def test_held_out_arbiter_advantage_shape(self, heteroscedastic_data):
+        x, y, _, _ = heteroscedastic_data
+        model = self._fit_nested(x, y, max_k=4, n_epochs=15)
+        arb = model.held_out_arbiter_advantage(x.ravel(), y, width=1.0)
+        assert arb.shape == (len(x),)
+        assert not np.all(np.isnan(arb))
+
+    def test_distilled_router_matches_or_beats_best_global_fixed_k(self):
+        """F9 verify bullet: reproduce the K6 result through the package API.
+
+        A synthetic 2-regime case (`_two_regime_data`) where no single global fixed k is
+        optimal everywhere: the distilled-k routed model's held-out NLL must be at least as
+        good as the BEST achievable global fixed k (computed directly on the test set, which
+        gives the fixed-k baseline test-set-optimal information the router never sees --
+        a conservative, favorable-to-the-baseline comparison).
+        """
+        x_train, y_train = _two_regime_data(600, seed=0)
+        x_val, y_val = _two_regime_data(300, seed=1)
+        x_test, y_test = _two_regime_data(600, seed=2)
+
+        max_k = 3
+        model = self._fit_nested(x_train, y_train, max_k=max_k, n_epochs=250, seed=0)
+        model.fit_router(x_val, y_val)
+
+        routed_nll = _compute_nll(model, x_test, y_test, inference_mode="routed")
+
+        global_nlls = []
+        x_test_t = torch.tensor(x_test, dtype=torch.float32).to(model.device)
+        for k in range(1, max_k + 1):
+            with torch.no_grad():
+                out = model.model.forward_at_k(x_test_t, k)
+            mean = out[:, 0].cpu().numpy()
+            log_var = out[:, 1].cpu().numpy()
+            global_nlls.append(float(np.mean(0.5 * (log_var + (y_test - mean) ** 2 / np.exp(log_var)))))
+        best_global_nll = min(global_nlls)
+
+        assert routed_nll <= best_global_nll + 0.05, (
+            f"routed NLL ({routed_nll:.4f}) worse than the best global fixed k NLL "
+            f"({best_global_nll:.4f}) by more than tolerance; per-k global NLLs={global_nlls}"
+        )
+
+
+class TestFitRouterSymlogSpaceAlignment:
+    """Regression for F9-fix-b (docs/plans/capacity_programme/flexnn-core.md): `fit()`
+    symlog-transforms y internally when `target_transform="symlog"`, so `forward_at_k`'s
+    outputs live in symlog space -- but `fit_router()` used to score the caller's raw-space
+    `y_val` against those symlog-space outputs with no transform and no exception, silently
+    producing a wrong per-capacity error table. Fix: `fit_router` now symlog-transforms
+    `y_val` internally (same contract as `fit()`) when `target_transform="symlog"`.
+    """
+
+    def _fit_symlog_nested(self, x, y, max_k=3, n_epochs=150, seed=0):
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=max_k,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+            target_transform="symlog",
+            n_epochs=n_epochs, learning_rate=0.01, random_seed=seed,
+            calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+        return model
+
+    @staticmethod
+    def _heavy_tailed_data(n, seed):
+        """Targets spanning ~2 orders of magnitude (roughly -55..55) -- the regime
+        `target_transform="symlog"` exists for, and large enough that a raw-space-y-vs-
+        symlog-space-mean unit mismatch is unmissable in an assertion."""
+        rng = np.random.default_rng(seed)
+        x = rng.uniform(0.0, 1.0, n).astype(np.float32)
+        sign = rng.choice([-1.0, 1.0], size=n)
+        y = (sign * (np.exp(4.0 * x) - 1.0) + rng.normal(0.0, 0.5, n)).astype(np.float32)
+        return x.reshape(-1, 1), y
+
+    def test_routing_matches_between_raw_and_pretransformed_y_val(self, monkeypatch):
+        """`fit_router(x_val, y_val)` with raw `y_val` (the documented, `fit()`-matching
+        contract) must agree with calling it with `y_val` pre-transformed via `symlog` on a
+        model whose `target_transform` is temporarily cleared -- both constructions end up
+        scoring `y_val` against `forward_at_k`'s outputs in the same (symlog) space, so a
+        correctly space-aligned `fit_router` must agree with itself regardless of which
+        convention got it there.
+
+        Asserted at THREE depths, cheapest-to-fool last. The final routing is a lossy view of
+        the fix: `DistilledCapacityRouter.fit` trains a cross-entropy MLP on labels that are
+        ~97% capacity-0 on this fixture, so it collapses to a constant router in BOTH arms and
+        compares equal even when the tables underneath differ. Measured with the fix removed:
+        the error tables differ by an order of magnitude (means 1.06 vs 20.92) and the labels
+        differ on 3.0% of samples, yet `route_index` agreed exactly -- which is why this test
+        passed against the unfixed code when it asserted on routing alone. Assert on the error
+        table (what the fix actually changes) first; keep the routing check as the contract
+        statement, not as the detector.
+        """
+        x, y = self._heavy_tailed_data(400, seed=0)
+        model = self._fit_symlog_nested(x, y, max_k=3, n_epochs=150, seed=0)
+
+        captured: list[np.ndarray] = []
+        original_fit = DistilledCapacityRouter.fit
+
+        def _spy_fit(router_self, eval_fn, x_val, y_val, capacity_grid, *args, **kwargs):
+            captured.append(np.stack([np.asarray(eval_fn(x_val, capacity)) for capacity in capacity_grid], axis=1))
+            return original_fit(router_self, eval_fn, x_val, y_val, capacity_grid, *args, **kwargs)
+
+        monkeypatch.setattr(DistilledCapacityRouter, "fit", _spy_fit)
+
+        router_raw = model.fit_router(x, y)
+        routing_raw = router_raw.route_index(x)
+
+        y_pretransformed = symlog(torch.tensor(y, dtype=torch.float32)).numpy()
+        original_transform = model.target_transform
+        model.target_transform = None
+        try:
+            router_pretransformed = model.fit_router(x, y_pretransformed)
+        finally:
+            model.target_transform = original_transform
+        routing_pretransformed = router_pretransformed.route_index(x)
+
+        table_raw, table_pretransformed = captured
+        np.testing.assert_allclose(
+            table_raw, table_pretransformed, rtol=1e-5, atol=1e-6,
+            err_msg=(
+                "fit_router's per-capacity error table must be identical whether y_val arrives raw "
+                "(auto-transformed internally) or pre-transformed -- a difference means one arm scored "
+                "raw-space y against forward_at_k's symlog-space outputs (F9-fix-b)."
+            ),
+        )
+        np.testing.assert_array_equal(
+            _cheapest_within_tolerance_labels(table_raw, DEFAULT_TOLERANCE),
+            _cheapest_within_tolerance_labels(table_pretransformed, DEFAULT_TOLERANCE),
+            err_msg="the cheapest-within-tolerance capacity labels the router trains on must match between the two arms",
+        )
+        np.testing.assert_array_equal(
+            routing_raw, routing_pretransformed,
+            err_msg=(
+                "fit_router(raw y) must route identically to fit_router(pre-transformed y) run "
+                "against a model with target_transform temporarily cleared -- both should compare "
+                "y_val against forward_at_k's outputs in the same (symlog) space."
+            ),
+        )
+
+    @pytest.mark.parametrize("data_seed", [0, 1])
+    def test_error_table_finite_and_on_training_loss_scale(self, monkeypatch, data_seed):
+        """The per-capacity NLL `fit_router`'s `eval_fn` scores against -- captured via a spy
+        on `DistilledCapacityRouter.fit` since `fit()` discards the error table into labels
+        and never retains it -- must be finite and on the scale of a converged per-sample
+        Gaussian NLL, not the raw-y-vs-symlog-space-mean blowup F9-fix-b produced on this
+        heavy-tailed data.
+
+        Parametrized over both data seeds: the blowup magnitude is seed-dependent (20.92 on
+        seed 0, 15.37 on seed 1), so a single seed plus a loose bound is how the original
+        version of this test passed against the unfixed code. See
+        `_SYMLOG_ROUTER_NLL_SANITY_BOUND` for the measured calibration.
+        """
+        x, y = self._heavy_tailed_data(400, seed=data_seed)
+        model = self._fit_symlog_nested(x, y, max_k=3, n_epochs=150, seed=0)
+
+        captured: dict[str, np.ndarray] = {}
+        original_fit = DistilledCapacityRouter.fit
+
+        def _spy_fit(router_self, eval_fn, x_val, y_val, capacity_grid, *args, **kwargs):
+            captured["error_table"] = np.stack([np.asarray(eval_fn(x_val, capacity)) for capacity in capacity_grid], axis=1)
+            return original_fit(router_self, eval_fn, x_val, y_val, capacity_grid, *args, **kwargs)
+
+        monkeypatch.setattr(DistilledCapacityRouter, "fit", _spy_fit)
+        model.fit_router(x, y)
+
+        error_table = captured["error_table"]
+        assert np.all(np.isfinite(error_table)), "fit_router's per-capacity error table must be finite"
+        assert error_table.mean() < _SYMLOG_ROUTER_NLL_SANITY_BOUND, (
+            f"fit_router's error table mean ({error_table.mean():.2f}) exceeds the sanity bound "
+            f"({_SYMLOG_ROUTER_NLL_SANITY_BOUND}) for a converged per-sample Gaussian NLL -- looks "
+            "like a raw-y-vs-symlog-space-predictions unit mismatch (F9-fix-b), not real fit quality"
+        )
 
 class TestCeStopGradDynamicKSentinelFilter:
     """Regression for the `KeyError: 1073741824` bug.

@@ -52,6 +52,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as nnf
 
+from automl_package.utils.pytorch_utils import get_device
+
 DEFAULT_TOLERANCE = 0.25  # matches sinc_width_experiment.py:333 DELTA_TIE
 DEFAULT_HIDDEN: tuple[int, ...] = (32, 32)  # capacity_ladder_k6.py:64 HIDDEN convention
 DEFAULT_N_EPOCHS = 300  # capacity_ladder_k6.py:65 N_EPOCHS
@@ -118,7 +120,7 @@ class DistilledCapacityRouter:
         n_epochs: int = DEFAULT_N_EPOCHS,
         lr: float = DEFAULT_LR,
         seed: int = 0,
-        device: torch.device | str = "cpu",
+        device: torch.device | str | None = None,
     ) -> None:
         """Configures the router MLP's hyperparameters; `fit()` builds and trains it.
 
@@ -127,13 +129,14 @@ class DistilledCapacityRouter:
             n_epochs: full-batch Adam epochs to train the router for.
             lr: Adam learning rate.
             seed: torch RNG seed for router-weight initialization.
-            device: torch device for the router MLP and its inputs.
+            device: torch device for the router MLP and its inputs. `None` (default)
+                auto-detects via `get_device()` (CUDA > XPU > CPU, honoring `AUTOML_DEVICE`).
         """
         self.hidden = hidden
         self.n_epochs = n_epochs
         self.lr = lr
         self.seed = seed
-        self.device = device
+        self.device = device if device is not None else get_device()
         self.capacity_grid: list[tuple[int, ...]] | None = None
         self.costs_: np.ndarray | None = None
         self.router_: _CapacityRouterMLP | None = None
