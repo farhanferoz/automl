@@ -4,6 +4,68 @@
 #
 # 2026-07-20: the nine originally-parked artifacts all landed (F2/F3/F4/F5a/F6/F11) and were
 # removed. The entries below are the NEW Create targets added the same day (F5c, F12).
-docs/depth_capacity/ff_depth_protocol_repair_spec.md
-docs/probreg_benchmark/benchmark_spec.md
 automl_package/examples/probreg_benchmark.py
+
+# --- flexnn-package.md Create targets (parked 2026-07-20, root) --------------------------------
+# Each verified before parking: marked `(new)` in a named task's `Files (write set)` line AND
+# consumed by that task's verify command, so none is a typo. Task ownership recorded so the entry
+# can be removed the moment the artifact lands.
+automl_package/utils/capacity_selection.py                          # FP-9 (write set L339)
+tests/test_capacity_selection.py                                    # FP-9 (write set L340)
+docs/plans/capacity_programme/shared/fp4-schedule-deviation.md      # FP-4 (write set L694)
+docs/plans/capacity_programme/shared/router-capabilities.md         # FP-5 (write set L745)
+docs/plans/capacity_programme/shared/zero-caller-inventory.md       # FP-7 (write set L917)
+
+# --- width.md Create targets (parked 2026-07-20, root) ----------------------------------------
+# Each verified: named in a WSEL task's write set and asserted by that task's verify line.
+automl_package/examples/width_wsel4.py                              # WSEL-4
+automl_package/examples/width_wsel6.py                              # WSEL-6
+automl_package/examples/capacity_ladder_results/WSEL6/frozen.json   # WSEL-6 (verify test -f L433)
+automl_package/examples/width_wsel7.py                              # WSEL-7
+automl_package/examples/capacity_ladder_results/WSEL7/frozen.json   # WSEL-7 (verify test -f L460)
+automl_package/examples/width_wsel8.py                              # WSEL-8
+#
+# The two below belong to WSEL-9, which is ⏸ PARKED by the 2026-07-20 toys-only ruling. Its spec
+# is retained on disk, so it still CITES these paths and the citation gate still sees them --
+# but nobody is scheduled to build them. If WSEL-9 is ever formally CUT rather than parked,
+# delete these two entries with it. They are not live forward work.
+automl_package/examples/width_wsel9.py                              # WSEL-9 (PARKED task)
+docs/width_benchmark/benchmark_spec.md                              # WSEL-9 (PARKED task)
+
+# --- depth-selection.md Create targets (parked 2026-07-20, root) -------------------------------
+# Each verified: named in a DSEL task's write set / §3.6 constants row AND asserted by that task's
+# verify line. NOTE the directory names are hyphen-FREE (DSEL1b, not DSEL-1b) -- corrected during
+# this repair to match all 34 existing result dirs and the other two strands. Task IDs keep their
+# hyphens; only the paths dropped them.
+docs/plans/capacity_programme/shared/dsel1_nested_diagnosis.md      # DSEL-1
+automl_package/examples/capacity_ladder_results/DSEL1b/frozen.json  # DSEL-1b
+tests/test_depth_composition_toy.py                                 # DSEL-1b
+automl_package/examples/depth_dsel2.py                              # DSEL-2
+automl_package/examples/depth_dsel2b.py                             # DSEL-2b
+docs/plans/capacity_programme/shared/dsel2b_middle_depth_cost.md    # DSEL-2b
+automl_package/examples/depth_dsel7.py                              # DSEL-7
+automl_package/examples/capacity_ladder_results/DSEL7/frozen.json   # DSEL-7
+automl_package/examples/depth_dsel8.py                              # DSEL-8
+automl_package/examples/capacity_ladder_results/DSEL8/frozen.json   # DSEL-8
+automl_package/examples/depth_dsel9.py                              # DSEL-9
+automl_package/examples/capacity_ladder_results/DSEL9/frozen.json   # DSEL-9
+automl_package/examples/depth_dsel10.py                             # DSEL-10
+automl_package/examples/depth_dsel11.py                             # DSEL-11 (PARKED task, spec retained)
+
+# --- probreg.md Create targets (parked 2026-07-20, root) ---------------------------------------
+# Each verified: named in a task's write set AND asserted by that task's verify line.
+automl_package/examples/probreg_pb.py                               # PB
+automl_package/examples/capacity_ladder_results/PB/frozen.json      # PB
+automl_package/examples/probreg_pc.py                               # PC
+automl_package/examples/capacity_ladder_results/PC/frozen.json      # PC
+automl_package/examples/probreg_p3.py                               # P3
+automl_package/examples/capacity_ladder_results/P3/m3_control.json  # P3
+docs/plans/capacity_programme/shared/p5_middle_k_coherence.md       # P5
+
+# --- The FP-0 dispositions manifest (parked 2026-07-20, root) ----------------------------------
+# Verified: FP-0's write set (L218) and asserted by its own verify clause (b) at L256. Cited from
+# MASTER.md, flexnn-package.md and depth-selection.md in both relative and repo-root form, so both
+# spellings are parked. Surfaced only after `tsv` was added to the citation gate's extension list --
+# it had been invisible, along with shared/PROTECTED.tsv.
+docs/plans/capacity_programme/shared/CORE-DISPOSITIONS.tsv          # FP-0 (write set L218)
+shared/CORE-DISPOSITIONS.tsv                                        # FP-0 (relative spelling)

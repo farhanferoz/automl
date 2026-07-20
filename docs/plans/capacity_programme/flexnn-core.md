@@ -236,6 +236,42 @@ repaired protocol, plain single-readout (same `train_clf` protocol as the grid a
 ladder, re-run this stage only. **No compute is spent on any other arm until this passes.**
 *Orchestration:* deps: F5c-a GO · tier: sonnet · verify: 2 JSONs, both ≥0.90 and trustworthy.
 
+**RESULT 2026-07-20 at Rung 0 (`lr=3e-3`, `clip_max_norm=1.0`, dual gate) — ⛔ FAIL, both seeds.**
+Artifacts: `automl_package/examples/capacity_ladder_results/D_TOY_PROBES/f5c_poscontrol_a5_seed{0,1}.json`.
+
+| seed | train_acc | val_acc (bar 0.90) | trustworthy_acc | stop epoch (cap 40k) | clip engagement |
+|---|---|---|---|---|---|
+| 0 | 0.9697 | **0.4324** | true | 10,500 | 98 % |
+| 1 | 1.0000 | **0.7442** | true | 7,500 | 59 % |
+
+Both runs are `INTERMEDIATE`, both converged cleanly (not `hit_cap`, not `still_improving`, not
+`diverged` on accuracy), and both show the SAME shape: `val_acc` rises then goes flat for the final
+third while **held-out CE diverges monotonically** after its minimum (seed 1: 1.374 @ 3,750 →
+2.325 @ 7,500; seed 0: 1.55 @ 1,250 → 4.87 @ 10,250; `ce_gate.diverged=true` both). Note this is
+also the vindication of the dual gate: best-CE weight restore would have selected ~epoch 3,750 for
+seed 1, i.e. a *lower* accuracy than the run's own best — the exact selection defect that invalidated
+the previous attempt.
+
+**The failure mode is memorization-without-generalization, NOT under-fitting** — and that is a
+problem the ladder cannot address. Every rung (L1 LR, L2 warmup, L3 init) is an *optimization*
+remedy, but at `train_acc` 0.97/1.00 the optimizer has already fit the training set completely; there
+is no optimization failure left to fix. Concretely, both seeds already SATISFY Decision 16's
+exoneration condition (`train_acc ≥ 0.90`) while failing the §5 positive-control bar. Two seeds
+differing by 31 pp on held-out accuracy (0.432 vs 0.744) from initialization alone is a further sign
+this protocol is fragile on this substrate rather than mis-tuned.
+
+**⛔ ESCALATED TO USER — do NOT resolve this without a ruling.** §2.5 step 2 mechanically prescribes
+L1; M7 makes the fail branch a PI-level call. The evidence says L1 is aimed at the wrong problem and
+the informative experiment is M6's discriminator (does the certified anytime configuration still
+reproduce its ≥ 0.90 per-stratum numbers? — reproduced ⇒ single-exit supervision genuinely cannot do
+this task, a substantive finding; not reproduced ⇒ environmental/regression and NOTHING may be
+claimed from today's runs), which the spec currently gates behind L3 exhaustion. Running M6 before
+L1 is a spec deviation and needs the ruling. F5c-c/F5c-d remain HALTED either way.
+
+**Correction to the prior session's hand-off note:** it recorded "FAIL → run the M6 discriminator".
+That contradicts the spec — §2.5 step 2 escalates to L1; M6 is gated at L3 exhaustion (§M6/M7). The
+spec is the plan of record.
+
 **F5c-c — instrumented diagnosis of the untied arms.** Only after F5c-b passes. Log per-layer
 gradient norms across training for untied-flat d ∈ {4,7,10}; land them as an artifact. Answers
 the actual question: does the deep untied stack starve (vanishing) or destabilize (exploding),
@@ -356,16 +392,87 @@ tiles, knee collapses; R2). Known boundary to state in docstrings: adaptive-mode
 (`TestNestedKTraining::test_nested_bypass_rung_differs_from_mixture_rung`,
 `TestNestedKDistilledRouting::test_distilled_router_matches_or_beats_best_global_fixed_k`) **PASS
 on CPU** (42 s) and **FAIL on XPU** with `Expected all tensors to be on the same device`.
-**Added deliverable (F9-fix):** repair the device placement. Strongest candidate found by
-inspection — `automl_package/models/probabilistic_regression.py:246-247` creates
-`unique_k`/`probabilistic_indices` via `torch.tensor([])` with **no `device=`**, on CPU; the
-reassignment at line 258 happens only inside the `if is_ce_active:` branch, so the CPU tensors
-survive on the other path. Also tidy `automl_package/models/common/distilled_router.py:121`,
-whose `device: ... = "cpu"` default is the only hardcoded device string in `models/` (against the
-repo rule); all three call sites already pass `self.device`, so it is a latent trap, not the
-active bug. **Verify: the two tests pass under BOTH `AUTOML_DEVICE=cpu` and a non-CPU device.**
-Note this bug class is invisible to the suite as normally run — everything passes on CPU while
-the library claims CUDA/XPU support.
+**F9-fix: DONE + VERIFIED ON XPU HARDWARE 2026-07-20.**
+
+⚠️ **The orchestrator's inspection-time hypothesis was WRONG and is recorded here so it is not
+re-proposed.** It guessed `probabilistic_regression.py:246-247` (`unique_k`/`probabilistic_indices`
+created as bare CPU `torch.tensor([])`). Refuted by reproduction and re-verified independently:
+both are *unconditionally* reassigned from device-correct sources before any use — `:281-282`
+(`if probabilistic_indices.numel() == 0: … torch.where(selected_k_values …)`) and `:289-290`
+(`if not torch.is_tensor(unique_k) or unique_k.numel() == 0: … torch.unique(k_values_prob)`) —
+so the CPU placeholders never reach a device op. `probabilistic_regression.py` needed NO change.
+
+**Actual root cause: the two failing TESTS, not production code.**
+`ProbabilisticRegressionNet.forward_at_k`/`forward` deliberately do no device transfer; every
+production call site transfers first (`probabilistic_regression.py:741,812,827`;
+`base_pytorch.py:148`) — an established convention. The two tests built input tensors without
+`.to(model.device)` (and called `.numpy()` without `.cpu()`), while every other tensor site in the
+same file already followed the convention. Fixed in `tests/test_phase3_dynamic_k.py`, plus a new
+accelerator-only regression test (`test_forward_at_k_runs_on_accelerator_device`,
+skipif CPU) that walks every rung and asserts output device.
+
+**Also landed:** `automl_package/models/common/distilled_router.py` device default
+`"cpu"` → `None` ⇒ `get_device()` (was the only hardcoded device string in `models/`; no import
+cycle — `pytorch_utils` imports only `enums`/`utils.numerics`). Side-effect checked by the
+orchestrator: `tests/test_distilled_router.py` constructs the router with no device arg in ~7
+places; re-run after the change → **15 passed** (includes the new F13 parity guard).
+
+**Verified:** `AUTOML_DEVICE=cpu` full file → 32 passed, 1 skipped. On real XPU
+(`torch.xpu.is_available()` True): the two named tests FAILED on unmodified code with the exact
+reported error, then PASSED after the fix; `TestNestedKTraining` 5 passed, `TestNestedKDistilledRouting`
+5 passed. Ruff: only 6 pre-existing findings, none on touched lines (confirmed against a stashed
+baseline). **Lesson for the programme: a device bug is invisible on CPU — the suite as normally run
+cannot see this class at all.**
+
+**SECOND DEFECT (F9-fix-b), found by F12-a 2026-07-20, orchestrator-verified — SILENT WRONG
+RESULTS.** `fit()` symlog-transforms `y_train`/`y_val` internally
+(`automl_package/models/probabilistic_regression.py:526-529`), so the network's `forward_at_k`
+outputs live in **symlog space**. But `fit_router()` takes the caller's `y_val`, converts it with
+`np.asarray` unchanged, and computes the per-sample Gaussian NLL against those outputs
+(`:808`, inside `eval_fn`) — i.e. **raw-space y against symlog-space predictions**. No transform,
+no check, no exception: the error table is silently wrong, so the distilled router is silently
+wrong. The trap is an API asymmetry — passing RAW `y` to `fit()` is correct, so doing the same for
+`fit_router()` looks correct too. Hits exactly the heavy-tailed datasets F12 targets
+(Superconductivity, Kepler). **Fix: make `fit_router` transform `y_val` when
+`target_transform="symlog"` (or reject raw input explicitly); document the contract either way;
+add a regression test that a symlog-fitted model routes identically whether given raw or
+pre-transformed y.** MUST be serialised after F9-fix (same file, single-writer rule).
+
+**F9-fix-b VERIFIED 2026-07-20 — and the proof-of-failure caught that the first regression tests
+were BLIND.** Source fix is at `probabilistic_regression.py:813-818` with the contract documented in
+the `fit_router` docstring (`:782-787`). Verification ran in both directions, as the new Rule
+requires: fix present → **3 passed**; fix removed (block deleted, restored from a checksummed backup
+afterwards) → **3 failed**. The first pass of that check is the finding: the *original* two tests
+**both passed with the fix removed**, i.e. they never protected anything.
+
+Two independent causes, both measured (`AUTOML_DEVICE=cpu`, 400 heavy-tailed points, `max_k=3`,
+150 epochs; per-capacity error-table mean, correct vs unit-mismatched):
+
+| data seed | correct | unit-mismatched | labels differing | `route_index` differing |
+|---|---|---|---|---|
+| 0 | 1.057 | 20.920 | 3.00 % | **none** |
+| 1 | 0.959 | 15.369 | 1.75 % | **none** |
+
+1. **The routing test asserted on a lossy view of the fix.** `DistilledCapacityRouter.fit` trains a
+   cross-entropy MLP on labels that are ~97 % capacity-0 on this fixture, so it collapses to a
+   constant router in *both* arms and compares equal even when the tables underneath differ by 20×.
+   Routing equality is the *contract statement*; it is not a *detector*. Now asserted innermost-out:
+   error table → cheapest-within-tolerance labels → routing.
+2. **The sanity bound sat inside the failure range.** `_SYMLOG_ROUTER_NLL_SANITY_BOUND = 20.0` while
+   the mismatched value on the single seed the test used was 15.37 — it passed. Retightened to
+   **5.0** (≈5× above correct, ≈3× below the smallest mismatched value), calibration recorded at the
+   constant, and the test parametrized over both data seeds since the blowup magnitude is
+   seed-dependent.
+
+**Programme lesson (companion to the device-bug lesson above): a regression test is not evidence
+until it has been shown to FAIL on the unfixed code.** "Tests green" and "the bug is caught" are
+different claims; only the removal run distinguishes them. This is the third silent-failure class to
+survive a green suite. Ruff on the touched file: 6 findings, all pre-existing, none on touched lines.
+
+**THIRD (documentation, F12-a): `predict_distribution` is unavailable for variable-k and for
+symlog** (`:660-663`, `:664-668`), so the variable-k arm cannot emit a mixture. F12's spec works
+around this by fixing a moment-matched Gaussian in original units as the single comparable object
+for all six models; the API limitation itself is recorded here, not fixed by F12.
 
 **Non-goals:** no change to fixed-k behavior or report-(a) configs; no Basis-B work (separate
 open research item); no removal of existing selection strategies; no variational-EM harness
@@ -509,6 +616,48 @@ JSONs carry per-seed numbers, not just means.
 
 **Non-goals:** no astrophysics headline analysis (that is Paper A/B); no NGBoost/MDN/Deep-Ensemble
 baselines; no HPO beyond the frozen matched budget; no width/depth content (F7 owns that).
+
+### Task F13: refactor debt from the F2/F3/F4 package port (added 2026-07-20)
+
+Audit run 2026-07-20 after the F1–F4 refactor landed. **No live bug was found** — the duplicated
+logic is currently byte-equivalent in behaviour — but the duplication is real and, until F13, only
+partly guarded.
+
+**DONE 2026-07-20 (no further action):**
+- **Parity guard landed.** `tests/test_distilled_router.py::TestLabellingRuleParityWithCertifiedOriginal`
+  pins `models/common/distilled_router._cheapest_within_tolerance_labels` to the certified original
+  `examples/sinc_width_experiment._cheapest_within_tolerance_labels` across error magnitudes and
+  hand-built tie/degenerate rows, and asserts `DEFAULT_TOLERANCE == DELTA_TIE`. Verified identical:
+  0 disagreements over 500 random tables spanning 1e-3…1e3. 15 tests green, ruff clean.
+- **Dead code removed:** `debug_independent_weights_nn.py` (176 lines, formerly under
+  `automl_package/examples/`; junk-named per the repo hygiene rule, referenced by nothing in any file
+  type). Recoverable: `git checkout 27c7159 -- automl_package/examples/debug_independent_weights_nn.py`.
+  *(Deliberately not written as a live path citation — the file no longer resolves, and the citation
+  gate correctly rejected the first draft of this line.)*
+
+**OPEN — the migration itself:**
+1. **`_cheapest_within_tolerance_labels` exists twice.** The package copied rather than imported,
+   because a package module importing from `automl_package/examples/` would invert the dependency
+   (production depending on research scripts). Correct end-state is the REVERSE migration: the three
+   certified drivers (`depth_selection_toy.py`, `joint_capacity_toy.py`,
+   `kdropout_converged_width_experiment.py`) import the PACKAGE function, making it the single source
+   of truth. **This edits certified drivers ⇒ MASTER Decision 15 applies:** it is a protocol-parity
+   change requiring a before/after equivalence run, not a drive-by edit. The parity test above is the
+   interim guard.
+2. **Four router-MLP implementations now coexist:** `capacity_ladder_t2._RouterMLP`,
+   `capacity_ladder_k6._RouterMLP`, `depth_selection_toy._VectorRouterMLP`, and the package's
+   `distilled_router._CapacityRouterMLP`. The package one is canonical; the three example copies are
+   historical and back certified results. Consolidate only under the same Decision 15 discipline.
+3. **`FlexibleWidthNN` is a documented PORT** of `examples/nested_width_net.SharedTrunkPerWidthHeadNet`
+   (copy with provenance, not import) — same pattern, same remedy, lowest priority since the example
+   is a frozen research artifact.
+
+**Orchestration:** parallel: yes (disjoint from F5c/F9/F12) · deps: none for items 2-3; item 1 should
+follow F9-fix so `probabilistic_regression.py` is settled · tier: sonnet · shape: execution · verify:
+the parity test still green AND a before/after equivalence run on each migrated certified driver.
+
+**Non-goals:** no behaviour change of any kind; no deletion of the example copies until their
+importers are migrated; no touching frozen result JSONs.
 
 ---
 

@@ -1,0 +1,42 @@
+# PROTECTED.tsv -- machine-checkable protection manifest for the capacity programme.
+# Owner: docs/plans/capacity_programme/flexnn-package.md (FP-0 seeds it; only that plan's tasks amend it).
+#
+# WHAT THIS IS. A path listed here is working research code or a research architecture that is NOT a
+# duplicate and NOT dead, regardless of what a zero-caller sweep says. Deleting or rewriting it
+# breaks the paper trail of a result that is already on disk.
+#
+# HOW IT IS USED (binding):
+#   1. Any task whose write set touches code MUST check its diff against this file before landing:
+#        git diff --name-status | awk '$1=="D"||$1=="R"{print $2}' \
+#          | grep -F -x -f <(grep -v '^#' docs/plans/capacity_programme/shared/PROTECTED.tsv | cut -f1 | sort -u)
+#      Any output = STOP, escalate to the user. Empty output = clear.
+#   2. A protected path may be given a re-export shim (the automl_package/examples/convergence.py
+#      precedent) so its symbols keep resolving. A shim is not a deletion.
+#   3. Removing a row requires an explicit user ruling recorded in the amending task.
+#
+# COLUMNS (tab-separated): path <TAB> symbol-or-* <TAB> reason <TAB> certified-artifact-dir
+#   symbol-or-*  '*' means the whole file is protected; a name means that symbol specifically.
+#   certified-artifact-dir  where the results this code produced live; '-' if it produces no
+#                           artifacts of its own (it is a library for a driver that does).
+#
+# Every path and every symbol below was confirmed on disk 2026-07-20 (path existence + grep for the
+# symbol). Line numbers are deliberately NOT recorded -- they rot; grep the symbol name instead.
+#
+path	symbol-or-*	reason	certified-artifact-dir
+automl_package/examples/capacity_ladder_k6.py	_RouterMLP	The original scalar-input router. FIVE scripts import this module directly by bare name (re-derive with the FP-7 grep; never trust a count). One of them, sinc_width_experiment.py, produced the certified width result. Preregistration documents under capacity_ladder_results/{S1,T2,H1,W1,W2}/PREREGISTRATION.md cite these exact names.	automl_package/examples/capacity_ladder_results/K6
+automl_package/examples/capacity_ladder_k6.py	_train_router	Hard-label CE *or* soft-target CE training. The package router has no soft-target path -- it is a strict behavioural subset. Replacing this implementation drops working machinery.	automl_package/examples/capacity_ladder_results/K6
+automl_package/examples/capacity_ladder_k6.py	_soft_targets	Soft-target construction consumed by s1/h1/sinc. No package equivalent.	automl_package/examples/capacity_ladder_results/K6
+automl_package/examples/capacity_ladder_s2.py	_train_router_direct	Trains the router directly on the deployment metric rather than on a derived label. UNRESOLVED research arm: merging it ships an unadjudicated method as a default; deleting it discards the arm.	automl_package/examples/capacity_ladder_results/S2
+automl_package/examples/capacity_ladder_s1.py	ARM_NAMES	The five-arm label-construction factorial (soft, soft_no_prior, soft_smoothed, hard_knee, raw_argmax) -- a certified comparison. The library implements only its winner; the other four arms exist nowhere else.	automl_package/examples/capacity_ladder_results/S1
+automl_package/examples/capacity_ladder_t2.py	_RouterMLP	Independent vector-input router port. Kept until FP-5 has demonstrated the package router reproduces its numbers.	automl_package/examples/capacity_ladder_results/T2
+automl_package/examples/capacity_ladder_t2.py	_train_router	Vector-input soft-target trainer. No package equivalent.	automl_package/examples/capacity_ladder_results/T2
+automl_package/examples/capacity_ladder_t2.py	_blend_scores	Blend-likelihood evaluation. The package router only hard-routes and scores the routed choice -- it has NO blend path at all.	automl_package/examples/capacity_ladder_results/T2
+automl_package/examples/capacity_ladder_t2.py	_blend_nll	Blend-likelihood evaluation metric. No package equivalent.	automl_package/examples/capacity_ladder_results/T2
+automl_package/examples/capacity_ladder_t2.py	_eval_router	Paired routed/blend evaluation harness the T2 preregistration cites by name.	automl_package/examples/capacity_ladder_results/T2
+automl_package/examples/depth_composition_toy.py	*	Group word-problem composer -- a different problem domain, forced by a theorem. Protocol, not library; does not belong in automl_package/models/.	automl_package/examples/capacity_ladder_results/D_TOY_PROBES
+automl_package/examples/depth_graded_toy.py	*	Group word-problem composer (graded variant). Same reason.	automl_package/examples/capacity_ladder_results/D_TOY_PROBES
+automl_package/examples/cascade_width_net.py	*	Superseded width architecture (ResidualCascadeNet). Retained, NOT migrated, NOT deleted: results sit on disk and deleting the code orphans them from their producer.	automl_package/examples/capacity_ladder_results/W_CASCADE
+automl_package/examples/matryoshka_width_net.py	*	Superseded width architecture (MatryoshkaWidthNet). Same reason.	automl_package/examples/capacity_ladder_results/W_MRL
+automl_package/examples/cascade_width_experiment.py	*	Driver for both superseded arms; writes RESULTS_DIR_CASCADE and RESULTS_DIR_MATRYOSHKA. Deleting it orphans both artifact directories.	automl_package/examples/capacity_ladder_results/W_CASCADE
+automl_package/examples/sinc_width_experiment.py	*	Produced the certified width selection numbers via its selector machinery, run inside kdropout_converged_width_experiment.py. Also the source of the label rule the package router copied.	automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED
+automl_package/examples/nested_width_net.py	*	Holds the certified width architectures, including SharedTrunkPerWidthHeadNet -- the architecture of record. FP-2 MOVES these into the package and leaves a re-export shim; the file itself is never deleted while any driver imports it by bare name.	automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED

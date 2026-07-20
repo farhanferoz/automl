@@ -18,7 +18,27 @@ copy (gate: `test_plan_gates.py`).
 | 3 | `depth.md` | S5 substrate (D1 **DONE**) + selection-without-oracle (D8) → **G-DEPTH = D5 ∧ D8** | **G-WIDTH ✓** | **DONE 2026-07-17 — G-DEPTH = PASS.** Substrate D5 (3/3) ∧ selection D8b (2/2: S1–S4 pass, S5 surface covariate 100%/Option-A). Verdict `verdict_per_input_depth.md` §12; D8b toy AS-RUN rebuild (L10/involutions/shared-readout, flagged). old D2/D3 retired. → `width-depth.md` J0 |
 | 4 | `width-depth.md` | Joint 2-D capacity dial + transformer halting → **G-JOINT** | **G-DEPTH** (D5 ∧ D8) | **J0 RAN 2026-07-17 — J-1/J-2 DEAD (multi-track fold substrate fails S1); G-JOINT BLOCKED, J-3 redesign ESCALATED to user** (post-mortem in strand) |
 | 5 | `flexnn-moe.md` | MoE build (M0-M2 early) + reports (b), (c) | build: none; comparisons+reports: **G-JOINT** | **DONE — M0-M2 DONE 2026-07-16**; M3 rescoped as flexnn-core F6; M4/M5 superseded by F7 (user 2026-07-18) |
-| 6 | `flexnn-core.md` | Package refactor + FF-depth pilot + unified report | — | **yes (unattended orchestration in progress)** |
+| 6 | `flexnn-core.md` | Package refactor + FF-depth pilot + unified report | — | **yes** — but see the SPLIT note below; this file is 4 workstreams in one |
+| 7 | `probreg.md` | **ProbReg k-selection: models M1/M2/M3, defects, battery, report** | — | **yes — the live workstream (user, 2026-07-20)** |
+| 8 | `width.md` | **Width SELECTION: the three ways of choosing a width, the studies, battery, report.** Architecture certification stays in `width-cert.md` (CLOSED) | `flexnn-package.md` FP-3, FP-9 | in repair 2026-07-20 |
+| 9 | `depth-selection.md` | **FEED-FORWARD depth (the object) + depth selection.** Recurrent arm PARKED. Absorbs the FF-depth study out of `flexnn-core.md` | `flexnn-package.md` FP-3, FP-5, FP-6, FP-9 | in repair 2026-07-20 |
+| 10 | `flexnn-package.md` | **The codebase**: package-vs-scripts boundary, the ONE selection API, router de-duplication, shared selection primitives, cleanup | — | in repair 2026-07-20 |
+
+**⚠ SPLIT PENDING on `flexnn-core.md` (opened 2026-07-20).** That file is 54KB holding FOUR
+workstreams — package refactor (F0–F4/F8/F13), the feed-forward depth attribution study (F5), the
+MoE comparison (F6) and the unified report (F7) — plus, until today, the ProbReg tasks. **One
+strand file per workstream is the rule (user, 2026-07-20);** a grab-bag file is what let three
+contradictory ProbReg model definitions coexist.
+
+**SPLIT STATUS 2026-07-20 (updated).** ProbReg → strand 7. The feed-forward depth study → strand 9
+`depth-selection.md` (**NOT** `depth-ff.md` — that filename was planned and never used; do not look
+for it). The package refactor → strand 10 `flexnn-package.md`. **`flexnn-core.md` is therefore
+expected to retain only F6 (the MoE comparison) and F7 (the unified report) — but it does NOT yet:
+it still holds live tasks whose write sets collide with strands 7–10** (the ProbReg benchmark driver
+and spec, the k-selection report directory, and refactor debt that duplicates FP-2/FP-5). **Until
+`flexnn-package.md` FP-0 records a disposition for every remaining task there and the root applies
+it, `flexnn-core.md` is READ-ONLY for dispatch purposes** — nothing in it may be executed, because a
+task in it may create a file a newer strand owns.
 
 Gates are decision points written in the owning strand (evidence-backed verdict + branch).
 Priority: flexnn-core (6) waves go first. `width-depth.md` J0 is **PARKED** pending user
@@ -35,8 +55,49 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
   #3 `IndependentWidthNet` (K disjoint sub-nets, positive control). All in
   `automl_package/examples/nested_width_net.py`.
 - **G-WIDTH / G-DEPTH / G-JOINT** — the three programme gates.
-- **shared-k / variable-k (ProbReg)** — fixed `n_classes` model vs dynamic-k
-  (ELBO + SoftGating). Treated as two distinct models in all report tables.
+- **ProbReg models M1 / M2 / M3** — the three ways of choosing k. **Defined in ONE place:
+  `probreg.md` §1. Do not restate the definition here or anywhere else.** *(This entry previously
+  defined variable-k as "dynamic-k (ELBO + SoftGating)" — in-training selection, which Decision 13
+  demotes to a labelled comparison arm. It was one of three mutually contradictory definitions live
+  at once on 2026-07-20; see `probreg.md` §1.1.)*
+- **The three ways of choosing a capacity value** — for EVERY dial (k, width, depth): a cheap global
+  read, a per-input distilled router, and an expensive per-value sweep, each scored and costed as a
+  complete system including its selection machinery. **Defined per dial in exactly one place:**
+  `probreg.md` §1 (k), `width.md` §1 (width), `depth-selection.md` §1b (depth). Do not restate here.
+- **`CapacitySelection`** — the ONE selection enum, in `automl_package/enums.py`. **Owned by
+  `flexnn-package.md` FP-3; every other strand consumes it and none declares its own.** FP-3 ships
+  only the members whose mechanisms exist; a member is added by the task that builds its mechanism
+  (the rule that retires the `WidthSelectionMethod.DISTILLED` trap rather than repeating it).
+- **⚠ `width-depth.md` is STALE** w.r.t. both of the above: it predates the three-way model set, the
+  shared selection rule, and `CapacitySelection`. Its J-3 redesign must be re-read against strands
+  8–10 before it is dispatched. It is parked pending a user ruling in any case.
+- **Artifact naming (binding on every strand — a new task follows this, it does not invent).**
+  Settled during the 2026-07-20 plan repair; `width.md` is the worked example.
+  - **Drivers**: `automl_package/examples/<strand>_<taskid_lower>.py` — `width_wsel6.py`,
+    `depth_dsel8.py`, `probreg_pb.py`.
+  - **Results**: `automl_package/examples/capacity_ladder_results/<TASKID>/`. **The directory name
+    is HYPHEN-FREE** — `DSEL1b/`, not `DSEL-1b/` — matching all 34 pre-existing result dirs and the
+    other strands. **Task IDs keep their hyphens** (`DSEL-1b` the task writes to `DSEL1b/` the dir),
+    exactly as task `WSEL-6` writes to `WSEL6/`. *(Depth was the lone hyphenated holdout and was
+    corrected during the repair; had it shipped, every parked forward reference to it would have
+    been dead on arrival.)*
+  - **Frozen constants**: `<results dir>/frozen.json` — ONE small file per study holding only the
+    constants downstream tasks read, kept distinct from the per-cell result JSONs.
+  - **Notes**: `docs/plans/capacity_programme/shared/<taskid_lower>_<topic>.md`.
+  - **Test command**: `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest <path> -q`.
+- **🔑 SHARED FILES ARE ROOT-ONLY — `MASTER.md` and `flexnn-core.md`.** Four wave-1 tasks (FP-0,
+  WSEL-0, DSEL-0, P0) each need a `MASTER.md` edit, and two need a `flexnn-core.md` edit. They are
+  **not independent** — independence is a disjoint WRITE set, not a different topic — and dispatching
+  them concurrently as writers is the classic false-parallel that produces contradictory text in one
+  file. **The rule: a task PRODUCES the exact text it needs added and reports it; the ROOT applies
+  it.** Neither file may appear in any task's write set. `flexnn-core.md` additionally stays
+  READ-ONLY for dispatch until FP-0's dispositions land (`shared/CORE-DISPOSITIONS.tsv`), which is
+  the mechanism for changing it. *(FP-0 already states this rule for `flexnn-core.md`; it is
+  generalised here so every strand is bound by it, not just the one that noticed.)*
+- **`gates_baseline.txt` is ROOT-ONLY.** A worker that needs a forward reference parked **lists it
+  in its report**; the root verifies each is a real Create target named by a task — and asserted by
+  that task's verify line — before parking it, and records the owning task inline. **No typo may
+  ever be parked.** A worker parking its own reference would let a typo grandfather itself.
 - **Ledger** — result JSONs under
   `automl_package/examples/capacity_ladder_results/` (width/depth) and the per-strand
   results dirs named in each strand. The plan holds POINTERS to ledger files, never copied
@@ -54,9 +115,27 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
    (`docs/research_plan.md`), not these reports.
    *(**AMENDED 2026-07-20, user live.** Binds the WIDTH/DEPTH capacity reports only. The ProbReg
    k-selection work is now explicitly IN scope for real data + baselines: the report must carry
-   baseline comparisons (XGBoost / LightGBM / CatBoost / standard NN) and real-world datasets,
-   and must report **shared-k vs variable-k as two distinct models** per the Naming key. Dataset
-   candidates already sourced in `docs/research_plan.md` §6 Layer 2/3.)*
+   baseline comparisons and real-world datasets. Dataset candidates already sourced in
+   `docs/research_plan.md` §6 Layer 2/3.)*
+   *(**CORRECTED 2026-07-20, twice, both after the amendment above was written:**
+   (i) the baseline set is **one tree model (LightGBM), a plain single-output NN, and linear
+   regression** — XGBoost and CatBoost were dropped the same day (`probreg.md` P0b;
+   `docs/probreg_benchmark/benchmark_spec.md` baseline section). The list originally written here
+   was already stale when written.
+   (ii) "shared-k vs variable-k as two distinct models" is the **retired** framing. The live
+   definition is the three-way model set, `probreg.md` §1.)*
+   ✅ **RULED 2026-07-20 (user) — SETTLED, do not re-ask. WIDTH AND DEPTH STAY TOYS-ONLY.** The
+   real-data exemption is **NOT** extended to width or depth; it remains **ProbReg-only**. The user
+   explicitly kept the door open to a real-data pass later, so the two affected tasks are
+   **⏸ PARKED, not deleted** — their specs are retained on disk verbatim and unpark unchanged if the
+   decision is revisited:
+   - `width.md` **WSEL-9** — parked; removed from the execution order; **WSEL-10 now deps on WSEL-8.**
+   - `depth-selection.md` **DSEL-11** — parked; removed from the execution order; **DSEL-12 now deps
+     on its predecessor, not on DSEL-11.**
+   **Both report tasks CUT their baseline / real-data sections and must say so explicitly** — naming
+   that no external comparator (tree model, plain single-output NN, linear floor) was run, that the
+   strand's claims rest on constructed targets, and that real data is *deferred*, not refused.
+   A toys-only result may never be presented as though it had survived a baseline.
 4. **Hetero-NLL default** (strand 2): minimal fix if one exists cheaply; otherwise report (a)
    documents the limitation honestly and variance stays parked. Failure there does NOT unpark
    the variance programme.
@@ -114,8 +193,59 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     (or on M *and* the loss, with both reported). *(Case law: F5b gated on val cross-entropy while
     its bars read val accuracy — cells whose accuracy had cleanly plateaued were quarantined for
     CE overconfidence, and the reverse error is equally possible.)*
+18. **The tolerance split is CONFIRMED as legitimate (user ruling 2026-07-20).** The two selection
+    rules in this programme are deliberately different and stay different:
+    - **Global arms** (one capacity for the dataset — W-SHARED, W-SWEEP, ProbReg M1/M3, and the depth
+      equivalents) select **cheapest-within-tolerance at twice a bootstrap-estimated standard error**:
+      the smallest capacity whose held-out score is not meaningfully worse than the best.
+    - **Per-input arms** (the distilled router — W-PERINPUT, ProbReg M2, D-PERINPUT) label each row at
+      a **flat `0.25` relative margin** (`automl_package/models/common/distilled_router.py:57`,
+      `DEFAULT_TOLERANCE`, applied as `error <= (1 + tolerance) * row_min`).
+
+    **Why they legitimately differ:** a per-input decision has one row's worth of evidence, and **no
+    standard error is estimable from a single observation**; a global chooser reads a whole held-out
+    curve, over which a bootstrap standard error is exactly the right notion of noise. Forcing the
+    per-input arm onto the twice-SE rule would mean inventing a standard error it cannot have.
+
+    **Consequence, binding on every report — state it, do not paper over it:** the per-input arm's
+    **chosen capacities are NOT directly comparable** to the global arms' on tolerance grounds. The
+    arms share a cost objective, not a statistical selection rule. **Comparison lives on held-out
+    error and cost, never on the chosen values.** Listing the two tolerance numbers side by side
+    without saying this is the failure mode being ruled out.
+
+    **Known soft spot, accepted:** the flat `0.25` is **inherited** (copied from
+    `automl_package/examples/sinc_width_experiment.py`'s tie threshold), never measured. Accepted
+    because the value does not carry the comparison. **Noted follow-up, NOT scheduled and NOT a
+    blocker:** a sensitivity sweep would make it measured rather than inherited. Do not run
+    pre-emptively; run it if a reviewer leans on the constant.
 
 ## Rules (cache discipline)
+
+⚠️ **THE NUMBERS GATE IS PARTIAL — strengthen it before the next planning round.**
+*(This paragraph originally read "there is no numbers gate". **That was wrong, and it was written
+without opening the test file** — the same assert-from-recall failure it is warning about. Corrected
+within the minute, by running the suite and reading `test_plan_gates.py`.)*
+
+What exists in `test_plan_gates.py`: a **citations** gate (cited paths resolve, with a shrink-only
+`gates_baseline.txt` for forward references), a `RESULT:`-line gate (any `RESULT:` line must carry a <!-- citecheck-ignore: describes the gate, does not carry a result -->
+`.json` ledger pointer, so numbers live in the ledger rather than in prose), and a baseline
+shrink-only check.
+
+What it still cannot see: **whether a number written in a plan matches the ledger's value, and on
+what basis.** The `RESULT:` gate proves a pointer is present, not that the figure beside it is <!-- citecheck-ignore: describes the gate, does not carry a result -->
+current — the skill's own warning is that a *superseded* number is still in the ledger and passes.
+
+**This gap cost real money on 2026-07-20.** The citations gate was run repeatedly and reported as
+`6 passed` while all four strand plans were undispatchable. Every cited path resolved; what was
+wrong was what the paths *meant* — a real phrase on a real line used to justify a training schedule
+that does not exist, and a "published selection rule" that is a significance threshold in the cited
+section rather than a selection rule. **A green citations gate is a FLOOR, never a clean bill, and
+must never be presented as evidence a plan is ready.**
+
+Build the numbers gate per the skill's design notes: shrink-only baseline (never a permanently red
+suite), ignore markers for deliberately-quoted bad values, and prove-it-fails before trusting it.
+Reference implementation path is named in `~/.claude/skills/programme-plan/SKILL.md`.
+
 
 - **Pointers, not copies.** Result numbers live in ledger JSONs / report artifacts; strands cite
   paths. `RESULT:` lines must name their `.json` (gate-checked).
@@ -142,6 +272,36 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
 - **Venv repair** (if `~/dev/.venv` loses deps again): surgical `uv pip install` of the missing
   declared deps only; `uv sync` is blocked by a mis-scoped guard hook; torch must stay XPU.
 
+## Branch & merge protocol (binding on every execution wave)
+
+**The rule that prevents dangling branches: a branch may not outlive its wave.** One short-lived
+branch per dependency wave, merged and deleted the moment that wave's tasks verify. Never more than
+one execution branch open at a time.
+
+| | |
+|---|---|
+| **Name** | `capacity/wave-<N>` — e.g. `capacity/wave-1`. One per wave, never per strand or per task. |
+| **Branches from** | `master`, at the moment the wave is dispatched. |
+| **Carries** | only that wave's task output — code, tests, and the results JSONs those tasks emit. |
+| **Merge trigger** | **every task in the wave has had its own `verify:` command executed by the root and seen to pass** (Rule: DONE = the task's own verify line EXECUTED). Not "the worker said done". |
+| **Merge gate** | the plan gates green (`test_plan_gates.py` + `test_plan_numbers.py`, 9 tests) **and** the test files the wave touched pass. |
+| **Merge how** | `finishing-a-development-branch` skill, option 1 (merge locally to `master`). This repo pushes to `origin` but has no PR workflow in use — `master` was 11 commits ahead of `origin/master` on 2026-07-20, so local-merge-then-push is the established cadence. |
+| **Delete** | `git branch -d capacity/wave-<N>` **in the same session as the merge**. `-d` (never `-D`) refuses to delete an unmerged branch — that refusal is the mechanical guard, so never override it. |
+| **Docs-only work** | plan edits, dispositions, reports → commit **straight to `master`**. They are not implementation, every strand reads them, and parking them on a wave branch would let workers dispatch against stale plans. |
+
+**⛔ Two standing checks, run at the start of every session that touches this programme:**
+```bash
+git branch --no-merged master      # expect EMPTY. Anything listed is a dangling branch — merge or delete it.
+git branch --merged master | grep -v '^\*\| master$'   # expect EMPTY. Merged-but-undeleted is the same defect.
+```
+A wave branch still present after its wave is complete is a **defect to fix before new work starts**,
+not a thing to leave for later. *(As of 2026-07-20 both checks are clean: no branches besides
+`master`.)*
+
+**Why per-wave and not one long programme branch:** four strands over weeks on a single branch
+diverges from `master` far enough that the merge becomes its own risky project — which is precisely
+the dangling-branch failure this protocol exists to prevent. Short branches merge trivially.
+
 ## Mechanical gates
 
 Run from repo root:
@@ -166,6 +326,22 @@ Run from repo root:
 
 ## Corrections
 
+- **2026-07-20, ProbReg had THREE contradictory model definitions live at once — root cause was
+  organisational.** ProbReg content sat in 15 files across 5 plan directories with **no owning
+  strand**; the definitions in this file's naming key, in
+  `docs/probreg_benchmark/benchmark_spec.md`, and in the user's actual design all disagreed, and
+  the benchmark's two arms differed in TWO respects (training scheme *and* k choice) while
+  claiming to differ in one. Nobody could see it because no single document held them side by
+  side. Fixed by creating `probreg.md` as the single source (§1), which supersedes every other
+  statement. **Generalised rule (user, 2026-07-20): one execution-level strand file per
+  workstream, MASTER stays an index.** A definition may exist in exactly one file; everywhere
+  else points at it.
+- **2026-07-20, a regression test is not evidence until it has been shown to FAIL on the unfixed
+  code.** The two tests guarding the `fit_router` units fix both PASSED with the fix deleted — one
+  asserted on a downstream view too coarse to see the error, the other used a threshold above the
+  broken value. "Tests green" and "the bug is caught" are different claims and only the removal run
+  separates them. Both rewritten and re-proved in both directions; detail in `flexnn-core.md`
+  (F9-fix-b block). **Add the removal run to every bug-fix task's `verify:` line.**
 - **2026-07-17, G-DEPTH CLOSED (both halves) = PASS.** D8b selection battery landed: 2 seeds, all
   trustworthy/`diverged=false`. **S1** full-T fit ≥0.90/stratum 2/2; **S2** make-or-break knee 2/2
   (ρ(T*,t*)=1.000/0.993, acc@t*−2=0 cliff); **S3** deploy mean-T 8.0/7.99 < best-fixed-10 with MSE
