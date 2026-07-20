@@ -60,6 +60,7 @@ import nested_width_net as nwn  # noqa: E402
 
 from automl_package.enums import LayerSelectionMethod  # noqa: E402
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN  # noqa: E402
+from automl_package.models.flexible_width_network import FlexibleWidthNN  # noqa: E402
 
 LOGVAR_HEAD_PATH_SUBSTRING = "logvar"  # nested_width_net.py's NestedWidthNet/IndependentWidthNet attribute name
 
@@ -306,6 +307,23 @@ def _executed_flops_flexnn(net: FlexibleHiddenLayersNN.FlexibleNNModule, config:
     if net.n_predictor is not None:
         total += _sequential_linear_macs(net.n_predictor)
     return total
+
+
+@executed_flops.register(FlexibleWidthNN.FlexibleWidthNNModule)
+def _executed_flops_flexible_width_module(net: FlexibleWidthNN.FlexibleWidthNNModule, config: int) -> int:
+    """Routed width-`config` MACs for the package's `FlexibleWidthNN` (F2/F3).
+
+    Same shared-trunk-prefix + per-width-head shape and slicing argument as
+    `SharedTrunkPerWidthHeadNet` above (`FlexibleWidthNN`'s module docstring,
+    `models/flexible_width_network.py`, states this class ports that exact architecture) --
+    reuses the identical formula shape with this class's own attribute names (`trunk_linear`,
+    `heads[str(w)]`).
+    """
+    w = config
+    if w not in net.widths:
+        raise ValueError(f"config={w} is not one of the configured widths {net.widths}")
+    head = net.heads[str(w)]
+    return _linear_macs(net.trunk_linear.in_features, w) + _linear_macs(w, head.out_features)
 
 
 @executed_flops.register(DepthNetShapeDescriptor)

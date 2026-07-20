@@ -1,6 +1,6 @@
 """Enums for AutoML package."""
 
-from enum import Enum
+from enum import Enum, StrEnum
 
 
 class TaskType(Enum):
@@ -102,8 +102,22 @@ class DepthRegularization(Enum):
     COST_AWARE_ELBO = "cost_aware_elbo"
 
 
+class WidthSelectionMethod(StrEnum):
+    """Enum for per-input width selection in `FlexibleWidthNN` (capacity-programme F2)."""
+
+    NONE = "none"  # fixed width, chosen explicitly via predict(x, width=...).
+    DISTILLED = "distilled"  # per-input routed width via `DistilledCapacityRouter` -- capacity-programme F3, not yet landed.
+
+
 class NClassesRegularization(Enum):
-    """Enum for n_classes complexity control in probabilistic regression."""
+    """Enum for n_classes complexity control in probabilistic regression.
+
+    Only meaningful with an in-training `NClassesSelectionMethod` (SOFT_GATING/GUMBEL_SOFTMAX/
+    STE/REINFORCE) -- those strategies plus a regularizer are a labeled COMPARISON ARM (MASTER
+    Decision 13, `docs/plans/capacity_programme/MASTER.md`); the recommended path is
+    `NClassesSelectionMethod.NESTED` training + `DistilledCapacityRouter`-routed inference
+    (`ProbabilisticRegressionModel.fit_router`), which needs no regularizer at all.
+    """
 
     NONE = "none"
     K_PENALTY = "k_penalty"
@@ -111,13 +125,23 @@ class NClassesRegularization(Enum):
 
 
 class NClassesSelectionMethod(Enum):
-    """Enum for different n_classes selection methods in probabilistic regression."""
+    """Enum for different n_classes selection methods in probabilistic regression.
+
+    SOFT_GATING/GUMBEL_SOFTMAX/STE/REINFORCE are in-training selection: a labeled COMPARISON ARM
+    (MASTER Decision 13) kept fully functional but no longer the recommended path. NESTED is the
+    recommended path: per-sample k drawn as a training SCHEDULE (capacity-ladder Task F9, ported
+    from `automl_package/examples/_capacity_ladder_nested.py`), with per-input k at inference
+    supplied post-hoc by `ProbabilisticRegressionModel.fit_router` +
+    `automl_package.models.common.distilled_router.DistilledCapacityRouter` -- selection is
+    DISTILLED, never in-training.
+    """
 
     NONE = "none"
     SOFT_GATING = "soft_gating"
     GUMBEL_SOFTMAX = "gumbel_softmax"
     STE = "ste"
     REINFORCE = "reinforce"
+    NESTED = "nested"  # per-sample k draws (a training schedule, not a selector) -- capacity-ladder F9; RECOMMENDED path w/ DistilledCapacityRouter (Decision 13)
 
 
 class CategoricalEncodingStrategy(Enum):
