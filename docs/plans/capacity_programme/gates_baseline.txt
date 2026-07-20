@@ -14,7 +14,6 @@ automl_package/utils/capacity_selection.py                          # FP-9 (writ
 tests/test_capacity_selection.py                                    # FP-9 (write set L340)
 docs/plans/capacity_programme/shared/fp4-schedule-deviation.md      # FP-4 (write set L694)
 docs/plans/capacity_programme/shared/router-capabilities.md         # FP-5 (write set L745)
-docs/plans/capacity_programme/shared/zero-caller-inventory.md       # FP-7 (write set L917)
 
 # --- width.md Create targets (parked 2026-07-20, root) ----------------------------------------
 # Each verified: named in a WSEL task's write set and asserted by that task's verify line.

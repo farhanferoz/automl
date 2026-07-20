@@ -365,17 +365,41 @@ real only if it exceeds twice an estimated standard error. **Import that rule; d
 
 #### FP-9.b — the bootstrap standard-error helper it needs
 
-Verified 2026-07-20: **fifteen** bootstrap/SE helpers exist across `automl_package/examples/`, under at
-least five different names; **zero** exist in `automl_package/models/` or `automl_package/utils/`.
-Three plans need one and none builds it.
+**⚠️ COUNT CORRECTED 2026-07-20 by FP-7, which re-derived it as instructed rather than trusting the
+plan.** This section previously asserted **fifteen** helpers "under at least five different names".
+**The re-derived count is TWELVE.** FP-7 searched three independent ways — exact-name grep, a
+broadened name-pattern grep, and a *name-agnostic* `rng.integers(0` sweep across all of
+`examples/` — and could not find the missing three by any of them. (The name-agnostic sweep did
+surface three further files using the resample idiom; all three were read and are unrelated
+data-generation code — mixture assignment, pool sampling, word-sequence generation — not SE
+helpers.) **Zero exist in `automl_package/models/` or `automl_package/utils/`**, which the
+re-derivation confirms.
 
 Build **one**, in `automl_package/utils/numerics.py` (existing home for numerical utilities — reuse
-the module, do not create a parallel one). It must cover the three shapes the drivers actually use, so
-that the existing helpers can eventually be replaced rather than merely joined:
-1. **plain** — bootstrap SE of a 1-D vector's mean (`_plain_boot_se`, `_boot_se`);
-2. **paired** — bootstrap SE of a paired difference vector's mean (`_paired_bootstrap_se`,
-   `_paired_point_bootstrap_se`, `paired_bootstrap_se`);
-3. **two-sample** — bootstrap SE of `mean(a) - mean(b)` for independent samples (`_two_sample_boot_se`).
+the module, do not create a parallel one). It must cover the three shapes the drivers actually use.
+**FP-7's inventory (`shared/zero-caller-inventory.md`) lists every site with `file:line` and
+signature, grouped by these same three shapes — read it rather than re-deriving.** The three shapes
+are NOT equally duplicated, and that changes how each is consolidated:
+
+1. **plain** — SE of a 1-D vector's mean. **7 sites** (`_boot_se` ×3, `_plain_boot_se` ×4).
+   **All 7 are identical 3-line wrappers around the SAME shared primitive**,
+   `automl_package/examples/_capacity_ladder.py:196` `_bootstrap_col_means`. ⇒ **This is the safest
+   consolidation target: a pure rename, not a behavioural merge.** There is already one
+   implementation here, only seven names for it.
+2. **paired** — SE of a paired difference vector's mean. **3 sites** (`_paired_bootstrap_se`,
+   `paired_bootstrap_se`, `_paired_point_bootstrap_se`). ⚠️ **Unlike the plain shape, none of
+   these calls the shared primitive — each independently reimplements the same 4-line resample
+   loop under a different name.** This is real duplication, and it is where genuine drift between
+   the three strands' numbers could already be hiding. Diff the three before replacing them.
+3. **two-sample** — SE of `mean(a) - mean(b)` for independent samples. **Exactly ONE site**,
+   `automl_package/examples/sinc_width_experiment.py:188` `_two_sample_boot_se` — *not* "≥5 names"
+   as previously implied. It is **non-vectorised** (a Python loop) where the other two shapes are
+   vectorised; match its semantics, not its performance profile.
+
+**Also flagged by FP-7 and deliberately NOT counted in the 12** — do not sweep these up: 
+`_tercile_means_se` (an *analytic* SE, a different technique, not a bootstrap), and
+`gold_mid_with_se` / `_paired_bootstrap_check`, which are domain consumers that call the shape-1
+primitives internally rather than being primitives themselves.
 
 Explicit `seed` and `n_boot` parameters — a selection rule whose answer moves between runs is not a
 rule. FP-9 **adds** the shared helper; it does **not** rewrite the fifteen callers (that is a follow-on
@@ -948,10 +972,37 @@ M=<module_basename_without_py>
 grep -rn -E "(^[[:space:]]*(import|from)[[:space:]]+${M}\b)|(automl_package\.examples\.${M}\b)|(\b${M}\.py\b)" \
   --include='*.py' --include='*.md' --include='*.sh' --include='*.txt' \
   automl_package/ docs/ tests/ \
+  README.md *.md *.sh *.toml *.txt \
   | grep -v "^automl_package/examples/${M}\.py:"
 ```
 
+> ### 🚨 CORRECTED 2026-07-20 — the search form above was WRONG, and it was wrong in exactly the
+> ### way this section exists to prevent.
+>
+> **The earlier version scoped the search to `automl_package/ docs/ tests/` and omitted repo-root
+> files.** FP-7 ran it as mandated and then cross-checked out of scope, which is how this was
+> caught. **8 of its 21 dead-candidates are cited in repo-root files**, most seriously
+> `run_automl.py` and `noisy_data_example.py`, which are listed in **README.md's own example
+> catalogue at `README.md:1173-1174`** — the user-facing document that tells a reader those
+> scripts exist.
+>
+> **Consequence had it not been caught:** FP-8's deletion gate condition (ii) is satisfied by a
+> `dead-candidate` row carrying its proving command and empty output. Both files would have
+> qualified, and FP-8 would have deleted scripts the README documents — silently breaking the
+> project's own front page. That is the *same* failure mode as the bare-name import hole this
+> section already warned about, in a different directory.
+>
+> **The repo-root paths are now part of the mandated command** (the `README.md *.md *.sh *.toml
+> *.txt` line). Re-run it for any candidate assessed before this correction.
+>
+> **General rule this establishes: a citation anywhere in the repository is a live reference,
+> and "anywhere" includes the root.** A search scope is itself a claim about where references
+> can live, and it must be justified rather than inherited.
+
 It covers all four reference forms, and it must:
+0. include **repo-root files** — `README.md` above all, plus `*.md`, `*.sh`, `*.toml`, `*.txt`.
+   **The README is the project's own catalogue of what these scripts are for**, and a script it
+   documents is live by definition regardless of what imports it;
 1. include **`docs/`** — plan and report documents cite module and symbol names;
 2. include **`automl_package/examples/capacity_ladder_results/*/PREREGISTRATION.md`** (reached via
    `--include='*.md'` under `automl_package/`) — **preregistration documents cite exact symbol names,
@@ -1007,9 +1058,32 @@ conditions.
 
 #### 🚨 FP-8.a — THE DELETION GATE. Three conditions, all mechanical, all required.
 
-**A path may be deleted if and only if all three hold. Not two. Not "two and it looks obviously
+**A path may be deleted if and only if all FOUR hold. Not three. Not "three and it looks obviously
 dead".** The previous version of this task said removals must be "reviewed" — a human verb with no
 observable outcome, in a task whose failure mode is silently destroying certified research code.
+
+> ### 🚨 CONDITION (iv) ADDED 2026-07-20 — a `dead-candidate` row is NOT sufficient on its own.
+>
+> **(iv) the candidate's row in `shared/zero-caller-inventory.md` carries NO `CAVEAT` block.**
+>
+> FP-7's inventory marks **8 of its 21 dead-candidates with an inline `CAVEAT`**, because they are
+> cited in **repo-root files that the search form in force at the time did not cover** — including
+> `run_automl.py` and `noisy_data_example.py`, both listed in **README.md's own example catalogue
+> (`README.md:1173-1174`)**. Those rows say `dead-candidate` because that is what the mandated
+> command produced, and FP-7 correctly reported the mandated result unaltered rather than
+> silently overriding it. **Deleting on the disposition alone would have removed scripts the
+> project's front page documents.**
+>
+> ```bash
+> # (iv) mechanically: the candidate's section must contain no CAVEAT
+> awk -v p="$P" '$0 ~ "^#### .*"p {f=1} f && /^#### /&&$0 !~ p {f=0} f' \
+>   docs/plans/capacity_programme/shared/zero-caller-inventory.md | grep -q 'CAVEAT' \
+>   && echo "BLOCKED-BY-CAVEAT $P" || echo "no-caveat $P"
+> ```
+>
+> **A caveated candidate is resolved, never overridden**: re-run the *corrected* FP-7.a search
+> (which now includes the repo root) and let the disposition change on the evidence. If it comes
+> back live, it is live.
 
 | # | condition | the command that decides it |
 |---|---|---|
