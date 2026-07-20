@@ -1,12 +1,9 @@
 # Shrink-only baseline: intentional FUTURE artifacts (Create targets not yet built).
 # The shrink-only gate fails once an entry lands or stops being cited -- remove it then.
 # NO typo may ever be parked here.
-automl_package/examples/moe_flexnn_comparison.py
-automl_package/models/flexible_width_network.py
-automl_package/models/common/distilled_router.py
-automl_package/utils/convergence.py
-tests/test_flexible_width_network.py
-tests/test_distilled_router.py
-docs/depth_capacity/ff_depth_toy_spec.md
-docs/roadmap_groundwork/python_instruction_datasets.md
-docs/roadmap_groundwork/dgx_spark_training_envelope.md
+#
+# 2026-07-20: the nine originally-parked artifacts all landed (F2/F3/F4/F5a/F6/F11) and were
+# removed. The entries below are the NEW Create targets added the same day (F5c, F12).
+docs/depth_capacity/ff_depth_protocol_repair_spec.md
+docs/probreg_benchmark/benchmark_spec.md
+automl_package/examples/probreg_benchmark.py

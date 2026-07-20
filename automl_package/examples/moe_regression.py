@@ -14,12 +14,26 @@ block that task M1 verified against primary sources (2026-07-16):
     already applied, matching the paper's eq. 4 verbatim) — the total training objective is
     `MSE + L_aux`, with no second `alpha` multiply (see `training_loss`'s docstring).
 
-Experts are small MLPs `Linear(d_in -> expert_hidden) -> tanh -> Linear(expert_hidden -> 1)`; the
-router is one `Linear(d_in -> n_experts)`. Params/FLOPs accounting is NEVER hand-computed here —
+Experts are small MLPs `Linear(d_in -> expert_hidden) -> tanh -> Linear(expert_hidden ->
+output_size)`; the router is one `Linear(d_in -> n_experts)`. Params/FLOPs accounting is NEVER
+hand-computed here for the M2-frozen `output_size=1` (MSE) shape —
 `match_to_reference` calls `capacity_accounting.param_count`/`executed_flops` (S2,
 `docs/plans/capacity_programme/shared/metrics-accounting.md`), the programme's only source of
 those numbers, for both the reference net and (via `MoEShapeDescriptor`) this module's own
 architecture.
+
+**F6 `task={mse,ce}` flag** (`docs/plans/capacity_programme/flexnn-core.md` Task F6): `Task.CE`
+generalizes each expert's output layer to `Linear(expert_hidden -> n_classes)` (`output_size`
+constructor arg) and `training_loss` to `CrossEntropyLoss + L_aux` on the SAME router/aux-loss
+machinery — needed because F6's A5 depth-composition toy is classification, not regression.
+`capacity_accounting.MoEShapeDescriptor` (S2) hardcodes a scalar (`output_size=1`) per-expert
+output layer — the M2-authoring-time shape, since S2 predates this flag — so it cannot account a
+CE-task MoE's true expert output-layer width. Extending `MoEShapeDescriptor` itself is out of
+this task's file list (`capacity_accounting.py` is owned by a concurrent capacity-programme task
+this session). `moe_flops_and_params()` below is a same-shape generalization CONFINED to this
+module: for `output_size=1` it is proven byte-identical to S2's own formula (selftest (e)), so
+`match_to_reference` keeps calling S2 unchanged for `task=mse` (S2 remains the only source for
+the shape it supports) and only falls back to the local generalized formula for `task=ce`.
 
 Selftest (`--selftest`, mirrors `nested_width_net.py`'s selftest convention) proves four things:
   (a) shapes/finiteness of both routing modes' forward output.
@@ -80,6 +94,13 @@ class RoutingMode(enum.Enum):
     FULL_SOFT = "full_soft"  # diagnostic: every expert contributes, weighted by the full (unmasked) softmax
 
 
+class Task(enum.StrEnum):
+    """Which task `MoERegressionNet`/`training_loss` is wired for (closed set; F6 flag)."""
+
+    MSE = "mse"  # M2's original frozen shape: output_size=1, MSELoss + L_aux
+    CE = "ce"  # F6 addition: output_size=n_classes, CrossEntropyLoss + L_aux (A5 depth-composition toy)
+
+
 class RouterOutputs(NamedTuple):
     """One `route()` call's full router state, reused by `forward`, the aux loss, and diagnostics."""
 
@@ -104,6 +125,7 @@ class MoERegressionNet(nn.Module):
         top_k: int = TOP_K_PRIMARY,
         expert_hidden: int = EXPERT_HIDDEN_DEFAULT,
         d_in: int = D_IN_DEFAULT,
+        output_size: int = 1,
         activation: type[nn.Module] = nn.Tanh,
     ) -> None:
         """Builds the router and `n_experts` expert MLPs.
@@ -114,6 +136,8 @@ class MoERegressionNet(nn.Module):
             top_k: experts dispatched to per row (2 = Mixtral primary, 1 = Switch ablation).
             expert_hidden: each expert's hidden width — the ONE knob `match_to_reference` sizes.
             d_in: input dimensionality (1 for this programme's scalar-`x` toys).
+            output_size: each expert's output width — `1` for the M2-frozen MSE shape, `n_classes`
+                for `Task.CE` (F6 flag; see module docstring).
             activation: expert hidden-layer nonlinearity class (instantiated with no args); tanh
                 per the frozen spec, matching this programme's other toy nets.
 
@@ -126,9 +150,10 @@ class MoERegressionNet(nn.Module):
         self.n_experts = int(n_experts)
         self.top_k = int(top_k)
         self.d_in = int(d_in)
+        self.output_size = int(output_size)
         self.router = nn.Linear(self.d_in, self.n_experts)
         self.experts = nn.ModuleList(
-            nn.Sequential(nn.Linear(self.d_in, expert_hidden), activation(), nn.Linear(expert_hidden, 1)) for _ in range(self.n_experts)
+            nn.Sequential(nn.Linear(self.d_in, expert_hidden), activation(), nn.Linear(expert_hidden, self.output_size)) for _ in range(self.n_experts)
         )
 
     def route(self, x: torch.Tensor) -> RouterOutputs:
@@ -153,7 +178,7 @@ class MoERegressionNet(nn.Module):
         return RouterOutputs(router_logits=logits, full_probs=full_probs, gate_probs=gate_probs, dispatch_mask=dispatch_mask, topk_idx=topk_idx)
 
     def forward(self, x: torch.Tensor, *, mode: RoutingMode = RoutingMode.TOP_K) -> torch.Tensor:
-        """`(N, d_in) -> (N, 1)` prediction under the given routing mode.
+        """`(N, d_in) -> (N, output_size)` prediction under the given routing mode.
 
         `RoutingMode.TOP_K` is the deployment/accounting mode (`capacity_accounting.executed_flops`
         assumes exactly `top_k` experts run). `RoutingMode.FULL_SOFT` is a diagnostic dense upper
@@ -163,11 +188,17 @@ class MoERegressionNet(nn.Module):
         sparse kernels — dense masked compute is fine at toy scale, `executed_flops` accounts for
         the EFFICIENT top-k deployment analytically regardless of how this eval code computes it,
         mirroring how `nested_width_net.py`'s `all_widths_forward` also computes densely).
+
+        Stacks (not concatenates) each expert's `(N, output_size)` output into `(N, n_experts,
+        output_size)` and weights along the expert axis — the `output_size=1` (MSE) case reduces
+        to M2's original `cat`+`sum(keepdim=True)` behavior exactly (same numbers, generalized
+        shape), and `output_size=n_classes` (F6 `Task.CE`) gets the identical weighted-sum-of-
+        experts semantics over class logits.
         """
         route = self.route(x)
         weights = route.gate_probs if mode is RoutingMode.TOP_K else route.full_probs
-        expert_out = torch.cat([expert(x) for expert in self.experts], dim=1)  # (N, n_experts)
-        return (weights * expert_out).sum(dim=1, keepdim=True)
+        expert_out = torch.stack([expert(x) for expert in self.experts], dim=1)  # (N, n_experts, output_size)
+        return (weights.unsqueeze(-1) * expert_out).sum(dim=1)  # (N, output_size)
 
 
 def load_balance_aux_loss(route: RouterOutputs, n_experts: int, alpha: float = ALPHA) -> torch.Tensor:
@@ -189,18 +220,24 @@ def load_balance_aux_loss(route: RouterOutputs, n_experts: int, alpha: float = A
     return alpha * n_experts * (f_e * p_e).sum()
 
 
-def training_loss(pred: torch.Tensor, target: torch.Tensor, route: RouterOutputs, n_experts: int, alpha: float = ALPHA) -> tuple[torch.Tensor, dict]:
-    """Total training loss `MSE(pred, target) + L_aux` (Switch eq. 4; `L_aux` already carries `alpha`).
+def training_loss(
+    pred: torch.Tensor, target: torch.Tensor, route: RouterOutputs, n_experts: int, alpha: float = ALPHA, task: Task = Task.MSE
+) -> tuple[torch.Tensor, dict]:
+    """Total training loss `task_loss(pred, target) + L_aux` (Switch eq. 4; `L_aux` already carries `alpha`).
+
+    `task_loss` is `MSELoss` (`pred`/`target` both `(N, 1)` float) for `Task.MSE`, or
+    `CrossEntropyLoss` (`pred` `(N, n_classes)` logits, `target` `(N,)` long class indices) for
+    `Task.CE` (F6 flag) — the router/aux-loss machinery is identical either way.
 
     Returns the scalar total (for `.backward()`) plus a plain-float breakdown for logging. No
     second `alpha` multiply here: `load_balance_aux_loss` already returns the fully-scaled Switch
-    term, so `total = mse + aux_loss` is the complete eq.-4-plus-task-loss objective — `mse +
-    alpha * aux_loss` would double-apply `alpha` against the frozen M1 config.
+    term, so `total = task_loss + aux_loss` is the complete eq.-4-plus-task-loss objective —
+    `task_loss + alpha * aux_loss` would double-apply `alpha` against the frozen M1 config.
     """
-    mse = nnf.mse_loss(pred, target)
+    task_loss = nnf.mse_loss(pred, target) if task is Task.MSE else nnf.cross_entropy(pred, target)
     aux = load_balance_aux_loss(route, n_experts, alpha)
-    total = mse + aux
-    return total, {"mse": mse.item(), "aux_loss": aux.item(), "total_loss": total.item()}
+    total = task_loss + aux
+    return total, {"task_loss": task_loss.item(), "aux_loss": aux.item(), "total_loss": total.item()}
 
 
 def routing_diagnostics(route: RouterOutputs, n_experts: int) -> dict:
@@ -227,6 +264,25 @@ def routing_diagnostics(route: RouterOutputs, n_experts: int) -> dict:
     }
 
 
+def moe_flops_and_params(n_experts: int, expert_hidden: int, d_in: int, output_size: int, top_k: int) -> tuple[int, int]:
+    """Total params + top-`top_k`-executed MACs for one MoE shape, generalized over `output_size`.
+
+    Same shape as `capacity_accounting.MoEShapeDescriptor`'s S2 formulas (router always scores
+    every expert; only `top_k` experts' own forward passes execute), generalized from S2's
+    hardcoded scalar per-expert output to an arbitrary `output_size` — see module docstring's F6
+    `task={mse,ce}` section for why this lives here instead of in `capacity_accounting.py`.
+    Selftest (e) proves this is byte-identical to S2's `MoEShapeDescriptor` at `output_size=1`.
+    """
+    router_params = d_in * n_experts + n_experts
+    per_expert_params = (d_in * expert_hidden + expert_hidden) + (expert_hidden * output_size + output_size)
+    total_params = router_params + n_experts * per_expert_params
+
+    router_macs = d_in * n_experts
+    per_expert_macs = d_in * expert_hidden + expert_hidden * output_size
+    total_flops = router_macs + top_k * per_expert_macs
+    return total_params, total_flops
+
+
 def match_to_reference(
     reference: nn.Module,
     reference_config: int,
@@ -234,6 +290,7 @@ def match_to_reference(
     n_experts: int = N_EXPERTS_PRIMARY,
     top_k: int = TOP_K_PRIMARY,
     d_in: int = D_IN_DEFAULT,
+    output_size: int = 1,
     tol: float = MATCH_TOLERANCE,
 ) -> dict:
     """Sizes `expert_hidden` so an `(n_experts, top_k, d_in)` MoE matches `reference`'s params AND FLOPs.
@@ -246,15 +303,19 @@ def match_to_reference(
     MASTER Decision 2 (MSE-only) makes a width net's logvar head dead weight, and this MoE's
     experts have no logvar branch to compare it against.
 
-    `expert_hidden` is this net's ONE free sizing knob; `capacity_accounting.param_count`/
-    `executed_flops` of `MoEShapeDescriptor(d_in, expert_hidden, n_experts)` are EXACTLY affine in
-    `expert_hidden` for fixed `(n_experts, top_k, d_in)`, so both targets are solved in closed form
-    (two-point slope from `h=0`/`h=1` — no hand-derived duplicate of S2's formulas) and then
-    refined over a small window of nearby integers, picking the `expert_hidden` that minimizes the
-    WORSE of the two relative errors. A single knob cannot generally zero both errors at once
-    (params and FLOPs trace one straight line in (params, FLOPs) space as `expert_hidden` varies),
-    so a good joint match exists only when the reference's own (params, FLOPs) pair sits near that
-    line — this function reports the achieved errors either way, it does not hide a bad match.
+    `expert_hidden` is this net's ONE free sizing knob; the MoE side's own (params, FLOPs) are
+    EXACTLY affine in `expert_hidden` for fixed `(n_experts, top_k, d_in, output_size)`, so both
+    targets are solved in closed form (two-point slope from `h=0`/`h=1`) and then refined over a
+    small window of nearby integers, picking the `expert_hidden` that minimizes the WORSE of the
+    two relative errors. A single knob cannot generally zero both errors at once (params and
+    FLOPs trace one straight line in (params, FLOPs) space as `expert_hidden` varies), so a good
+    joint match exists only when the reference's own (params, FLOPs) pair sits near that line —
+    this function reports the achieved errors either way, it does not hide a bad match.
+
+    `output_size=1` (the M2-frozen MSE shape) computes the MoE side via
+    `capacity_accounting.MoEShapeDescriptor` unchanged — S2 remains the only source for the shape
+    it supports. `output_size>1` (F6's `Task.CE`) falls back to `moe_flops_and_params` (this
+    module), since S2's descriptor hardcodes a scalar per-expert output — see module docstring.
 
     Returns:
         A dict with the target/achieved params and FLOPs, both relative errors, the chosen
@@ -266,10 +327,14 @@ def match_to_reference(
     target_flops = ca.executed_flops(reference, reference_config)
 
     def params_at(h: int) -> int:
-        return ca.param_count(ca.MoEShapeDescriptor(d_in=d_in, expert_hidden=h, n_experts=n_experts))
+        if output_size == 1:
+            return ca.param_count(ca.MoEShapeDescriptor(d_in=d_in, expert_hidden=h, n_experts=n_experts))
+        return moe_flops_and_params(n_experts, h, d_in, output_size, top_k)[0]
 
     def flops_at(h: int) -> int:
-        return ca.executed_flops(ca.MoEShapeDescriptor(d_in=d_in, expert_hidden=h, n_experts=n_experts), top_k)
+        if output_size == 1:
+            return ca.executed_flops(ca.MoEShapeDescriptor(d_in=d_in, expert_hidden=h, n_experts=n_experts), top_k)
+        return moe_flops_and_params(n_experts, h, d_in, output_size, top_k)[1]
 
     p0, p1 = params_at(0), params_at(1)
     f0, f1 = flops_at(0), flops_at(1)
@@ -297,6 +362,7 @@ def match_to_reference(
         "n_experts": n_experts,
         "top_k": top_k,
         "d_in": d_in,
+        "output_size": output_size,
         "target_params": target_params,
         "target_flops": target_flops,
         "expert_hidden": best_h,
@@ -317,13 +383,13 @@ def match_to_reference(
 # ---------------------------------------------------------------------------
 
 
-def _assert_shapes_finite(net: MoERegressionNet, x: torch.Tensor) -> tuple[bool, str]:
-    """(a) Both routing modes return finite `(N, 1)` predictions."""
+def _assert_shapes_finite(net: MoERegressionNet, x: torch.Tensor, expected_output_size: int = 1) -> tuple[bool, str]:
+    """(a) Both routing modes return finite `(N, expected_output_size)` predictions."""
     ok = True
     detail = []
     for mode in RoutingMode:
         y = net(x, mode=mode)
-        shape_ok = tuple(y.shape) == (x.shape[0], 1)
+        shape_ok = tuple(y.shape) == (x.shape[0], expected_output_size)
         finite_ok = bool(torch.isfinite(y).all())
         ok = ok and shape_ok and finite_ok
         detail.append(f"{mode.value}: shape_ok={shape_ok} finite_ok={finite_ok}")
@@ -387,8 +453,78 @@ def _assert_matching_helper() -> tuple[bool, list[dict]]:
     return ok_all, results
 
 
+def _assert_moe_flops_and_params_generalization() -> tuple[bool, dict]:
+    """(e) F6: agreement + hand-check for the generalized MoE accounting.
+
+    `moe_flops_and_params` agrees with S2's `MoEShapeDescriptor` at output_size=1, and a
+    hand-computed output_size=5 (CE-shaped) config checks out against a manual derivation.
+    """
+    n_experts, expert_hidden, d_in, top_k = 8, 6, 3, 2
+    s2_desc = ca.MoEShapeDescriptor(d_in=d_in, expert_hidden=expert_hidden, n_experts=n_experts)
+    s2_params = ca.param_count(s2_desc)
+    s2_flops = ca.executed_flops(s2_desc, top_k)
+    gen_params_1, gen_flops_1 = moe_flops_and_params(n_experts, expert_hidden, d_in, 1, top_k)
+    agree_ok = gen_params_1 == s2_params and gen_flops_1 == s2_flops
+
+    # Hand-derived output_size=5 (e.g. CE with 5 classes): router (3,8): 3*8+8=32.
+    # per-expert: trunk (3,6): 3*6+6=24, head (6,5): 6*5+5=35 -> 59 params; 8 experts -> 472.
+    expected_ce_params = 32 + 8 * 59
+    # FLOPs: router 3*8=24 (always full) + top_k=2 * [trunk (3,6)=18 + head (6,5)=30] = 24 + 2*48 = 120.
+    expected_ce_flops = 24 + 2 * 48
+    gen_params_5, gen_flops_5 = moe_flops_and_params(n_experts, expert_hidden, d_in, 5, top_k)
+    ce_ok = gen_params_5 == expected_ce_params and gen_flops_5 == expected_ce_flops
+
+    ok = agree_ok and ce_ok
+    detail = {
+        "s2_at_output_1": (s2_params, s2_flops),
+        "generalized_at_output_1": (gen_params_1, gen_flops_1),
+        "agree_at_output_1": agree_ok,
+        "generalized_at_output_5": (gen_params_5, gen_flops_5),
+        "expected_at_output_5": (expected_ce_params, expected_ce_flops),
+        "hand_computed_output_5_ok": ce_ok,
+    }
+    return ok, detail
+
+
+def _assert_ce_task_trains(n_classes: int = 5, d_in: int = 3) -> tuple[bool, float, float]:
+    """(f) F6: `Task.CE` shape/isolation/training checks.
+
+    A `Task.CE` net's shapes/gradient-isolation hold, and `training_loss(task=Task.CE)` genuinely
+    reduces cross-entropy + aux loss under gradient descent on synthetic class data.
+    """
+    torch.manual_seed(0)
+    net = MoERegressionNet(n_experts=N_EXPERTS_PRIMARY, top_k=TOP_K_PRIMARY, expert_hidden=EXPERT_HIDDEN_DEFAULT, d_in=d_in, output_size=n_classes)
+    x = torch.randn(64, d_in)
+    y = torch.randint(0, n_classes, (64,))
+
+    net.eval()
+    ok_shapes, _ = _assert_shapes_finite(net, x, expected_output_size=n_classes)
+    ok_iso, _ = _assert_topk_gradient_isolation(net, x)
+    if not (ok_shapes and ok_iso):
+        return False, float("nan"), float("nan")
+
+    net.train()
+    opt = torch.optim.Adam(net.parameters(), lr=0.05)
+    route0 = net.route(x)
+    pred0 = net(x, mode=RoutingMode.TOP_K)
+    loss0, _ = training_loss(pred0, y, route0, net.n_experts, task=Task.CE)
+    for _ in range(100):
+        opt.zero_grad()
+        route = net.route(x)
+        pred = net(x, mode=RoutingMode.TOP_K)
+        loss, _ = training_loss(pred, y, route, net.n_experts, task=Task.CE)
+        loss.backward()
+        opt.step()
+    net.eval()
+    with torch.no_grad():
+        route_final = net.route(x)
+        pred_final = net(x, mode=RoutingMode.TOP_K)
+        loss_final, _ = training_loss(pred_final, y, route_final, net.n_experts, task=Task.CE)
+    return loss_final.item() < loss0.item(), loss0.item(), loss_final.item()
+
+
 def run_selftest() -> bool:
-    """Runs all four selftest checks on a fixed seed and prints PASS/FAIL for each."""
+    """Runs all selftest checks on a fixed seed and prints PASS/FAIL for each."""
     torch.manual_seed(0)
     net = MoERegressionNet(n_experts=N_EXPERTS_PRIMARY, top_k=TOP_K_PRIMARY, expert_hidden=EXPERT_HIDDEN_DEFAULT, d_in=D_IN_DEFAULT)
     net.eval()
@@ -415,7 +551,18 @@ def run_selftest() -> bool:
         )
     print(f"[moe_regression selftest] (d) matching helper: {'PASS' if ok_match else 'FAIL'}")
 
-    ok = ok_shapes and ok_iso and ok_aux and ok_match
+    ok_gen, gen_detail = _assert_moe_flops_and_params_generalization()
+    print(
+        f"[moe_regression selftest] (e) moe_flops_and_params generalization: "
+        f"s2_at_1={gen_detail['s2_at_output_1']} generalized_at_1={gen_detail['generalized_at_output_1']} "
+        f"generalized_at_5={gen_detail['generalized_at_output_5']} expected_at_5={gen_detail['expected_at_output_5']}  "
+        f"{'PASS' if ok_gen else 'FAIL'}"
+    )
+
+    ok_ce, ce_loss0, ce_loss1 = _assert_ce_task_trains()
+    print(f"[moe_regression selftest] (f) Task.CE shapes/isolation + training_loss decreases: {ce_loss0:.4f} -> {ce_loss1:.4f}  {'PASS' if ok_ce else 'FAIL'}")
+
+    ok = ok_shapes and ok_iso and ok_aux and ok_match and ok_gen and ok_ce
     print(f"[moe_regression selftest] {'PASS' if ok else 'FAIL'}")
     return ok
 

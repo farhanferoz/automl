@@ -189,13 +189,68 @@ is provably non-substitutable; FAIL with tied cells passing → weight-tying is 
 ingredient (goes in F7 + informs the transformer roadmap: weight-tied = the Universal
 Transformer shape, arXiv:1807.03819).
 
-**F5b — build + run** (after GO): Modify `automl_package/examples/depth_composition_toy.py`
-(new `NetKind` members TIED_FLAT, UNTIED_PERSTEP + builders + driver flags; keep selftest
-convention) · Create (by runs) `.../D_TOY_PROBES/ff_depth_pilot_a5_seed{0,1}.json` · append
-results § to `docs/depth_capacity/verdict_per_input_depth.md`.
-**Orchestration (F5b):** parallel: no · deps: F5a GO · tier: sonnet · scale: static · shape:
-execution · verify: JSONs exist, `trustworthy=true` per arm, bars evaluated in the verdict §;
-runs detached per environment rules (~30–60 min CPU total)
+**F5b — build + run: RAN 2026-07-18 → ⛔ INVALID (2026-07-20). Superseded by F5c.**
+The build landed (`NetKind.TIED_FLAT`, `UNTIED_PERSTEP` + builders + driver flags in
+`automl_package/examples/depth_composition_toy.py`) and 28 runs produced
+`.../D_TOY_PROBES/ff_depth_pilot_a5_seed{0,1}.json`. **No bar may be read from them**, on three
+independent grounds, each verified on disk 2026-07-20:
+1. **Positive control FAILED (MASTER Decision 14).** Cell 4 (`RecurrentComposer`, the certified
+   arm, made a MANDATORY confirm run by the F5a reviewer precisely to validate the protocol) is
+   trustworthy on **1 of 2 seeds**: seed 1 = 0.9257 clean; seed 0 climbed to 0.830 by epoch 3000
+   then **collapsed to 0.097**, `diverged=true`. Spec §6 requires ≥2 trustworthy seeds. The
+   protocol did not reproduce a known-good result ⇒ nothing else in the battery is readable.
+2. **Protocol parity breach (MASTER Decision 15).** These runs used `depth_composition_toy.py`'s
+   `train_clf`, which applies **no gradient clipping**, at A5/L=10 — while
+   `automl_package/examples/depth_selection_toy.py` sets `GRAD_CLIP_MAX_NORM = 1.0` commented
+   "L=10 needs clipping to stay GD-trainable". Single unswept `LR = 1e-2`, no schedule/warmup,
+   across arms spanning 12,476–89,660 params.
+3. **Gate/bar metric mismatch (MASTER Decision 17).** `trustworthy` is computed on val CE; the
+   bars read val accuracy. Val CE explodes (overconfidence) while val accuracy sits flat.
+4. **Decision 9 never satisfied.** Runs self-terminated by patience at ~2,750 epochs against a
+   40,000 cap; the required early-stop-OFF confirmation at ≥4× budget was never run.
+
+**Recorded observations (NOT findings — no bar attaches):** untied-flat fails to fit the TRAIN
+set at d=7 (train 0.195) and d=10 (train 0.055) ⇒ under-fit per Decision 16, an optimization
+signal, not an architecture verdict. Shallow (d=4) and deep (d=10) arms fail *differently*
+(instability/overconfidence vs. no learning at all) — one protocol fix may not cover both.
+
+### Task F5c: depth protocol repair + diagnosis (replaces F5b's run; added 2026-07-20, user-approved)
+
+**Staged — each stage GATES the next. No stage may be skipped or reordered.**
+
+**F5c-a — spec first (~30 min), then ⛔ ADJUDICATOR GO.**
+Create: `docs/depth_capacity/ff_depth_protocol_repair_spec.md`. Must contain: (i) a line-by-line
+**training-loop diff** between `depth_composition_toy.py::train_clf` and `depth_selection_toy.py`'s
+loop, every difference justified or removed (Decision 15); (ii) the **escalation ladder** — which
+remedies, in what fixed order, with the stopping rule (Decision 16); (iii) **instrumentation
+plan** for per-layer gradient norms (the vanishing/exploding hypothesis must be MEASURED, not
+asserted — no artifact currently exists for it anywhere in the repo); (iv) the convergence gate
+recomputed on **val accuracy** as well as CE (Decision 17); (v) bars **unchanged** from
+`ff_depth_toy_spec.md` §6 — FIT 0.90 / STALL 0.60, frozen (Decision 9: no bar moves after a run).
+*Orchestration:* parallel: yes · deps: none · tier: opus/high design + adjudicator review ·
+shape: design · verify: spec contains all five items + a review verdict §.
+
+**F5c-b — positive control ALONE (Decision 14 gate).** `RecurrentComposer`, A5, L=10, 2 seeds,
+repaired protocol, plain single-readout (same `train_clf` protocol as the grid arms).
+**PASS BAR: held-out ≥ 0.90 AND `trustworthy=true` on BOTH seeds.** FAIL ⇒ **HALT**, escalate the
+ladder, re-run this stage only. **No compute is spent on any other arm until this passes.**
+*Orchestration:* deps: F5c-a GO · tier: sonnet · verify: 2 JSONs, both ≥0.90 and trustworthy.
+
+**F5c-c — instrumented diagnosis of the untied arms.** Only after F5c-b passes. Log per-layer
+gradient norms across training for untied-flat d ∈ {4,7,10}; land them as an artifact. Answers
+the actual question: does the deep untied stack starve (vanishing) or destabilize (exploding),
+and are these two different failure modes? *Orchestration:* deps: F5c-b PASS · tier: sonnet ·
+verify: a grad-norm artifact JSON/CSV exists per depth; the mechanism claim cites it (new Rule:
+no claim without an artifact).
+
+**F5c-d — the 2×2 grid re-run + verdict.** Only after F5c-b/c. Full matrix per `ff_depth_toy_spec.md`
+§9 under the repaired protocol, incl. the Decision 9 early-stop-OFF confirmation at ≥4× budget for
+any load-bearing cell. Append the results § to `docs/depth_capacity/verdict_per_input_depth.md`
+(the record that F5b owed and never wrote — it records what ran and what is quarantined, and
+renders a verdict ONLY where a bar is validly evaluable).
+*Orchestration:* deps: F5c-c · tier: sonnet · scale: static · shape: execution · verify: JSONs
+exist AND every reported cell is `trustworthy=true` on ≥2 seeds AND bars evaluated in the verdict §;
+runs detached per environment rules.
 
 **Non-goals:** no L > 10 (MOD-1 GD wall), no new groups, no selection/router in the pilot
 (substrate question only), no curriculum tricks (future work if FF fails).
@@ -210,6 +265,14 @@ runs detached per environment rules (~30–60 min CPU total)
   depth toy is CE)
 - Create: `automl_package/examples/moe_flexnn_comparison.py` (driver) · Create (by runs):
   `automl_package/examples/moe_comparison_results/*.json`
+
+**STATUS 2026-07-20: NOT RUN.** The driver `automl_package/examples/moe_flexnn_comparison.py`
+(564 lines) and the `moe_regression.py` CE-task flag both landed, but the battery was **never
+executed** — `automl_package/examples/moe_comparison_results/` does not exist. A prior session
+carried this as substantially done; it is not (new Rule: DONE = `verify:` executed).
+**Decisions 14 + 15 now bind this task:** before the grid runs, diff the driver's training loop
+against the loops that certified the width and depth results, and run a known-good arm first as
+the protocol gate.
 
 **Orchestration:** parallel: no · deps: F2, F3, F4, M2 (done) · tier: sonnet · scale: static ·
 shape: execution · verify: JSONs cover the grid with convergence flags + MoE collapse
@@ -289,6 +352,21 @@ comparison arms in docs (they remain functional; the distilled path is the recom
 tiles, knee collapses; R2). Known boundary to state in docstrings: adaptive-mode drift cases
 (toy-E-like) are NOT certified — 2/3 seeds negative.
 
+**STATUS 2026-07-20: LOGIC LANDS, DEVICE BUG OPEN.** Verified on disk: both F9 deliverable tests
+(`TestNestedKTraining::test_nested_bypass_rung_differs_from_mixture_rung`,
+`TestNestedKDistilledRouting::test_distilled_router_matches_or_beats_best_global_fixed_k`) **PASS
+on CPU** (42 s) and **FAIL on XPU** with `Expected all tensors to be on the same device`.
+**Added deliverable (F9-fix):** repair the device placement. Strongest candidate found by
+inspection — `automl_package/models/probabilistic_regression.py:246-247` creates
+`unique_k`/`probabilistic_indices` via `torch.tensor([])` with **no `device=`**, on CPU; the
+reassignment at line 258 happens only inside the `if is_ce_active:` branch, so the CPU tensors
+survive on the other path. Also tidy `automl_package/models/common/distilled_router.py:121`,
+whose `device: ... = "cpu"` default is the only hardcoded device string in `models/` (against the
+repo rule); all three call sites already pass `self.device`, so it is a latent trap, not the
+active bug. **Verify: the two tests pass under BOTH `AUTOML_DEVICE=cpu` and a non-CPU device.**
+Note this bug class is invisible to the suite as normally run — everything passes on CPU while
+the library claims CUDA/XPU support.
+
 **Non-goals:** no change to fixed-k behavior or report-(a) configs; no Basis-B work (separate
 open research item); no removal of existing selection strategies; no variational-EM harness
 port (research instrument, stays in examples).
@@ -298,7 +376,8 @@ port (research instrument, stays in examples).
 **Files:**
 - Read FIRST: `automl_package/examples/capacity_ladder_results/RESULTS.md` (audited results of
   record, incl. K4/K5/K6 + R1–R4 verdicts + independent review 2026-07-10),
-  `docs/probreg_kselection_findings.md` + `docs/kselection_variational_em_2026-06-13/` (June
+  `docs/reports/probreg_kselection/historical/probreg_kselection_findings.md` (moved there by this
+  task) + `docs/kselection_variational_em_2026-06-13/` (June
   Basis-A/variational-EM arc — historical context to absorb, not the results of record).
 - Create: `docs/reports/probreg_kselection/` (own folder; md + PDF per [[reference_pdf_build]])
 - Modify: move/supersede the loose `docs/probreg_kselection_findings.{md,pdf}` into the new
@@ -379,6 +458,57 @@ arXiv:2404.02258).
 
 **Non-goals:** no implementation; no package scope change; no promises of LM-scale results on
 current hardware (state the constraint honestly).
+
+### Task F12: ProbReg benchmark — shared-k vs variable-k vs baselines, on REAL data (added 2026-07-20, user-ratified)
+
+**Authority:** MASTER Decision 3 as amended 2026-07-20 (user, live). This is the scope change
+from "reports are toys-only" — it binds THIS task and F10's results §, not the width/depth reports.
+
+**Files:**
+- Read FIRST: `automl_package/examples/model_comparison.py` — the EXISTING baseline-comparison
+  harness (XGBoost / LightGBM / PyTorch NN / ProbReg on 3 synthetic sets, Apr 2026). **Extend it;
+  do not reinvent** (repo search-before-write rule). Also `docs/research_plan.md` §6 (dataset
+  dossier, incl. published baselines) and §4 (the missing-baselines analysis).
+- Create: `docs/probreg_benchmark/benchmark_spec.md` (F12-a, spec first)
+- Create: `automl_package/examples/probreg_benchmark.py` (driver)
+- Create (by runs): `automl_package/examples/probreg_benchmark_results/*.json`
+
+**F12-a — spec first, then ⛔ ADJUDICATOR GO** (same discipline as F5c-a; a benchmark grid
+improvised mid-run is exactly what invalidated F5b). Spec must freeze, BEFORE any run: the model
+set, dataset list + provenance, metrics, split protocol, seed count, and **how tuning budget is
+matched across models** (an unmatched comparison is not evidence — `research_plan.md` §3 fixes a
+per-model-per-dataset wall-clock budget; reuse it rather than inventing one). Pre-register what
+result would count as a win, a loss, and a null, for each claim.
+
+**Models (6).** (1) **shared-k** ProbReg — fixed `n_classes`; (2) **variable-k** ProbReg —
+per-input k via `DistilledCapacityRouter` (F9). Treated as two DISTINCT models per the MASTER
+Naming key. Baselines: (3) XGBoost, (4) LightGBM, (5) CatBoost, (6) standard PyTorch NN. *(The
+wider UQ baseline set — NGBoost, MDN, Deep Ensembles, quantile NN — is `research_plan.md` §4
+future work, NOT this task.)*
+
+**Datasets — real, in two tiers.** Tier 1 (tests OUR specific claims, run first):
+`Kepler Objects of Interest` (NASA Exoplanet Archive; predict planet radius — genuinely
+**multimodal** across rocky / sub-Neptune / Jupiter populations, the strongest real test of the
+classification-bottleneck idea), `UCI Superconductivity` (n=21,263, d=81; heavy-tailed T_c 0–185 K
+⇒ real symlog test; published XGBoost RMSE ≈ 9.5 K to beat), `UCI Airfoil Self-Noise` (n=1,503,
+d=6; heteroscedastic). Tier 2 (literature comparability, Hernández-Lobato & Adams 2015 protocol):
+Concrete, Energy, Naval, Power Plant, Protein/CASP, Wine red+white, Yacht. **Boston excluded**
+(removed from scikit-learn 1.2). **Every dataset URL in `research_plan.md` §6 must be re-verified
+live before download** — no-guessing rule; they were written 2026-04.
+
+**Metrics:** RMSE + NLL + CRPS + calibration (PIT / interval coverage). The headline read is
+**variable-k vs shared-k** (does per-input k pay on real data?) and **both vs the tree baselines**.
+Prior evidence to reproduce-or-contradict, not to assume: K6 found the per-input router ≤ global-k
+on **9/9** synthetic cases (`automl_package/examples/capacity_ladder_results/RESULTS.md`).
+
+**Orchestration:** parallel: yes (disjoint from all F-tasks) · deps: **F9-fix** (variable-k must
+work on the run device) · tier: opus/high spec + adjudicator review, then sonnet execution ·
+scale: static · shape: design → execution · verify: spec has a review verdict §; every run
+convergence-gated (Decisions 9/17); a known-good configuration passes first (Decision 14); results
+JSONs carry per-seed numbers, not just means.
+
+**Non-goals:** no astrophysics headline analysis (that is Paper A/B); no NGBoost/MDN/Deep-Ensemble
+baselines; no HPO beyond the frozen matched budget; no width/depth content (F7 owns that).
 
 ---
 

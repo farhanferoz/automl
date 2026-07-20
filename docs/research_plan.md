@@ -574,6 +574,48 @@ Our approach would use the same ELBO + SoftGating framework from FlexibleNN, giv
 
 **Decision: add FT-Transformer and TabPFN as Tier-A baselines in §4, do not add sequence transformer support.**
 
+### 5.1 Staged path beyond Paper C (added 2026-07-18)
+
+The FT-Transformer depth-gating idea above (Paper C) is the first rung of a longer roadmap
+toward per-token/per-module flexible capacity in sequence models and, eventually, a small
+code-generation LM. This is a staged path, not a committed plan: each stage is explicitly gated
+on the previous one landing, and nothing past stage (i) is scheduled work. None of it changes the
+verdict above — every stage past (i) sits outside the tabular package, in its own examples
+module or its own research track.
+
+(i) **Tabular FT-Transformer block-depth gating** — as described above (Paper C); unchanged, and
+still the only stage of this path anywhere near execution-level.
+
+(ii) **Weight-tied sequence-transformer toy with per-token distilled halting**, run on an
+algorithmic task, sitting entirely outside the tabular package in its own examples module. The
+router follows the same distilled (held-out, not in-training) selection law already certified in
+this repo for depth (the FlexibleNN D8 result) and for k (the ProbReg K6 result); weight-tying
+makes the substrate Universal-Transformer-shaped (Dehghani et al. 2018, arXiv:1807.03819).
+
+(iii) **Per-module (encoder/decoder block) flexible capacity** — MoD/MoDE-style top-k token
+routing (Raposo et al. 2024, arXiv:2404.02258), with our distilled router substituted for their
+in-training router as the comparison axis. This stage asks whether the distillation law that
+held for depth and k also holds for per-token routing at the module level.
+
+(iv) **Probabilistically-grounded architecture research (ratified programme theme, 2026-07-18).**
+Starting point is the standard transformer block, kept as the baseline for comparability; from
+there, explore replacing its more arbitrary components — Q/K/V projections, heuristic gating,
+tuned auxiliary penalties — with statistically or probabilistically motivated constructions, in
+the same spirit as this programme's ELBO-based selection and distilled routing elsewhere. This is
+stated as a bet, not a promise: *can probabilistic grounding of capacity allocation yield large
+efficiency gains over SOTA MoE transformers?* Before any architecture is proposed, this stage
+requires its own dedicated literature-review task — a deep-research fan-out over
+probabilistic/kernel/Bayesian interpretations of attention, principled routing, and
+adaptive-compute theory, with every anchor independently verified. No architecture is proposed
+here or implied by naming this stage.
+
+(v) **Small Python-code LM demonstration.** Compute plan TBD. This stage explicitly needs
+hardware beyond what is available on this box; no LM-scale result is promised on current
+hardware, and none of the preceding stages depend on this one landing.
+
+Two anchors already verified live in this programme: Universal Transformer (Dehghani et al.,
+arXiv:1807.03819) and Mixture-of-Depths (Raposo et al. 2024, arXiv:2404.02258).
+
 ---
 
 ## 6. Astrophysics Case Studies (Q6) — One Per Paper

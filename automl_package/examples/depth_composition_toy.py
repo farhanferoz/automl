@@ -95,6 +95,10 @@ MAX_EPOCHS = 40000
 CHECK_EVERY = 250
 PATIENCE = 10
 MIN_DELTA = 1e-4  # on val cross-entropy (nats); below any genuine early-training improvement, above full-batch jitter
+TORCH_THREADS = 2  # cap CPU intra-op threads (repo convention, see capacity_ladder_x4.py/_v2.py/_t3.py): unconstrained
+# torch defaults to one thread per logical core, and on a many-core, cgroup-limited sandbox its intra-op thread-pool
+# dispatch overhead dominates for these tiny (~10^4-param, batch<=10000) full-batch tensors -- observed 100 full-batch
+# steps going from hanging past 20s (16 threads, the torch default here) to 0.18s once capped at 2.
 
 NARROW_WIDTH = 16  # fixed small width for the depth ladder (classification needs more units than the 1-D toy's 8)
 WIDE_WIDTH = 512  # wide-shallow control width (>> NARROW_WIDTH); tests whether width can substitute for depth
@@ -122,6 +126,8 @@ class NetKind(enum.StrEnum):
 
     MLP = "mlp"  # plain feedforward on the flattened one-hot word (the direct depth-vs-width test)
     RECURRENT = "recurrent"  # weight-shared block applied once per word position (the natural sequential form)
+    TIED_FLAT = "tied_flat"  # F5b Cell 3: shared block iterated d times over a once-injected flat word (params constant in d)
+    UNTIED_PERSTEP = "untied_perstep"  # F5b Cell 2: RecurrentComposer shape but with L distinct (untied) per-step blocks
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +328,66 @@ class RecurrentComposer(nn.Module):
         return self.readout(state)
 
 
+class UntiedPerStepComposer(nn.Module):
+    """F5b Cell 2 (untied-perstep): `RecurrentComposer`'s shape with `seq_len` DISTINCT (untied) blocks.
+
+    Same per-step schedule as `RecurrentComposer` (`state_0 = 0`, letter `t` fed to the block at step
+    `t`, then `readout(state)`), but each step gets its OWN 2-layer block instead of one shared block —
+    weight-tying is the sole architectural difference from `RecurrentComposer`, isolating that factor
+    (F5a spec §4 Cell 2). Parameter count is fixed at `seq_len` (no `d` sweep — spec §3: per-step arms
+    are structurally pinned at `d = seq_len`).
+    """
+
+    def __init__(self, width: int, n_gen: int, n_classes: int, seq_len: int, block_hidden: int | None = None) -> None:
+        """`seq_len` distinct 2-layer transition blocks over `[state(width), onehot_gen(n_gen)] -> width`, then readout."""
+        super().__init__()
+        self.width = int(width)
+        self.n_gen = int(n_gen)
+        self.seq_len = int(seq_len)
+        h = block_hidden if block_hidden is not None else width
+        self.blocks = nn.ModuleList([nn.Sequential(nn.Linear(width + n_gen, h), nn.Tanh(), nn.Linear(h, width)) for _ in range(self.seq_len)])
+        self.readout = nn.Linear(width, n_classes)
+
+    def forward(self, x_flat: torch.Tensor) -> torch.Tensor:
+        """`x_flat` is `(N, seq_len*n_gen)` flattened one-hot; fold with the per-step blocks, then read out."""
+        n = x_flat.shape[0]
+        seq = x_flat.view(n, -1, self.n_gen)  # (N, seq_len, n_gen)
+        state = torch.zeros(n, self.width, device=x_flat.device)
+        for t in range(seq.shape[1]):
+            state = torch.tanh(self.blocks[t](torch.cat([state, seq[:, t, :]], dim=1)))
+        return self.readout(state)
+
+
+class TiedFlatComposer(nn.Module):
+    """F5b Cell 3 (tied-flat): flat word injected once, then a SHARED block iterated `depth` times.
+
+    `inp = Linear(in_dim, width)` projects the whole flattened word once (all letters visible at
+    layer 0 — the "flat input" column); then a shared 2-layer `block` is applied to the state `depth`
+    times (state-only iteration, the word is NOT re-injected each step, F5a spec §4 Cell 3 / §11 item
+    5); then `readout(state)`. Because the block is shared, parameter count is CONSTANT in `depth`
+    (the confound §5 controls for — contrast `build_narrow_clf`, whose untied layers grow with depth).
+    """
+
+    def __init__(self, width: int, in_dim: int, n_classes: int, depth: int, block_hidden: int | None = None) -> None:
+        """`inp` projects the flat word once; a shared 2-layer `block` then iterates over the state."""
+        super().__init__()
+        if depth < 1:
+            raise ValueError(f"depth must be >= 1, got {depth}")
+        self.width = int(width)
+        self.depth = int(depth)
+        h = block_hidden if block_hidden is not None else width
+        self.inp = nn.Linear(in_dim, width)
+        self.block = nn.Sequential(nn.Linear(width, h), nn.Tanh(), nn.Linear(h, width))
+        self.readout = nn.Linear(width, n_classes)
+
+    def forward(self, x_flat: torch.Tensor) -> torch.Tensor:
+        """`x_flat` is `(N, in_dim)` flattened one-hot; project once, iterate the shared block, read out."""
+        state = self.inp(x_flat)
+        for _ in range(self.depth):
+            state = torch.tanh(self.block(state))
+        return self.readout(state)
+
+
 def count_params(module: nn.Module) -> int:
     """Total learnable scalar parameter count."""
     return sum(p.numel() for p in module.parameters())
@@ -336,7 +402,10 @@ def train_clf(net: nn.Module, data: dict, device: str = "cpu", max_epochs: int =
     """Full-batch Adam + cross-entropy, gated by `convergence.fit_to_convergence` on val CE.
 
     Returns `(convergence_result, train_acc, val_acc)`; accuracies are top-1 on the (unseen) val words
-    and on the train words, both in `[0,1]`.
+    and on the train words, both in `[0,1]`. `convergence_result` also carries a `val_acc_trajectory`
+    attribute (`list[(epoch, val_acc)]`, same checkpoint cadence as its own val-CE `trajectory`) so
+    callers can read the full val-accuracy curve, not just the endpoint (F5a spec §6c) — attached
+    post-hoc rather than widening `ConvergenceResult` itself, so existing 3-tuple callers are unaffected.
     """
     net.to(device)
     x_tr = torch.as_tensor(data["x_tr"], dtype=torch.float32, device=device)
@@ -345,6 +414,8 @@ def train_clf(net: nn.Module, data: dict, device: str = "cpu", max_epochs: int =
     y_val = torch.as_tensor(data["y_val"], dtype=torch.long, device=device)
     opt = torch.optim.Adam(net.parameters(), lr=LR)
     ce = nn.CrossEntropyLoss()
+    val_acc_trajectory: list[tuple[int, float]] = []
+    checkpoint_count = 0
 
     def step_fn() -> None:
         opt.zero_grad()
@@ -353,13 +424,18 @@ def train_clf(net: nn.Module, data: dict, device: str = "cpu", max_epochs: int =
         opt.step()
 
     def val_fn() -> float:
+        nonlocal checkpoint_count
         net.eval()
         with torch.no_grad():
             v = ce(net(x_val), y_val).item()
+            acc = float((net(x_val).argmax(1) == y_val).float().mean().item())
         net.train()
+        checkpoint_count += 1
+        val_acc_trajectory.append((checkpoint_count * CHECK_EVERY, acc))  # mirrors fit_to_convergence's own epoch-numbering (check_every * #checkpoints)
         return v
 
     result = cvg.fit_to_convergence(net, step_fn, val_fn, max_epochs=max_epochs, check_every=CHECK_EVERY, patience=PATIENCE, min_delta=MIN_DELTA)
+    result.val_acc_trajectory = val_acc_trajectory
     net.eval()
     with torch.no_grad():
         train_acc = float((net(x_tr).argmax(1) == y_tr).float().mean().item())
@@ -373,6 +449,23 @@ def train_clf(net: nn.Module, data: dict, device: str = "cpu", max_epochs: int =
 # wide-shallow STALLS (for S5); for the Z120 control, wide-shallow FITS.
 # ---------------------------------------------------------------------------
 
+MIN_CLASS_COUNT_WARN = 30  # F5a spec §2: flag any class below this as partially-starved (not silently passed)
+
+
+def _label_counts(y: np.ndarray, n_classes: int) -> list[int]:
+    """Per-class example counts (spec §2 pre-registered sanity check) — full vector, so it's inspectable, not just min/max."""
+    return [int(c) for c in np.bincount(y, minlength=n_classes)]
+
+
+def _train_val_word_overlap(x_tr: np.ndarray, x_val: np.ndarray) -> int:
+    """Count of val rows whose one-hot word (bijective with the generator-index word) also appears in train.
+
+    Rows are compared by exact byte match (`ndarray.tobytes()`); `make_word_data` samples WITH
+    replacement (spec §1 fix), so this is expected to be small but non-zero, not exactly zero.
+    """
+    train_rows = {row.tobytes() for row in x_tr}
+    return int(sum(1 for row in x_val if row.tobytes() in train_rows))
+
 
 def run_pilot(
     group: Group,
@@ -384,38 +477,61 @@ def run_pilot(
     rec_state_width: int = REC_STATE_WIDTH,
     depths: tuple[int, ...] = PROBE_DEPTHS,
     device: str = "cpu",
+    train_narrow: bool = True,
+    train_wide: bool = True,
 ) -> dict:
-    """Train the narrow depth ladder + wide-shallow control on `group` length-`seq_len` words; report accuracy."""
+    """Train the narrow depth ladder and/or wide-shallow control on `group` length-`seq_len` words; report accuracy.
+
+    `train_narrow`/`train_wide` let a caller run either half alone (F5b's run matrix trains each
+    cell's narrow ladder and each matched wide-shallow control as separate CLI invocations — see
+    `main()`'s `--skip-narrow`/`--skip-wide`); both default True to preserve the original
+    always-train-both behavior.
+    """
     data = make_word_data(group, seq_len, seed)
     n_classes = data["n_classes"]
     in_dim = data["seq_len"] * data["n_gen"]
     chance = 1.0 / n_classes
 
+    label_counts_train = _label_counts(data["y_tr"], n_classes)
+    label_counts_val = _label_counts(data["y_val"], n_classes)
+    train_val_overlap = _train_val_word_overlap(data["x_tr"], data["x_val"])
+
     def _build_narrow(d: int) -> nn.Module:
         if net_kind is NetKind.RECURRENT:
             return RecurrentComposer(rec_state_width, data["n_gen"], n_classes)  # depth is intrinsic (=seq_len, shared)
+        if net_kind is NetKind.UNTIED_PERSTEP:
+            return UntiedPerStepComposer(rec_state_width, data["n_gen"], n_classes, data["seq_len"])  # depth is intrinsic (=seq_len, untied)
+        if net_kind is NetKind.TIED_FLAT:
+            return TiedFlatComposer(narrow_width, in_dim, n_classes, depth=d)
         return build_narrow_clf(d, narrow_width, in_dim, n_classes)
 
-    narrow_rows: dict[int, dict] = {}
-    ladder_depths = (data["seq_len"],) if net_kind is NetKind.RECURRENT else depths
-    for d in ladder_depths:
-        torch.manual_seed(1000 * seed + d)
-        net = _build_narrow(d)
-        result, tr_acc, val_acc = train_clf(net, data, device=device)
-        narrow_rows[d] = {
-            "depth": d, "width": narrow_width, "params": count_params(net),
-            "train_acc": tr_acc, "val_acc": val_acc,
-            "trustworthy": bool(result.trustworthy), "convergence": result.summary(),
-        }
+    per_step_pinned = net_kind in (NetKind.RECURRENT, NetKind.UNTIED_PERSTEP)  # spec §3: per-step arms are not swept, only d=seq_len
 
-    torch.manual_seed(1000 * seed + 777)
-    wide_net = build_wide_shallow_clf(wide_width, in_dim, n_classes)  # control is always a plain wide-shallow MLP
-    w_result, w_tr_acc, w_val_acc = train_clf(wide_net, data, device=device)
-    wide_row = {
-        "width": wide_width, "params": count_params(wide_net),
-        "train_acc": w_tr_acc, "val_acc": w_val_acc,
-        "trustworthy": bool(w_result.trustworthy), "convergence": w_result.summary(),
-    }
+    narrow_rows: dict[int, dict] = {}
+    if train_narrow:
+        ladder_depths = (data["seq_len"],) if per_step_pinned else depths
+        for d in ladder_depths:
+            torch.manual_seed(1000 * seed + d)
+            net = _build_narrow(d)
+            result, tr_acc, val_acc = train_clf(net, data, device=device)
+            narrow_rows[d] = {
+                "depth": d, "width": rec_state_width if per_step_pinned else narrow_width, "params": count_params(net),
+                "train_acc": tr_acc, "val_acc": val_acc,
+                "trustworthy": bool(result.trustworthy), "convergence": result.summary(),
+                "val_acc_trajectory": [[int(e), float(a)] for e, a in result.val_acc_trajectory],
+            }
+
+    wide_row: dict | None = None
+    if train_wide:
+        torch.manual_seed(1000 * seed + 777)
+        wide_net = build_wide_shallow_clf(wide_width, in_dim, n_classes)  # control is always a plain wide-shallow MLP
+        w_result, w_tr_acc, w_val_acc = train_clf(wide_net, data, device=device)
+        wide_row = {
+            "width": wide_width, "params": count_params(wide_net),
+            "train_acc": w_tr_acc, "val_acc": w_val_acc,
+            "trustworthy": bool(w_result.trustworthy), "convergence": w_result.summary(),
+            "val_acc_trajectory": [[int(e), float(a)] for e, a in w_result.val_acc_trajectory],
+        }
 
     return {
         "group": group.value,
@@ -430,23 +546,118 @@ def run_pilot(
         "wide_width": wide_width,
         "fit_acc": FIT_ACC,
         "stall_acc": STALL_ACC,
+        "label_counts_train": label_counts_train,
+        "label_counts_val": label_counts_val,
+        "label_counts_train_min": min(label_counts_train),
+        "label_counts_val_min": min(label_counts_val),
+        "train_val_word_overlap": train_val_overlap,
         "narrow": {str(d): v for d, v in narrow_rows.items()},
         "wide_shallow": wide_row,
     }
 
 
-def _pilot_path(out_dir: str, group: Group, net_kind: NetKind, seq_len: int, seed: int) -> str:
+def _pilot_path(out_dir: str, group: Group, net_kind: NetKind, seq_len: int, seed: int, *, wide_only: bool = False, wide_width: int | None = None) -> str:
+    """Per-arm JSON path; `wide_only` runs are keyed by `wide_width`, NOT `net_kind`.
+
+    The wide-shallow control is architecturally independent of `net_kind` (always `build_wide_shallow_clf`), and F5b's run
+    matrix reuses one `net_kind` across several DIFFERENT wide-shallow widths (e.g. `--net mlp` for the
+    W=188/311/435 controls) plus that SAME `net_kind`'s own narrow-ladder run (e.g. `--net mlp
+    --depths ...`) — keying on `net_kind` alone would collide all of those onto one path and silently
+    clobber results between CLI invocations.
+    """
+    if wide_only:
+        return os.path.join(out_dir, f"depth_comp_pilot_{group.value}_wide_w{wide_width}_n{seq_len}_seed{seed}.json")
     return os.path.join(out_dir, f"depth_comp_pilot_{group.value}_{net_kind.value}_n{seq_len}_seed{seed}.json")
 
 
-def run_and_save_pilot(group: Group, seq_len: int, seed: int, net_kind: NetKind = NetKind.MLP, out_dir: str = DEFAULT_OUT_DIR, device: str = "cpu") -> dict:
+def run_and_save_pilot(
+    group: Group,
+    seq_len: int,
+    seed: int,
+    net_kind: NetKind = NetKind.MLP,
+    out_dir: str = DEFAULT_OUT_DIR,
+    device: str = "cpu",
+    narrow_width: int = NARROW_WIDTH,
+    wide_width: int = WIDE_WIDTH,
+    rec_state_width: int = REC_STATE_WIDTH,
+    depths: tuple[int, ...] = PROBE_DEPTHS,
+    train_narrow: bool = True,
+    train_wide: bool = True,
+) -> dict:
     """`run_pilot` + immediate JSON land (standing clause: land results the moment they exist)."""
     os.makedirs(out_dir, exist_ok=True)
-    pilot = run_pilot(group, seq_len, seed, net_kind=net_kind, device=device)
-    path = _pilot_path(out_dir, group, net_kind, seq_len, seed)
+    pilot = run_pilot(
+        group, seq_len, seed, net_kind=net_kind, device=device,
+        narrow_width=narrow_width, wide_width=wide_width, rec_state_width=rec_state_width,
+        depths=depths, train_narrow=train_narrow, train_wide=train_wide,
+    )
+    wide_only = (not train_narrow) and train_wide
+    path = _pilot_path(out_dir, group, net_kind, seq_len, seed, wide_only=wide_only, wide_width=wide_width)
     with open(path, "w") as f:
         json.dump(pilot, f, indent=2)
     return pilot
+
+
+# ---------------------------------------------------------------------------
+# Battery merge — F5a spec §9's output manifest wants ONE combined JSON per (group, seq_len, seed) with
+# every cell + control inside (`ff_depth_pilot_a5_seed{0,1}.json`), not the many per-arm files each
+# `--pilot` invocation writes above. This reads those per-arm files back off disk and merges them; it
+# does not re-train anything, so it is cheap and can be re-run any time after (or between) the real runs.
+# ---------------------------------------------------------------------------
+
+
+def _battery_arm_key(pilot: dict) -> str:
+    """Stable per-arm key for the merged battery JSON, derived from the per-arm JSON's own content."""
+    narrow = pilot.get("narrow") or {}
+    wide = pilot.get("wide_shallow")
+    if narrow:
+        depths_run = sorted(int(d) for d in narrow)
+        return pilot["net_kind"] + "_d" + "-".join(str(d) for d in depths_run)
+    if wide is not None:
+        return f"wide_w{wide['width']}"
+    raise ValueError("pilot has neither narrow rows nor a wide-shallow control -- nothing to key it by")
+
+
+def merge_battery(out_dir: str, group: Group, seq_len: int, seed: int) -> str:
+    """Merge every per-arm JSON for `(group, seq_len, seed)` in `out_dir` into ONE combined battery file.
+
+    Globs `depth_comp_pilot_{group}_*_n{seq_len}_seed{seed}.json` (exactly what `run_and_save_pilot`
+    writes), keys each by `_battery_arm_key`, and writes `ff_depth_pilot_{group}_seed{seed}.json` (spec
+    §9's named output) holding every arm plus the shared data diagnostics. Raises if two arms produce
+    the same key (a real collision, not expected once `_pilot_path` disambiguates wide-only runs by
+    width) or if their shared diagnostics disagree (a sign the arms were not run on the same data).
+    """
+    prefix = f"depth_comp_pilot_{group.value}_"
+    suffix = f"_n{seq_len}_seed{seed}.json"
+    arm_paths = sorted(os.path.join(out_dir, name) for name in os.listdir(out_dir) if name.startswith(prefix) and name.endswith(suffix))
+    if not arm_paths:
+        raise FileNotFoundError(f"no per-arm JSONs found under {out_dir} matching {prefix}*{suffix}")
+
+    shared_keys = ("label_counts_train", "label_counts_val", "train_val_word_overlap", "n_train", "n_val", "n_classes", "chance", "fit_acc", "stall_acc")
+    battery: dict = {"group": group.value, "seq_len": seq_len, "seed": seed, "arms": {}}
+    for path in arm_paths:
+        with open(path) as f:
+            pilot = json.load(f)
+        for shared_key in shared_keys:
+            if shared_key not in battery:
+                battery[shared_key] = pilot[shared_key]
+            elif battery[shared_key] != pilot[shared_key]:
+                mismatch = f"{shared_key}={pilot[shared_key]!r} vs battery's {battery[shared_key]!r}"
+                raise ValueError(f"{path}: {mismatch} -- arms are not reading the same (group, seq_len, seed) data")
+        key = _battery_arm_key(pilot)
+        if key in battery["arms"]:
+            raise ValueError(f"duplicate arm key {key!r} from {path} -- two per-arm files collided")
+        entry: dict = {"net_kind": pilot["net_kind"]}
+        if pilot.get("narrow"):
+            entry["narrow"] = pilot["narrow"]
+        if pilot.get("wide_shallow") is not None:
+            entry["wide_shallow"] = pilot["wide_shallow"]
+        battery["arms"][key] = entry
+
+    battery_path = os.path.join(out_dir, f"ff_depth_pilot_{group.value}_seed{seed}.json")
+    with open(battery_path, "w") as f:
+        json.dump(battery, f, indent=2)
+    return battery_path
 
 
 # ---------------------------------------------------------------------------
@@ -527,6 +738,26 @@ def _check_product_and_data(group: Group) -> bool:
     return ok
 
 
+def _check_new_arch_param_counts() -> bool:
+    """F5a spec §5 pre-registered exact param counts: Cell 3 (tied_flat) CONSTANT 14,844 across d; Cell 2 (untied_perstep) 89,660."""
+    expected_tied_flat = 14844
+    tied_ok = True
+    for d in (4, 7, 10):
+        params = count_params(TiedFlatComposer(64, 40, 60, depth=d))
+        ok_d = params == expected_tied_flat
+        tied_ok = tied_ok and ok_d
+        print(f"[depth_comp selftest] TiedFlatComposer d={d} params={params} (expect {expected_tied_flat})  {'PASS' if ok_d else 'FAIL'}")
+
+    expected_untied_perstep = 89660
+    params2 = count_params(UntiedPerStepComposer(64, 4, 60, seq_len=10))
+    perstep_ok = params2 == expected_untied_perstep
+    print(f"[depth_comp selftest] UntiedPerStepComposer params={params2} (expect {expected_untied_perstep})  {'PASS' if perstep_ok else 'FAIL'}")
+
+    ok = tied_ok and perstep_ok
+    print(f"[depth_comp selftest] new-arch param counts {'PASS' if ok else 'FAIL'}")
+    return ok
+
+
 def run_selftest() -> bool:
     """Group axioms + generator validity + product correctness + data shape, for both groups. No training."""
     ok = True
@@ -535,13 +766,27 @@ def run_selftest() -> bool:
         ok = _check_product_and_data(group) and ok
     # net wiring: each builder returns the right output width on a dummy batch.
     dummy = torch.zeros(3, 4 * 4)  # seq_len=4, n_gen=4
-    for name, net in (("narrow", build_narrow_clf(3, 8, 16, 120)), ("wide", build_wide_shallow_clf(32, 16, 120)), ("recurrent", RecurrentComposer(8, 4, 120))):
+    nets = (
+        ("narrow", build_narrow_clf(3, 8, 16, 120)),
+        ("wide", build_wide_shallow_clf(32, 16, 120)),
+        ("recurrent", RecurrentComposer(8, 4, 120)),
+        ("tied_flat", TiedFlatComposer(8, 16, 120, depth=3)),
+        ("untied_perstep", UntiedPerStepComposer(8, 4, 120, seq_len=4)),
+    )
+    for name, net in nets:
         out = net(dummy)
         shape_ok = tuple(out.shape) == (3, 120)
         print(f"[depth_comp selftest] net '{name}' output shape {tuple(out.shape)} (expect (3, 120))  {'PASS' if shape_ok else 'FAIL'}")
         ok = shape_ok and ok
+    ok = _check_new_arch_param_counts() and ok
     print(f"[depth_comp selftest] {'PASS' if ok else 'FAIL'}")
     return ok
+
+
+def _format_traj_pairs(pts: list, label: str) -> str:
+    """One-line `epoch:value` trajectory printer (mirrors `convergence.format_trajectory`'s style) for a raw `[[epoch, value], ...]` list."""
+    s = " ".join(f"{int(e)}:{v:.3f}" for e, v in pts)
+    return f"{label}: {s}"
 
 
 def main() -> None:
@@ -554,22 +799,59 @@ def main() -> None:
     parser.add_argument("--seq-len", type=int, default=5, help="Word length = number of composition steps (per-input depth difficulty knob).")
     parser.add_argument("--seed", type=int, default=0, help="RNG seed.")
     parser.add_argument("--out-dir", type=str, default=DEFAULT_OUT_DIR, help="Directory for pilot JSON output.")
+    parser.add_argument("--narrow-width", type=int, default=NARROW_WIDTH, help="Hidden width for flat-input narrow arms (mlp Cell 1 / tied_flat Cell 3).")
+    parser.add_argument("--wide-width", type=int, default=WIDE_WIDTH, help="Width of the wide-shallow control (set per F5a spec §5's matched-width table).")
+    parser.add_argument("--rec-state-width", type=int, default=REC_STATE_WIDTH, help="State width for per-step arms (recurrent Cell 4 / untied_perstep Cell 2).")
+    parser.add_argument(
+        "--depths", type=str, default=",".join(str(d) for d in PROBE_DEPTHS),
+        help="Comma-separated depth ladder for flat-input arms (mlp/tied_flat); ignored for per-step-pinned nets (recurrent/untied_perstep — pinned at d=seq_len per spec §3).",
+    )
+    parser.add_argument("--skip-narrow", action="store_true", help="Skip the narrow-ladder arm (use to run a wide-shallow control alone).")
+    parser.add_argument("--skip-wide", action="store_true", help="Skip the wide-shallow control (use to run a narrow-ladder arm alone).")
+    parser.add_argument("--merge", action="store_true", help="No training: merge per-arm JSONs for --group/--seq-len/--seed into one combined battery JSON (spec §9 output).")
     args = parser.parse_args()
 
+    torch.set_num_threads(TORCH_THREADS)
     if args.selftest:
         sys.exit(0 if run_selftest() else 1)
+
+    if args.merge:
+        battery_path = merge_battery(args.out_dir, Group(args.group), args.seq_len, args.seed)
+        with open(battery_path) as f:
+            battery = json.load(f)
+        print(f"[depth_comp] merged battery -> {battery_path}")
+        print(f"  arms ({len(battery['arms'])}): {sorted(battery['arms'].keys())}")
+        sys.exit(0)
 
     if args.pilot:
         device = os.environ.get("AUTOML_DEVICE", "cpu")
         group, net_kind = Group(args.group), NetKind(args.net)
-        pilot = run_and_save_pilot(group, args.seq_len, args.seed, net_kind=net_kind, out_dir=args.out_dir, device=device)
-        path = _pilot_path(args.out_dir, group, net_kind, args.seq_len, args.seed)
+        depths = tuple(int(s) for s in args.depths.split(","))
+        pilot = run_and_save_pilot(
+            group, args.seq_len, args.seed, net_kind=net_kind, out_dir=args.out_dir, device=device,
+            narrow_width=args.narrow_width, wide_width=args.wide_width, rec_state_width=args.rec_state_width,
+            depths=depths, train_narrow=not args.skip_narrow, train_wide=not args.skip_wide,
+        )
+        wide_only = args.skip_narrow and not args.skip_wide
+        path = _pilot_path(args.out_dir, group, net_kind, args.seq_len, args.seed, wide_only=wide_only, wide_width=args.wide_width)
         print(f"[depth_comp] wrote {path}")
         print(f"  group={pilot['group']} net={pilot['net_kind']} seq_len={pilot['seq_len']} chance={pilot['chance']:.4f} n_train={pilot['n_train']} n_val={pilot['n_val']}")
+        print(f"  label_counts_train: min={pilot['label_counts_train_min']} full={pilot['label_counts_train']}")
+        print(f"  label_counts_val:   min={pilot['label_counts_val_min']} full={pilot['label_counts_val']}")
+        if pilot["label_counts_train_min"] < MIN_CLASS_COUNT_WARN or pilot["label_counts_val_min"] < MIN_CLASS_COUNT_WARN:
+            print(f"  WARNING: a class has < {MIN_CLASS_COUNT_WARN} examples — this rung is partially-starved (spec §2), read with R1 caution, not silently passed.")
+        overlap = pilot["train_val_word_overlap"]
+        print(f"  train_val_word_overlap: {overlap} / {pilot['n_val']} val words ({100.0 * overlap / pilot['n_val']:.2f}%)")
         for d, row in pilot["narrow"].items():
-            print(f"  narrow depth={d:>2} (w={row['width']}): val_acc={row['val_acc']:.3f} train_acc={row['train_acc']:.3f} trustworthy={row['trustworthy']}")
-        w = pilot["wide_shallow"]
-        print(f"  wide-shallow (w={w['width']}): val_acc={w['val_acc']:.3f} train_acc={w['train_acc']:.3f} trustworthy={w['trustworthy']}")
+            head = f"  narrow depth={d:>2} (w={row['width']}, params={row['params']}):"
+            print(f"{head} val_acc={row['val_acc']:.3f} train_acc={row['train_acc']:.3f} trustworthy={row['trustworthy']}")
+            print("    " + _format_traj_pairs(row["convergence"]["trajectory"], "val_loss_traj"))
+            print("    " + _format_traj_pairs(row["val_acc_trajectory"], "val_acc_traj "))
+        if pilot["wide_shallow"] is not None:
+            w = pilot["wide_shallow"]
+            print(f"  wide-shallow (w={w['width']}, params={w['params']}): val_acc={w['val_acc']:.3f} train_acc={w['train_acc']:.3f} trustworthy={w['trustworthy']}")
+            print("    " + _format_traj_pairs(w["convergence"]["trajectory"], "val_loss_traj"))
+            print("    " + _format_traj_pairs(w["val_acc_trajectory"], "val_acc_traj "))
         sys.exit(0)
 
     parser.print_help()

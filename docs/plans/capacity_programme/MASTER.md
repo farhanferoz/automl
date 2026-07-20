@@ -1,4 +1,4 @@
-# Capacity programme — MASTER
+# FlexNN programme (flexible-capacity networks)
 
 Index + rules ONLY. Per-strand detail lives in the strand files. Read this file plus the ONE
 strand you are working — that is the whole context. Fix this plan IN PLACE; never fork a dated
@@ -17,14 +17,18 @@ copy (gate: `test_plan_gates.py`).
 | 2 | `probreg-report.md` | Report (a): ProbReg fixed-k & dynamic-k vs baselines on toys | `shared/metrics-accounting.md` T-S1..S3 | **DONE — P0-P3 done, report (a) delivered** (`docs/reports/probreg_toys/report_a_probreg_toys.{pdf,md}`) |
 | 3 | `depth.md` | S5 substrate (D1 **DONE**) + selection-without-oracle (D8) → **G-DEPTH = D5 ∧ D8** | **G-WIDTH ✓** | **DONE 2026-07-17 — G-DEPTH = PASS.** Substrate D5 (3/3) ∧ selection D8b (2/2: S1–S4 pass, S5 surface covariate 100%/Option-A). Verdict `verdict_per_input_depth.md` §12; D8b toy AS-RUN rebuild (L10/involutions/shared-readout, flagged). old D2/D3 retired. → `width-depth.md` J0 |
 | 4 | `width-depth.md` | Joint 2-D capacity dial + transformer halting → **G-JOINT** | **G-DEPTH** (D5 ∧ D8) | **J0 RAN 2026-07-17 — J-1/J-2 DEAD (multi-track fold substrate fails S1); G-JOINT BLOCKED, J-3 redesign ESCALATED to user** (post-mortem in strand) |
-| 5 | `flexnn-moe.md` | MoE build (M0-M2 early) + reports (b), (c) | build: none; comparisons+reports: **G-JOINT** | **DONE — M0-M2 DONE 2026-07-16**; M3-M5 gated on **G-JOINT** |
+| 5 | `flexnn-moe.md` | MoE build (M0-M2 early) + reports (b), (c) | build: none; comparisons+reports: **G-JOINT** | **DONE — M0-M2 DONE 2026-07-16**; M3 rescoped as flexnn-core F6; M4/M5 superseded by F7 (user 2026-07-18) |
+| 6 | `flexnn-core.md` | Package refactor + FF-depth pilot + unified report | — | **yes (unattended orchestration in progress)** |
 
 Gates are decision points written in the owning strand (evidence-backed verdict + branch).
-Priority when contended: 4 (J0) → 5 (M3-M5). *(Strands 1, 2, 3, and 5's M0-M2 are complete; live
-forward order updated 2026-07-17.)*
+Priority: flexnn-core (6) waves go first. `width-depth.md` J0 is **PARKED** pending user
+Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward order updated
+2026-07-18.)*
 
 ## Naming key
 
+- **FlexNN** = the umbrella for ALL per-input capacity work; strands are its width/depth/joint/MoE/core
+  facets; the package family is `flexible_neural_network.py` + `flexible_width_network.py` (F2).
 - **#1 / #2 / #3** — width architectures: #1 `NestedWidthNet` (shared trunk + shared readout,
   fails), #2 `SharedTrunkPerWidthHeadNet` (shared trunk + per-width heads, **certified winner —
   G-WIDTH PASS 2026-07-16**),
@@ -48,6 +52,11 @@ forward order updated 2026-07-17.)*
    the `depth.md` PIVOT; the joint strand's metric follows the toy J0 adopts.)*
 3. **Reports are toys-only.** UCI/real-data belongs to the later Paper A/B roadmap
    (`docs/research_plan.md`), not these reports.
+   *(**AMENDED 2026-07-20, user live.** Binds the WIDTH/DEPTH capacity reports only. The ProbReg
+   k-selection work is now explicitly IN scope for real data + baselines: the report must carry
+   baseline comparisons (XGBoost / LightGBM / CatBoost / standard NN) and real-world datasets,
+   and must report **shared-k vs variable-k as two distinct models** per the Naming key. Dataset
+   candidates already sourced in `docs/research_plan.md` §6 Layer 2/3.)*
 4. **Hetero-NLL default** (strand 2): minimal fix if one exists cheaply; otherwise report (a)
    documents the limitation honestly and variance stays parked. Failure there does NOT unpark
    the variance programme.
@@ -81,12 +90,44 @@ forward order updated 2026-07-17.)*
     in-training selection is never the primary (failed for width; FlexNN ELBO depth-select
     refuted, M0); it may appear only as a labeled comparison arm after the distilled primary
     passes.
+14. **Positive-control gate (2026-07-20).** Any battery containing a known-good arm runs that arm
+    **FIRST, alone**, and it must reproduce its certified result at the same bar on **every** seed
+    before further compute is spent. A failed positive control **HALTS** the battery: the protocol
+    is then the defect under investigation, not the unknown arms. *(Case law: F5b — the certified
+    `RecurrentComposer` collapsed on seed 0 (val acc 0.830 → 0.097) and the battery ran to
+    completion anyway, leaving all 28 runs unreadable.)*
+15. **Protocol parity when reusing a substrate (2026-07-20).** A battery reusing a toy that
+    produced a certified result must **diff its training loop** against the loop that produced
+    that result; every difference is justified in writing IN THE TASK before the run. *(Case law:
+    F5b ran A5/L=10 through `automl_package/examples/depth_composition_toy.py`, which applies no
+    gradient clipping, while the certified L=10 work ran through
+    `automl_package/examples/depth_selection_toy.py`, whose `GRAD_CLIP_MAX_NORM = 1.0` is
+    commented "L=10 needs clipping to stay GD-trainable".)*
+16. **Optimization is exonerated BEFORE architecture is blamed (2026-07-20).** No arm is recorded
+    as an architecture failure until either it is shown to fit the **training** set, or a
+    documented escalation ladder (LR sweep → clipping → warmup → init scheme → normalization) has
+    been run. An arm low on **both** train and val is **under-fit** — an optimization finding,
+    never a generalization verdict. *(Generalizes the width-control rule in
+    `docs/depth_capacity/ff_depth_toy_spec.md` §6 to every arm.)*
+17. **The convergence gate must be computed on the metric the bar reads (2026-07-20).** Where a
+    pre-registered bar is read on metric M, the `trustworthy`/`diverged` flags are computed on M
+    (or on M *and* the loss, with both reported). *(Case law: F5b gated on val cross-entropy while
+    its bars read val accuracy — cells whose accuracy had cleanly plateaued were quarantined for
+    CE overconfidence, and the reverse error is equally possible.)*
 
 ## Rules (cache discipline)
 
 - **Pointers, not copies.** Result numbers live in ledger JSONs / report artifacts; strands cite
   paths. `RESULT:` lines must name their `.json` (gate-checked).
 - **DONE only with evidence attached** — artifact path or ledger line, never a worker claim.
+- **DONE = the task's own `verify:` line EXECUTED, with its output shown.** File existence is NOT
+  evidence; a `verify:` line with three conditions needs all three checked. *(Case law 2026-07-20:
+  F5b, F6 and F9 were all carried as done — battery invalid, driver never executed, tests
+  failing.)*
+- **No claim without an artifact.** Any result or diagnosis claim written into a strand, `RESUME`,
+  `CHANGELOG` or a report cites a path that resolves on disk. Prose-only findings do not exist.
+  *(Case law: a "grad-norm diagnosis / Xavier init doesn't rescue it" conclusion survives only as
+  narrative — no script, log or JSON anywhere in the repo.)*
 - **Update the strand in the SAME TURN work lands.** Deferred = stale.
 - **Verify a task is OPEN before dispatching** (open the artifact / grep the symbol first).
 - **Single writer:** workers return findings; the ORCHESTRATOR writes strand files and ledgers.

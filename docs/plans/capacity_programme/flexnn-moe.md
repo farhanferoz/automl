@@ -101,7 +101,14 @@ Spec (decision-complete; internals follow the frozen M1 config):
 **Non-goals:** no transformer blocks, no sparse kernels (dense masked compute is fine at toy
 scale — measured FLOPs are computed analytically by S2, not timed); no training batteries here.
 
-### Task M3: FlexNN vs MoE comparison battery — gated on G-JOINT
+### Task M3: FlexNN vs MoE comparison battery — gated on G-JOINT — **superseded-by-F6 (2026-07-18)**
+
+**Status: superseded.** `docs/plans/capacity_programme/flexnn-core.md` Task F6 rescopes this task,
+UNGATED from G-JOINT (per `flexnn-core.md`'s MASTER Decision 5 reframe: the two certified 1-D
+dials — width, depth — carry the comparison; G-JOINT stays open and is explicitly dropped from
+the grid rather than blocking it). `flexnn-core.md` is authoritative for the executed grid,
+contenders, and matching regimes from this date forward; the pre-registered hypotheses
+(H-flex/H-moe) and toy list below are historical context, not superseded by omission.
 
 **Files:**
 - Create: `automl_package/examples/moe_flexnn_comparison.py` (driver; reuses bars/metrics per
@@ -127,7 +134,11 @@ Pre-registered grid & hypotheses (refine constants in place when G-JOINT lands, 
 (top-2 primary, top-1 ablation); no hyperparameter tuning beyond the tuned-α rerun clause in
 M5's verify line; no FlexNN architecture changes.
 
-### Task M4: author report (b) — FlexibleNN
+### Task M4: author report (b) — FlexibleNN — **superseded-by-F7 (2026-07-18)**
+
+**Status: superseded.** `docs/plans/capacity_programme/flexnn-core.md` Task F7 (the unified FlexNN
+research report) absorbs this task's content — `flexnn-core.md` is authoritative for the report's
+structure and scope from this date forward.
 
 **Files:**
 - Create: `docs/reports/flexnn_toys/` (own folder)
@@ -147,7 +158,12 @@ null; deploy accuracy-vs-compute tradeoff per `width-cert.md` W7 numbers).
 them); no UCI/real data; no MoE content (that is report (c), M5); no new experiments — numbers
 come from `automl_package/examples/report_b_results/` and the capacity-programme ledgers only.
 
-### Task M5: author report (c) — FlexNN vs MoE
+### Task M5: author report (c) — FlexNN vs MoE — **superseded-by-F7 (2026-07-18)**
+
+**Status: superseded.** `docs/plans/capacity_programme/flexnn-core.md` Task F7 (the unified FlexNN
+research report, §5 "MoE comparison") absorbs this task's content, including the tuned-α rerun
+clause below (carried into F6's spec verbatim) — `flexnn-core.md` is authoritative for the
+report's structure and scope from this date forward.
 
 **Files:**
 - Create: `docs/reports/flexnn_vs_moe/` (own folder)
@@ -170,3 +186,4 @@ the toys tested (state the boundary explicitly in the report).
 - M1 · 2026-07-16 · MoE conventions frozen (8 experts/top-2 = Mixtral; top-1 = Switch; aux-loss + α=1e-2 = Switch eq. 4; noisy-top-k = Shazeer-only, M2 uses deterministic) · "Frozen MoE config" block above · sources arXiv:2401.04088 / 2101.03961 / 1701.06538
 - M2 · 2026-07-16 · `moe_regression.py` built + selftest PASS (shapes/finite; top-k gradient isolation err=0.0; aux-loss ↓ under imbalance 0.080→0.020; `match_to_reference` ≤5% on FlexNN & NestedWidthNet) + ruff clean (orchestrator-verified). Loss = `MSE + L_aux` with α baked into L_aux per Switch eq.4 (avoids α² double-multiply). Diagnostics: per-expert load / router entropy / collapsed-expert count. · `automl_package/examples/moe_regression.py`
 - M0 · 2026-07-16 · FlexNN post-Phase-9 re-validation — grad-norm cross-check PASS (n_predictor grad=7.43, fix live). **Historical ELBO depth-selection claim REFUTED**: post-fix ELBO → complete depth-collapse to depth=1 all 5 seeds (posterior collapse to prior `linspace(3,1,5)`, echoes [[project_nested_k_component_starvation]]); NONE control varies but not seed-robust (3/5 expected, 1/5 inverted, 1/5 null); ELBO vs NONE test-MSE indistinguishable. Report (b) cites the collapse, not the old claim. · driver `flexnn_revalidation.py`, `report_b_results/*.json`
+- M3/M4/M5 · 2026-07-18 · **superseded** by `flexnn-core.md` Tasks F6 (comparison battery, ungated from G-JOINT) and F7 (unified report) — see the superseded-task headers above · `docs/plans/capacity_programme/flexnn-core.md`

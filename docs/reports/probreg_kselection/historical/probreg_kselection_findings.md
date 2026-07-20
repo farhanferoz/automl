@@ -1,3 +1,9 @@
+> **Superseded.** This note predates the July 2026 capacity-ladder certification of
+> the k-selection lane (nested-k training, the arbiter readout, the distilled
+> router). It is kept as historical record of the April 2026 exploration, not as
+> the results of record. See `docs/reports/probreg_kselection/probreg_kselection.pdf`
+> for the current report.
+
 # ProbReg k-selection: findings (2026-04-25)
 
 Comprehensive characterisation of how ProbabilisticRegressionModel selects k
@@ -83,7 +89,7 @@ Plus a follow-up 12-run ELBO prior diagnosis comparing
 
 ## Q1 — Cap tracking
 
-![Cap tracking](figures/probreg_kselection/fig1_cap_tracking.png)
+![Cap tracking](figures/fig1_cap_tracking.png)
 
 E[k|nb] tracks the uniform-distribution mean (k_max+2)/2 almost exactly on
 **both** Toy A (no intrinsic k) and Toy B (K_true=3). At k_max=40, E[k|nb] is
@@ -103,7 +109,7 @@ structure discovery.
 
 ## Q2 — Distribution shape under various regularisers
 
-![Marginal distributions](figures/probreg_kselection/fig4_marginal_p.png)
+![Marginal distributions](figures/fig4_marginal_p.png)
 
 Per-mode marginal probabilities at k_max=20 on Toy B(K_true=3):
 
@@ -124,7 +130,7 @@ distributions and very different stories for §7.7.
 
 ## Q3 — Noise mechanism
 
-![Noise mechanism](figures/probreg_kselection/fig2_noise.png)
+![Noise mechanism](figures/fig2_noise.png)
 
 **Left panel**: bypass_fraction collapses monotonically from 0.75 (σ=0.1) to
 0.08 (σ=2.0). `mean_max_p` is essentially flat in the 0.42–0.51 range with
@@ -171,7 +177,7 @@ default prior is flat.
 
 ### Geometric prior sweep
 
-![ELBO prior tuning](figures/probreg_kselection/fig5_elbo_prior.png)
+![ELBO prior tuning](figures/fig5_elbo_prior.png)
 
 Comparing `uniform` vs `geometric` at λ ∈ {0.05, 0.2, 0.5}:
 
@@ -201,7 +207,7 @@ this generalises to K_true ∈ {2, 5} is the most important open question.
 
 ## Q5 — Regulariser efficacy
 
-![Regulariser comparison](figures/probreg_kselection/fig3_regulariser_compare.png)
+![Regulariser comparison](figures/fig3_regulariser_compare.png)
 
 Side-by-side at k_max=20 on Toy B(K_true=3):
 
@@ -230,7 +236,7 @@ NONE and ELBO uniform both fail to concentrate, but for different reasons
 
 ## Q6 — Training trajectory (Toy A, no intrinsic k)
 
-![Trajectory](figures/probreg_kselection/fig6_trajectory.png)
+![Trajectory](figures/fig6_trajectory.png)
 
 Per-epoch trajectory on Toy A(σ=0.5, k_max=10, SOFT_GATING + NONE):
 
@@ -253,7 +259,7 @@ into the high-k regime).
 
 ### Toy B trajectories — no intrinsic-k phase
 
-![Toy B marginals](figures/probreg_kselection/fig7_toyb_kT_marginals.png)
+![Toy B marginals](figures/fig7_toyb_kT_marginals.png)
 
 Final marginal_p on Toy B(K_true ∈ {2, 3, 5}) at k_max=10 with no regulariser:
 
@@ -355,4 +361,4 @@ The phrase "automatic granularity selection" should be replaced by
 - `automl_package/examples/probreg_kselection_experiments_results/` — main 60-run sweep
 - `automl_package/examples/probreg_elbo_prior_check_results/` — 12-run ELBO diagnosis
 
-**Plots:** `docs/figures/probreg_kselection/` (7 PNGs + `_make_plots.py`).
+**Plots:** `docs/figures/` (7 PNGs + `_make_plots.py`).
