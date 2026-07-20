@@ -1,0 +1,11 @@
+{
+  "depth_ladder": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "source": "PROBE_DEPTHS (automl_package/examples/depth_composition_toy.py) -- reused unchanged, not re-derived; the existing narrow feed-forward probe ladder"
+}

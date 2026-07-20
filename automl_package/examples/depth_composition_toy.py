@@ -613,6 +613,272 @@ def _train_dual_gate(
 
 
 # ---------------------------------------------------------------------------
+# Nested (all-rungs) feed-forward training — DSEL-1b
+# (docs/plans/capacity_programme/depth-selection.md, task DSEL-1b).
+#
+# DSEL-1's diagnosis (docs/plans/capacity_programme/shared/dsel1_nested_diagnosis.md): `train_clf`
+# above failed because it supervises a single readout at FULL DEPTH ONLY -- no intermediate depth
+# ever receives a gradient, so nothing stops the optimizer from using the whole stack purely to
+# memorize. Every capacity dial in this programme that works instead puts every rung in the loss,
+# every step (scheme (b), the default here; confirmed at `depth_selection_toy.py:475` and
+# `depth_graded_toy.py:148` — mean/sum CE over every rung, no sampling). This section is the
+# feed-forward (DISTINCT weights per layer) analogue of that scheme.
+#
+# Nesting reused, not rebuilt: `automl_package.models.flexible_neural_network.FlexibleHiddenLayersNN`
+# already implements prefix-of-layers nesting (`flexible_neural_network.py:29-38` — depth `n` runs
+# the FIRST `n` blocks, block construction at `:121-133`) with a single shared output layer
+# (`:133`). `NestedFeedForwardClf` below reuses that SHAPE standalone, matching this file's existing
+# convention of self-contained `nn.Module`s (`RecurrentComposer`, `TiedFlatComposer`,
+# `UntiedPerStepComposer`, above) rather than importing the full class — that class is a
+# `PyTorchModelBase` subclass carrying HPO/CV/SHAP machinery this toy has no use for, and every
+# other net in this module is already a bare `nn.Module` for the same reason (minimum-viable-code
+# ladder rung 1). The PER_DEPTH readout arm's one-head-per-rung shape is the same idea
+# `depth_graded_toy.py`'s `GradedComposer.heads` (`:108`) uses, reused here even though that class
+# ties its block weights across lengths and this one does not.
+# ---------------------------------------------------------------------------
+
+DSEL1B_OUT_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "DSEL1b")
+
+
+class ReadoutMode(enum.StrEnum):
+    """Which readout arm the nested feed-forward net uses (closed set).
+
+    DSEL-1b opens this as a pre-registered two-arm comparison and forbids a default: the certified
+    depth result favours a shared readout, but its own stated mechanism ("the weight-shared
+    recurrent block presents every depth with the SAME state space, so one readout suffices",
+    `docs/depth_capacity/verdict_per_input_depth.md:40-43`) does not carry over to an architecture
+    with DISTINCT weights per layer, where each depth hands the readout a DIFFERENT representation
+    — exactly the width-strand failure mode (`depth.md:29-31`). Neither member of this enum is the
+    default; both are run.
+    """
+
+    SHARED = "shared"  # one nn.Linear reused at every depth's exit (FlexibleHiddenLayersNN's shape, :133)
+    PER_DEPTH = "per_depth"  # one nn.Linear per depth (depth_graded_toy.py's per-length `heads` idea, :108)
+
+
+class NestedFeedForwardClf(nn.Module):
+    """Feed-forward (DISTINCT weights per layer) classifier with a readout at EVERY depth.
+
+    `max_depth` blocks, each `Linear -> Tanh`, block 0 mapping `in_dim -> width` and blocks 1..
+    mapping `width -> width` — the same per-layer shape `build_narrow_clf` above uses for a single
+    fixed depth, extended here to expose every prefix depth's hidden state. Depth `n` is realized by
+    running `blocks[0:n]` and stopping; the remaining blocks are not run at all (not run as identity
+    layers) — the same prefix-of-layers contract as `FlexibleHiddenLayersNN` (module docstring
+    above).
+
+    Because `blocks[0]` already sees the WHOLE flattened word (`in_dim = seq_len * n_gen`, no
+    truncation), every depth's exit has the same information available as the final depth — unlike
+    `RecurrentComposer`, whose `t`-step exit only sees the word's first `t` positions. There is
+    therefore no information deficit at any depth of THIS architecture, so training every depth
+    against the SAME full-word label is not an impossible target here (see `train_nested_clf`).
+    """
+
+    def __init__(self, max_depth: int, width: int, in_dim: int, n_classes: int, readout: ReadoutMode) -> None:
+        """Builds `max_depth` untied blocks plus either one shared head or `max_depth` per-depth heads."""
+        super().__init__()
+        if max_depth < 1:
+            raise ValueError(f"max_depth must be >= 1, got {max_depth}")
+        self.max_depth = int(max_depth)
+        self.readout_mode = readout
+        self.blocks = nn.ModuleList(nn.Sequential(nn.Linear(in_dim if i == 0 else width, width), nn.Tanh()) for i in range(self.max_depth))
+        if readout is ReadoutMode.SHARED:
+            self.output_layer: nn.Linear | None = nn.Linear(width, n_classes)
+            self.heads: nn.ModuleDict | None = None
+        else:
+            self.output_layer = None
+            self.heads = nn.ModuleDict({str(d): nn.Linear(width, n_classes) for d in range(1, self.max_depth + 1)})
+
+    def _head(self, depth: int) -> nn.Linear:
+        """The readout `nn.Linear` for `depth` — the shared one, or that depth's own."""
+        return self.output_layer if self.readout_mode is ReadoutMode.SHARED else self.heads[str(depth)]
+
+    def forward_all_depths(self, x_flat: torch.Tensor) -> list[torch.Tensor]:
+        """One forward pass; returns `[logits_depth_1, ..., logits_depth_max_depth]`.
+
+        Each depth's logits are read off the shared prefix computation as it runs — no repeated
+        forward passes, the same prefix-shared-compute property `NestedStrategy.all_depth_outputs`
+        relies on (`automl_package/models/selection_strategies/layer_selection_strategies.py:210`).
+        """
+        state = x_flat
+        outs: list[torch.Tensor] = []
+        for i, block in enumerate(self.blocks):
+            state = block(state)
+            outs.append(self._head(i + 1)(state))
+        return outs
+
+    def forward(self, x_flat: torch.Tensor, depth: int | None = None) -> torch.Tensor:
+        """Single-depth forward (defaults to `max_depth`), for callers that want one exit only."""
+        d = self.max_depth if depth is None else depth
+        if not 1 <= d <= self.max_depth:
+            raise ValueError(f"depth must be in [1, {self.max_depth}], got {d}")
+        state = x_flat
+        for i in range(d):
+            state = self.blocks[i](state)
+        return self._head(d)(state)
+
+
+def train_nested_clf(
+    net: NestedFeedForwardClf,
+    data: dict,
+    ladder: tuple[int, ...],
+    device: str = "cpu",
+    max_epochs: int = MAX_EPOCHS,
+    *,
+    lr: float = LR,
+    clip_max_norm: float | None = None,
+    check_every: int = CHECK_EVERY,
+    patience: int = PATIENCE,
+    min_delta: float = MIN_DELTA,
+) -> tuple[cvg.ConvergenceResult, dict[int, float], dict[int, float]]:
+    """DSEL-1b scheme (b): mean cross-entropy over EVERY depth in `ladder`, every step — no sampling.
+
+    Reproduces the certified all-rungs training convention (`depth_selection_toy.py:475`,
+    `depth_graded_toy.py:148`, both re-verified against source 2026-07-20 —
+    `docs/plans/capacity_programme/shared/dsel1_nested_diagnosis.md` §1). Scheme (a), a per-sample
+    uniform draw over depths (`layer_selection_strategies.py:187` `NestedStrategy`), is a labelled
+    comparison arm available if this scheme proves too slow to train — not implemented here, since
+    it is not needed: this toy trains in well under a minute (see the readout-arm comparison below).
+
+    Every depth in `ladder` targets the SAME full-word label (`data["y_tr"]`/`data["y_val"]`), never
+    a truncated/prefix target — `NestedFeedForwardClf`'s docstring states why that is not an
+    impossible target for this architecture (every depth already sees the whole input).
+
+    Returns `(convergence_result, {depth: train_acc}, {depth: val_acc})` — per depth, so a caller can
+    check every rung produced a non-degenerate read, not just the deepest.
+    """
+    net.to(device)
+    x_tr = torch.as_tensor(data["x_tr"], dtype=torch.float32, device=device)
+    y_tr = torch.as_tensor(data["y_tr"], dtype=torch.long, device=device)
+    x_val = torch.as_tensor(data["x_val"], dtype=torch.float32, device=device)
+    y_val = torch.as_tensor(data["y_val"], dtype=torch.long, device=device)
+    opt = torch.optim.Adam(net.parameters(), lr=lr)
+    ce = nn.CrossEntropyLoss()
+
+    def step_fn() -> None:
+        opt.zero_grad()
+        outs = net.forward_all_depths(x_tr)
+        loss = sum(ce(outs[d - 1], y_tr) for d in ladder) / len(ladder)  # scheme (b): every rung, every step, no sampling
+        loss.backward()
+        if clip_max_norm is not None:
+            torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=clip_max_norm)
+        opt.step()
+
+    def val_fn() -> float:
+        net.eval()
+        with torch.no_grad():
+            outs = net.forward_all_depths(x_val)
+            v = sum(ce(outs[d - 1], y_val).item() for d in ladder) / len(ladder)
+        net.train()
+        return v
+
+    result = cvg.fit_to_convergence(net, step_fn, val_fn, max_epochs=max_epochs, check_every=check_every, patience=patience, min_delta=min_delta)
+
+    net.eval()
+    with torch.no_grad():
+        outs_tr = net.forward_all_depths(x_tr)
+        outs_val = net.forward_all_depths(x_val)
+        train_acc = {d: float((outs_tr[d - 1].argmax(1) == y_tr).float().mean().item()) for d in ladder}
+        val_acc = {d: float((outs_val[d - 1].argmax(1) == y_val).float().mean().item()) for d in ladder}
+    return result, train_acc, val_acc
+
+
+def write_frozen_ladder(out_dir: str = DSEL1B_OUT_DIR, ladder: tuple[int, ...] = PROBE_DEPTHS) -> str:
+    """Freezes DSEL-1b's depth ladder (plan §3.6) to `{out_dir}/frozen.json` as `depth_ladder`.
+
+    Reuses `PROBE_DEPTHS` (defined above, already this file's depth ladder for the narrow
+    feed-forward probe family — "P1 reads the deepest, 'stall' bar reads depth 1") rather than
+    minting a second ladder for the same architecture (minimum-viable-code ladder rung 2). Every
+    downstream task (DSEL-2 on) must read `depth_ladder` from this file, never a local copy.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "frozen.json")
+    payload = {
+        "depth_ladder": list(ladder),
+        "source": "PROBE_DEPTHS (automl_package/examples/depth_composition_toy.py) -- reused unchanged, not re-derived; the existing narrow feed-forward probe ladder",
+    }
+    with open(path, "w") as f:
+        json.dump(payload, f, indent=2)
+    return path
+
+
+def run_readout_arm_comparison(
+    group: Group = Group.A5,
+    seq_len: int = 6,
+    seed: int = 0,
+    ladder: tuple[int, ...] = PROBE_DEPTHS,
+    width: int = NARROW_WIDTH,
+    device: str = "cpu",
+    max_epochs: int = MAX_EPOCHS,
+    out_dir: str = DSEL1B_OUT_DIR,
+) -> dict:
+    """DSEL-1b's open, pre-registered two-arm readout comparison: SHARED vs PER_DEPTH.
+
+    Same data, same ladder, same scheme-(b) training — the readout is the SINGLE difference between
+    the two arms (Decision 15). Neither arm is a default; both are trained and reported side by side.
+    Lands one combined JSON at `{out_dir}/readout_comparison_{group}_n{seq_len}_seed{seed}.json`.
+    """
+    data = make_word_data(group, seq_len, seed)
+    n_classes = data["n_classes"]
+    in_dim = data["seq_len"] * data["n_gen"]
+    chance = 1.0 / n_classes
+    max_depth = max(ladder)
+
+    arms: dict[str, dict] = {}
+    for i, mode in enumerate((ReadoutMode.SHARED, ReadoutMode.PER_DEPTH)):
+        torch.manual_seed(1000 * seed + i)
+        net = NestedFeedForwardClf(max_depth, width, in_dim, n_classes, readout=mode)
+        result, train_acc, val_acc = train_nested_clf(net, data, ladder, device=device, max_epochs=max_epochs)
+        arms[mode.value] = {
+            "readout": mode.value,
+            "params": count_params(net),
+            "per_depth_train_acc": {str(d): train_acc[d] for d in ladder},
+            "per_depth_val_acc": {str(d): val_acc[d] for d in ladder},
+            "trustworthy": bool(result.trustworthy),
+            "convergence": result.summary(),
+        }
+
+    out = {
+        "group": group.value,
+        "seq_len": seq_len,
+        "seed": seed,
+        "ladder": list(ladder),
+        "width": width,
+        "n_classes": n_classes,
+        "chance": chance,
+        "n_train": int(data["x_tr"].shape[0]),
+        "n_val": int(data["x_val"].shape[0]),
+        "arms": arms,
+    }
+
+    # Self-labelling disposition -- DERIVED, never hand-set, and never omitted.
+    #
+    # An arm that failed its convergence gate did not LOSE, it failed to train (MASTER Decision
+    # 16: optimisation is exonerated before architecture is blamed). Comparing a diverged arm
+    # against a converged one is not a verdict, and the F5b case law is that a battery whose arm
+    # fails its gate ran to completion anyway and left 28 runs unreadable.
+    #
+    # These two arms additionally differ in parameter count (one readout vs one per depth), so
+    # they are not a single-difference contrast either (Decision 15). Both conditions are
+    # recomputed here on every run so a future artifact cannot look readable when it is not --
+    # the caveat travels INSIDE the file rather than depending on a reader knowing the history.
+    untrustworthy = sorted(name for name, a in arms.items() if not a.get("trustworthy", False))
+    param_counts = {a.get("params") for a in arms.values()}
+    reasons = []
+    if untrustworthy:
+        reasons.append(f"{', '.join(untrustworthy)} failed the convergence gate (Decision 16)")
+    if len(param_counts) > 1:
+        reasons.append(f"arms not parameter-matched ({sorted(p for p in param_counts if p is not None)}) (Decision 15)")
+    out["readable_as_verdict"] = not reasons
+    out["readable_as_verdict_reason"] = "; ".join(reasons) if reasons else "all arms converged and are parameter-matched"
+
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"readout_comparison_{group.value}_n{seq_len}_seed{seed}.json")
+    with open(path, "w") as f:
+        json.dump(out, f, indent=2)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Pilot — for a fixed (group, seq_len, net kind): train the narrow depth ladder + the wide-shallow
 # control, report held-out accuracy per depth. The depth-separation signature is: deep-narrow FITS,
 # wide-shallow STALLS (for S5); for the Z120 control, wide-shallow FITS.
