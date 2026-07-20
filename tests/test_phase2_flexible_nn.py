@@ -407,6 +407,143 @@ class TestFlexibleNNModelComparison:
         )
 
 
+class TestDD1IndependentWeightsUniformPrior:
+    """DD1 regression test: `IndependentWeightsFlexibleNN`'s ELBO/cost-aware priors must be
+    uniform, matching the fix already applied to its shared-weights sibling
+    (`FlexibleHiddenLayersNN` -- see the M0 depth-collapse removal comment in
+    `flexible_neural_network.py`). The earlier `linspace(3.0, 1.0, ...)` prefer-shallow prior
+    reached one twin and not the other.
+    """
+
+    def test_elbo_uniform_prior_is_not_shallow_skewed(self, piecewise_data):
+        """The selected-depth distribution's shallow/deep balance is the quantity DD1's fix
+        changes: the removed `linspace(3,1)` prior is monotonically higher-mass at low depth,
+        which empirically skews `IndependentWeightsFlexibleNN`'s ELBO selection toward depth 1
+        on this toy (measured at seed=42: depths [1,2,3,4] land counts [204,118,105,73] under
+        the unfixed prior -- 2.8x more mass on the shallowest depth than the deepest). The
+        uniform prior removes that structural bias and reverses the skew (measured:
+        [103,113,137,147]).
+
+        Full posterior collapse to a single value -- the M0 failure mode already fixed on the
+        shared-weights sibling `FlexibleHiddenLayersNN` -- does not reproduce reliably on this
+        independent-networks architecture at this scale (std stays > 0 under both the buggy and
+        fixed priors here), so that is not usable as the discriminating assertion for this
+        class. The directional bias the removed prior imposed does reproduce reliably and is
+        the actual mechanism DD1's diff changes, so it is what this test asserts on.
+        """
+        x, y, _ = piecewise_data
+        model = IndependentWeightsFlexibleNN(
+            input_size=1, output_size=1,
+            layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
+            max_hidden_layers=4, n_predictor_layers=1, hidden_size=64,
+            n_epochs=120, depth_regularization=DepthRegularization.ELBO, random_seed=42,
+            calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+
+        x_tensor = torch.tensor(x, dtype=torch.float32).to(model.device)
+        model.model.eval()
+        with torch.no_grad():
+            _, n_actual, _, _, _ = model.model(x_tensor)
+
+        n_depth = n_actual.float().cpu().numpy().ravel()
+        assert n_depth.std() > 0, (
+            "All samples selected the same depth -- ELBO posterior collapsed to a single value."
+        )
+
+        depths, counts = np.unique(n_depth, return_counts=True)
+        count_by_depth = dict(zip(depths.astype(int).tolist(), counts.tolist(), strict=True))
+        shallowest, deepest = int(depths.min()), int(depths.max())
+        assert count_by_depth[deepest] >= count_by_depth[shallowest], (
+            f"Depth selection is skewed toward the shallowest depth (depth={shallowest}: "
+            f"{count_by_depth[shallowest]} samples, depth={deepest}: {count_by_depth[deepest]} "
+            f"samples) -- consistent with the removed prefer-shallow linspace(3,1) prior (DD1)."
+        )
+
+
+class TestDD2PairedDepthUncertainty:
+    """DD2 regression test: `predict_uncertainty` must read its spread off the same per-sample
+    depth `predict()` used for the mean, not silently always use the soft selection. Assert
+    directly against a manual `forward_at_depth` computation at each sample's actual selected
+    depth -- the quantity the fix changes -- not a coarse downstream view.
+    """
+
+    def _make_model(self, **overrides):
+        defaults = {
+            "input_size": 1, "output_size": 1,
+            "layer_selection_method": LayerSelectionMethod.GUMBEL_SOFTMAX,
+            "max_hidden_layers": 3, "n_predictor_layers": 1, "hidden_size": 16,
+            "uncertainty_method": UncertaintyMethod.PROBABILISTIC,
+            "n_epochs": 15, "random_seed": 42, "calculate_feature_importance": False,
+        }
+        defaults.update(overrides)
+        return FlexibleHiddenLayersNN(**defaults)
+
+    def test_hard_mode_uncertainty_matches_hard_mode_depths(self, simple_linear_data):
+        """`predict_uncertainty(inference_mode="hard")` must read `log_var` off the same
+        per-sample argmax depth `predict(inference_mode="hard")` uses -- not the soft mixture.
+        """
+        x, y = simple_linear_data
+        model = self._make_model()
+        model.fit(x, y)
+
+        x_tensor = torch.tensor(x, dtype=torch.float32).to(model.device)
+        model.model.eval()
+        with torch.no_grad():
+            n_logits = model.model.n_predictor(x_tensor)
+            n_actual = torch.argmax(n_logits, dim=1) + 1  # 1-indexed depth, matches hard_forward
+
+        got = model.predict_uncertainty(x, inference_mode="hard")
+
+        expected = np.empty_like(got)
+        with torch.no_grad():
+            for depth in torch.unique(n_actual).tolist():
+                mask = (n_actual == depth).cpu().numpy()
+                x_subset = x_tensor[torch.as_tensor(mask, device=model.device)]
+                raw = model.model.forward_at_depth(x_subset, depth)
+                expected[mask] = torch.exp(0.5 * raw[:, 1]).cpu().numpy()
+
+        np.testing.assert_allclose(got, expected, rtol=1e-5, atol=1e-6)
+
+    def test_routed_mode_uncertainty_matches_routed_depths(self, simple_linear_data):
+        """Same check for `inference_mode="routed"` -- the literal motivating case from the
+        plan's DD2 description: `predict(inference_mode="routed")` paired with an
+        always-soft `predict_uncertainty`.
+        """
+        x, y = simple_linear_data
+        model = self._make_model()
+        model.fit(x, y)
+        router = model.fit_router(x, y)
+
+        routed_depths = np.array([capacity[0] for capacity in router.route(x)], dtype=np.int64)
+        got = model.predict_uncertainty(x, inference_mode="routed")
+
+        x_tensor = torch.tensor(x, dtype=torch.float32).to(model.device)
+        expected = np.empty_like(got)
+        with torch.no_grad():
+            for depth in np.unique(routed_depths).tolist():
+                mask = routed_depths == depth
+                x_subset = x_tensor[torch.as_tensor(mask, device=model.device)]
+                raw = model.model.forward_at_depth(x_subset, depth)
+                expected[mask] = torch.exp(0.5 * raw[:, 1]).cpu().numpy()
+
+        np.testing.assert_allclose(got, expected, rtol=1e-5, atol=1e-6)
+
+    def test_routed_uncertainty_without_fitted_router_raises(self, simple_linear_data):
+        x, y = simple_linear_data
+        model = self._make_model(n_epochs=1)
+        model.fit(x, y)
+        with pytest.raises(RuntimeError, match="fit_router"):
+            model.predict_uncertainty(x, inference_mode="routed")
+
+    def test_unknown_inference_mode_rejected(self, simple_linear_data):
+        x, y = simple_linear_data
+        model = self._make_model(n_epochs=1)
+        model.fit(x, y)
+        with pytest.raises(ValueError, match="Unknown inference_mode"):
+            model.predict_uncertainty(x, inference_mode="bogus")
+
+
 class TestNPredictorInMainOptimizer:
     """For non-REINFORCE strategies, n_predictor weights must train via backprop,
     so they must be included in the main optimizer. Reinforce keeps its own policy

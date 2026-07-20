@@ -303,13 +303,19 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
 
                 # Depth regularization
                 if self.depth_regularization == DepthRegularization.ELBO and n_probs is not None:
-                    depth_prior_logits = torch.linspace(3.0, 1.0, self.max_hidden_layers, dtype=torch.float, device=_batch_x.device)
+                    # Uniform prior over depth. The earlier linspace(3,1) prefer-shallow prior
+                    # is REMOVED: M0 revalidation measured complete depth-collapse to that prior
+                    # regardless of input (report_b_results/, flexnn-moe.md Done ledger M0) --
+                    # see the identical fix and removal comment on the shared-weights sibling,
+                    # flexible_neural_network.py's FlexibleHiddenLayersNN._fit_single.
+                    depth_prior_logits = torch.zeros(self.max_hidden_layers, dtype=torch.float, device=_batch_x.device)
                     depth_prior = torch.distributions.Categorical(logits=depth_prior_logits)
                     q_depth = torch.distributions.Categorical(probs=n_probs + 1e-8)
                     kl_div = torch.distributions.kl_divergence(q_depth, depth_prior).mean()
                     main_loss = main_loss + kl_div
                 elif self.depth_regularization == DepthRegularization.COST_AWARE_ELBO and n_probs is not None:
-                    base = torch.linspace(3.0, 1.0, self.max_hidden_layers, dtype=torch.float, device=_batch_x.device)
+                    # Cost-aware prior: uniform base shifted by -lambda * normalized FLOPs(depth).
+                    base = torch.zeros(self.max_hidden_layers, dtype=torch.float, device=_batch_x.device)
                     depth_idx = torch.arange(self.max_hidden_layers, dtype=torch.float, device=_batch_x.device)
                     cost = depth_idx / max(self.max_hidden_layers - 1, 1)
                     depth_prior_logits = base - float(self.cost_aware_lambda) * cost

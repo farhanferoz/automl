@@ -833,14 +833,33 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         return router
 
     def _per_sample_log_likelihood_at_k(self, x: np.ndarray, y: np.ndarray, k: int) -> np.ndarray:
-        """Per-sample Gaussian log-likelihood of rung `k`'s forced readout (bypasses selection)."""
+        """Per-sample Gaussian log-likelihood of rung `k`'s forced readout (bypasses selection).
+
+        Args:
+            x: inputs, `(N, in_dim)`.
+            y: targets in the SAME space as `fit()`'s `y_train`/`y_val` -- i.e. raw/original
+                target units. When `target_transform="symlog"`, `y` is auto-transformed
+                internally before scoring, to match `forward_at_k`'s symlog-space outputs; do
+                NOT pre-transform it yourself. Mirrors `fit_router`'s contract exactly.
+            k: rung to force.
+
+        Returns:
+            `(N,)` per-sample Gaussian log-likelihood.
+        """
+        y_arr = np.asarray(y, dtype=np.float64)
+        if self.target_transform == "symlog":
+            # forward_at_k's outputs live in symlog space (fit() transforms y_train/y_val before
+            # training, :526-529) -- score against y in that same space, or the per-sample
+            # likelihood is silently wrong (same units mismatch as fit_router's F9-fix-b, D1).
+            y_arr = symlog(torch.tensor(y_arr, dtype=torch.float32)).numpy().astype(np.float64)
+
         x_tensor = torch.tensor(x, dtype=torch.float32, device=self.device)
         self.model.eval()
         with torch.no_grad():
             out = self.model.forward_at_k(x_tensor, k)
         mean = out[:, 0].cpu().numpy()
         log_var = out[:, 1].cpu().numpy()
-        return -0.5 * (np.log(2.0 * np.pi) + log_var + (y - mean) ** 2 / np.exp(log_var))
+        return -0.5 * (np.log(2.0 * np.pi) + log_var + (y_arr - mean) ** 2 / np.exp(log_var))
 
     def held_out_arbiter_advantage(
         self,
@@ -872,7 +891,12 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
         Args:
             x: held-out inputs, `(N,)` or `(N, in_dim)`.
-            y: held-out targets, `(N,)`.
+            y: held-out targets, `(N,)`, in the SAME space as `fit()`'s `y_train`/`y_val` --
+                i.e. raw/original target units. When `target_transform="symlog"`, `y` is
+                auto-transformed internally (via `_per_sample_log_likelihood_at_k`) before
+                scoring, to match `forward_at_k`'s symlog-space outputs; do NOT pre-transform it
+                yourself. Mirrors `fit_router`'s contract exactly so callers can pass the same
+                `y` array to both.
             width: neighbourhood box-car half-width, in units of `x` (Euclidean distance if
                 `in_dim > 1`). Default 0.075 matches the certified toy-suite read
                 (`capacity_ladder_k5.WIDTH`) -- re-tune for feature scales outside `[0, 1]`.

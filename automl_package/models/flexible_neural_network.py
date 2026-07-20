@@ -499,10 +499,29 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         self.capacity_router_ = router
         return router
 
-    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
-        """Estimates uncertainty for regression."""
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True, inference_mode: str = "soft") -> np.ndarray:
+        """Estimates uncertainty for regression.
+
+        Args:
+            x: Input features.
+            filter_data: Whether to filter input columns to those seen at fit time.
+            inference_mode: Must match the `inference_mode` a paired `predict()` call used, so
+                the returned spread comes from the same selected depth as the mean it accompanies
+                (DD2: previously this always used the soft selection regardless of what mode
+                `predict()` was called with, silently pairing a hard/routed mean with a
+                soft-selected uncertainty). Only `uncertainty_method=PROBABILISTIC` varies its
+                depth selection with this argument -- it reuses `hard_forward`/`forward_at_depths`
+                so the per-sample depths are byte-identical to `predict(inference_mode=...)`.
+                CONSTANT is a fixed training-time residual std with no per-call depth dependence,
+                and MC_DROPOUT's `predict()` already ignores `inference_mode` and always uses the
+                soft selection (a separate, pre-existing quirk, out of DD2's scope) -- both accept
+                any value of this argument without effect, since neither ever varies by depth
+                selection the way `predict()`'s mean does.
+        """
         if not self.is_regression_model:
             raise ValueError("predict_uncertainty is only available for regression models.")
+        if inference_mode not in ("soft", "hard", "routed"):
+            raise ValueError(f"Unknown inference_mode: {inference_mode!r}")
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
@@ -515,7 +534,16 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
             self.model.eval()  # Use eval mode for prediction
             with torch.no_grad():
-                final_output, _, _, _, _ = self.model(x_tensor)
+                if inference_mode == "hard":
+                    final_output = self.model.hard_forward(x_tensor)
+                elif inference_mode == "routed":
+                    if getattr(self, "capacity_router_", None) is None:
+                        raise RuntimeError("No router fitted; call fit_router() before predict_uncertainty(inference_mode='routed').")
+                    depths_np = np.array([capacity[0] for capacity in self.capacity_router_.route(x_array)], dtype=np.int64)
+                    depths_tensor = torch.as_tensor(depths_np, dtype=torch.long, device=self.device)
+                    final_output = self.model.forward_at_depths(x_tensor, depths_tensor)
+                else:
+                    final_output, _, _, _, _ = self.model(x_tensor)
                 log_var = final_output[:, 1]
                 uncertainty = torch.exp(0.5 * log_var).cpu().numpy()
             return uncertainty.flatten()

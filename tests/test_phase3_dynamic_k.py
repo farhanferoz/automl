@@ -722,6 +722,106 @@ class TestFitRouterSymlogSpaceAlignment:
             "like a raw-y-vs-symlog-space-predictions unit mismatch (F9-fix-b), not real fit quality"
         )
 
+
+class TestArbiterAdvantageSymlogSpaceAlignment:
+    """Regression for D2 (docs/plans/capacity_programme/probreg.md §3): `held_out_arbiter_advantage`
+    forces `forward_at_k`, whose outputs live in symlog space when `target_transform="symlog"`
+    (fit() transforms y_train/y_val before training, :526-529) -- but
+    `_per_sample_log_likelihood_at_k` used to score the caller's raw-space `y` against those
+    symlog-space outputs with no transform, the identical units mismatch `fit_router` had before
+    the D1 fix (see `TestFitRouterSymlogSpaceAlignment` above). Fix:
+    `_per_sample_log_likelihood_at_k` now symlog-transforms `y` internally when
+    `target_transform="symlog"`, exactly as `fit_router` does.
+    """
+
+    def _fit_symlog_nested(self, x, y, max_k=3, n_epochs=150, seed=0):
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=max_k,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+            target_transform="symlog",
+            n_epochs=n_epochs, learning_rate=0.01, random_seed=seed,
+            calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+        return model
+
+    @staticmethod
+    def _heavy_tailed_data(n, seed):
+        """Same fixture as `TestFitRouterSymlogSpaceAlignment._heavy_tailed_data` -- targets
+        spanning ~2 orders of magnitude, large enough that a raw-space-y-vs-symlog-space-mean
+        unit mismatch is unmissable in an assertion."""
+        rng = np.random.default_rng(seed)
+        x = rng.uniform(0.0, 1.0, n).astype(np.float32)
+        sign = rng.choice([-1.0, 1.0], size=n)
+        y = (sign * (np.exp(4.0 * x) - 1.0) + rng.normal(0.0, 0.5, n)).astype(np.float32)
+        return x.reshape(-1, 1), y
+
+    def test_per_sample_log_likelihood_matches_between_raw_and_pretransformed_y(self):
+        """`_per_sample_log_likelihood_at_k(x, y_raw, k)` on a `target_transform="symlog"` model
+        must equal calling it with `y` pre-transformed via `symlog` on a model whose
+        `target_transform` is temporarily cleared -- both constructions end up scoring y against
+        `forward_at_k`'s outputs in the same (symlog) space. Asserted directly on the per-sample
+        log-likelihood array -- the quantity the fix changes -- rather than a neighbour-averaged
+        or routed downstream view, which is exactly how D1's first tests came out blind (see
+        `TestFitRouterSymlogSpaceAlignment`'s docstring).
+        """
+        x, y = self._heavy_tailed_data(400, seed=0)
+        model = self._fit_symlog_nested(x, y, max_k=3, n_epochs=150, seed=0)
+        x_arr = np.asarray(x, dtype=np.float64)
+
+        ll_raw = model._per_sample_log_likelihood_at_k(x_arr, y, 2)
+
+        y_pretransformed = symlog(torch.tensor(y, dtype=torch.float32)).numpy()
+        original_transform = model.target_transform
+        model.target_transform = None
+        try:
+            ll_pretransformed = model._per_sample_log_likelihood_at_k(x_arr, y_pretransformed, 2)
+        finally:
+            model.target_transform = original_transform
+
+        np.testing.assert_allclose(
+            ll_raw, ll_pretransformed, rtol=1e-5, atol=1e-6,
+            err_msg=(
+                "_per_sample_log_likelihood_at_k must return the same per-sample likelihood "
+                "whether y arrives raw (auto-transformed internally) or pre-transformed -- a "
+                "difference means raw-space y was scored against forward_at_k's symlog-space "
+                "outputs (D2)."
+            ),
+        )
+
+    def test_held_out_arbiter_advantage_matches_between_raw_and_pretransformed_y(self):
+        """Contract statement for `held_out_arbiter_advantage` itself, one level up from the
+        per-sample likelihood the fix actually changes: the arbiter's advantage must be
+        identical whether `y` arrives raw or pre-transformed. Kept as the contract check, not
+        the detector -- the per-sample test above is what would catch a regression that this
+        neighbour-averaged view might dilute.
+        """
+        x, y = self._heavy_tailed_data(400, seed=0)
+        model = self._fit_symlog_nested(x, y, max_k=3, n_epochs=150, seed=0)
+
+        advantage_raw = model.held_out_arbiter_advantage(x.ravel(), y, width=1.0)
+
+        y_pretransformed = symlog(torch.tensor(y, dtype=torch.float32)).numpy()
+        original_transform = model.target_transform
+        model.target_transform = None
+        try:
+            advantage_pretransformed = model.held_out_arbiter_advantage(x.ravel(), y_pretransformed, width=1.0)
+        finally:
+            model.target_transform = original_transform
+
+        np.testing.assert_allclose(
+            advantage_raw, advantage_pretransformed, rtol=1e-5, atol=1e-6, equal_nan=True,
+            err_msg=(
+                "held_out_arbiter_advantage must return the same advantage whether y arrives raw "
+                "or pre-transformed -- a difference means the underlying per-sample likelihood "
+                "scored raw-space y against forward_at_k's symlog-space outputs (D2)."
+            ),
+        )
+
+
 class TestCeStopGradDynamicKSentinelFilter:
     """Regression for the `KeyError: 1073741824` bug.
 
