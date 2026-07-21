@@ -60,3 +60,13 @@ docs/plans/capacity_programme/shared/p5_middle_k_coherence.md       # P5
 # MASTER.md, flexnn-package.md and depth-selection.md in both relative and repo-root form, so both
 # spellings are parked. Surfaced only after `tsv` was added to the citation gate's extension list --
 # it had been invisible, along with shared/PROTECTED.tsv.
+
+# --- probreg.md Create targets (parked 2026-07-21, root) ---------------------------------------
+# Decision 20/21 tasks added by the 2026-07-21 repair. Each named in the task's Files (write set)
+# AND asserted by its verify line (test -f / pytest).
+automl_package/examples/capacity_ladder_results/P7/frozen.json      # P7 (verify test -f)
+automl_package/examples/probreg_p8.py                               # P8 (write set)
+automl_package/examples/capacity_ladder_results/P8/frozen.json      # P8 (verify test -f)
+
+# --- width.md Create target (parked 2026-07-21, root) ------------------------------------------
+automl_package/examples/width_wsel11.py                             # WSEL-11 (Decision 21 check)

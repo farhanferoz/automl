@@ -244,6 +244,35 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     is NOT a deletion and passes `shared/PROTECTED.tsv`'s manifest check, because the path still
     exists.
 
+20. **Training-schedule rule for nested/anytime models (user, 2026-07-21).** Train **every rung
+    every step wherever all rungs are computable in ~one forward** — depth (exits read off the
+    shared prefix) and ProbReg k (`NestedStrategy.all_rung_outputs`,
+    `automl_package/models/selection_strategies/n_classes_strategies.py:207`). Where each extra
+    rung costs a real forward — width, each width being its own matmul slice — use the certified
+    **sandwich** (always min + max plus 2 random middles,
+    `automl_package/examples/nested_width_net.py:93`). The **per-sample uniform draw is retired as
+    a default schedule programme-wide**: it buys no compute where all-rungs is free, and width
+    recorded its failure — the top rung trains only 1/k_max of the time
+    (`docs/plans/width_dial_2026-07-11/EXECUTION_PLAN.md:119-129`; literature basis
+    `docs/plans/width_dial_2026-07-11/nested_architecture_research_2026-07-11.md:104`). It survives
+    only as a LABELLED comparison arm. Migration: `probreg.md` P7 (k); depth tests both schemes as
+    arms in `depth-selection.md` DSEL-2c. A strand deviating from this rule carries a written
+    justification in its §1. The three dials previously ran three different schedules with the
+    reason (compute cost) written down nowhere — that is what this decision repairs.
+
+21. **Regularisation is explicit, never accidental (user, 2026-07-21).** The research training
+    loops are otherwise unregularised — no weight decay, dropout, norm layers, or mini-batching
+    (audited 2026-07-21; the library's levers all default off) — so cheapest-within-tolerance
+    risks selecting small capacity because small OVERFITS LESS, not because small suffices: a bias
+    identical across all three dials and invisible to cross-strand agreement. Every dial runs a
+    **discriminating check** (weight decay λ ∈ {0, 1e-4, 1e-2} on its sweep reference; does the
+    selected value move beyond tolerance?) BEFORE its battery is read: `width.md` WSEL-11,
+    `probreg.md` P8; depth inherits after its positive control passes (DSEL-2c). A check that
+    moves the selection is a HALT, not a footnote. Weight decay is the Gaussian prior it is — the
+    no-arbitrary-penalty premise binds the SELECTION objective, not MAP training. A schedule's
+    stochasticity (or its absence) must never be the de-facto regulariser. Baselines receive the
+    same treatment or the comparison is not like-for-like.
+
 ## Rules (cache discipline)
 
 ⚠️ **THE NUMBERS GATE IS PARTIAL — strengthen it before the next planning round.**
@@ -421,3 +450,20 @@ Run from repo root:
   does NOT proceed to D2/D3 pending a fresh D1 candidate. D0's citations were re-verified at this
   same HEAD and still hold exactly (`output_layer` at `layer_selection_strategies.py:90,136,180`;
   `independent_weights_flexible_neural_network.py` still present) — no citation fix needed.
+
+- **2026-07-21, THE REPAIR-PASS RULE, from a five-way plan audit.** The 2026-07-20 repair pass
+  edited prose without re-checking disk. Result: three strands carried "OPEN" defects whose fixes
+  were ALREADY COMMITTED — `probreg.md` D2 and `depth-selection.md` DD1/DD2 in `84ad94d`,
+  `width.md` WD1/WD4 in `63ab6bc` — with their fix-tasks (P1, WSEL-1, DSEL-3) sitting as no-ops at
+  the head of three dependency chains, and two tasks (`flexnn-package.md` FP-0/FP-7) done on disk
+  with no completion marker. **Rule, binding on every future repair pass: a defect entry names its
+  regression test, and a repair pass RE-RUNS the named verifies against disk — it never edits the
+  prose alone.** The same audit found and the same-day repair fixed: three strands pre-authorised
+  to "freeze globally" a shared-file constant none may write (now per-dial defaults; the shared
+  file moves only via FP-5, root-applied); three task specs scheduling the tolerance sweep
+  Decision 18 forbids (struck); width's and depth's "not reportable" rules naming PARKED tasks and
+  therefore binding nothing (re-pointed to live consumers); `flexnn-package.md`'s helper-count
+  self-contradiction and impossible as-run order note (corrected); Decisions 20 and 21 added. The
+  depth positive-control halt was answered the same day with a re-run-at-spec ruling
+  (`depth-selection.md` DSEL-2c) after the audit showed the as-run control deviated from its own
+  spec twice.

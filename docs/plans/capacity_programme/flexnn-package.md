@@ -207,13 +207,24 @@ ruling recorded in the amending task. Only tasks in this file amend it.
 
 ## 4. Tasks
 
-Order: **FP-0 → FP-1 → FP-9 → FP-2 → FP-3 → FP-4 → FP-5 → FP-6 → FP-7 → FP-8.**
+Order: **FP-0 → FP-1 → FP-9 → FP-10 → FP-2 → FP-3 → FP-4 → FP-5 → FP-6 → FP-7 → FP-8.**
 FP-3 (the API) is what `width.md`, `depth-selection.md` and `probreg.md` block on; it is deliberately
 early. **FP-9** (the shared selection primitives) sits right after FP-1 because its cost-accounting
 piece needs the accounting module to have a stable home first — and because three sibling plans are
-each about to build the same three things independently.
+each about to build the same three things independently. **FP-10** (added 2026-07-21, promoted from
+FP-3's carried follow-up) is placed first among the not-yet-dispatched tasks, per its own text — "do
+it as the first act of the next package wave."
 
-### FP-0 — ratify the boundary rule; record the `flexnn-core.md` dispositions
+**AS-RUN ORDER, recorded 2026-07-21 (the line above is the declared/planned order, not what actually
+happened).** `FP-0` and `FP-7` ran first, in wave 1, ahead of `FP-1` — out of the declared sequence and
+with no `deps:` line requiring it. This is why FP-9.b's completion note (below) can correctly
+attribute its bootstrap-helper count correction to FP-7 having already run, even though FP-9 is
+declared 3rd and FP-7 9th on the line above, and why FP-9's own `Orchestration: deps: FP-1` line does
+not mention FP-7: the dependency was real in practice but was never written back into either the Order
+line or FP-9's `deps:`. Recorded so the attribution in FP-9.b is no longer temporally impossible
+against this file's own declared Order.
+
+### FP-0 — ratify the boundary rule; record the `flexnn-core.md` dispositions — ✅ **DONE 2026-07-20 (verify re-executed 2026-07-21, all four clauses pass)**
 
 **Files (write set):** this file · `docs/plans/capacity_programme/shared/CORE-DISPOSITIONS.tsv` (new)
 **🚫 NOT in the write set: `docs/plans/capacity_programme/flexnn-core.md` or
@@ -277,6 +288,16 @@ comm -12 /tmp/core_ws.txt /tmp/strand_ws.txt
 Every path this prints must be attributable to a `move` or `supersede-with-pointer` row — i.e. it is
 leaving `flexnn-core.md`. **A path printed here that belongs to a `retain` row fails the task**, and
 FP-0 records the conflict for the root rather than resolving it by editing either file.
+
+**⚠️ CAVEAT 2026-07-21 — this extraction grep is blind to citations carrying a `:line` suffix.** The
+regex above matches a clean single-backtick span (`` `automl_package/...\.py` ``) but not
+`` `automl_package/examples/moe_flexnn_comparison.py:413,414` `` — a citation form this plan itself
+uses pervasively (e.g. §1.1's `flexible_width_network.py:290`). A real write-set collision on
+`moe_flexnn_comparison.py`, between `flexnn-core.md` F6 and this file/`width.md`, was missed by this
+grep and caught only by hand (`shared/CORE-DISPOSITIONS.tsv` "CONFLICT 1"). **The gate text must strip
+the `:line` suffix from each extracted path before intersecting** — until it does, this check's empty
+output is a floor, not a ceiling: it proves no *unsuffixed* citation collides, not that no citation
+collides.
 
 ### FP-1 — break the circular dependency — ✅ **DONE 2026-07-20** (verify re-executed at the root)
 
@@ -637,38 +658,9 @@ the tests that prove it. Read clause (a) as *no live call site passes it*; that 
 class has no `inference_mode`, no `fit_router`, no selection surface at all. Its parity work is FP-6.
 Its absence from the FP-3 diff is not a missed file.
 
-**⚠️ FOLLOW-UP CARRIED — a fragile workaround landed and should be replaced (small, well-scoped).**
-`PyTorchModelBase._fit_single` (`automl_package/models/base_pytorch.py:217-219`) computes the
-CONSTANT-uncertainty residual std by calling `self.predict(x_train, filter_data=False)` with **no
-width** — which now raises under `FIXED` (FP-3.b.4), so every `.fit()` under the default uncertainty
-method would crash. That base file was outside FP-3's write set, so the worker worked around it
-inside `FlexibleWidthNN._fit_single`: it temporarily reassigns `self.uncertainty_method`, wraps the
-super call in `try/finally`, and recovers `x_train`/`y_train` via
-`inspect.signature(...).bind(...)`. It is documented and it works, but it is brittle — a signature
-change to the base breaks it at runtime, and a method that lies about its own configuration mid-fit
-is the shape of defect this strand exists to remove.
-**The clean fix, verified as available at the root:** `uncertainty_method` is read exactly ONCE in
-`_fit_single`, in a three-line block at the very end. Extract those three lines into an overridable
-`_fit_residual_std(self, x_train, y_train)` on `PyTorchModelBase`, and have `FlexibleWidthNN`
-override it to predict at `max(self.widths)`. That deletes the reassignment, the `try/finally` and
-the `inspect` binding. **Not done here** — it edits a base class every model inherits from, at the
-close of a session, which is not the moment. Do it as the first act of the next package wave.
-
-**⛔ AND THE SAME DEFECT IS STILL LIVE, DORMANT, IN FIVE MORE PLACES — FP-3.b.4's blast radius was
-never scoped.** Found by the FP-3 worker and **re-verified at the root by grep**: generic machinery
-calls `predict(x)` polymorphically, with no width, at
-`automl_package/models/base.py:353` and `:444` (CV folds), `:372` (the HPO objective), `:513`
-(evaluation), and `automl_package/utils/data_handler.py:102` (the log-scale check). Under
-`CapacitySelection.FIXED` every one of them now **raises** for `FlexibleWidthNN`.
-**Dormant only because no test exercises `FlexibleWidthNN` with `optimize_hyperparameters=True` or
-`cv_folds`** — the suite is green and the breakage is real. ⇒ **`FlexibleWidthNN` currently cannot be
-used with HPO or cross-validation at all.** The ruling itself stays (silently defaulting to the
-largest width is exactly the silent-failure class this strand exists to remove); what is missing is
-an internal, non-caller-facing prediction path for bookkeeping and scoring — the same shape as the
-residual-std fix above, applied once, centrally. **Schedule with that fix; they are one task.**
-*(Case law: a settled sub-decision changed a method's contract for every polymorphic caller in the
-repo, and the plan scoped it as a signature change. Grep the generic callers before ruling that a
-widely-called method may start raising.)*
+**⚠️ FOLLOW-UP CARRIED — a fragile workaround landed and should be replaced.** Promoted to a numbered
+task, **FP-10**, 2026-07-21 (placed after FP-3's spec section, below) — see its section for the full
+carried content, the 2026-07-21 runtime confirmation, and the orchestration line.
 
 *(Original spec retained below, unchanged.)*
 
@@ -842,6 +834,66 @@ AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/ -q
    configured width;
 5. `FlexibleHiddenLayersNN`'s hard-execution shortcut is reachable through its new boolean argument
    and produces the same predictions it produces today.
+
+### FP-10 — replace the residual-std workaround; close FP-3.b.4's blast radius
+
+**Carried from FP-3's completion note (2026-07-20); promoted to a numbered task 2026-07-21.**
+
+**Files (write set):** `automl_package/models/base_pytorch.py` ·
+`automl_package/models/flexible_width_network.py` · `automl_package/models/base.py` ·
+`automl_package/utils/data_handler.py` · tests
+
+**Spec — the fragile workaround.** `PyTorchModelBase._fit_single`
+(`automl_package/models/base_pytorch.py:217-219`) computes the CONSTANT-uncertainty residual std by
+calling `self.predict(x_train, filter_data=False)` with **no width** — which now raises under `FIXED`
+(FP-3.b.4), so every `.fit()` under the default uncertainty method would crash. That base file was
+outside FP-3's write set, so the FP-3 worker worked around it inside `FlexibleWidthNN._fit_single`: it
+temporarily reassigns `self.uncertainty_method`, wraps the super call in `try/finally`, and recovers
+`x_train`/`y_train` via `inspect.signature(...).bind(...)`. It is documented and it works, but it is
+brittle — a signature change to the base breaks it at runtime, and a method that lies about its own
+configuration mid-fit is the shape of defect this strand exists to remove.
+
+**The clean fix, verified as available at the root:** `uncertainty_method` is read exactly ONCE in
+`_fit_single`, in a three-line block at the very end. Extract those three lines into an overridable
+`_fit_residual_std(self, x_train, y_train)` on `PyTorchModelBase`, and have `FlexibleWidthNN` override
+it to predict at `max(self.widths)`. That deletes the reassignment, the `try/finally` and the
+`inspect` binding.
+
+**⛔ AND THE SAME DEFECT IS STILL LIVE, DORMANT, IN FIVE MORE PLACES — FP-3.b.4's blast radius was
+never scoped.** Found by the FP-3 worker and **re-verified at the root by grep**: generic machinery
+calls `predict(x)` polymorphically, with no width, at `automl_package/models/base.py:353` and `:444`
+(CV folds), `:372` (the HPO objective), `:513` (evaluation), and
+`automl_package/utils/data_handler.py:102` (the log-scale check). Under `CapacitySelection.FIXED`
+every one of them now **raises** for `FlexibleWidthNN`. **Dormant only because no test exercises
+`FlexibleWidthNN` with `optimize_hyperparameters=True` or `cv_folds`** — the suite is green and the
+breakage is real. ⇒ **`FlexibleWidthNN` currently cannot be used with HPO or cross-validation at
+all.** The ruling itself stays (silently defaulting to the largest width is exactly the
+silent-failure class this strand exists to remove); what is missing is an internal, non-caller-facing
+prediction path for bookkeeping and scoring — the same shape as the residual-std fix above, applied
+once, centrally. **Schedule with that fix; they are one task.**
+*(Case law: a settled sub-decision changed a method's contract for every polymorphic caller in the
+repo, and the plan scoped it as a signature change. Grep the generic callers before ruling that a
+widely-called method may start raising.)*
+
+**✅ CONFIRMED AT RUNTIME 2026-07-21.** Constructing
+`FlexibleWidthNN(capacity_selection=FIXED, cv_folds=3, early_stopping_rounds=1,
+validation_fraction=None).fit(x, y)` crashes with `ValueError: width must be specified under
+CapacitySelection.FIXED (no implicit default to the largest configured width)`, raised from inside
+`_find_optimal_iterations_with_cv`; no test exercises `cv_folds` or `optimize_hyperparameters` for
+this class. This is the plan's own named fix, not a new investigation: extract the three-line
+residual-std block into an overridable `_fit_residual_std(self, x_train, y_train)` on
+`PyTorchModelBase`; `FlexibleWidthNN` overrides it to predict at `max(self.widths)`; add an internal
+non-caller-facing prediction path for the five bookkeeping call sites (`base.py:353`, `:372`, `:444`,
+`:513`; `automl_package/utils/data_handler.py:102`); delete the inspect-based workaround in
+`FlexibleWidthNN._fit_single`; regression tests covering fit-under-CV and fit-under-HPO for
+`FlexibleWidthNN`.
+
+**Non-goals:** no other change to `_fit_single` or to the uncertainty methods; no change to the
+`CapacitySelection.FIXED` ruling itself (silently defaulting to the largest width stays rejected).
+
+*Orchestration:* parallel: yes · deps: none · tier: sonnet high ·
+**verify:** new tests green, then revert the base-class extraction, show the CV test FAIL, restore;
+`grep -n "inspect.signature" automl_package/models/flexible_width_network.py` returns nothing.
 
 ### FP-4 — resolve the package width class's schedule deviation
 
@@ -1067,7 +1119,13 @@ caller flag; (b) and (c) green.
 contradicted this task's own body, which records the question as **resolved at the root before
 dispatch** — §1.6 and §3's *Superseded ≠ deletable* clause. There is nothing left to answer.)*
 
-### FP-7 — complete the sweep the inventory could not finish
+### FP-7 — complete the sweep the inventory could not finish — ✅ **DONE 2026-07-20 — INVENTORY STALE as of 2026-07-21**
+
+**⚠️ STALE 2026-07-21.** The sweep covered **104** example modules; `automl_package/examples/` now
+holds **105** — `depth_dsel2.py` landed after the sweep ran (untracked at sweep time; landed on
+`master` at commit `e3cc52b`, a sibling strand's work). The inventory is valid for what it covered; it
+must be **re-swept in the same session that dispatches FP-8** before FP-8 acts on it — see FP-8's
+condition (v), added below.
 
 **Files (write set):** `docs/plans/capacity_programme/shared/zero-caller-inventory.md` (new)
 
@@ -1154,6 +1212,15 @@ Part (ii): the bootstrap / standard-error duplication. Verified starting point, 
 `automl_package/models/` or `automl_package/utils/`. Inventory them with signatures so **FP-9** can
 build the one that replaces them. Re-derive the list; do not trust this count.
 
+**⚠️ COUNT CORRECTED 2026-07-20 by FP-7 itself, re-deriving as instructed above rather than trusting
+this "Verified starting point" figure — the "fifteen" above is SUPERSEDED, not deleted, so a reader
+who lands here first sees the history.** Re-derivation (exact-name grep, a broadened name-pattern
+grep, and a name-agnostic `rng.integers(0` sweep across all of `examples/`) found **TWELVE**, not
+fifteen — confirmed by the actual on-disk deliverable, `shared/zero-caller-inventory.md:1560`
+("...not one of the **12** 'helper' duplicates..."). The corrected count is also recorded at FP-9.b's
+completion note (below, `flexnn-package.md:436-438`), which is the currently-authoritative status
+text for this fact — read it, not this paragraph, for the number.
+
 **Non-goals:** delete nothing in this task. Do not de-duplicate the bootstrap helpers here — that is
 FP-9.
 
@@ -1186,7 +1253,7 @@ conditions.
 
 #### 🚨 FP-8.a — THE DELETION GATE. Three conditions, all mechanical, all required.
 
-**A path may be deleted if and only if all FOUR hold. Not three. Not "three and it looks obviously
+**A path may be deleted if and only if all FIVE hold. Not three. Not "three and it looks obviously
 dead".** The previous version of this task said removals must be "reviewed" — a human verb with no
 observable outcome, in a task whose failure mode is silently destroying certified research code.
 
@@ -1212,6 +1279,24 @@ observable outcome, in a task whose failure mode is silently destroying certifie
 > **A caveated candidate is resolved, never overridden**: re-run the *corrected* FP-7.a search
 > (which now includes the repo root) and let the disposition change on the evidence. If it comes
 > back live, it is live.
+
+> ### 🚨 CONDITION (v) ADDED 2026-07-21 — a stale inventory is not evidence of zero callers.
+>
+> **(v) the zero-caller inventory has been re-swept in THE SAME SESSION that performs the
+> deletions, and every example module added since the last sweep either has a row in it or is
+> excluded from deletion.** FP-7's inventory is now known to go stale between when it runs and when
+> FP-8 dispatches — confirmed 2026-07-21: `depth_dsel2.py` landed after FP-7's sweep and has no row
+> (FP-7's own header now carries the ✅ DONE — INVENTORY STALE marker). A `dead-candidate`
+> disposition proves nothing about a file the sweep never saw.
+>
+> ```bash
+> # (v) mechanically: every current example module has a row, re-swept in this same session
+> ls automl_package/examples/*.py | xargs -n1 basename | sed 's/\.py$//' \
+>   | while read m; do grep -q "\b$m\b" docs/plans/capacity_programme/shared/zero-caller-inventory.md \
+>     || echo "UNSWEPT $m"; done
+> ```
+> Must print nothing. Any `UNSWEPT` module is excluded from this run's deletions until it is added to
+> the inventory (as `dead-candidate`, `live`, or `protected`) in the same session.
 
 | # | condition | the command that decides it |
 |---|---|---|

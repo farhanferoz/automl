@@ -23,6 +23,23 @@ the target into.
 SAME trained network. Training is therefore NOT a variable between them; they differ in exactly one
 thing, **how k is chosen**, which is what makes that contrast controlled.
 
+⚠️ **TRAINING-SCHEDULE RULING (user, 2026-07-21; MASTER Decision 20) — the per-sample uniform draw
+is RETIRED as M1/M2's default schedule; the migration is task P7.** The nested/anytime property —
+one network readable at every rung — is unchanged; what changes is how gradient is allocated across
+rungs per step: the objective becomes the mean over rungs k ∈ {1..k_max} of that rung's NLL, every
+step, from ONE forward. Three facts force this: (i) every rung's output is already computable in
+essentially one forward (`NestedStrategy.all_rung_outputs`,
+`automl_package/models/selection_strategies/n_classes_strategies.py:207`), so per-sample sampling
+buys no compute here; (ii) the width strand RAN a per-sample uniform draw and recorded its failure —
+the top rung trains only 1/k_max of the time
+(`docs/plans/width_dial_2026-07-11/EXECUTION_PLAN.md:119-129`, fixed by the W2 sandwich); (iii) this
+strand's own middle-k coherence failures (§2, 8/9 with max-k at 9/9) are plausibly the same
+starvation pathology — see P5's prior-art clause. The draw survives only as a LABELLED comparison
+arm. **Until P7's re-validation lands, existing k-dropout results remain citable only as the OLD
+(per-sample draw) schedule, labelled as such; no NEW result may be produced on the old schedule.**
+The M1-vs-M2 single-difference contrast is unaffected — both read the same network and migrate
+together.
+
 ⚠️ **M3 DOES NOT USE k-DROPOUT (user ruling, 2026-07-20). Each of M3's per-k models is trained
 ORDINARILY at its own fixed k** (`NClassesSelectionMethod.NONE`), which is what "a model dedicated
 to that k" means. A per-k model trained with dropout across the whole ladder is not dedicated to
@@ -180,22 +197,22 @@ Verified in BOTH directions: fix present → 3 passed; fix deleted → 3 failed
 (`tests/test_phase3_dynamic_k.py`, class `TestFitRouterSymlogSpaceAlignment`). Detail + the
 measured blindness table: `docs/plans/capacity_programme/flexnn-core.md` (F9-fix-b block).
 
-**D2 — OPEN, a units bug in `held_out_arbiter_advantage` (NOT M1's selection mechanism — see D5).**
-The identical units mismatch in `_per_sample_log_likelihood_at_k`
-(`automl_package/models/probabilistic_regression.py:835`), which passes caller-space `y` straight
-to `forward_at_k`'s outputs with no transform. Its only caller is `held_out_arbiter_advantage`
-(`automl_package/models/probabilistic_regression.py:845`). → **P1**.
-*(Corrected 2026-07-20, repair pass: this entry originally called `held_out_arbiter_advantage`
-"M1's k-selection mechanism" — D5 below shows that claim was wrong. D2 still stands as a real bug
-in that function and P1 still fixes it (the neighbourhood-advantage readout is used elsewhere and
-its correctness matters on its own terms), but P1's fix does NOT by itself unblock M1. **The
-primitive M1 actually needs, `all_rung_log_likelihood`
+**D2 — ✅ FIXED 2026-07-20 (commit `84ad94d`), found already landed during the 2026-07-21 repair
+audit.** The units mismatch in `_per_sample_log_likelihood_at_k`
+(`automl_package/models/probabilistic_regression.py:835`) is fixed in that commit: caller-space `y`
+is symlog-transformed before scoring, the contract is documented on the method and on its only
+caller `held_out_arbiter_advantage`, and the regression test P1 asked for exists in the same commit
+(`tests/test_phase3_dynamic_k.py:726`, `TestArbiterAdvantageSymlogSpaceAlignment`) — re-executed at
+the root 2026-07-21: 2 passed.
+*(Corrected 2026-07-21: the 2026-07-20 repair pass re-asserted "D2 still stands as a real bug" —
+prose was edited without re-checking disk while the fix already sat in history. The rule this
+motivates is now a `MASTER.md` Corrections entry. What SURVIVES of the earlier note, verified still
+true 2026-07-21: **the primitive M1 actually needs, `all_rung_log_likelihood`
 (`automl_package/models/selection_strategies/n_classes_strategies.py:230`), has the SAME shape of
 bug** — it passes `y_target` straight through with no symlog transform (`:251`), and has zero
-callers today, so nobody has hit it yet. Whoever builds PA's M1 selector on top of it must apply
-`fit_router`'s now-fixed transform pattern there too, or D2 reopens in the function that actually
-matters. Not filed as a separate task here — it is PA's problem to close as part of building the
-mechanism, flagged so it is not missed.)*
+callers today. Whoever builds PA's M1 selector on top of it must apply the now-fixed transform
+pattern there too, or D2 reopens in the function that actually matters. It is PA's problem to close
+as part of building the mechanism.)*
 
 **D4 — OPEN, inherited, user-gated.** The cross-k class-identity conflict is only *avoided*, not
 fixed: it is dodged by freezing `REGRESSION_ONLY` (§2.5). For any configuration that DOES activate
@@ -250,7 +267,7 @@ user-only for the end of the run.
 | **PB**: which selection fraction becomes the frozen default | the **smallest** fraction at which every arm is within its own noise band of its best (same twice-standard-error rule as everywhere else); if no fraction saturates, take the largest swept and record the study as **inconclusive, floor not found** | fraction + the curve |
 | **PB**: M2 still improving at the largest fraction | freeze the largest swept, and mark M2's battery result **"router data-limited"** in the report — a loss then does NOT support "per-input k does not pay" | the mark, prominently |
 | **PC**: router conclusions invariant to architecture | keep the current frozen default; record invariance as a finding | table |
-| **PC**: NOT invariant | adopt the **smallest** configuration that reaches the plateau, freeze it globally, re-run PB at the new router | old → new + why |
+| **PC**: NOT invariant | adopt the **smallest** plateau configuration as THIS STRAND'S default, record it in `automl_package/examples/capacity_ladder_results/PC/frozen.json` under `new_default`, re-run PB at the new router. **This strand never writes `automl_package/models/common/distilled_router.py`** — any change to the SHARED default is landed by the root via `flexnn-package.md` FP-5 *(ruling 2026-07-21: three strands were each pre-authorised to "freeze globally" a file none may write — the classic false-parallel)* | old → new + why |
 | **P2**: the undocumented failing test | if it is a stale bar, write the acceptance note; if it is a real regression, fix it. **Never loosen the bar to make it pass.** | either way, a note on disk |
 | **ceiling binds** (selected k = k_max) | re-run that cell at `k_max = 20`; report the raise | which cells |
 | **Kepler feature leakage** (`benchmark_spec.md` §14.3, was PARK-1) | drop the two leaky features, and pre-register that this dataset tests conditional mean/variance, **not** a density-level multimodality claim | the pre-registration, before the run |
@@ -278,7 +295,7 @@ document). The driver reads these from disk; a reviewer resolves them by opening
 | selection-set fraction | **PB** | `automl_package/examples/capacity_ladder_results/PB/frozen.json` |
 | M2 data-limited flag, per dataset | **PB** | same file, one boolean per (toy, arm) |
 | router hidden / depth / epochs / lr | **PC** | `automl_package/examples/capacity_ladder_results/PC/frozen.json`, else the current frozen defaults at `automl_package/models/common/distilled_router.py:57-60` if that file's `invariant` field is `true` |
-| labelling tolerance | **PC** | same file |
+| ~~labelling tolerance~~ | ~~PC~~ | STRUCK 2026-07-21 — Decision 18: the sweep is not scheduled; the flat 0.25 (`automl_package/models/common/distilled_router.py:57`) stays inherited-and-accepted |
 | `k_max` after any ceiling raise | **P3/P4** | the per-cell result JSON that recorded the bind |
 
 **Feed-forward rule (binding):** if P3 or P4 runs at a value not justified by the artifact named
@@ -301,7 +318,10 @@ take.
 
 ## 4. Tasks
 
-Order is **P0 → P0b → P0-b1 → P1 → P2 → PA → PB ∥ PC → P3 → P4 → P5 → P6**. (PT is parked and gates nothing — the existing toys are retained.) P0–P2 plus PA are the "fix it properly
+Order is **P0 → P0b → P0-b1 → P1 → P2 → PA → P7 → PB ∥ PC ∥ P8 → P3 → P4 → P5 → P6** *(amended
+2026-07-21: P7, the Decision-20 schedule migration, precedes every task that trains M1/M2; P8, the
+Decision-21 regularisation check, runs parallel and gates P4's read; P0-b1 and P1 were found
+already landed — see their headers)*. (PT is parked and gates nothing — the existing toys are retained.) P0–P2 plus PA are the "fix it properly
 and completely" phase the user gated everything else behind (2026-07-20); no comparison compute runs
 until they close. **PB and PC must precede P3/P4**: both fix a *parameter of the method* (how much
 selection data, what router), and running the battery before they are settled would produce results
@@ -407,7 +427,19 @@ shape: execution · verify: `grep -niE "crps|pit|winkler|picp|calibration|NLL" d
 returns only historical/superseded notes, no live requirement; and no dropped model name survives as
 a live spec row.
 
-### P0-b1 — propagate the M3 training ruling into the benchmark spec
+### P0-b1 — ✅ DONE (premise found already satisfied on disk; verified 2026-07-21) — propagate the M3 training ruling into the benchmark spec
+
+**✅ No dispatch needed.** All four named spots were checked against disk 2026-07-21: each already
+carries the §1 formulation with dated corrections, and the spec file has no uncommitted diff. The
+task's own premise ("the spec still carries the superseded wording") was stale when written — the
+same repair-pass defect class as D2's note. Spec kept below for the record; verify re-written (the
+original `grep -n "train identically"` would flag the CORRECTED text, which legitimately contains
+the live claim "M1 and M2 train identically" — it tested the wrong invariant).
+**Verify as re-written, all three executed 2026-07-21, all pass:**
+`grep -n "All three ProbReg models train identically" docs/probreg_benchmark/benchmark_spec.md`
+returns nothing; `grep -n "SAME as M2/M3" docs/probreg_benchmark/benchmark_spec.md` returns
+nothing; the §2.3 M3 build text sets `NClassesSelectionMethod.NONE` (`benchmark_spec.md:284`,
+`:293`).
 
 **Files (write set):** `docs/probreg_benchmark/benchmark_spec.md`
 **Why.** §1 was corrected 2026-07-20 (user ruling): M3's per-k models are trained ORDINARILY at
@@ -429,7 +461,7 @@ verify: `grep -n "train identically" docs/probreg_benchmark/benchmark_spec.md` r
 struck-through or explicitly-superseded text; `grep -n "SAME as M2/M3" docs/probreg_benchmark/benchmark_spec.md`
 returns nothing; and the M3 code block in §2.3 sets `NClassesSelectionMethod.NONE`.
 
-### PA — the k-selection API (✅ decisions settled 2026-07-20 — DISPATCHABLE)
+### PA — the k-selection API — OPEN, DISPATCHABLE *(disambiguated 2026-07-21: the ✅ that stood in this header marked its two design DECISIONS settled 2026-07-20, not the task — an audit flagged the header as readable-as-done)*
 
 **Why this is a task and not an implementation detail.** The three models must be three *options on
 one model*, usable standalone and sharing every component. Today they are three different shapes,
@@ -521,7 +553,7 @@ constants this task owns per §3.6 — the selection-set fraction (the pre-autho
 if no fraction saturates) and the M2 data-limited flag, one boolean per (toy, arm).
 **Non-goals:** no real data (that is P4's budget); no architecture changes (PC).
 *Orchestration:* parallel: yes (disjoint from PC's write set — separate driver scripts and results
-directories, see Files above) · deps: P1, PA · tier: sonnet high · scale: dynamic (a sweep) ·
+directories, see Files above) · deps: P1, PA, P7 · tier: sonnet high · scale: dynamic (a sweep) ·
 shape: research · verify:
 `test -f automl_package/examples/capacity_ladder_results/PB/frozen.json` and
 `python -c "import json; d=json.load(open('automl_package/examples/capacity_ladder_results/PB/frozen.json')); assert 'fraction' in d and 'data_limited' in d, d"`
@@ -540,12 +572,14 @@ different strand, (b) one dimension, (c) a does-it-break check, not a search.
 
 **Files (write set):** `automl_package/examples/probreg_pc.py` (Create) ·
 `automl_package/examples/capacity_ladder_results/PC/`
-**Spec:** on the toys, vary router width/depth (at least half/double/4× hidden and 1 vs 3 layers),
-epochs, and the labelling tolerance. Establish whether ProbReg's routing conclusions are invariant
-the way width's were, and if not, what the router actually needs.
+**Spec:** on the toys, vary router width/depth (at least half/double/4× hidden and 1 vs 3 layers)
+and epochs. *(The labelling tolerance is STRUCK from the swept dimensions, 2026-07-21: MASTER
+Decision 18 rules that sweep NOT scheduled — do not run pre-emptively; this spec contradicted the
+register. The flat 0.25 stays inherited-and-accepted.)* Establish whether ProbReg's routing
+conclusions are invariant the way width's were, and if not, what the router actually needs.
 **Emit the frozen-constants artifact §3.6 promises:**
 `automl_package/examples/capacity_ladder_results/PC/frozen.json`, containing exactly the two
-constants this task owns per §3.6 — router hidden/depth/epochs/lr, and the labelling tolerance. If
+constants this task owns per §3.6 — router hidden/depth/epochs/lr. If
 this task finds invariance, the file records the current frozen defaults
 (`automl_package/models/common/distilled_router.py:57-60`) rather than inventing new ones.
 **Doctrine:** the router stays FROZEN and untuned inside the benchmark (§2.2) so the M1/M2 contrast
@@ -554,14 +588,78 @@ whether the frozen choice is defensible, and any change lands as a new frozen de
 runs, never per-dataset.
 **Non-goals:** no per-dataset tuning of the router, ever. No change to the labelling rule's meaning.
 *Orchestration:* parallel: yes (disjoint from PB's write set — separate driver scripts and results
-directories, see Files above) · deps: P1, PA · tier: sonnet high · scale: dynamic · shape: research ·
+directories, see Files above) · deps: P1, PA, P7 · tier: sonnet high · scale: dynamic · shape: research ·
 verify: `test -f automl_package/examples/capacity_ladder_results/PC/frozen.json` and
-`python -c "import json; d=json.load(open('automl_package/examples/capacity_ladder_results/PC/frozen.json')); assert {'hidden','depth','epochs','lr','tolerance'} <= d.keys(), d"`
+`python -c "import json; d=json.load(open('automl_package/examples/capacity_ladder_results/PC/frozen.json')); assert {'hidden','depth','epochs','lr'} <= d.keys(), d"`
 exits 0; `python -c "import json; d=json.load(open('automl_package/examples/capacity_ladder_results/PC/frozen.json')); assert 'invariant' in d, d"`
 exits 0 (the invariant-or-not verdict is a field, not prose); if `d['invariant']` is `False`, the
 same file's `new_default` key is non-null and cited by PB's re-run.
 
-### P1 — fix D2 (the arbiter units mismatch), same shape as D1
+### P7 — migrate M1/M2 to the all-rungs schedule and re-validate (NEW 2026-07-21, MASTER Decision 20)
+
+**Files (write set):** `automl_package/models/selection_strategies/n_classes_strategies.py` ·
+`automl_package/enums.py` · `tests/test_phase3_dynamic_k.py` ·
+`automl_package/examples/capacity_ladder_results/P7/`
+**Spec:** Implement the ruled schedule for `NClassesSelectionMethod.NESTED`: per training step, ONE
+`all_rung_outputs` forward; the loss is the mean over rungs k ∈ {1..k_max} (bypass rung included)
+of that rung's NLL — replacing the per-sample uniform draw as the default. The draw stays available
+as a labelled comparison arm: add a `NestedSchedule` enum (`ALL_RUNGS` default, `UNIFORM_DRAW`
+legacy) to `automl_package/enums.py` — this task builds the mechanism, so this task adds the member
+(the naming-key rule). Then RE-VALIDATE: re-run the §2 middle-k coherence check on the toys, both
+seeds, under `ALL_RUNGS`, emitting one JSON per cell plus
+`automl_package/examples/capacity_ladder_results/P7/frozen.json` recording the schedule and the
+old-vs-new middle-k failure counts (old: 8/9 with max-k 9/9, cited by pointer not copied numbers).
+**Positive control (Decision 14):** under `ALL_RUNGS` the max-k rung's coherence must not regress
+from 9/9 — it never failed under the old schedule; if it regresses, HALT (the protocol change is
+then the defect).
+**Why this task exists:** §1's 2026-07-21 training-schedule ruling; the note there lists the three
+forcing facts. This run is simultaneously P5's discriminating experiment — see P5's prior-art
+clause.
+**Non-goals:** no change to the selection mechanisms (arbiter/distillation/sweep — PA's ground); no
+change to M3 (it never used the draw); no real data.
+*Orchestration:* parallel: no (shares `n_classes_strategies.py` and the test file with PA's ground)
+· deps: PA · tier: sonnet high · scale: static · shape: execution →
+verify: `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_phase3_dynamic_k.py -q`
+green, including a NEW test asserting the `ALL_RUNGS` loss equals the mean of the per-rung NLLs
+computed independently (every rung receives gradient every step); demonstrate the test is real by
+truncating the loss to the drawn-rung-only form, showing it FAIL, restoring;
+`test -f automl_package/examples/capacity_ladder_results/P7/frozen.json` exits 0 and the file
+carries `schedule`, `middle_k_failures_old`, `middle_k_failures_new`; every per-cell JSON carries
+`held_out_trajectory` and `hit_cap: false`.
+
+### P8 — does explicit regularisation move the selected k? (NEW 2026-07-21, MASTER Decision 21)
+
+**Files (write set):** `automl_package/examples/probreg_p8.py` ·
+`automl_package/examples/capacity_ladder_results/P8/`
+**Spec:** The programme's research training is entirely unregularised (no weight decay, dropout,
+norm layers, or mini-batching — audited 2026-07-21), so cheapest-within-tolerance may partly select
+small k because small OVERFITS LESS, not because small suffices — a bias identical across all three
+dials and invisible to cross-strand agreement. Discriminating check, one toy: train M3's per-k
+ORDINARY sweep models at AdamW `weight_decay` λ ∈ {0, 1e-4, 1e-2}, 2 seeds, unchanged convergence
+gates; apply the strand's selection rule to each per-k curve; report whether the selected k moves
+beyond tolerance, emitting the verdict to
+`automl_package/examples/capacity_ladder_results/P8/frozen.json`. **Moves → HALT and escalate**
+(the strand's numbers conflate capacity with regularisation; the battery may not be read until
+re-derived). **Does not move → robustness note that P6's report MUST cite.** The reported numbers come from a split not used for stopping or
+selection. Weight decay is framed as the Gaussian prior it is — the no-arbitrary-penalty premise
+binds the SELECTION objective, not MAP training.
+**Non-goals:** no change to any model definition; no tuning of λ beyond the fixed grid; no real
+data.
+*Orchestration:* parallel: yes (disjoint write set) · deps: none · tier: sonnet high · scale:
+static · shape: execution →
+verify: one JSON per (λ, seed) under `automl_package/examples/capacity_ladder_results/P8/` each
+carrying `selected_k`, `held_out_trajectory`, `hit_cap: false`;
+`test -f automl_package/examples/capacity_ladder_results/P8/frozen.json` exits 0 and the file
+carries `selection_moved` (bool) and, if true, the per-λ selected k values.
+
+### P1 — ✅ DONE (landed 2026-07-20 in commit `84ad94d`; recognised 2026-07-21) — fix D2 (the arbiter units mismatch)
+
+**✅ No dispatch needed.** The exact fix and the exact regression test this task specifies were
+found already committed (`84ad94d`) during the 2026-07-21 repair audit; the test was re-executed at
+the root: 2 passed. The prove-it-fails ceremony is waived with reason: fix and test landed in one
+commit, so the FAIL state no longer exists to demonstrate — and the test asserts on the per-sample
+likelihood (the quantity the fix changes), satisfying the doctrine's intent. Spec kept below for
+the record.
 
 **Files (write set):** `automl_package/models/probabilistic_regression.py` ·
 `tests/test_phase3_dynamic_k.py`
@@ -704,7 +802,7 @@ run through the escalation ladder (LR sweep → clipping → warmup → init sch
 before being recorded as an architecture finding rather than an optimization one.
 **Non-goals:** no real data (P4); no baselines (P4); do not re-tune the arbiter's neighbourhood
 width.
-*Orchestration:* parallel: no · deps: P1, PA, PB (the arbiter must be correct, M1's mechanism must
+*Orchestration:* parallel: no · deps: P1, PA, PB, P7 (the arbiter must be correct, M1's mechanism must
 exist, and the selection-set fraction must be frozen before M1's choices mean anything) ·
 tier: sonnet high · scale: static · shape: execution · verify:
 `test -f automl_package/examples/capacity_ladder_results/P3/m3_control.json` and
@@ -735,7 +833,7 @@ that justified its settings.
 on every model trained here, same shape as P3: full held-out trajectories, trajectory-verified
 convergence flags, `hit_cap=False`, and the escalation ladder (LR sweep → clipping → warmup → init
 scheme → normalization) run before any arm is called an architecture loss.
-*Orchestration:* parallel: no · deps: P0, **P0-b1**, P1, P2, PA, **PB, PC**, P3 · tier: sonnet high ·
+*Orchestration:* parallel: no · deps: P0, **P0-b1**, P1, P2, PA, **PB, PC**, P3, **P8** · tier: sonnet high ·
 scale: dynamic · shape: execution · verify: with one §3.6 constant artifact deliberately
 hidden/renamed, the driver exits non-zero (the prove-it-fails rule) — restore the artifact and
 re-run; then `ls automl_package/examples/capacity_ladder_results/P4/*.csv automl_package/examples/capacity_ladder_results/P4/*.json`
@@ -750,12 +848,23 @@ the study artifact it traces to, plus `held_out_trajectory` and `hit_cap: false`
 to falsify first: middle k's get the least effective gradient share under uniform k-dropout while
 the largest k is reinforced by every prefix. If true, the fix is a non-uniform k schedule and that
 is a design decision for the user, not an improvisation.
+**Prior art to falsify against FIRST (added 2026-07-21):** this candidate is width's W1 diagnosis
+restated — the per-sample uniform draw starves rungs, recorded with numbers at
+`docs/plans/width_dial_2026-07-11/EXECUTION_PLAN.md:119-129` and fixed there by the W2 sandwich,
+with the slimmable-networks literature basis at
+`docs/plans/width_dial_2026-07-11/nested_architecture_research_2026-07-11.md:104`. This strand's
+plan carried no reference to that record and had budgeted P5 as fresh opus-tier discovery. **P7's
+coherence re-check under the all-rungs schedule (Decision 20) is the cheap discriminating
+experiment**: if the middle-k failures disappear under P7, the mechanism was the schedule and this
+task reduces to recording that with the two runs side by side; P5's discovery budget is spent only
+on whatever survives P7.
 **Trajectory discipline (MASTER Decision 9) and optimization-first (MASTER Decision 16) both
 bind**: before any middle-k pattern is attributed to architecture, show the escalation ladder (LR
 sweep → clipping → warmup → init scheme → normalization) was exhausted on the middle-k arms, with
 full held-out trajectories on disk, not endpoints.
-**Non-goals:** do not change the training schedule without a user ruling.
-*Orchestration:* parallel: yes · deps: P3 · tier: opus xhigh (discovery-shaped) · scale: static ·
+**Non-goals:** the schedule itself is already ruled (Decision 20 → P7); this task explains what
+survives P7, it does not redesign the schedule.
+*Orchestration:* parallel: yes · deps: P3, P7 · tier: opus xhigh (discovery-shaped) · scale: static ·
 shape: research · verify:
 `test -f docs/plans/capacity_programme/shared/p5_middle_k_coherence.md` exits 0, and
 `grep -oE "automl_package/examples/capacity_ladder_results/P5/[A-Za-z0-9_./-]+\.json" docs/plans/capacity_programme/shared/p5_middle_k_coherence.md`

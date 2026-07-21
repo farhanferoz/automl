@@ -135,17 +135,25 @@ Evidence: `docs/depth_capacity/depth_toy_negative_note.md`, `CHANGELOG.md` 2026-
 
 ## 3. Known defects
 
-**DD1 — OPEN, live regression.** The prefer-shallow depth prior `linspace(3.0, 1.0, ...)` was removed
-from `FlexibleHiddenLayersNN` because it caused complete depth-collapse to the prior; the comment
-recording the removal is at `automl_package/models/flexible_neural_network.py:300`. **It is still
-present in `IndependentWeightsFlexibleNN`**, at
-`automl_package/models/independent_weights_flexible_neural_network.py:306` and `:312`. The fix
-reached one twin and not the other. No comment, no test, no plan document mentions it. → **DSEL-3**
+**DD1 — FIXED 2026-07-20, commit `84ad94d`.** The prefer-shallow depth prior `linspace(3.0, 1.0, ...)`
+was removed from `FlexibleHiddenLayersNN` because it caused complete depth-collapse to the prior; the
+comment recording the removal is at `automl_package/models/flexible_neural_network.py:300`. It was
+**also still present in `IndependentWeightsFlexibleNN`**, at
+`automl_package/models/independent_weights_flexible_neural_network.py:306` and `:312` — the fix had
+reached one twin and not the other. Both sites now use `torch.zeros(self.max_hidden_layers, ...)`
+(uniform prior), with a comment cross-citing the sibling's removal. Regression test:
+`TestDD1IndependentWeightsUniformPrior` (`tests/test_phase2_flexible_nn.py:410`). Found already fixed
+during the 2026-07-21 repair audit — this file's DSEL-3 task had not yet been updated to match. →
+was **DSEL-3**, now closed (see DSEL-3 below).
 
-**DD2 — OPEN, silent wrong answer.** `FlexibleHiddenLayersNN.predict(inference_mode="routed")`
-returns a mean from the routed depth while `predict_uncertainty` — which has **no mode parameter at
-all** — always computes its spread from the soft selection. A mean and an uncertainty from
-*different depths*, returned together as if consistent. No error, no warning. → **DSEL-3**
+**DD2 — FIXED 2026-07-20, commit `84ad94d`.** `FlexibleHiddenLayersNN.predict(inference_mode="routed")`
+returned a mean from the routed depth while `predict_uncertainty` — which had **no mode parameter at
+all** — always computed its spread from the soft selection. A mean and an uncertainty from
+*different depths*, returned together as if consistent, no error, no warning. `predict_uncertainty`
+now takes `hard_execution: bool = False`, matching the flag a paired `predict()` call used, so the
+spread comes from the same selected depth as the mean it accompanies. Regression test:
+`TestDD2PairedDepthUncertainty` (`tests/test_phase2_flexible_nn.py:464`). Found already fixed during
+the 2026-07-21 repair audit, same as DD1. → was **DSEL-3**, now closed (see DSEL-3 below).
 
 **DD3 — OPEN, structural.** The certified depth-selection result was produced by a router written
 inside `automl_package/examples/depth_selection_toy.py`, which imports nothing from
@@ -178,7 +186,7 @@ it, keep going.
 | **DSEL-8**: which selection fraction becomes the default | the **smallest** fraction at which every arm is within its own noise band of its best; if none saturates, take the largest swept and record **inconclusive, floor not found** | fraction + curve |
 | **DSEL-8**: D-PERINPUT still improving at the largest fraction | freeze the largest and mark its battery result **"router data-limited"** — a loss then does NOT support "per-input depth does not pay" | the mark, prominently |
 | **DSEL-9**: conclusions invariant to router architecture | keep the frozen default; record invariance | table |
-| **DSEL-9**: NOT invariant | adopt the **smallest** configuration reaching the plateau, freeze globally, re-run DSEL-8 | old → new + why |
+| **DSEL-9**: NOT invariant | adopt the **smallest** configuration reaching the plateau as **depth's own default; report it to the root, do not write it globally** (cross-strand repair, 2026-07-21 — see DSEL-9's doctrine clause below), re-run DSEL-8 against depth's own reported default | old → new + why, plus the report to the root |
 | **ceiling binds** (selected depth = max) | extend the ladder one rung, re-run that cell, report the raise | which cells |
 | a document contradicts §1 | **§1 wins**; fix the other document the same turn | the correction |
 
@@ -207,12 +215,16 @@ for it.)
 | selection-set fraction | **DSEL-8** | `automl_package/examples/capacity_ladder_results/DSEL8/frozen.json` |
 | D-PERINPUT data-limited flag, per dataset | **DSEL-8** | same file, `perinput_data_limited` field, one boolean per (toy, arm) |
 | router hidden / depth / epochs / lr | **DSEL-9** | `automl_package/examples/capacity_ladder_results/DSEL9/frozen.json`, else the frozen defaults at `automl_package/models/common/distilled_router.py:57-60` if invariant |
-| labelling tolerance | **DSEL-9** | same file as the row above |
+| ~~labelling tolerance~~ | ~~DSEL-9~~ | **struck 2026-07-21 (cross-strand repair — MASTER Decision 18 rules the labelling-tolerance sensitivity sweep NOT scheduled and NOT to be run pre-emptively; DSEL-9's spec listed it before that ruling landed and was never updated to match — the same stale sweep was found in `width.md`'s WSEL-7 and `probreg.md`'s PC. See DSEL-9's spec note below.)** |
 | depth ladder ceiling raise (if §3.5's "ceiling binds" branch fires) | **DSEL-10** (DSEL-11 is ⏸ PARKED — would apply there too if a later ruling unparks it) | the per-cell result JSON under `automl_package/examples/capacity_ladder_results/DSEL10/` (or `.../DSEL11/`, dormant) that recorded the bind |
-| positive-control bar (feed-forward full-depth control, DSEL-2 (i)/(ii); also the HALT condition in §3.5) | **not set by any task in this strand — imported unchanged** | `docs/plans/capacity_programme/depth-selection.md:833` (F5c-b's PASS BAR, absorbed into §6 of this file by DSEL-0). **Value, stated once here so no task re-derives it:** held-out accuracy ≥ 0.90 AND `trustworthy=true`, on BOTH seeds. *(Citation repaired 2026-07-20 at the root: it read `flexnn-core.md:235`, which was correct before that file was split 760 → 254 lines and now points at frozen dispatch-wave prose. The citations gate passed throughout — a resolving path is not a correct one.)* |
+| positive-control bar (feed-forward full-depth control, DSEL-2 (i)/(ii); also the HALT condition in §3.5) | **not set by any task in this strand — imported unchanged** | `docs/plans/capacity_programme/depth-selection.md:1048` (F5c-b's PASS BAR line itself, absorbed into §6 of this file by DSEL-0). **Value, stated once here so no task re-derives it:** held-out accuracy ≥ 0.90 AND `trustworthy=true`, on BOTH seeds. *(Citation repaired 2026-07-20 at the root: it read `flexnn-core.md:235`, which was correct before that file was split 760 → 254 lines and now points at frozen dispatch-wave prose. The citations gate passed throughout — a resolving path is not a correct one. **Re-repaired 2026-07-21: the 2026-07-20 fix landed on the line that then held the F5 task HEADER, not F5c-b's actual PASS BAR line — a resolving path that was still not the correct one, exactly the defect class the note above claims to have fixed. Corrected here to the PASS BAR sentence itself; line number re-verified after this same repair pass shifted the file, since the failure mode being fixed is a stale line number.**)* |
 
-**Feed-forward rule (binding):** if DSEL-11 runs at a value not justified by the artifact named here,
-its results are **not reportable**.
+**Feed-forward rule (binding):** if **DSEL-10 or DSEL-12** runs at a value not justified by the
+artifact named here, its results are **not reportable**. *(Re-pointed 2026-07-21, cross-strand repair
+— this row named DSEL-11, which the 2026-07-20 parking ruling removed from the dispatch order, so the
+rule bound nothing; DSEL-11 is ⏸ PARKED and the row above it already flags the consequence for the
+depth-ladder-ceiling constant, this row did not. The live consumers before the report are DSEL-10 and
+DSEL-12.)*
 
 ⚠️ **Anchor warning.** Where a task reproduces a frozen number as its positive control, the anchor
 must come from something **not computed by the method under test**. Re-deriving an anchor with the
@@ -224,8 +236,11 @@ models, not on the certification's numbers re-run through this harness.
 
 ## 4. Tasks
 
-Order: **DSEL-0 → DSEL-1 → DSEL-1b → DSEL-2 → DSEL-2b → DSEL-3 → DSEL-4 → DSEL-6 → DSEL-7 →
-(DSEL-8 ∥ DSEL-9) → DSEL-10 → DSEL-12.**
+Order: **DSEL-0 → DSEL-1 → DSEL-1b → DSEL-2 → DSEL-2c → DSEL-2b → DSEL-3 → DSEL-4 → DSEL-6 → DSEL-7 →
+(DSEL-8 ∥ DSEL-9) → DSEL-10 → DSEL-12.** *(DSEL-2c inserted 2026-07-21, answering DSEL-2's HALT #1 —
+see DSEL-2c and the USER RULINGS recorded in DSEL-2's halt block. DSEL-2b's own read is unchanged by
+the insertion: it reads DSEL-2's eventual per-depth ladder, produced once DSEL-2 UNHALTS under
+whichever scheme DSEL-2c licenses, never DSEL-2c's own four arms directly.)*
 
 **DSEL-5 is NOT a step in this order line.** It is a tracked dependency on `flexnn-package.md` FP-6
 (§0, §3 DD4) — record it, do not dispatch it, do not wait on it in a mechanical scheduler unless
@@ -464,8 +479,12 @@ structure **and** 2.8× parameters (2,780 vs 7,880; Decision 15). **Therefore:**
 
 **⚠️ PRIOR EVIDENCE THE CONTROL MUST BE READ AGAINST — do not discover this after spending compute.**
 The full-depth feed-forward control has never cleared 0.90 on this substrate at any configuration
-tried: DSEL-1b's pilot peaked at val acc **0.28** at full depth (both readout arms, the JSONs above),
-and F5c-b's repaired-protocol control on the harder A5/L=10 configuration failed at
+tried: DSEL-1b's pilot peaked at val acc **0.28** at full depth on the **shared** readout arm
+(`automl_package/examples/capacity_ladder_results/DSEL1b/readout_comparison_a5_n6_seed0.json`); the
+**per_depth** arm's ceiling across both seeds is lower, ~0.219 — seed0 max 0.2192 at depth5 (`automl_package/examples/capacity_ladder_results/DSEL1b/readout_comparison_a5_n6_seed0.json`),
+seed1 max 0.2153 at depth2 (`automl_package/examples/capacity_ladder_results/DSEL1b/readout_comparison_a5_n6_seed1.json`) —
+*(corrected 2026-07-21 — the original text here read "both readout arms," which the per_depth arm's
+own numbers do not support)*, and F5c-b's repaired-protocol control on the harder A5/L=10 configuration failed at
 **0.432** (`automl_package/examples/capacity_ladder_results/D_TOY_PROBES/f5c_poscontrol_a5_seed0.json`)
 and **0.744** (`automl_package/examples/capacity_ladder_results/D_TOY_PROBES/f5c_poscontrol_a5_seed1.json`)
 with `train_acc` 0.97/1.00 — memorization-without-generalization, an exhausted Decision-16 ladder, and
@@ -538,6 +557,75 @@ substrate does not carry a feed-forward depth signal and say so as a finding, (b
 substrate, or (c) attack generalization directly rather than through the optimization ladder. **No
 task may take this decision** — §3.5 HALT #1 and #5.
 
+**USER RULINGS 2026-07-21, recorded verbatim in substance.**
+
+**(i) A fourth option, ahead of (a)/(b)/(c): re-run the positive control at specification before any
+of them is chosen.** The as-run control (DSEL-2 stage 1, above) deviated from the ratified DSEL-1b
+design in two ways neither of which was flagged as a deviation at the time it ran: no per-rung
+sampling arm was ever run (DSEL-1b §1b's scheme (a), the per-sample uniform draw, was recorded as "a
+labelled comparison arm, available if (b) proves too slow" and never exercised), and every exit was
+trained against the full-word label rather than DSEL-1b's own spec bullet — "what each depth is
+trained against... the certified loop's targets are what is *derivable at that depth*, not the final
+answer." Both deviations plausibly produce exactly the observed memorization failure on their own, so
+the failure as run is not yet clean evidence about the feed-forward substrate — it is evidence about a
+control that did not run the design it was meant to test. **⇒ DSEL-2c, below, re-runs the control at
+specification before (a)/(b)/(c) is chosen.**
+
+**(ii) "What is derivable at that depth" for the feed-forward net is RULED to mean the prefix
+product.** Exit *d* trains against the product of the first *d* generators — the same closed 60-class
+space, read at a shorter prefix — not the full-word label. The as-run implementation's
+information-deficit argument (an exit sees the whole flattened word, so nothing is informationally
+missing at any depth, so full-label training was assumed harmless) confused information with
+capacity: depth 1 sees the whole word but cannot compose six group elements, so training it against
+the full-word label forces memorization at that exit, and five of the six loss terms (every exit but
+the last) inject that same pressure directly into the shared trunk every step. The prefix-product
+target removes that pressure by construction — depth *d*'s target is exactly what *d* layers can
+compute.
+
+**(iii) READOUT RULING RE-AFFIRMED (user, 2026-07-21): both readout arms stay.** Width certified
+SEPARATE per-capacity heads; the certified recurrent depth arm certified the SHARED head; feed-forward
+depth decides EMPIRICALLY via the pre-registered parameter-matched two-arm comparison this task
+already specifies (above), once a target scheme passes. Neither arm is dropped, neither is a default
+— this ruling exists so a future session does not read the shared head's absence from DSEL-2c's arms
+as its having been abandoned; it is absent from DSEL-2c only because DSEL-2c's job is settling the
+target scheme, not the readout comparison, which stays owned by this task per the two-arm comparison
+already specified above and runs once a target scheme clears the bar.
+
+### DSEL-2c — re-run the positive control at specification (USER RULING 2026-07-21)
+
+**Files (write set):** `automl_package/examples/depth_dsel2.py` (extended, not rewritten) ·
+`automl_package/examples/capacity_ladder_results/DSEL2c/`
+**Spec:** Two training-scheme switches on the existing dual-gate loop, giving four arms:
+- **targets:** FULL (as-run; every exit trained against the full-word label) vs **PREFIX** (exit *d*
+  trained against the product of the first *d* generators — ruling (ii) above);
+- **schedule:** ALL_RUNGS (as-run, DSEL-1b scheme (b)) vs **SAMPLED** (per-sample *d* ~
+  Uniform{1..6}, DSEL-1b's pre-registered scheme (a), never yet run).
+(FULL, ALL_RUNGS) is the existing rung4/rung6 control — cite its artifacts, do not re-run it. Run the
+other three arms × 2 seeds at the best-found config (width 32, `train_frac` 0.75), shared readout only
+(single-difference against the as-run control; the readout comparison stays owned by DSEL-2 per ruling
+(iii) above, and runs once a target scheme passes here).
+**Three-way split, binding (repairs a defect in the as-run control).** The as-run control's validation
+set did triple duty — early stopping, best-weight restore, and the reported number — making the
+reported accuracy a model-selection score rather than a held-out one. DSEL-2c splits the enumerated
+words train/val/test = 0.75/0.125/0.125; <!-- numcheck-ignore: protocol split ratios, not result numbers --> stopping and best-weight restore read val as before; **the
+reported number is TEST accuracy**, never val. Trajectory gates (Decision 9) keep logging val, as
+they always have.
+**Bar unchanged:** full-depth **test** accuracy ≥ 0.90, `trustworthy=true` on both gates, both seeds
+(§3.6's positive-control-bar row, read against test rather than val per the split above). Any
+corrected arm clearing the bar → DSEL-2 UNHALTS under that arm's scheme, recorded as the strand's
+scheme going forward (if several clear it, the cheapest). All four fail → option (a) is
+evidence-backed and goes to the user as a finding, never taken as a default by any task.
+**No weight decay or dropout in this task** (MASTER Decision 21: regularisation is tested by its own
+discriminating check, never mixed silently into a control repair).
+**Non-goals:** does not choose between (a)/(b)/(c) itself — only ruling (i) above licenses running
+this task at all; it answers the halt, it does not resolve it by itself. Does not run the readout
+comparison (DSEL-2's, once a target scheme passes here).
+*Orchestration:* parallel: no · deps: none (it answers the halt directly) · tier: sonnet high ·
+scale: dynamic · shape: execution · verify: `--selftest` passes; one JSON per (arm, seed) under
+`automl_package/examples/capacity_ladder_results/DSEL2c/` carrying `targets`, `schedule`, `test_acc`,
+`val_acc`, both gate dicts, `hit_cap: false`, and `n_train`/`n_val`/`n_test`; the two cited (FULL,
+ALL_RUNGS) cells resolved by path, not re-run; a `frozen.json` recording which arms cleared the bar.
+
 ### DSEL-2b — does the ladder cost the middle depths, the way ProbReg's k-ladder does?
 
 **Files (write set):** `automl_package/examples/depth_dsel2b.py` ·
@@ -579,6 +667,17 @@ DSEL-2 cell missing either.
 
 ### DSEL-3 — fix DD1 and DD2
 
+**DONE — found already landed (commit `84ad94d`) during the 2026-07-21 repair audit; no dispatch
+needed.** Both fixes and their regression tests (`TestDD1IndependentWeightsUniformPrior`,
+`TestDD2PairedDepthUncertainty` — cited under DD1/DD2 in §3) were on disk before this task was ever
+run. **The doctrine clause's prove-it-fails ceremony (revert each fix, re-run, show the test FAIL,
+restore) is waived here, not separately satisfied**: the commit message for `84ad94d` records that it
+was followed at the time the fix was authored — "Every test here was confirmed to fail against its
+unfixed code before being kept, and each file's checksum was confirmed unchanged after restoring" —
+and re-deriving that ceremony now would mean reverting an already-shipped, already-tested fix for no
+purpose. Spec retained below, unedited, as the record of what DD1/DD2 required; read as history, not
+a live task.
+
 **Files (write set):** `automl_package/models/independent_weights_flexible_neural_network.py` ·
 `automl_package/models/flexible_neural_network.py` · `tests/test_phase2_flexible_nn.py`
 **Spec:** (i) **DD1** — replace the `linspace(3.0, 1.0, ...)` prefer-shallow prior with the uniform
@@ -598,27 +697,48 @@ both file checksums unchanged.
 
 ### DSEL-4 — adopt the consolidated API and the single router
 
-**Files (write set):** this strand's drivers only (the `automl_package/examples/depth_dsel*.py`
-family — DSEL-2, DSEL-2b, DSEL-6 through DSEL-10's scripts; DSEL-11's is out of scope while ⏸ PARKED)
+**Ordering repair, 2026-07-21.** The write set below originally read "this strand's drivers only (the
+`depth_dsel*.py` family — DSEL-2, DSEL-2b, DSEL-6 through DSEL-10's scripts...)" and the verify clause
+grepped that same glob. As written, DSEL-4 runs at its scheduled position in §4's order line — before
+DSEL-6 through DSEL-10, the five tasks that create `depth_dsel6.py`...`depth_dsel10.py` — where only
+`depth_dsel2.py` (and `depth_dsel2b.py`, once DSEL-2b lands — DSEL-2c EXTENDS `depth_dsel2.py`
+rather than creating a driver of its own, per its Files line) exist on disk.
+The migration and both greps would pass vacuously against files that don't yet exist, DSEL-4 would be
+marked done without ever inspecting four of the five scripts its write set claimed to own, and nothing
+downstream re-ran the check. Worse, DSEL-7 (`deps: DSEL-4`, as originally written) would then depend
+on a task that claims to have already migrated `depth_dsel7.py` — a file DSEL-7 itself creates.
+Rescoped as follows; DSEL-7's own `deps:` line is corrected to match, below.
+
+**Files (write set):** `automl_package/examples/depth_dsel2.py` **only** — the one depth-strand driver
+that exists at this task's scheduled position.
 **Spec:** Once `flexnn-package.md` lands `CapacitySelection` (FP-3, `automl_package/enums.py`) and
-the single reconciled router (FP-5, DD3), adopt the enum as this strand's selection API and migrate
-every depth-strand driver call site onto it: pass the enum member at `FlexibleHiddenLayersNN`
-construction, never a string; `predict` loses `inference_mode` entirely per FP-3.b (clean break, no
-shim) — a call site in this strand's drivers still passing it must raise `TypeError`, not be silently
-swallowed. `FlexibleHiddenLayersNN`'s `"hard"` execution shortcut (FP-3.c) is untouched — it is an
-execution mode, not a selection source, and stays a separate boolean argument, orthogonal to
-`CapacitySelection`. **The certified depth-selection numbers must be reproduced through the package
-router** before any new selection result is read — that reproduction is what retires the
-two-implementations problem rather than merely renaming it.
+the single reconciled router (FP-5, DD3), migrate `depth_dsel2.py` onto the enum: pass the enum member
+at `FlexibleHiddenLayersNN` construction, never a string; `predict` loses `inference_mode` entirely per
+FP-3.b (clean break, no shim) — a call site in `depth_dsel2.py` still passing it must raise
+`TypeError`, not be silently swallowed. `FlexibleHiddenLayersNN`'s `"hard"` execution shortcut (FP-3.c)
+is untouched — it is an execution mode, not a selection source, and stays a separate boolean argument,
+orthogonal to `CapacitySelection`. **The certified depth-selection numbers must be reproduced through
+the package router** before any new selection result is read — that reproduction is what retires the
+two-implementations problem rather than merely renaming it. (This part of the spec is unchanged from
+the original task; only the write set and the binding convention below are new.)
+**Binding convention (new, 2026-07-21) — every later driver is BORN on the package API.** DSEL-6
+through DSEL-10 must construct `FlexibleHiddenLayersNN` with the `CapacitySelection` enum from the
+moment each script is first written — no local router class, no `inference_mode` string, ever, not
+even transiently. There is no migration step for them because there is nothing to migrate: this
+convention is how they are built. Each of DSEL-6 through DSEL-10's own verify clauses inherits the two
+greps below (`inference_mode`, `class.*Router`) scoped to its own new script; the last consumer before
+the report, DSEL-10, additionally runs both greps across the whole `depth_dsel*.py` family as the
+strand-wide check (moved there from this task — see DSEL-10's verify clause).
 **Doctrine:** DD3 means the certified result and the shipping code are different implementations.
 Reproduction against the certified numbers is a positive control (Decision 14), not a formality. The
 enum and its cross-family contract are FP-3's design to own; this task's job is to be a correct,
 complete consumer — not a second implementation. Do not add a depth-local enum, even temporarily.
 **Non-goals:** this task does not design the API or edit package code — it consumes both. No change
-to `CapacitySelection` itself — file a finding against FP-3 instead of patching it from here.
+to `CapacitySelection` itself — file a finding against FP-3 instead of patching it from here. No
+migration of DSEL-6 through DSEL-10's scripts — they do not exist yet (see binding convention above).
 *Orchestration:* parallel: no · deps: `flexnn-package.md` FP-3, `flexnn-package.md` FP-5; DSEL-3 ·
 tier: sonnet high · scale: static · shape: execution ·
-verify: `grep -rn "inference_mode" automl_package/examples/depth_dsel*.py` returns nothing (call sites
+verify: `grep -n "inference_mode" automl_package/examples/depth_dsel2.py` returns nothing (call site
 migrated); run `automl_package/examples/depth_dsel2.py` (migrated onto the package router) for both
 seeds, and for each seed a check script asserting
 `abs(reproduced_mean_executed_width - certified_mean_executed_width) / certified_mean_executed_width <= 0.02`
@@ -626,10 +746,12 @@ seeds, and for each seed a check script asserting
 `certified_mean_executed_width` is read from
 `automl_package/examples/capacity_ladder_results/D_TOY_PROBES/depth_selection_deploy_seed{0,1}.json`'s
 `deploy.mean_executed_width` field (certified values: seed0 = 8.0, seed1 = 7.99 —
-`docs/depth_capacity/verdict_per_input_depth.md:313`); `grep -rln "class.*Router\|def fit_router\|def _train_router"
-automl_package/examples/depth_dsel*.py` returns no files (fail if any local router class remains in
-this strand's own drivers — `depth_selection_toy.py`'s certified router is FP-5's reconciliation
-target, not this task's, and is deliberately out of this grep's scope).
+`docs/depth_capacity/verdict_per_input_depth.md:313`); `grep -n "class.*Router\|def fit_router\|def _train_router"
+automl_package/examples/depth_dsel2.py` returns nothing (fail if a local router class remains in this
+script — `depth_selection_toy.py`'s certified router is FP-5's reconciliation target, not this task's,
+and is deliberately out of this grep's scope). **The strand-wide sweep across the whole
+`depth_dsel*.py` family (both greps) is DSEL-10's verify, not this task's** — moved there 2026-07-21,
+see DSEL-10.
 
 ### DSEL-5 — give the independent-weights class the per-depth primitive (tracked dependency, NOT a dispatchable task)
 
@@ -678,8 +800,11 @@ all its weights with the thing it is supposed to be an independent reference for
 fraction of the cost. A reference that shares weights with the method under test cannot serve as one.
 **Non-goals:** do not reuse the multi-exit readout as a shortcut — that is the object this task
 replaces.
-*Orchestration:* parallel: no · deps: DSEL-4 · tier: sonnet high · scale: dynamic · shape: execution ·
-verify: `ls automl_package/examples/capacity_ladder_results/DSEL7/*.json` lists one file per (toy,
+*Orchestration:* parallel: no · deps: `flexnn-package.md` FP-3, `flexnn-package.md` FP-5 (corrected
+2026-07-21 — was `DSEL-4`, which is circular: DSEL-4 is now scoped to migrating `depth_dsel2.py` only
+and DSEL-7 is born directly on the package API per DSEL-4's binding convention, so it needs the API
+itself, not DSEL-4's completion; see DSEL-4's ordering repair) · tier: sonnet high · scale: dynamic ·
+shape: execution · verify: `ls automl_package/examples/capacity_ladder_results/DSEL7/*.json` lists one file per (toy,
 seed, depth); for each, `python -c "import json,sys; d=json.load(open(sys.argv[1])); assert
 'held_out_score' in d and 'train_cost_seconds' in d" <file>` exits 0; the summed per-depth cost is
 written as the sweep's headline `total_training_cost` in
@@ -711,11 +836,19 @@ exits 0, where `justification` names the specific curve point the default was re
 **Files (write set):** `automl_package/examples/depth_dsel9.py` ·
 `automl_package/examples/capacity_ladder_results/DSEL9/`
 **Spec:** No sensitivity study exists for depth. Vary router width/depth (at least half/double/4×
-hidden, 1 vs 3 layers), epochs, and the labelling tolerance. Establish whether depth's routing
-conclusions are invariant, and if not, what the router needs.
+hidden, 1 vs 3 layers) and epochs. Establish whether depth's routing conclusions are invariant, and if
+not, what the router needs. ~~and the labelling tolerance~~ **struck 2026-07-21: MASTER Decision 18
+rules the labelling-tolerance sensitivity sweep NOT scheduled and NOT to be run pre-emptively — "do
+not run pre-emptively; run it if a reviewer leans on the constant." This task's spec listed it before
+that ruling landed and was never updated to match (cross-strand repair — the same stale sweep was
+found in `width.md`'s WSEL-7 and `probreg.md`'s PC, both corrected the same way). If a reviewer leans
+on the flat `0.25` tolerance, run the sweep as a separate, later task, not folded into this one.**
 **Doctrine:** the router stays FROZEN and untuned inside the battery so the D-SHARED/D-PERINPUT
 contrast measures selection rather than search effort. **This task does not unfreeze it** — any
-change lands as a new frozen default *before* DSEL-11 runs, globally, never per-dataset.
+change lands as a new default, reported to the root and applied via `flexnn-package.md` FP-5 (the
+file that owns `distilled_router.py`; this strand does not write it — cross-strand repair, 2026-07-21,
+see §3.5's DSEL-9 branch above), *before* **DSEL-10** runs (re-pointed 2026-07-21 from DSEL-11, which
+the 2026-07-20 parking ruling removed from the dispatch order), never per-dataset.
 **Non-goals:** no per-dataset tuning, ever. No change to the labelling rule's meaning.
 *Orchestration:* parallel: yes · deps: DSEL-6, DSEL-7 · tier: sonnet high · scale: dynamic ·
 shape: research · verify: `test -f
@@ -742,6 +875,11 @@ cost including selection; `python -c "import json; d=json.load(open(p)); print(d
 reports agreement per cell (a `False` is a finding, not a bug); each cell's artifact must carry
 `trajectory_verified=True`/`hit_cap=False` (Decision 9) and, for any arm reading low on both train and
 val, the Decision-16 escalation-ladder record — absence of either blocks that cell's reading.
+**Strand-wide sweep (moved here from DSEL-4, 2026-07-21 ordering repair — DSEL-10 is the last consumer
+of this strand's drivers before the report):** `grep -rn "inference_mode" automl_package/examples/depth_dsel*.py`
+returns nothing AND `grep -rln "class.*Router\|def fit_router\|def _train_router" automl_package/examples/depth_dsel*.py`
+returns no files, confirming every driver DSEL-2 through DSEL-10 built was born on (or, for DSEL-2,
+migrated onto) the package API, with no local router surviving anywhere in the family.
 
 ### DSEL-11 — real data + baselines — ⏸ PARKED — real data deferred (user ruling 2026-07-20); spec retained for a possible later pass
 

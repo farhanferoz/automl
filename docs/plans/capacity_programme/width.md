@@ -27,8 +27,16 @@ does, so several tasks below block on it explicitly rather than re-deriving what
   **WSEL-3** depend on it.
 - **`flexnn-package.md` FP-9** — "the shared selection primitives" (the cheapest-within-tolerance
   selector + its bootstrap standard-error helper), consumed rather than re-implemented per family.
-  Not yet a landed task as of this writing — the root is adding it to `flexnn-package.md` alongside
-  this repair. **WSEL-3** depends on it.
+  **Correction, 2026-07-21:** this line originally read "not yet a landed task as of this writing";
+  that was stale even at the time — `flexnn-package.md` records FP-1, FP-3, and FP-9 all
+  **DONE/LANDED 2026-07-20**, the same day this file was drafted. `automl_package/utils/capacity_accounting.py:258,276,298`
+  (`router_fit_cost`, `held_out_read_cost`, `sweep_cost`) is FP-9's/FP-1's landed code, merged in
+  commit `e3cc52b`. **WSEL-3** depends on it, and the dependency is now satisfied.
+- **`flexnn-package.md` FP-4** — the package width class's shared-training schedule deviates from
+  the certified sandwich schedule (sums ALL configured widths every step instead of sampling a
+  subset, `automl_package/models/flexible_width_network.py:12-16`); FP-4 owns establishing whether
+  that deviation is material. Added 2026-07-21 (repair audit): **WSEL-3** and **WSEL-4** depend on
+  it — see §1's warning note and their own deps lines.
 
 ---
 
@@ -40,6 +48,19 @@ The comparison is between three ways of choosing **w**, the hidden width the net
 always trains the smallest and largest width plus two random middles,
 `automl_package/examples/nested_width_net.py:93`). Training is therefore NOT a variable between
 those two; they differ in exactly one thing, how the width is chosen.
+
+⚠️ **Warning, added 2026-07-21 (cross-strand repair audit) — the paragraph above describes the
+certified schedule, not necessarily the schedule the shipping code runs.** The shipping class
+`FlexibleWidthNN` (`automl_package/models/flexible_width_network.py:12-16`, self-documented) sums
+the loss over **ALL** configured widths every step, not the sandwich's smallest+largest+2-random-mid
+subset — an **unvalidated deviation**, owned by `flexnn-package.md` FP-4, which has not yet shown it
+material or immaterial. Both W-SHARED (**WSEL-3**) and W-PERINPUT
+(`automl_package/models/flexible_width_network.py:239-298`, the file WSEL-3 also writes) are built on
+this same class. **W-SHARED and W-PERINPUT may not be read off it until FP-4 rules the deviation
+material or immaterial** — see WSEL-3's and WSEL-4's deps in §4, and the cross-plan dependencies note
+above. If FP-4 finds it MATERIAL, this paragraph's "under its certified joint width-dial schedule"
+claim is false for the package port and must be re-argued together with the "not a confound"
+argument below.
 
 ⚠️ **W-SWEEP DOES NOT USE WIDTH-DROPOUT (user ruling, 2026-07-20). Each of its per-width models is
 trained ORDINARILY at its own fixed width** — that is what "a network dedicated to that width"
@@ -137,10 +158,15 @@ passed. `SharedTrunkPerWidthHeadNet` is the architecture of record. Evidence:
 - **Whether the router's architecture matters.** Task W6 varied ONE dimension (hidden size,
   half/double), on one toy, 3 seeds, as a binary pass/fail on the downstream deploy claim
   (`width-cert.md:234`, invariance at `:237`). That is a does-it-break check, not a search. → **WSEL-7**
-- **Selection cost.** Nothing anywhere charges the cost of *choosing* the width. The shared accounting
-  module prices a network at a given width; it has no function for router-fit, cheap-read, or sweep
-  training cost (`docs/plans/capacity_programme/shared/metrics-accounting.md` S2;
-  `automl_package/examples/capacity_accounting.py`). → **WSEL-5**
+- **Selection cost — WSEL-5's dependency landed; the wiring itself has not.** **Superseded 2026-07-21
+  (repair audit):** this line originally read "Nothing anywhere charges the cost of choosing the
+  width," citing `metrics-accounting.md` S2 (accurate as of that section's 2026-07-16 writing) and
+  the pre-move `automl_package/examples/capacity_accounting.py`. As of `flexnn-package.md` FP-1/FP-9
+  (DONE 2026-07-20, commit `e3cc52b`), the three cost functions now exist —
+  `automl_package/utils/capacity_accounting.py:258` `router_fit_cost`, `:276` `held_out_read_cost`,
+  `:298` `sweep_cost`. **This is FP-1/FP-9 landing the primitives, not WSEL-5 completing** — WSEL-5's
+  own job is wiring §1's three models onto them and updating `metrics-accounting.md`'s S2 scope, and
+  that task's spec (§4) is unchanged. → **WSEL-5**
 - **Anything on real data, and any baseline.** Width has been run on two synthetic toys only, and no
   external comparator (tree model / plain NN / linear) has ever been run for this strand. → **WSEL-9**
 - **Any width report.** Width's reportable content was folded into a unified report that has never
@@ -150,12 +176,17 @@ passed. `SharedTrunkPerWidthHeadNet` is the architecture of record. Evidence:
 
 ## 3. Known defects
 
-**WD1 — OPEN, latent, real.** `FlexibleWidthNN` does not override `predict_uncertainty`; the
-inherited implementation will mis-index a stacked `(len(widths), N, output_size)` tensor if a caller
-sets `uncertainty_method` to anything other than the default `CONSTANT`. Latent today because the
-default path is unaffected, and **there is zero test coverage of that combination**
-(`tests/test_flexible_width_network.py` contains no `uncertainty_method` / `predict_uncertainty`
-reference). Same silent-wrong-answer class as ProbReg's D1/D2. → **WSEL-1**
+**WD1 — FIXED 2026-07-20, commit `63ab6bc`** ("fix(width): correct predict_uncertainty; certify the
+driver default"). **Correction to this entry's own original claim:** it previously said
+`FlexibleWidthNN` had zero test coverage on this path; that was true when written and is no longer
+true. `FlexibleWidthNN.predict_uncertainty` is now overridden
+(`automl_package/models/flexible_width_network.py:361-397`): `CONSTANT` / `BINNED_RESIDUAL_STD`
+delegate to the inherited implementation (neither touches the stacked
+`(len(widths), N, output_size)` tensor), and `MC_DROPOUT` / `PROBABILISTIC` raise
+`NotImplementedError` explicitly instead of silently mis-indexing it. Covered by
+`TestFlexibleWidthNNPredictUncertainty` (`tests/test_flexible_width_network.py:277-318`), one test
+per `uncertainty_method` value including both raise cases. **WSEL-1 is DONE by this commit — see
+§4.**
 
 **WD2 — OPEN, API.** The typed enum sits on the broken knob and the magic string on the working one.
 `WidthSelectionMethod.DISTILLED` (`automl_package/enums.py:105-109`) is documented as "not yet
@@ -187,16 +218,29 @@ own convergence analysis, not a licence to call the verdict unsafe. This program
 ([[feedback_check_loss_trajectory_before_concluding]]) cuts both ways — the original authors DID
 check the trajectory, and the audit that flagged them did not check whether they had.*
 
-**WD4 — OPEN, footgun.** The driver's CLI default architecture is still `independent`, not the
-certified `SharedTrunkPerWidthHeadNet` (`automl_package/examples/kdropout_converged_width_experiment.py:549`,
-commented as "the old default"). Anyone re-running the driver without an explicit flag reproduces a
-non-certified arm. → **WSEL-1**
+**WD4 — FIXED 2026-07-20, commit `63ab6bc`** ("fix(width): correct predict_uncertainty; certify the
+driver default"). **Correction to this entry's own citation, dated 2026-07-21:** the original text
+cited `kdropout_converged_width_experiment.py:549` for the stale default and attributed a "the old
+default" comment to the `--arch` flag. Both were wrong even as a description of the pre-fix state:
+`:549` is `--smoke`, not `--arch`; and the "the old default" comment belongs to a different flag
+entirely, `--loss` (`:552`, `default=LossType.NLL.value, help="... (default: nll, the old
+default)."`) — a different training axis (loss function, not architecture). As fixed, `--arch`
+defaults to the certified architecture at `automl_package/examples/kdropout_converged_width_experiment.py:551`
+(`default=Arch.SHARED_TRUNK.value, help="Width-net architecture (default: shared_trunk, G-WIDTH
+certified)."`). Anyone re-running the driver without an explicit flag now reproduces the certified
+arm. **WSEL-1 is DONE by this commit — see §4.**
 
 **WD5 — OPEN, the §1 violation in the existing results.** The best-fixed-width baseline is written as
 a `best_fixed_k` / `mse_best_fixed` pair **inside the same case dict** as the routed model's numbers
 (`automl_package/examples/kdropout_converged_width_experiment.py:387-399`) — the companion-field
 pattern §1 forbids. The router's own fitting cost is charged to nothing. → structural, fixed by
-**WSEL-5** + the battery's output contract in **WSEL-9**.
+**WSEL-5** + the battery's output contract in **WSEL-8**. **Correction, 2026-07-21:** this line
+originally named WSEL-9 as the second half of the fix; WSEL-9 is now **⏸ PARKED** (§4) and
+guaranteed not to run, so it cannot deliver anything. WSEL-8 is the live task whose output contract
+does this job: its per-(toy, seed) result files each carry `w_shared_width`, `w_sweep_width`,
+`held_out_trajectory`, `hit_cap: false`, and a **per-arm `selection_cost` key** (§4, WSEL-8's verify)
+— no best-fixed companion field baked in, so WSEL-8's schema avoids the WD5 pattern by
+construction rather than by a promise from a task that will never run.
 
 ---
 
@@ -215,7 +259,7 @@ user-only for the end of the run.
 | **WSEL-6**: which selection fraction becomes the frozen default | the **smallest** fraction at which every arm is within its own noise band of its best (twice-standard-error rule); if none saturates, take the largest swept and record the study **inconclusive, floor not found** | fraction + the curve |
 | **WSEL-6**: W-PERINPUT still improving at the largest fraction | freeze the largest swept and mark W-PERINPUT's battery result **"router data-limited"** — a loss then does NOT support "per-input width does not pay" | the mark, prominently |
 | **WSEL-7**: conclusions invariant to router architecture | keep the current frozen default; record invariance as a finding | table |
-| **WSEL-7**: NOT invariant | adopt the **smallest** configuration that reaches the plateau, freeze it globally, re-run WSEL-6 at the new router | old → new + why |
+| **WSEL-7**: NOT invariant | adopt the **smallest** configuration that reaches the plateau **as this strand's per-dial default**, report it to the root, and re-run WSEL-6 at the new router. **NEVER write `automl_package/models/common/distilled_router.py` from this strand** — that file's write set belongs to `flexnn-package.md` FP-5; the root applies a genuinely global freeze there. **Correction, 2026-07-21 (cross-strand repair, user ruling):** this branch originally said "freeze it globally," which no WSEL task can do — WSEL-7's own write set (§4) is `width_wsel7.py` + `WSEL7/`, not the router file. ProbReg's PC and depth's DSEL-9 face the identical correction; see `flexnn-package.md` FP-5. | old → new + why, and the report to the root |
 | **WSEL-4**: the ported sweep does not reproduce `W_CONVERGED`'s numbers | report the discrepancy and **halt WSEL-8** — an unreproduced reference cannot serve as a reference | both number sets |
 | **ceiling binds** (selected w = w_max) | re-run that cell with the ladder extended one rung; report the raise | which cells |
 | a spec or older document contradicts §1 | **§1 wins**; fix the other document in the same turn | the correction |
@@ -240,12 +284,16 @@ copied here is a cache entry that rots.
 | selection-set fraction | **WSEL-6** | `automl_package/examples/capacity_ladder_results/WSEL6/frozen.json` |
 | W-PERINPUT data-limited flag, per dataset | **WSEL-6** | same file, one boolean per (toy, arm) |
 | router hidden / depth / epochs / lr | **WSEL-7** | `automl_package/examples/capacity_ladder_results/WSEL7/frozen.json`, else the current frozen defaults at `automl_package/models/common/distilled_router.py:57-60` if that file's `invariant` field is `true` |
-| labelling tolerance | **WSEL-7** | same file |
-| width ladder / `w_max` after any ceiling raise | **WSEL-8/WSEL-9** | the per-cell result JSON under `automl_package/examples/capacity_ladder_results/WSEL8/` or `.../WSEL9/` that recorded the bind |
+| ~~labelling tolerance \| **WSEL-7** \| same file~~ — **struck 2026-07-21.** MASTER Decision 18 rules the tolerance sensitivity sweep **NOT scheduled** (§1's own note above, "Noted follow-up, NOT a blocker and NOT scheduled... Do not run it pre-emptively"); this row and WSEL-7's swept dimensions (§4) contradicted that ruling and are corrected to match it. WSEL-7 keeps router hidden/depth/epochs/lr only. |
+| width ladder / `w_max` after any ceiling raise | **WSEL-8** (WSEL-9 is ⏸ PARKED — would apply there too if a later ruling unparks it) | the per-cell result JSON under `automl_package/examples/capacity_ladder_results/WSEL8/` (or `.../WSEL9/`, dormant) that recorded the bind |
 | per-model selection cost | **WSEL-5** | the accounting module's own selftest artifact (exact path fixed by `flexnn-package.md` FP-1, see this file's cross-plan dependencies note) |
 
-**Feed-forward rule (binding):** if WSEL-9 runs at a value not justified by the artifact named here,
-its results are **not reportable**.
+**Feed-forward rule (binding):** if **WSEL-8 or WSEL-10** runs at a value not justified by the
+artifact named here, its results are **not reportable**. **Correction, 2026-07-21:** this rule
+originally named WSEL-9, which is ⏸ PARKED and will never run, so it bound nothing; WSEL-8 and
+WSEL-10 are the live consumers of these constants and are the tasks this rule must actually
+constrain (the same defect depth-selection.md's equivalent rule has, and ProbReg's PC/P3/P4
+equivalent — still live — does not).
 
 ⚠️ **Anchor warning for every `verify:` line below.** Where a task reproduces a frozen number as its
 positive control, that anchor must come from something **not computed by the method under test** — a
@@ -259,7 +307,9 @@ models, which are trained independently and are exactly the non-shared implement
 
 ## 4. Tasks
 
-Order: **WSEL-0 → WSEL-1 → WSEL-2 → WSEL-3 → WSEL-4 → WSEL-5 → (WSEL-6 ∥ WSEL-7) → WSEL-8 → WSEL-10.**
+Order: **WSEL-0 → WSEL-1 → WSEL-2 → WSEL-3 → WSEL-4 → WSEL-5 → (WSEL-6 ∥ WSEL-7 ∥ WSEL-11) → WSEL-8 →
+WSEL-10.** *(**WSEL-11** added 2026-07-21, MASTER Decision 21 — parallel, independent of WSEL-6/7,
+and must land before WSEL-8 reads its numbers.)*
 *(**WSEL-9 is ⏸ PARKED** by the 2026-07-20 toys-only ruling and is deliberately absent from this
 order — a dispatcher must skip it, not schedule it. Its spec is retained for a possible later pass.)*
 WSEL-0 through WSEL-5 are the "fix it properly and completely" phase; no comparison compute runs
@@ -284,8 +334,15 @@ and not any selection mechanism, so no later reader repeats the misreading.
 shape: design · verify: `grep -n "width.md" docs/plans/capacity_programme/MASTER.md` shows the strand
 index and the naming key delegating here; `width-cert.md` is unmodified (`git diff --stat` shows it absent).
 
-### WSEL-1 — fix WD1 and WD4
+### WSEL-1 — fix WD1 and WD4 — ✅ **DONE, found already landed 2026-07-20, commit `63ab6bc`**
 
+**Found already landed during the 2026-07-21 repair audit; no dispatch needed.** Both fixes this
+task specifies are on disk, an ancestor of HEAD: see WD1/WD4 in §3 for the evidence (predict_uncertainty
+override + coverage, and the driver's certified default). The **prove-it-fails ceremony below is
+waived, with reason**: the fix and its tests landed in one commit, `63ab6bc`, before this plan was
+repaired to reflect it — there is no unfixed tree left to demonstrate the regression test against,
+and re-deriving one against a synthetic revert would verify the audit's own reconstruction, not the
+original fix.
 **Files (write set):** `automl_package/models/flexible_width_network.py` ·
 `tests/test_flexible_width_network.py` · `automl_package/examples/kdropout_converged_width_experiment.py`
 **Spec:** (i) **WD1** — make `predict_uncertainty` correct for every `uncertainty_method`, or raise
@@ -293,7 +350,8 @@ explicitly for the ones it cannot serve; add the missing coverage. (ii) **WD4** 
 default architecture to the certified `SharedTrunkPerWidthHeadNet`.
 **(WD3 is withdrawn — see §3. `width-cert.md` is NOT edited by this task.)**
 **Doctrine:** a regression test is not evidence until it has been shown to FAIL on the unfixed code.
-Assert on the quantity the fix changes, never on a coarse downstream view.
+Assert on the quantity the fix changes, never on a coarse downstream view. *(Satisfied historically
+by commit `63ab6bc`'s own process, not re-verified by this repair.)*
 **Non-goals:** no re-run of any certified cell; no change to the G-WIDTH verdict; no refactor of the
 inherited base-class uncertainty machinery beyond what WD1 forces.
 *Orchestration:* parallel: no (same file as WSEL-2) · deps: none · tier: sonnet high · scale: static ·
@@ -353,7 +411,9 @@ replaces — they answer different questions and agreement would be meaningless.
 no changes to FP-9's selector or SE estimator — file a finding against FP-9 instead of patching it
 from here.
 *Orchestration:* parallel: no (same file as WSEL-2) · deps: `flexnn-package.md` FP-9,
-`flexnn-package.md` FP-3 · tier: sonnet high · scale: static · shape: execution · verify:
+`flexnn-package.md` FP-3, `flexnn-package.md` FP-4 *(added 2026-07-21 — §1's warning note: W-SHARED
+may not be read off the shipping class until FP-4 rules its schedule deviation material or
+immaterial)* · tier: sonnet high · scale: static · shape: execution · verify:
 `grep -n "cheapest_within_tolerance\|bootstrap" automl_package/models/flexible_width_network.py`
 shows a call into the shared primitive, not a local re-implementation; a test constructs a model
 whose held-out curve is flat beyond width *w* and asserts the selector returns *w*, not the argmin;
@@ -382,7 +442,9 @@ itself is called broken.
 new number is read. If it does not reproduce, the branch table in §3.5 fires and WSEL-8 halts.
 **Non-goals:** do not change the sweep's training schedule; do not "improve" convergence criteria
 mid-port — a port that changes the protocol is not a port.
-*Orchestration:* parallel: no · deps: `flexnn-package.md` FP-3, WSEL-2 · tier: sonnet high ·
+*Orchestration:* parallel: no · deps: `flexnn-package.md` FP-3, WSEL-2, `flexnn-package.md` FP-4
+*(added 2026-07-21 — §1's warning note: the ported package class carries the same schedule
+deviation until FP-4 rules on it)* · tier: sonnet high ·
 scale: dynamic (a sweep) · shape: execution · verify:
 `test -f automl_package/examples/capacity_ladder_results/WSEL4/reproduction.json` and
 `python -c "import json; d=json.load(open('automl_package/examples/capacity_ladder_results/WSEL4/reproduction.json')); assert all(c['relative_error'] <= 0.02 for c in d['cells']), d"`
@@ -447,22 +509,29 @@ exits 0; `ls automl_package/examples/capacity_ladder_results/WSEL6/*.json` shows
 labelling tolerance 0.25 (`automl_package/models/common/distilled_router.py:57-60`), constants
 inherited rather than chosen. The only existing evidence is Task W6 — one dimension, two settings,
 one toy, 3 seeds, binary pass/fail (`width-cert.md:234`, `:237`). **Extend it to a search**: vary
-router width/depth (at least half/double/4× hidden, 1 vs 3 layers), epochs, and the labelling
-tolerance. Establish whether width's routing conclusions are invariant, and if not, what the router
-needs.
+router width/depth (at least half/double/4× hidden, 1 vs 3 layers) and epochs. Establish whether
+width's routing conclusions are invariant, and if not, what the router needs.
+~~**and the labelling tolerance**~~ — **struck 2026-07-21.** MASTER Decision 18 rules the labelling
+tolerance's sensitivity sweep NOT scheduled ("Do not run it pre-emptively"; §1 restates this
+verbatim); the swept dimensions here contradicted that ruling. This task sweeps router
+hidden/depth/epochs/lr only.
 **Emit the frozen-constants artifact §3.6 promises:**
-`automl_package/examples/capacity_ladder_results/WSEL7/frozen.json`, containing exactly the two
-constants this task owns per §3.6 — router hidden/depth/epochs/lr, and the labelling tolerance. If
-this task finds invariance, the file records the current frozen defaults
+`automl_package/examples/capacity_ladder_results/WSEL7/frozen.json`, containing exactly the
+constant this task owns per §3.6 — router hidden/depth/epochs/lr. **Correction, 2026-07-21:** this
+line previously also named "the labelling tolerance" as an owned constant; struck along with the
+swept dimension above — §3.6's table row for the tolerance is struck too. If this task finds
+invariance, the file records the current frozen defaults
 (`automl_package/models/common/distilled_router.py:57-60`) rather than inventing new ones.
 **Doctrine:** the router stays FROZEN and untuned inside the battery so the W-SHARED/W-PERINPUT
 contrast measures selection rather than search effort. **This task does not unfreeze it** — it
 establishes whether the frozen choice is defensible, and any change lands as a new frozen default
-*before* WSEL-9 runs, never per-dataset.
+*before* **WSEL-8 and WSEL-10** run, never per-dataset. **Correction, 2026-07-21:** this line
+previously said "before WSEL-9 runs"; WSEL-9 is ⏸ PARKED and will never run. WSEL-8 and WSEL-10 are
+the live consumers this timing clause must actually bind (same repair as §3.6's feed-forward rule).
 **Non-goals:** no per-dataset tuning of the router, ever. No change to the labelling rule's meaning.
 *Orchestration:* parallel: yes · deps: WSEL-5 · tier: sonnet high · scale: dynamic · shape: research ·
 verify: `test -f automl_package/examples/capacity_ladder_results/WSEL7/frozen.json` and
-`python -c "import json; d=json.load(open('automl_package/examples/capacity_ladder_results/WSEL7/frozen.json')); assert {'hidden','depth','epochs','lr','tolerance'} <= d.keys(), d"`
+`python -c "import json; d=json.load(open('automl_package/examples/capacity_ladder_results/WSEL7/frozen.json')); assert {'hidden','depth','epochs','lr'} <= d.keys(), d"`
 exits 0; `python -c "import json; d=json.load(open('automl_package/examples/capacity_ladder_results/WSEL7/frozen.json')); assert 'invariant' in d, d"`
 exits 0 (the invariant-or-not verdict is a field, not prose); if `d['invariant']` is `False`, the same
 file's `new_default` key is non-null and cited by WSEL-6's re-run.
@@ -486,14 +555,17 @@ reproducing WSEL-4's control before any W-SHARED number is read. §3.6's anchor 
 quality half is anchored on the independently-trained per-width models, not on the certification's
 own numbers re-run through this harness.
 **Non-goals:** no real data (WSEL-9); no baselines (WSEL-9); no re-tuning of the selector.
-*Orchestration:* parallel: no · deps: WSEL-6, WSEL-7 · tier: **opus xhigh** (a verdict call) · scale: static ·
+*Orchestration:* parallel: no · deps: WSEL-6, WSEL-7, **WSEL-11** *(added 2026-07-21, MASTER Decision
+21 — the regularisation confound must be ruled out or reported before this task's numbers are read)*
+· tier: **opus xhigh** (a verdict call) · scale: static ·
 shape: execution · verify:
 `test -f automl_package/examples/capacity_ladder_results/WSEL8/wsweep_control.json` and
 `python -c "import json; d=json.load(open('automl_package/examples/capacity_ladder_results/WSEL8/wsweep_control.json')); assert d['reproduces'] is True, d"`
 exits 0 **before** any W-SHARED cell is read (Decision 14); then
 `ls automl_package/examples/capacity_ladder_results/WSEL8/*.json` shows one file per (toy, seed),
 each containing `w_shared_width`, `w_sweep_width`, `held_out_trajectory`, `hit_cap: false`, and a
-per-arm `selection_cost` key.
+per-arm `selection_cost` key. **Added 2026-07-21:** the reported numbers come from a split not used
+for stopping or selection.
 
 ### WSEL-9 — real data + baselines — ⏸ PARKED (real data deferred; spec retained)
 
@@ -565,6 +637,30 @@ scale: static · shape: execution · verify: the skill's own cold-read gate (pro
 skill); then `grep -c "WSEL-[0-9]" docs/reports/width_selection/*.md` is nonzero (studies cited by
 task ID, not restated from memory); then for each §3.6 constant name,
 `grep -q "<constant name>" docs/reports/width_selection/*.md` exits 0.
+
+### WSEL-11 — does explicit regularisation move the selected width? (MASTER Decision 21)
+
+**Inserted 2026-07-21 (cross-strand repair, MASTER Decision 21).** The programme's research training
+is entirely unregularised — no weight decay, dropout, norm layers, or mini-batching — so the
+cheapest-within-tolerance rule (§1) may partly select small widths because small overfits less, not
+because small suffices. That confound would bias every dial the same direction and would otherwise be
+invisible.
+**Files (write set):** `automl_package/examples/width_wsel11.py` (Create) ·
+`automl_package/examples/capacity_ladder_results/WSEL11/`
+**Spec:** Discriminating check, one toy: train the per-width sweep (the existing converged-width
+machinery, ordinary per-width models) at AdamW weight_decay `λ ∈ {0, 1e-4, 1e-2}`, 2 seeds, unchanged
+convergence gates; apply the strand's selection rule (§1, cheapest-within-tolerance) to each curve.
+Report whether the selected width moves beyond tolerance. **It moves → HALT and escalate** — the
+strand's numbers conflate capacity with regularisation, and the battery may not be read until
+re-derived. **It does not move → robustness note that WSEL-10's report MUST cite.**
+**Non-goals:** no sweep over toys or seeds beyond what's specified; no change to §1's selection rule
+itself; no re-run of WSEL-4's or WSEL-8's numbers from here — this is a discriminating check, not a
+re-derivation.
+*Orchestration:* parallel: yes · deps: none · tier: sonnet high · scale: dynamic · shape: research ·
+verify: one JSON per (λ, seed) under `automl_package/examples/capacity_ladder_results/WSEL11/` each
+carrying `selected_width`, `held_out_trajectory`, `hit_cap: false`; a `frozen.json` with
+`selection_moved: bool` and, if `true`, the per-λ selected widths. The reported numbers come from a
+split not used for stopping or selection.
 
 ---
 

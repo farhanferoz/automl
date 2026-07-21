@@ -250,8 +250,12 @@ k_global = <SELECTION PROCEDURE — NOT YET SPECIFIED, see below>
 >    two arms are again not competing over the same rung set — the exact defect §14.2 C3 raised
 >    about the old pair.
 >
-> **Do not improvise this.** Escalated to the user; until it is settled, M1 is unbuildable and the
-> battery cannot run.
+> ~~**Do not improvise this.** Escalated to the user; until it is settled, M1 is unbuildable and the
+> battery cannot run.~~ *(SUPERSEDED 2026-07-21: the escalation was answered — see the ✅ RESOLVED
+> 2026-07-20 banner opening this blockquote; the three questions above are settled by that ruling
+> and building the mechanism is `docs/plans/capacity_programme/probreg.md` task PA. This paragraph
+> stood unretracted next to the banner for a day — flagged by review, missed by the first repair
+> pass, struck by the second.)*
 
 Inference, once `k_global` is settled: `predict(x)` / `predict_uncertainty(x)`, with every input
 forced through the single selected rung.
