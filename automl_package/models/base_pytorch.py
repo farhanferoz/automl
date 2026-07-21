@@ -215,9 +215,19 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         if best_model_state and use_early_stopping:
             self.model.load_state_dict(best_model_state)
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
-            y_pred_train = self.predict(x_train, filter_data=False)
-            self._train_residual_std = np.std(y_train - y_pred_train)
+            self._fit_residual_std(x_train, y_train)
         return best_epoch + 1, val_loss_history
+
+    def _fit_residual_std(self, x_train: np.ndarray, y_train: np.ndarray) -> None:
+        """Computes and stores the `UncertaintyMethod.CONSTANT` residual std, at the end of `_fit_single`.
+
+        Overridable (capacity-programme FP-10) so a subclass whose public `predict()` contract
+        requires caller state beyond `x` -- e.g. `FlexibleWidthNN`, which requires an explicit
+        `width` under `CapacitySelection.FIXED` -- can substitute an internal, non-caller-facing
+        prediction path instead of calling `self.predict()` here.
+        """
+        y_pred_train = self.predict(x_train, filter_data=False)
+        self._train_residual_std = np.std(y_train - y_pred_train)
 
     def _clone(self) -> "PyTorchModelBase":
         """Creates a new instance of the model with the same parameters."""

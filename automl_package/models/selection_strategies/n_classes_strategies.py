@@ -231,13 +231,21 @@ class NestedStrategy(BaseSelectionStrategy):
         """Per-sample Gaussian log-likelihood at every rung, from ONE call to `all_rung_outputs`.
 
         Requires `UncertaintyMethod.PROBABILISTIC` (native (mean, log_var) heads). This is the
-        all-rung score table `ProbabilisticRegressionModel.held_out_arbiter_advantage` and
-        F7/F10's report reads consume -- mirrors
+        all-rung score table `ProbabilisticRegressionModel.fit_global_selector`
+        (capacity-programme Task PA, M1's selector) consumes -- mirrors
         `layer_selection_strategies.NestedStrategy.all_depth_log_likelihood`.
+        (D6, corrected 2026-07-21: this docstring previously named
+        `held_out_arbiter_advantage` as the consumer -- false, that function never calls this one;
+        it calls `_per_sample_log_likelihood_at_k` twice instead. See `probreg.md` D5/D6.)
 
         Args:
             x_input: Input tensor, shape (batch, in_features).
-            y_target: Targets, shape (batch,) or (batch, 1).
+            y_target: Targets, in whatever space `all_rung_outputs`' heads were trained in --
+                i.e. already symlog-transformed if `target_transform="symlog"`. Unlike
+                `ProbabilisticRegressionModel._per_sample_log_likelihood_at_k`, this method does
+                NOT transform `y_target` itself; the caller is responsible for the transform
+                (the same units-mismatch bug class as D2 -- see `fit_global_selector`'s contract
+                for the pattern to follow). Shape (batch,) or (batch, 1).
 
         Returns:
             Shape (batch, n_classes); higher is better.

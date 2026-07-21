@@ -16,6 +16,7 @@ from automl_package.enums import (
 )
 from automl_package.models.common.distilled_router import DEFAULT_TOLERANCE, DistilledCapacityRouter, _cheapest_within_tolerance_labels
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+from automl_package.utils.capacity_selection import cheapest_within_tolerance
 from automl_package.utils.pytorch_utils import get_device
 from automl_package.utils.transforms import symlog
 
@@ -890,3 +891,382 @@ class TestCeStopGradDynamicKSentinelFilter:
         y_pred = model.predict(x)
         assert y_pred.shape == (len(x),)
         assert not np.any(np.isnan(y_pred))
+
+
+# Calibrated against measured error-table means on TestFitGlobalSelectorSymlogSpaceAlignment's
+# fixture (300 heavy-tailed points, max_k=3, 60 epochs), fix present vs fix removed: the correct
+# (pre-transformed) mean log-likelihood is ~-2.0 nats; scoring the same rungs against raw
+# (untransformed) y instead measures ~-19 to -23 nats -- an order of magnitude off, the same
+# blowup shape D1/D2/F9-fix-b produced.
+_SYMLOG_GLOBAL_SELECTOR_LL_SANITY_BOUND = -5.0  # a converged per-sample symlog-space LL; way above the mismatched range
+_SYMLOG_GLOBAL_SELECTOR_MIN_GAP_NAT = 5.0  # correct-vs-raw-y curve gap floor; measured gap is ~17-21 nats
+
+
+class TestFitGlobalSelector:
+    """Task PA: `CapacitySelection.GLOBAL_CHEAP` (M1) -- `fit_global_selector`.
+
+    `CapacitySelection.GLOBAL_CHEAP` itself is not yet shipped by `CapacitySelection`
+    (capacity-programme FP-3.a: PA reports the exact member text to the root, which applies it to
+    `enums.py` -- outside this task's write set). These tests exercise the mechanism directly
+    (`fit_global_selector`/`_forward_global_k`), which is everything `fit()`'s dormant
+    `CapacitySelection.GLOBAL_CHEAP` dispatch branch calls once the enum member lands.
+    """
+
+    def _fit_nested(self, x, y, max_k=4, n_epochs=20, seed=0, target_transform=None):
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=max_k,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+            target_transform=target_transform,
+            n_epochs=n_epochs, learning_rate=0.01, random_seed=seed,
+            calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+        return model
+
+    def test_requires_nested_strategy(self, heteroscedastic_data):
+        x, y, _, _ = heteroscedastic_data
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=4,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.GUMBEL_SOFTMAX,
+            n_epochs=5, random_seed=42, calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+        with pytest.raises(RuntimeError, match="NESTED"):
+            model.fit_global_selector(x, y)
+
+    def test_requires_fitted_model(self):
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=4,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            calculate_feature_importance=False,
+        )
+        with pytest.raises(RuntimeError, match="not been fitted"):
+            model.fit_global_selector(np.zeros((5, 1)), np.zeros(5))
+
+    def test_selects_valid_k_and_matches_manual_curve(self, heteroscedastic_data):
+        """PA's core requirement (D5): the selected k, and the curve it was read off, must be
+        EXACTLY what `all_rung_log_likelihood` + `cheapest_within_tolerance` produce -- i.e. M1's
+        selector is built on `all_rung_log_likelihood`
+        (`n_classes_strategies.py:230`), never on `held_out_arbiter_advantage`."""
+        x, y, _, _ = heteroscedastic_data
+        model = self._fit_nested(x, y, max_k=4, n_epochs=20)
+        x_val, y_val = x[:100], y[:100]
+
+        selected_k = model.fit_global_selector(x_val, y_val, n_bootstrap=200)
+        assert selected_k in range(1, 5)
+        assert model.selected_k_ == selected_k
+
+        x_tensor = torch.tensor(x_val, dtype=torch.float32).to(model.device)
+        y_tensor = torch.tensor(y_val, dtype=torch.float32).to(model.device)
+        model.model.eval()
+        with torch.no_grad():
+            ll_table = model.model.n_classes_strategy.all_rung_log_likelihood(x_tensor, y_tensor).cpu().numpy()
+        expected_idx = cheapest_within_tolerance(-ll_table, n_boot=200, seed=model.random_seed or 0)
+        assert selected_k == expected_idx + 1, "selected k must match the cheapest-within-tolerance index into all_rung_log_likelihood's curve"
+        np.testing.assert_allclose(
+            model.global_selector_curve_["mean_log_likelihood"], ll_table.mean(axis=0),
+            rtol=1e-5, atol=1e-6,
+        )
+
+    def test_forward_global_k_forces_selected_k_everywhere(self, heteroscedastic_data):
+        x, y, _, _ = heteroscedastic_data
+        model = self._fit_nested(x, y, max_k=4, n_epochs=15)
+        selected_k = model.fit_global_selector(x[:100], y[:100], n_bootstrap=100)
+
+        mean, log_var = model._forward_global_k(x)
+        x_tensor = torch.tensor(model._filter_predict_data(x), dtype=torch.float32).to(model.device)
+        model.model.eval()
+        with torch.no_grad():
+            expected = model.model.forward_at_k(x_tensor, selected_k)
+        np.testing.assert_allclose(mean, expected[:, 0].cpu().numpy(), rtol=1e-5, atol=1e-6)
+        np.testing.assert_allclose(log_var, expected[:, 1].cpu().numpy(), rtol=1e-5, atol=1e-6)
+
+    def test_forward_global_k_requires_fitted_selector(self, heteroscedastic_data):
+        x, y, _, _ = heteroscedastic_data
+        model = self._fit_nested(x, y, max_k=4, n_epochs=5)
+        with pytest.raises(RuntimeError, match="No global k selected"):
+            model._forward_global_k(x)
+
+
+class TestFitGlobalSelectorSymlogSpaceAlignment:
+    """D2's units-mismatch pattern, applied to `fit_global_selector` (`all_rung_log_likelihood`
+    does not transform `y_target` itself -- see its docstring, D6): the caller must
+    symlog-transform `y_val` before scoring, or the per-rung curve is silently wrong by an order
+    of magnitude, exactly like F9-fix-b/D2 before their fixes.
+    """
+
+    @staticmethod
+    def _heavy_tailed_data(n, seed):
+        rng = np.random.default_rng(seed)
+        x = rng.uniform(0.0, 1.0, n).astype(np.float32)
+        sign = rng.choice([-1.0, 1.0], size=n)
+        y = (sign * (np.exp(4.0 * x) - 1.0) + rng.normal(0.0, 0.5, n)).astype(np.float32)
+        return x.reshape(-1, 1), y
+
+    def _fit_symlog_nested(self, x, y, max_k=3, n_epochs=60, seed=0):
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=max_k,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+            target_transform="symlog",
+            n_epochs=n_epochs, learning_rate=0.01, random_seed=seed,
+            calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+        return model
+
+    def test_curve_matches_manually_pretransformed_y(self):
+        """`fit_global_selector(x, y)` with raw `y` (the documented contract) must produce
+        EXACTLY the curve `all_rung_log_likelihood` gives when called directly with
+        `symlog`-pretransformed `y` -- proving the internal transform runs."""
+        x, y = self._heavy_tailed_data(300, seed=0)
+        model = self._fit_symlog_nested(x, y)
+
+        model.fit_global_selector(x, y, n_bootstrap=100)
+        curve = np.asarray(model.global_selector_curve_["mean_log_likelihood"])
+
+        x_tensor = torch.tensor(x, dtype=torch.float32)
+        y_pretransformed = symlog(torch.tensor(y, dtype=torch.float32))
+        model.model.eval()
+        with torch.no_grad():
+            ll_correct = model.model.n_classes_strategy.all_rung_log_likelihood(x_tensor, y_pretransformed).numpy()
+
+        np.testing.assert_allclose(curve, ll_correct.mean(axis=0), rtol=1e-4, atol=1e-5)
+        assert curve.mean() > _SYMLOG_GLOBAL_SELECTOR_LL_SANITY_BOUND, (
+            f"fit_global_selector's curve mean ({curve.mean():.2f}) is far below a converged "
+            f"symlog-space per-sample log-likelihood -- looks like a raw-y-vs-symlog-space-"
+            "predictions unit mismatch (D2's bug class), not real fit quality"
+        )
+
+    def test_curve_differs_from_scoring_raw_y_directly(self):
+        """The contrast case: scoring the SAME rungs against raw (untransformed) `y` directly
+        through `all_rung_log_likelihood` -- what `fit_global_selector` would silently do if it
+        forgot the transform -- gives a curve an order of magnitude worse, demonstrating the
+        transform is load-bearing, not cosmetic."""
+        x, y = self._heavy_tailed_data(300, seed=0)
+        model = self._fit_symlog_nested(x, y)
+        model.fit_global_selector(x, y, n_bootstrap=100)
+        curve_correct = np.asarray(model.global_selector_curve_["mean_log_likelihood"])
+
+        x_tensor = torch.tensor(x, dtype=torch.float32)
+        y_raw = torch.tensor(y, dtype=torch.float32)
+        model.model.eval()
+        with torch.no_grad():
+            ll_wrong = model.model.n_classes_strategy.all_rung_log_likelihood(x_tensor, y_raw).numpy()
+
+        assert curve_correct.mean() - ll_wrong.mean(axis=0).mean() > _SYMLOG_GLOBAL_SELECTOR_MIN_GAP_NAT, (
+            "the correctly-transformed curve should be nats better than scoring raw y directly "
+            "against symlog-space rungs -- if these are close, the internal transform silently "
+            "stopped running"
+        )
+
+
+class TestFitSweepSelector:
+    """Task PA: `CapacitySelection.GLOBAL_SWEEP` (M3) -- `fit_sweep_selector`.
+
+    Like `TestFitGlobalSelector`, `CapacitySelection.GLOBAL_SWEEP` is not yet shipped (PA reports
+    the exact enum text to the root); these tests exercise the mechanism directly.
+    """
+
+    @staticmethod
+    def _toy_data(n, seed):
+        rng = np.random.default_rng(seed)
+        x = rng.uniform(-5, 5, n).astype(np.float32).reshape(-1, 1)
+        y_true = np.sin(x).ravel() * 2 + 0.5 * x.ravel()
+        noise_std = 0.1 + 0.4 * np.abs(x.ravel())
+        y = (y_true + rng.normal(0, noise_std)).astype(np.float32)
+        return x, y
+
+    def _base_model(self, max_k=3, n_epochs=10, seed=0):
+        return ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=max_k,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.NONE,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+            n_epochs=n_epochs, learning_rate=0.01, random_seed=seed,
+            calculate_feature_importance=False,
+        )
+
+    def test_selects_valid_k_and_submodels_are_ordinary(self):
+        """§1's M3 ruling: every per-k sub-model is trained ORDINARILY
+        (`n_classes_selection_method=NONE`), never with k-dropout."""
+        x, y = self._toy_data(200, seed=0)
+        x_tr, y_tr = x[:150], y[:150]
+        x_val, y_val = x[150:], y[150:]
+
+        model = self._base_model(max_k=3, n_epochs=10)
+        selected_k = model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, n_bootstrap=100)
+
+        assert selected_k in range(1, 4)
+        assert model.selected_k_ == selected_k
+        winner = model._sweep_submodel()
+        assert winner.n_classes_selection_method == NClassesSelectionMethod.NONE
+        assert winner.n_classes == selected_k
+
+    def test_predict_delegates_to_winning_submodel(self):
+        x, y = self._toy_data(200, seed=0)
+        x_tr, y_tr = x[:150], y[:150]
+        x_val, y_val = x[150:], y[150:]
+
+        model = self._base_model(max_k=3, n_epochs=10)
+        model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, n_bootstrap=100)
+
+        winner = model._sweep_submodel()
+        np.testing.assert_array_equal(model._sweep_submodel().predict(x_val), winner.predict(x_val))
+        np.testing.assert_array_equal(model._sweep_submodel().predict_uncertainty(x_val), winner.predict_uncertainty(x_val))
+
+    def test_sweep_submodel_requires_fitted_selector(self):
+        model = self._base_model(max_k=3, n_epochs=5)
+        with pytest.raises(RuntimeError, match="No sweep selector fitted"):
+            model._sweep_submodel()
+
+    def test_selection_rule_uses_shared_cheapest_within_tolerance_primitive(self, monkeypatch):
+        """PA's requirement: M3 uses the SAME selection primitive as M1
+        (`automl_package.utils.capacity_selection.cheapest_within_tolerance`), not a re-derived
+        rule -- verified by spying on the actual call `fit_sweep_selector` makes."""
+        import automl_package.models.probabilistic_regression as pr_module
+
+        x, y = self._toy_data(200, seed=1)
+        x_tr, y_tr = x[:150], y[:150]
+        x_val, y_val = x[150:], y[150:]
+
+        captured: dict = {}
+        original = pr_module.cheapest_within_tolerance
+
+        def _spy(error_table, n_boot, seed):
+            captured["error_table"] = error_table
+            return original(error_table, n_boot=n_boot, seed=seed)
+
+        monkeypatch.setattr(pr_module, "cheapest_within_tolerance", _spy)
+
+        model = self._base_model(max_k=3, n_epochs=10, seed=1)
+        selected_k = model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, n_bootstrap=150)
+
+        assert "error_table" in captured, "fit_sweep_selector must call the shared cheapest_within_tolerance primitive"
+        error_table = captured["error_table"]
+        assert error_table.shape == (len(y_val), 3)
+        expected_idx = original(error_table, n_boot=150, seed=model.random_seed or 0)
+        assert selected_k == expected_idx + 1
+
+
+class TestSelectionFractionConfigurable:
+    """FP-3.e: the selection-set fraction is a constructor parameter, not a baked-in constant."""
+
+    def test_fraction_controls_selection_set_size(self):
+        x, y = TestFitSweepSelector._toy_data(400, seed=0)
+
+        model_small = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=3,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+            n_epochs=5, learning_rate=0.01, random_seed=0,
+            calculate_feature_importance=False, selection_fraction=0.1,
+        )
+        model_large = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=3,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+            optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+            n_epochs=5, learning_rate=0.01, random_seed=0,
+            calculate_feature_importance=False, selection_fraction=0.4,
+        )
+        model_small._fit_global_cheap(x, y)
+        model_large._fit_global_cheap(x, y)
+
+        n_small = model_small.global_selector_curve_["n_selection"]
+        n_large = model_large.global_selector_curve_["n_selection"]
+        assert n_small < n_large
+        np.testing.assert_allclose(n_small / len(y), 0.1, atol=0.02)
+        np.testing.assert_allclose(n_large / len(y), 0.4, atol=0.02)
+
+
+class TestGlobalSelectionEndToEndThroughFit:
+    """Capacity-programme PA + FP-10 SEAM: `fit()` must complete under the two global modes.
+
+    Regression guard for an integration defect neither task could see alone (root, 2026-07-21).
+    `PyTorchModelBase._fit_residual_std` (FP-10) computes the CONSTANT-uncertainty residual std by
+    calling the caller-facing `self.predict()`. Under `CapacitySelection.GLOBAL_CHEAP` that hook
+    runs at the END of training, BEFORE `fit_global_selector` has chosen a k -- so the public
+    predict path correctly refuses, and `fit()` raised
+    `RuntimeError: No global k selected`. PA could not catch it (the enum members did not exist
+    while PA ran, so the branch was unreachable); FP-10 could not (the modes did not exist yet).
+
+    ⚠️ **SCOPE CORRECTION (root, 2026-07-21) — the two end-to-end tests below do NOT discriminate.**
+    They were run with `ProbabilisticRegressionModel._fit_residual_std` DELETED and both still
+    PASSED, so they are coverage, not evidence. The reason: `PyTorchModelBase._fit_single` calls
+    that hook ONLY under `uncertainty_method=CONSTANT`
+    (`automl_package/models/base_pytorch.py:217`), while `GLOBAL_CHEAP` legally requires
+    `NESTED`, which itself requires `PROBABILISTIC` -- so in a VALID configuration the hook never
+    fires and the defect is unreachable.
+
+    The defect's real (narrower) blast radius: `CONSTANT` is ProbReg's DEFAULT
+    `uncertainty_method`, so asking for `GLOBAL_CHEAP` WITHOUT also setting `NESTED` -- a plausible
+    caller mistake -- used to crash mid-`fit()` with a confusing `No global k selected` from the
+    residual-std bookkeeping path, instead of the precondition error that names the actual mistake.
+    `test_global_cheap_without_nested_raises_precondition_not_midfit_crash` below is the
+    discriminating guard: it FAILS on the unfixed code (wrong exception message) and passes with the
+    fix. The two end-to-end tests are retained for coverage of the happy path.
+    """
+
+    @staticmethod
+    def _xy(n: int = 200):
+        rng = np.random.default_rng(0)
+        x = rng.normal(size=(n, 3))
+        return x, x[:, 0] * 2.0 + rng.normal(scale=0.3, size=n)
+
+    def test_fit_completes_and_predicts_under_global_cheap(self):
+        x, y = self._xy()
+        model = ProbabilisticRegressionModel(
+            capacity_selection=CapacitySelection.GLOBAL_CHEAP,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes=5, epochs=10, validation_fraction=0.2, early_stopping_rounds=3,
+            calculate_feature_importance=False,
+        )
+        model.fit(x, y)                       # raised RuntimeError before the fix
+        assert model.selected_k_ is not None, "fit() under GLOBAL_CHEAP must select a global k"
+        preds = model.predict(x)              # no caller flag
+        assert preds.shape == (len(x),)
+        assert not np.isnan(preds).any()
+
+    def test_fit_completes_and_predicts_under_global_sweep(self):
+        x, y = self._xy()
+        model = ProbabilisticRegressionModel(
+            capacity_selection=CapacitySelection.GLOBAL_SWEEP,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes=5, epochs=10, validation_fraction=0.2, early_stopping_rounds=3,
+            calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+        preds = model.predict(x)
+        assert preds.shape == (len(x),)
+        assert not np.isnan(preds).any()
+
+    def test_global_cheap_without_nested_raises_precondition_not_midfit_crash(self):
+        """GLOBAL_CHEAP + the DEFAULT CONSTANT heads must name the real mistake, not crash bookkeeping.
+
+        Discriminating guard for the FP-10/PA seam (see class docstring). Without ProbReg's
+        `_fit_residual_std` override, `PyTorchModelBase._fit_single`'s residual-std block calls the
+        caller-facing `predict()` mid-fit, which the GLOBAL_CHEAP branch refuses because no k has
+        been selected yet -- surfacing as `No global k selected` and pointing the caller at the
+        wrong thing entirely. The actual mistake is the missing NESTED strategy.
+        """
+        x, y = self._xy(n=120)
+        model = ProbabilisticRegressionModel(
+            capacity_selection=CapacitySelection.GLOBAL_CHEAP,   # no NESTED, no PROBABILISTIC:
+            n_classes=4, epochs=5, validation_fraction=0.2,      # uncertainty_method defaults to CONSTANT
+            early_stopping_rounds=2, calculate_feature_importance=False,
+        )
+        with pytest.raises(RuntimeError, match="NESTED"):
+            model.fit(x, y)

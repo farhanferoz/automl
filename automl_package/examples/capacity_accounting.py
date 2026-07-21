@@ -6,17 +6,15 @@ moved there in `docs/plans/capacity_programme/flexnn-package.md` Task FP-1 (the
 existing script's `import capacity_accounting as ca` / `from automl_package.examples
 .capacity_accounting import ...` resolving unchanged).
 
-**What stays here, and why.** `executed_flops` dispatches on the four `nested_width_net.py` width
-classes (`NestedWidthNet`, `SharedTrunkPerWidthHeadNet`, `IndependentWidthNet`,
-`SharedReadoutPerWidthAffineNet`), imported by bare name below. Those classes don't move into the
-package until FP-2, and the package module must import nothing from `examples/` -- so their
-registrations stay here, registered onto the SAME `executed_flops` singledispatch function via its
-public `.register()` (the ordinary `functools.singledispatch` extension mechanism; no bespoke
-registration hook needed). FP-2's last step moves these four registrations into the package
-alongside the classes, and this file drops to a pure re-export.
+**The four `executed_flops` registrations for the `nested_width_net.py` width classes moved**
+(2026-07-21, Task FP-2's completion criterion carried from FP-1's ruling) to
+`automl_package.models.architectures.nested_width_net`, alongside the classes themselves -- this
+file no longer registers anything, only re-exports.
 
-The scripted selftest CLI also stays here, since that is example-script behavior, not package
-logic (same rationale as `convergence.py`'s selftest).
+The scripted selftest CLI stays here, since that is example-script behavior, not package logic
+(same rationale as `convergence.py`'s selftest); it still exercises the width-family registrations
+through `nwn.NestedWidthNet` etc. and `executed_flops`, now dispatching onto implementations that
+live in the package.
 
 Usage:
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/capacity_accounting.py --selftest
@@ -40,7 +38,6 @@ from automl_package.utils.capacity_accounting import (  # noqa: E402
     LOGVAR_HEAD_PATH_SUBSTRING,
     DepthNetShapeDescriptor,
     MoEShapeDescriptor,
-    _linear_macs,
     executed_flops,
     held_out_read_cost,
     param_count,
@@ -58,78 +55,6 @@ __all__ = [
     "router_fit_cost",
     "sweep_cost",
 ]
-
-
-# ---------------------------------------------------------------------------
-# executed_flops registrations for the four nested_width_net.py classes -- stay here until FP-2
-# (see module docstring). Formulas unchanged from before the FP-1 move.
-# ---------------------------------------------------------------------------
-
-
-@executed_flops.register(nwn.NestedWidthNet)
-def _executed_flops_nested_width(net: nwn.NestedWidthNet, config: int) -> int:
-    """Routed width-`config` MACs for `NestedWidthNet` (shared trunk + ONE shared mean head).
-
-    The prefix property (`nested_width_net.py` selftests (a)/(b)) guarantees hidden nodes
-    `>= config` never influence a width-`config` output -- they are zeroed before both readouts in
-    `forward_width`, so an efficient width-`config` DEPLOYMENT needs only the first `config` trunk
-    output rows and the first `config` input columns of `mean_head`, NOT the full `w_max`-wide
-    matmuls `forward_width`/`all_widths_forward` literally compute (they compute the full width
-    for masking-consistency, not for efficiency). `logvar_head` is excluded unconditionally -- see
-    module docstring (MASTER Decision 2).
-    """
-    k = config
-    if not (1 <= k <= net.w_max):
-        raise ValueError(f"config={k} out of range [1, {net.w_max}]")
-    return _linear_macs(net.trunk.in_features, k) + _linear_macs(k, net.mean_head.out_features)
-
-
-@executed_flops.register(nwn.SharedTrunkPerWidthHeadNet)
-def _executed_flops_shared_trunk_per_width_head(net: nwn.SharedTrunkPerWidthHeadNet, config: int) -> int:
-    """Routed width-`config` MACs for `SharedTrunkPerWidthHeadNet` (shared trunk, per-width heads).
-
-    Same trunk-slicing argument as `NestedWidthNet` (the prefix property is trunk-level, not
-    readout-level, so it holds for any head reading the masked hidden vector), then width-
-    `config`'s OWN `mean_heads[config - 1]`, sliced to its own first `config` input columns by the
-    same masked-to-zero argument. No logvar branch -- this class's `log_var` is a dummy zero
-    tensor, never computed (class docstring, `nested_width_net.py:236`).
-    """
-    k = config
-    if not (1 <= k <= net.w_max):
-        raise ValueError(f"config={k} out of range [1, {net.w_max}]")
-    head = net.mean_heads[k - 1]
-    return _linear_macs(net.trunk.in_features, k) + _linear_macs(k, head.out_features)
-
-
-@executed_flops.register(nwn.IndependentWidthNet)
-def _executed_flops_independent_width(net: nwn.IndependentWidthNet, config: int) -> int:
-    """Routed width-`config` MACs for `IndependentWidthNet` (K disjoint sub-nets, no sharing).
-
-    No slicing trick needed here (unlike the shared-trunk classes above) -- sub-net `config` is
-    already sized exactly `config`, with literal full compute: `trunk = Linear(1, config)` then
-    `mean_head = Linear(config, 1)`. `logvar_head` excluded unconditionally -- module docstring.
-    """
-    k = config
-    if not (1 <= k <= net.w_max):
-        raise ValueError(f"config={k} out of range [1, {net.w_max}]")
-    sub = net.subnets[k - 1]
-    trunk_lin, mean_lin = sub["trunk"], sub["mean_head"]
-    return _linear_macs(trunk_lin.in_features, trunk_lin.out_features) + _linear_macs(mean_lin.in_features, mean_lin.out_features)
-
-
-@executed_flops.register(nwn.SharedReadoutPerWidthAffineNet)
-def _executed_flops_shared_readout_per_width_affine(net: nwn.SharedReadoutPerWidthAffineNet, config: int) -> int:
-    """Routed width-`config` MACs for `SharedReadoutPerWidthAffineNet` (shared readout + per-width affine).
-
-    Same trunk- and shared-`mean_head`-slicing argument as `NestedWidthNet`, plus the width-
-    `config` affine `a_k * mean + c_k`: one multiply per sample (the shift-add is excluded under
-    this module's bias convention, same as every Linear layer here) -- `+1` MAC.
-    """
-    k = config
-    if not (1 <= k <= net.w_max):
-        raise ValueError(f"config={k} out of range [1, {net.w_max}]")
-    affine_scale_mac = 1
-    return _linear_macs(net.trunk.in_features, k) + _linear_macs(k, net.mean_head.out_features) + affine_scale_mac
 
 
 # ---------------------------------------------------------------------------

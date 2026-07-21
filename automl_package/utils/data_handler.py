@@ -98,8 +98,12 @@ class DataHandler:
         if y_train_pred_log is None:
             if model is None or x_train is None:
                 raise ValueError("Either (model, x_train) or y_train_pred_log must be provided.")
-            # Predictions from the model are always on the scaled log space (if scaling is enabled)
-            y_train_pred_log_scaled = model.predict(x_train)
+            # Predictions from the model are always on the scaled log space (if scaling is enabled).
+            # Internal bookkeeping call: routes through `_predict_for_scoring`, not the public
+            # `predict()`, so it works for a family whose public contract requires caller state
+            # beyond `x` (e.g. FlexibleWidthNN under CapacitySelection.FIXED -- capacity-programme
+            # FP-10).
+            y_train_pred_log_scaled = model._predict_for_scoring(x_train)
 
             # Unscale them if necessary
             y_train_pred_log_unscaled = self.y_scaler.inverse_transform(y_train_pred_log_scaled.reshape(-1, 1)).flatten() if self.scale_y else y_train_pred_log_scaled

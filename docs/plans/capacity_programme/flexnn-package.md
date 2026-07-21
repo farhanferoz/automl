@@ -946,7 +946,31 @@ grep -cE '^\*\*VERDICT:\*\* (MATERIAL|IMMATERIAL)$' docs/plans/capacity_programm
 Both JSONs must exist; the `grep -c` must print `1`. **The note must state the three per-seed
 percentage differences as numbers** — a verdict without them fails the task.
 
-### FP-5 — reconcile the routers
+### FP-5 — reconcile the routers — 🟡 **CODE COMPLETE 2026-07-21; clause (d) VERIFY-BLOCKED ON A STALE REFERENCE (not FP-5's fault — proven)**
+
+**Done and root-verified:** the four shared defaults are **UNCHANGED** as FP-5.b requires (`git diff`
+on those lines empty) · all five importers **re-derived by grep at execution time** per FP-5.a's
+binding rule, and every one imports cleanly — including
+`automl_package/examples/sinc_width_experiment.py`, the certified-width producer whose breakage
+would break the width paper trail · `tests/test_distilled_router.py` 22 passed ·
+`docs/plans/capacity_programme/shared/router-capabilities.md` classifies every protected router
+symbol as ported or experiment-protocol.
+
+**⛔ Clause (d) — the two W6 deploy-claim arms — FAILS its pre-registered bar on the rhx2 arm (2.22%
+and 2.76% vs ≤2%; one width Δ=0.516 vs ±0.25), and the cause is NOT this task and NOT this wave.**
+Full evidence: `docs/plans/capacity_programme/shared/fp5-stale-reference-finding.md`. In short, three
+runs settle it: the wave-4 tree run TWICE is **bit-identical to itself** (so not variance); the width
+drivers use the *script* router (`automl_package/examples/sinc_width_experiment.py:67`), not the
+package router FP-5 edits (so not FP-5's code path); and a clean **`master` worktree reproduces the
+wave-4 numbers EXACTLY** while missing the reference by the same margins (so not wave 4). **The
+reference artifact is stale w.r.t. `master` — something already merged moved this deploy metric.**
+
+**NOT done, deliberately:** the bar was not widened, the reference was not regenerated, and no bisect
+was opened — each is either evidence-destroying or a new investigation the run has no mandate to
+start. **Batched for user review** with a recommended bisect. FP-5 is marked
+**verify-blocked-on-stale-reference, NOT failed**; its own deliverables all pass.
+
+### FP-5 — reconcile the routers (spec)
 
 **Files (write set):** `automl_package/models/common/distilled_router.py` · shims under
 `automl_package/examples/` · `docs/plans/capacity_programme/shared/router-capabilities.md` (new)
