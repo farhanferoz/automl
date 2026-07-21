@@ -62,6 +62,7 @@ import convergence as cvg  # noqa: E402
 import nested_width_net as nwn  # noqa: E402
 import sinc_width_experiment as sw  # noqa: E402
 
+from automl_package.utils.capacity_accounting import LOGVAR_HEAD_PATH_SUBSTRING, executed_flops, param_count  # noqa: E402
 from automl_package.utils.pytorch_utils import get_device  # noqa: E402
 from automl_package.utils.run_provenance import run_provenance  # noqa: E402
 
@@ -77,14 +78,19 @@ N_TEST = cwe.N_TEST
 # real stop, the cap is only the safety net.
 DEFAULT_MAX_EPOCHS = 200000
 
-# Width-cert W5: widths drawn per step under the `--schedule uniform` ablation (see `--schedule` help).
-_UNIFORM_SCHEDULE_DRAW_N = 4
+# Width-cert W5: default widths drawn per step under the `--schedule uniform` ablation. WSEL-14 makes
+# this a real CLI knob (`--uniform-draw-n`, the bunch-size axis) instead of a hardcoded module constant;
+# this is only the argparse default, kept at 4 so an un-flagged invocation stays byte-identical.
+_DEFAULT_UNIFORM_SCHEDULE_DRAW_N = 4
 
 # Schedules `_train_kdropout_to_convergence` actually implements. WidthSchedule.NESTED is deliberately
 # ABSENT: this trainer has no per-example-draw branch, and before this guard existed it silently trained
 # SANDWICH instead, yielding cells labelled `nested` whose numbers were byte-identical to the certified
-# ones. Add a member here only together with its branch in the training loop.
-_IMPLEMENTED_SCHEDULES = frozenset({nwn.WidthSchedule.SANDWICH, nwn.WidthSchedule.UNIFORM})
+# ones. Add a member here only together with its branch in the training loop. WSEL-14 adds
+# WidthSchedule.ALL (every width, every step, deterministically) alongside its branch below --
+# WidthSchedule.NESTED stays out on purpose (width.md WSEL-14 non-goals: "no new schedule beyond the
+# bunch-size axis and ALL").
+_IMPLEMENTED_SCHEDULES = frozenset({nwn.WidthSchedule.SANDWICH, nwn.WidthSchedule.UNIFORM, nwn.WidthSchedule.ALL})
 # Width-cert W7: report-grade delta_tie sweep for the MSE deploy baseline; the 0.25 row must reproduce
 # the canonical `deploy_bar` (regression guard asserted in `run_case`), since `sw.DELTA_TIE == 0.25`.
 DELTA_TIE_SWEEP = (0.0, 0.1, 0.25, 0.5)
@@ -173,18 +179,22 @@ def _trunk_evals_per_step(
     net: nwn.NestedWidthNet | nwn.IndependentWidthNet | nwn.SharedTrunkPerWidthHeadNet | nwn.SharedReadoutPerWidthAffineNet,
     schedule: nwn.WidthSchedule,
     w_max: int,
+    uniform_draw_n: int,
 ) -> int:
     """WSEL-12 cost instrumentation: how many shared-trunk forward evaluations one training step pays.
 
     Shared-trunk architectures (`net.sampled_widths_forward` present) pay ONE trunk eval per step
-    regardless of how many widths SANDWICH/UNIFORM samples -- that is the fix. `IndependentWidthNet`
+    regardless of how many widths SANDWICH/UNIFORM/ALL samples -- that is the fix. `IndependentWidthNet`
     has no shared trunk to amortize, so it still pays one eval per sampled width, same as before this
-    task (its per-width sub-nets are disjoint; there is nothing to reuse).
+    task (its per-width sub-nets are disjoint; there is nothing to reuse) -- ALL costs it `w_max` evals,
+    one per width, same as sampling all of them individually.
     """
     if hasattr(net, "sampled_widths_forward"):
         return 1
     if schedule is nwn.WidthSchedule.UNIFORM:
-        return _UNIFORM_SCHEDULE_DRAW_N
+        return uniform_draw_n
+    if schedule is nwn.WidthSchedule.ALL:
+        return w_max
     mid_candidates = list(range(2, w_max))  # {2..w_max-1}, mirrors _train_kdropout_to_convergence's sandwich draw
     return 2 + min(2, len(mid_candidates))
 
@@ -204,6 +214,7 @@ def _train_kdropout_to_convergence(
     min_delta: float,
     seed: int,
     schedule: nwn.WidthSchedule = nwn.WidthSchedule.SANDWICH,
+    uniform_draw_n: int = _DEFAULT_UNIFORM_SCHEDULE_DRAW_N,
 ) -> tuple[dict[int, cvg.ConvergenceResult], int | None]:
     """One joint k-dropout run (SANDWICH default), gated by PER-WIDTH held-out convergence.
 
@@ -236,8 +247,13 @@ def _train_kdropout_to_convergence(
         min_delta: held-out-loss decrease counted as a real improvement.
         seed: RNG seed for the per-step middle-width draw.
         schedule: `WidthSchedule.SANDWICH` (default, byte-identical to the original hardcoded behavior:
-            always {1, w_max} + 2 random mids) or `WidthSchedule.UNIFORM` (W5 ablation: `_UNIFORM_SCHEDULE_DRAW_N`
-            widths drawn uniformly from {1..w_max}, NO guaranteed inclusion of {1, w_max}).
+            always {1, w_max} + 2 random mids), `WidthSchedule.UNIFORM` (W5/WSEL-14 bunch-size ablation:
+            `uniform_draw_n` widths drawn uniformly WITH replacement from {1..w_max}, NO guaranteed
+            inclusion of {1, w_max}), or `WidthSchedule.ALL` (WSEL-14: every width, every step,
+            deterministically -- not a draw).
+        uniform_draw_n: widths drawn per step under `WidthSchedule.UNIFORM` (ignored otherwise); the
+            bunch-size axis WSEL-14 turns into a real parameter (`--uniform-draw-n`, default
+            `_DEFAULT_UNIFORM_SCHEDULE_DRAW_N=4`, byte-identical to the old hardcoded value).
 
     Returns:
         `({width -> ConvergenceResult}, best_mean_val_epoch)`. Best weights are already restored (per
@@ -271,8 +287,12 @@ def _train_kdropout_to_convergence(
     for epoch in range(1, max_epochs + 1):
         opt.zero_grad()
         if schedule is nwn.WidthSchedule.UNIFORM:
-            # W5 ablation: N uniform draws from {1..w_max}, no guaranteed {1, w_max} sandwich.
-            widths = torch.randint(1, w_max + 1, (_UNIFORM_SCHEDULE_DRAW_N,), generator=gen).tolist()
+            # W5/WSEL-14 bunch-size ablation: uniform_draw_n uniform draws (with replacement) from
+            # {1..w_max}, no guaranteed {1, w_max} sandwich.
+            widths = torch.randint(1, w_max + 1, (uniform_draw_n,), generator=gen).tolist()
+        elif schedule is nwn.WidthSchedule.ALL:
+            # WSEL-14: every width, every step, deterministically -- not a draw, no RNG consumed.
+            widths = list(range(1, w_max + 1))
         else:
             widths = [1, w_max]
             if n_mid_draw:
@@ -330,6 +350,7 @@ def run_case(
     sigma: float = nwn.HETERO_NOISE_SIGMA,
     schedule: nwn.WidthSchedule = nwn.WidthSchedule.SANDWICH,
     router_hidden_mult: float = 1.0,
+    uniform_draw_n: int = _DEFAULT_UNIFORM_SCHEDULE_DRAW_N,
 ) -> dict:
     """Trains the k-dropout net to per-width convergence, then scores the frozen net for the pre-registered bars.
 
@@ -391,11 +412,21 @@ def run_case(
         min_delta=min_delta,
         seed=seed,
         schedule=schedule,
+        uniform_draw_n=uniform_draw_n,
     )
     train_wall_clock_s = time.perf_counter() - _train_t0
     # W6: the deploy router's hidden sizes, scaled off the ck6 default (mult 1.0 reproduces it exactly).
     router_hidden = tuple(max(1, round(h * router_hidden_mult)) for h in sw.ck6.HIDDEN)
     n_trustworthy = sum(1 for r in conv.values() if r.trustworthy)
+    # WSEL-14 Step 3 cost instrumentation: reuse capacity_accounting.py's dispatchers rather than
+    # re-deriving a FLOP/param formula. `params_effective` is the per-width-head triangle
+    # `1+2+...+w_max` (`shared/width_transformer_port.md` §3) -- only the first k of each width-k head's
+    # w_max input columns can ever be non-zero (the rest are masked before the readout), so it is a
+    # closed form in `w_max` alone, not read off `net`. Train/held-out MSE per width answer the
+    # regularisation question (does bunching change the train-held_out gap) regardless of `--loss`.
+    with torch.no_grad():
+        train_mse_by_width = {k: float(nwn._width_mse(net, k, x_tr_t, y_tr_t).item()) for k in range(1, w_max + 1)}
+        held_out_mse_by_width = {k: float(nwn._width_mse(net, k, x_val_t, y_val_t).item()) for k in range(1, w_max + 1)}
     case = {
         "seed": seed,
         "arch": arch.value,
@@ -408,7 +439,14 @@ def run_case(
         # (arch, schedule)-determined trunk-eval count per step, aggregated into summary["config"] by
         # `main()` (`docs/plans/capacity_programme/width.md` lines 1071-1074).
         "train_wall_clock_s": train_wall_clock_s,
-        "trunk_evals_per_step": _trunk_evals_per_step(net, schedule, w_max),
+        "trunk_evals_per_step": _trunk_evals_per_step(net, schedule, w_max, uniform_draw_n),
+        # WSEL-14 Step 3 cost instrumentation (additive only -- no key above this line changed).
+        "steps_to_converge": max(r.stop_epoch for r in conv.values()),
+        "params_allocated": param_count(net, path_filter=LOGVAR_HEAD_PATH_SUBSTRING),
+        "params_effective": w_max * (w_max + 1) // 2,
+        "executed_flops_by_width": {k: executed_flops(net, k) for k in range(1, w_max + 1)},
+        "train_mse_by_width": train_mse_by_width,
+        "held_out_mse_by_width": held_out_mse_by_width,
     }
 
     if loss is LossType.NLL:
@@ -633,6 +671,17 @@ def _summary_filename(arch: Arch, loss: LossType, toy: nwn.Toy, n_train: int, si
     return "_".join(parts) + ".json"
 
 
+def _resolve_results_dir(results_dir_arg: str | None) -> str:
+    """WSEL-14: `--results-dir` override if given, else this module's historic default (`RESULTS_DIR`).
+
+    Kept as its own function (rather than inlined in `main()`) so the "absence resolves to the legacy
+    directory" contract is unit-testable without invoking argparse or a real training run -- other
+    drivers importing this module (`width_wsel13.py`, `width_wsel15.py`) depend on that default never
+    silently moving.
+    """
+    return results_dir_arg if results_dir_arg is not None else RESULTS_DIR
+
+
 def main() -> None:
     """Runs the k-dropout convergence-gated width battery (or `--smoke` / `--selftest`)."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -650,8 +699,26 @@ def main() -> None:
     parser.add_argument("--n-test", type=int, default=None, help="Override test N (default 500 hetero / 750 hetero3).")
     parser.add_argument("--sigma", type=float, default=nwn.HETERO_NOISE_SIGMA, help="Common-mode noise std for hetero (WP-4 ladder; floor_hard=sigma**2). Ignored by hetero3.")
     parser.add_argument("--tag", type=str, default=None, help="Optional filename suffix (keeps ladder cells / confirmation runs from clobbering canonical files).")
-    parser.add_argument("--schedule", choices=[nwn.WidthSchedule.SANDWICH.value, nwn.WidthSchedule.UNIFORM.value], default=nwn.WidthSchedule.SANDWICH.value,
-                        help="W5 width schedule: sandwich (default, {1,w_max}+2 mid) or uniform (N uniform draws, no guarantee).")
+    parser.add_argument(
+        "--results-dir",
+        type=str,
+        default=None,
+        help="Override the output directory (default: this module's historic capacity_ladder_results/W_KDROPOUT_CONVERGED/, "
+        "unchanged when the flag is absent -- other drivers, e.g. width_wsel13.py/width_wsel15.py, import this module and must "
+        "keep landing there). WSEL-14: point the schedule x bunch-size grid at capacity_ladder_results/WSEL14/ instead.",
+    )
+    parser.add_argument(
+        "--schedule",
+        choices=[nwn.WidthSchedule.SANDWICH.value, nwn.WidthSchedule.UNIFORM.value, nwn.WidthSchedule.ALL.value],
+        default=nwn.WidthSchedule.SANDWICH.value,
+        help="W5/WSEL-14 width schedule: sandwich (default, {1,w_max}+2 mid), uniform (--uniform-draw-n draws, no guarantee), or all (every width, every step, deterministic).",
+    )
+    parser.add_argument(
+        "--uniform-draw-n",
+        type=int,
+        default=_DEFAULT_UNIFORM_SCHEDULE_DRAW_N,
+        help="WSEL-14 bunch-size axis: widths drawn per step under --schedule uniform (ignored otherwise; default 4, byte-identical to the old hardcoded value).",
+    )
     parser.add_argument("--router-hidden-mult", type=float, default=1.0,
                         help="W6: scale deploy-router hidden off ck6.HIDDEN=(32,32) (0.5=half, 2.0=double; 1.0=canonical).")
     parser.add_argument("--w-max", type=int, default=None, help="W8: max width / number of levels (default 12=W_MAX; scan couples #levels with total trunk size).")
@@ -679,12 +746,14 @@ def main() -> None:
         n_train = args.n_train if args.n_train is not None else default_n_train
         n_test = args.n_test if args.n_test is not None else default_n_test
 
+    results_dir = _resolve_results_dir(args.results_dir)
+
     print(
         f"[kdropout-converged] device={device} arch={arch.value} loss={loss.value} toy={toy.value} sigma={sigma:g} "
         f"seeds={seeds} w_max={w_max} n_train={n_train} n_test={n_test} max_epochs_cap={max_epochs} check_every={args.check_every} tag={tag}",
         flush=True,
     )
-    os.makedirs(RESULTS_DIR, exist_ok=True)
+    os.makedirs(results_dir, exist_ok=True)
 
     per_case = []
     for seed in seeds:
@@ -692,7 +761,7 @@ def main() -> None:
         case = run_case(
             seed, w_max, n_train, n_test, max_epochs, device,
             arch=arch, loss=loss, check_every=args.check_every, patience=args.patience, min_delta=args.min_delta, toy=toy, sigma=sigma,
-            schedule=schedule, router_hidden_mult=args.router_hidden_mult,
+            schedule=schedule, router_hidden_mult=args.router_hidden_mult, uniform_draw_n=args.uniform_draw_n,
         )
         per_case.append(case)
         if loss is LossType.NLL:
@@ -710,10 +779,11 @@ def main() -> None:
     if save:
         # Filename encodes arch/loss (+ toy/n/sigma/tag for non-canonical cells) so concurrent battery
         # arms and the WP-3/WP-4 ladders never write the same file — the plan's §7 two-writers warning.
-        path = os.path.join(RESULTS_DIR, _summary_filename(arch, loss, toy, n_train, sigma, tag))
+        path = os.path.join(results_dir, _summary_filename(arch, loss, toy, n_train, sigma, tag))
         summary = {
             "config": {
                 "schedule": f"kdropout_{schedule.value}",
+                "uniform_draw_n": args.uniform_draw_n,
                 "router_hidden_mult": args.router_hidden_mult,
                 "arch": arch.value,
                 "loss": loss.value,

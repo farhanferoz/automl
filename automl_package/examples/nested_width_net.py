@@ -114,6 +114,7 @@ class WidthSchedule(enum.Enum):
     NESTED = "nested"  # W1: per-example uniform width draw each epoch (default; sinc keeps using this).
     SANDWICH = "sandwich"  # W2 fix: every step ALWAYS trains width=1 and width=w_max (+2 random mid).
     UNIFORM = "uniform"  # W5 ablation: draw N widths uniformly per step, NO always-include-{1, w_max} guarantee.
+    ALL = "all"  # WSEL-14: every width trained every step, DETERMINISTICALLY (not a draw) -- b=12(=ALL).
 
 
 # The four architecture classes (NestedWidthNet, IndependentWidthNet, SharedTrunkPerWidthHeadNet,
