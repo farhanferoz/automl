@@ -1,5 +1,37 @@
 # Strand: depth — feed-forward depth (PRIMARY) and depth selection
 
+# ⛔⛔ THIS ENTIRE STRAND IS PARKED — user ruling, 2026-07-21. DO NOT DISPATCH ANYTHING FROM IT. ⛔⛔
+
+**"Let's park depth completely" (user, 2026-07-21, in discussion).** This supersedes the earlier
+strand-local park, which only blocked downstream reads. **NOTHING in this file is dispatchable** —
+not the positive-control re-runs, not the per-depth-readout variant, not the regularised variant, not
+the selection tasks, not the report. The live programme is **width** (`width.md`) and **ProbReg**
+(`probreg.md`) only.
+
+**Why it is parked and not abandoned.** The evidence that stopped it is real and is not overturned:
+the positive control fails on every arm and both seeds, at 0.93–1.00 train accuracy against ~0.5
+test — memorisation without generalisation, with optimisation already exonerated by that gap
+(MASTER Decision 16). **Two cheap levers remain untried and are recorded here so the unpark does not
+have to re-derive them:**
+1. **Per-depth output layers.** Every failed cell ran the SHARED readout — the analogue of the width
+   design that FAILED. The per-depth variant is already implemented (the flag exists on the
+   feed-forward classifier) and **has never been run.**
+2. **Regularisation.** Pinned at zero (`weight_decay: 0.0, dropout: 0.0`) by instruction, on a net
+   memorising most of a small enumerated vocabulary.
+**Neither has a written task.** Writing them is the FIRST action on unpark, and it is a root action,
+not a dispatch.
+
+**Also required before any depth result is positioned as novel:** a literature survey of early
+exiting / layer skipping in transformer stacks, to the standard of the width strand's
+(`docs/plans/width_dial_2026-07-11/nested_architecture_research_2026-07-11.md`). **None exists**
+(MASTER Decision 22e).
+
+**What still holds while parked:** the depth material in `shared/width_transformer_port.md` §7 — the
+structural argument that depth is the better transformer target — is an INPUT to this strand,
+recorded, not acted on.
+
+---
+
 **Owns depth from the certification forward.** Read `MASTER.md` + this file — that is the whole
 context. If another document disagrees with this one about feed-forward depth or about depth
 *selection*, **this one wins and the other is a bug to fix**.

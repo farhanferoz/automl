@@ -21,7 +21,7 @@ copy (gate: `test_plan_gates.py`).
 | 6 | `flexnn-core.md` | Package refactor + FF-depth pilot + unified report | — | **yes** — but see the SPLIT note below; this file is 4 workstreams in one |
 | 7 | `probreg.md` | **ProbReg k-selection: models M1/M2/M3, defects, battery, report** | — | **yes — the live workstream (user, 2026-07-20)** |
 | 8 | `width.md` | **Width SELECTION: the three ways of choosing a width, the studies, battery, report.** Architecture certification stays in `width-cert.md` (CLOSED) | `flexnn-package.md` FP-3, FP-9 | **yes — DISPATCHABLE** (repair closed 2026-07-20; WSEL-9 ⏸ PARKED, toys-only) |
-| 9 | `depth-selection.md` | **FEED-FORWARD depth (the object) + depth selection.** Recurrent arm PARKED. Absorbs the FF-depth study out of `flexnn-core.md` | `flexnn-package.md` FP-3, FP-5, FP-6, FP-9 | **yes — DISPATCHABLE** (repair closed 2026-07-20; DSEL-11 ⏸ PARKED, toys-only) |
+| 9 | `depth-selection.md` | **FEED-FORWARD depth (the object) + depth selection.** | — | **⛔ ENTIRE STRAND PARKED (user, 2026-07-21): "let's park depth completely". NOTHING dispatchable.** Supersedes the earlier strand-local block. Two untried levers (per-depth output layers; regularisation) and a missing literature survey are recorded in the strand header for whoever unparks it; neither lever has a written task, and writing them is a ROOT action on unpark. **Live programme = width + ProbReg only.** |
 | 10 | `flexnn-package.md` | **The codebase**: package-vs-scripts boundary, the ONE selection API, router de-duplication, shared selection primitives, cleanup | — | **yes — DISPATCHABLE** (repair closed 2026-07-20; boundary rule ratified as Decision 19) |
 
 **⚠ SPLIT PENDING on `flexnn-core.md` (opened 2026-07-20).** That file is 54KB holding FOUR

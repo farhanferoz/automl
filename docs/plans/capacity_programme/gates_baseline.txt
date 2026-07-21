@@ -77,3 +77,7 @@ automl_package/examples/capacity_ladder_results/WSEL14/frozen.json   # WSEL-14 v
 tests/test_prefix_norm_equivalence.py                                # WSEL-15 Step 1 (verify 1, pytest)
 automl_package/examples/width_wsel15.py                              # WSEL-15 write set (verify 2, --selftest)
 automl_package/examples/capacity_ladder_results/WSEL15/frozen.json   # WSEL-15 Step 5 (verify 4)
+automl_package/examples/width_candidates.py                          # WSEL-15 write set (the ONE candidates module, §3.9)
+automl_package/examples/width_wsel16.py                              # WSEL-16 write set (verify 2, --selftest)
+tests/test_stopgrad_width_loss.py                                    # WSEL-16 Step 1 (verify 1, pytest)
+automl_package/examples/capacity_ladder_results/WSEL16/frozen.json   # WSEL-16 Step 6 (verify 5)

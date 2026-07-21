@@ -366,6 +366,122 @@ fit a variance at all — its `log_var` is a dummy zero tensor that never enters
 (`automl_package/models/architectures/nested_width_net.py:179-181`). The exposure is confined to the
 two OTHER classes (`NestedWidthNet`, `IndependentWidthNet`) and to whichever loss flag a driver picks.
 
+## 3.8 THE CANONICAL TOY SUITE — the SAME SET across every width architecture and experiment (user, 2026-07-21)
+
+**Why this exists.** The strand is about to compare four ARCHITECTURES and several SCHEDULES against
+each other. A comparison whose arms quietly ran on different data, widths or seeds is not a
+comparison, and the drift is invisible once the numbers reach a table. **User instruction,
+2026-07-21: the same toy problems apply across all width architectures and experiments, so the
+comparison is like-for-like.** *(Corrected the same day — the first draft of this section said "one
+canonical toy". Wrong: this strand has a SUITE, and like-for-like means the same SUITE, not the same
+single cell.)* Written here ONCE; §4 tasks reference it and none restates it.
+
+**Fixed on every cell of every tier:** `w_max = 12` · seeds **0, 1, 2** · **squared error, mean-only**
+(`--loss mse` explicit — §3.7; the driver default is the forbidden one) · `lr = 1e-2` · the strand's
+convergence gate unchanged with `hit_cap: false` required · `OMP_NUM_THREADS=4` pinned (the metric
+moves up to ~5% with thread count, `shared/fp5-stale-reference-finding.md`).
+Constants: `automl_package/examples/converged_width_experiment.py:45-49`.
+
+### The three tiers — exact cells, no judgement calls
+
+- **TIER 1 — the reference cell.** `--toy hetero --n-train 1500 --n-test 500 --sigma 0.05`.
+  **3 runs per arm** (seeds 0, 1, 2). The 2-region easy-line + width-hungry-sine target
+  (`automl_package/examples/nested_width_net.py:143`); the ladder toy the certification was read on.
+- **TIER 2 — the noisy-easy control.** `--toy hetero3 --n-train 2250 --n-test 750 --sigma 0.05`.
+  **3 runs per arm** (seeds 0, 1, 2). Adds a NOISY-easy region, which catches an arm that reads
+  *error* where it should read *capacity* — the one failure mode the certification specifically
+  probed.
+- **TIER 3 — the data × noise ladder.** `--toy hetero`, `--n-train ∈ {200, 500, 1500, 4000}` ×
+  `--sigma ∈ {0.05, 0.15, 0.5}`, `--n-test` left at the driver default.
+  **36 runs per arm** (12 cells × 3 seeds). Separates a property of the design from a property of one
+  data size or noise level. Ledger precedent: the `_n*_s*_wp4` cells already on disk.
+
+### Which task runs which tier — FIXED. An implementer reads its row and runs exactly that.
+
+| Task | Tier 1 | Tier 2 | Tier 3 | Runs |
+|---|---|---|---|---|
+| **WSEL-11** (re-run) | ✅ | ❌ | ❌ | 3 per λ × 3 λ = **9** |
+| **WSEL-13** ordering | ✅ | ✅ | ❌ | **6** |
+| **WSEL-14** schedule × bunch | ✅ | ❌ | ❌ | 3 per arm × 5 arms = **15** |
+| **WSEL-15** normalisation | ✅ | ✅ | ❌ | 3 per arm × 3 arms × 2 tiers = **18** |
+| **WSEL-16** architectures, stage 1 | ✅ | ✅ | ❌ | 3 per arm × 5 arms × 2 tiers = **30** |
+| **WSEL-16** architectures, stage 3 | — | — | ✅ | 36 × **the 2 finalist arms only** = **72** |
+
+**Rules — mechanical, nothing left to interpret:**
+- **Tier 3 runs for exactly two arms**: the certified per-width-head design, and whichever candidate
+  wins WSEL-16's stage 1. Never more. 72 runs is already the largest block in this strand.
+- **A tier-1-only task may not state an architecture verdict.** It may state cost, timing,
+  equivalence and mechanism results. The tasks above are written so that this never has to be
+  adjudicated: a task's row IS its licence.
+- **A task deviating on any constant above carries a written justification IN THE TASK naming the
+  constant and why.** No silent deviation; no deviation discovered afterwards inside a results file.
+- **A deviating cell may not be tabulated beside a canonical one** unless the deviation is named in
+  the same table.
+- `automl_package/examples/sinc_width_experiment.py`'s sinc toy is a DIFFERENT lineage — the certified
+  router producer, not an arm here. Its cells never enter these tables.
+- **The older comparison chain (WSEL-3, WSEL-4, WSEL-6, WSEL-7, WSEL-8) is NOT assigned above**, and
+  that is deliberate rather than an omission: each already carries its own cell spec, written before
+  this section existed. **Their rows are added by the root, by reading each spec against this suite,
+  at the point WSEL-11's re-run unblocks them.** Nothing is guessed here.
+- **WSEL-11's re-run moves to 3 seeds** to comply; its original 2-seed pre-registration is superseded,
+  which is safe precisely because the re-run is a new run under a corrected objective, not a
+  re-reading of the discarded one.
+
+## 3.9 CODE ORGANISATION FOR WIDTH ARCHITECTURES — reuse-first, ONE home, NO duplication (user, 2026-07-21)
+
+**User instruction:** organise the architectures, keep them under the FlexNN umbrella, **no
+duplication**, and clean up. **Answer to "are they all in FlexNN?" — NO, and there is already a
+duplicate pair.** Inventory below is read off disk 2026-07-21, not recalled.
+
+### Inventory — every width architecture that exists today
+
+| Class | Lives in | Status | Fits variance? |
+|---|---|---|---|
+| `NestedWidthNet` (Design A: one output weight per unit) | `automl_package/models/architectures/nested_width_net.py:39-111` | package · FAILED-under-joint-training, kept as negative control | yes (`logvar_head`) |
+| `SharedTrunkPerWidthHeadNet` (Design B: per-width output layer, `Linear(w_max -> 1)` + masking) | same file `:164-230` | package · **CERTIFIED** | no (dummy zeros) |
+| `IndependentWidthNet` (12 disjoint sub-nets) | same file `:114-161` | package · positive control | yes |
+| `SharedReadoutPerWidthAffineNet` (shared readout + 2-param per-width affine) | same file `:233-277` | package · minimum-seam arm | no (dummy zeros) |
+| `MatryoshkaWidthNet` (per-rung DEDICATED heads, `Linear(k -> 1)`) + `train_matryoshka` | `automl_package/examples/matryoshka_width_net.py:62,111` | **examples · NEVER RUN, never promoted** | **yes** (per-rung `logvar_head_k`) |
+| `ResidualCascadeNet` (frozen residual cascade = staged boosting) + `train_cascade` | `automl_package/examples/cascade_width_net.py:80,157` | **examples · built, never compared** | **yes** (additive log-variance, NGBoost parametrisation) |
+
+### The three findings this inventory produces — act on them, do not re-derive them
+
+1. **DUPLICATE PAIR — `MatryoshkaWidthNet` vs `SharedTrunkPerWidthHeadNet`.** Both are "shared trunk,
+   a dedicated output layer per width". They differ in ONE implementation detail: Matryoshka's head
+   `k` is `Linear(k -> 1)` (sized to the prefix), the certified head is `Linear(w_max -> 1)` reading a
+   masked vector, whose columns `>= k` provably cannot influence the output. **Same design, two
+   implementations, different nominal parameter counts.** The certified class's own docstring
+   (`:170-177`) already records why the masked form was chosen — it keeps exactly one variable moving
+   against `NestedWidthNet`. **Consolidation is WSEL-17. Nothing new may be written against
+   `MatryoshkaWidthNet` in the meantime.**
+2. **THE BOOSTING ARM IS ALREADY IMPLEMENTED — do NOT write a new one.** `ResidualCascadeNet` is the
+   staged frozen cascade. Its docstring records the lemma that matters (`cascade_width_net.py:11-14`):
+   **a sum of `k` width-1 tanh blocks is EXACTLY a width-`k` single-hidden-layer tanh network**, so
+   the cascade's rung-`k` function class equals `NestedWidthNet`'s width-`k` class, plus one extra
+   freedom (a per-prefix readout bias). **This is on-disk confirmation of the account in
+   `shared/width_transformer_port.md` §1: the cascade is not a third architecture, it is Design A with
+   a different training scheme.**
+3. **BOTH examples-side classes FIT VARIANCE and are therefore UNUSABLE as written** (§3.7, MASTER
+   Decision 2). Neither may enter a comparison until ported to mean-only. That port is scoped inside
+   the task that first needs it, never done ad hoc.
+
+### The rules (binding on WSEL-15, WSEL-16, WSEL-17 and anything later)
+
+- **REUSE FIRST — the ladder, rung 2.** Before writing any width net, class or training loop, check
+  this inventory. **Extending an existing class is required; a near-copy is a defect, not a style
+  choice.** A task that writes a new architecture states in its report which inventory rows it
+  checked and why none fits.
+- **ONE home per lifecycle stage.** Certified architectures live in
+  `automl_package/models/architectures/nested_width_net.py`. **Candidates under test live in exactly
+  ONE module, `automl_package/examples/width_candidates.py`** — not one per driver, and not a new
+  file per idea. Created by WSEL-15, extended by WSEL-16 (so those two SERIALISE on that file; see
+  their deps).
+- **Promotion is a task, never a side effect.** A candidate moves from `examples/` to the package only
+  via a task whose verify line reproduces the certified reference numbers. This is what
+  `MatryoshkaWidthNet` and `ResidualCascadeNet` never got, which is why they are stranded.
+- **Every candidate is MEAN-ONLY** (§3.7). A variance-fitting class is ported, never wrapped in a
+  driver that quietly passes it a likelihood loss.
+
 ## 4. Tasks
 
 Order: **WSEL-0 → WSEL-1 → WSEL-2 → WSEL-3 → WSEL-4 → WSEL-5 → (WSEL-6 ∥ WSEL-7 ∥ WSEL-11) → WSEL-8 →
@@ -379,10 +495,15 @@ WSEL-12 → WSEL-14, with WSEL-13 parallel to both.**
   the same wave, and WSEL-14 must be briefed only after WSEL-12 has merged. Write-set overlap, not
   topic overlap, is what decides this (MASTER, single-writer rule).
 - **WSEL-13 is disjoint** (new file only) and dispatches in parallel with either.
-- **WSEL-15** (normalisation / transformer-port repairs, added 2026-07-21) is also new-file-only and
-  disjoint from everything; it deps on WSEL-12 only so its cost numbers are measured on the fixed
-  loop and land in the same table as WSEL-14's.
+- **WSEL-15 → WSEL-16 → WSEL-17 is a SERIAL chain** (added 2026-07-21): WSEL-15 creates
+  `automl_package/examples/width_candidates.py`, WSEL-16 extends it, WSEL-17 consolidates the package
+  module. Shared write sets — never the same wave. WSEL-16 additionally needs WSEL-13's ordering
+  statistic landed, and WSEL-17 needs WSEL-16's winner.
+- **Full order for this track:** `WSEL-12 → (WSEL-14 ∥ WSEL-15) → WSEL-16 → WSEL-17`, with
+  **WSEL-13 parallel to all of it** and required before WSEL-16 reads out.
 - **Every task in this section is MEAN-ONLY — see §3.7. The driver default fits variance.**
+- **Every task in this section runs the toy tiers assigned in §3.8. No task chooses its own cells.**
+- **Reuse before writing: §3.9's inventory is binding. A new nested-width class is a defect.**
 - **Both WSEL-12 and WSEL-14 produce a DRIVER; the ROOT runs the grid** backgrounded — a subagent may
   author a sweep but may never own its execution (MASTER §Rules, Environment).
 *(**WSEL-9 is ⏸ PARKED** by the 2026-07-20 toys-only ruling and is deliberately absent from this
@@ -1039,16 +1160,20 @@ of the strand, so the answer is comparable rather than a side-experiment: **does
 cost, does it cost accuracy?**
 
 **Files (write set):** `automl_package/examples/width_wsel15.py` (Create) ·
+**`automl_package/examples/width_candidates.py` (CREATE — the ONE home for candidate width
+architectures, §3.9; WSEL-16 extends it afterwards)** ·
 `automl_package/examples/capacity_ladder_results/WSEL15/` (Create by runs)
 **Reads (never writes):** `automl_package/models/architectures/nested_width_net.py` ·
 `automl_package/examples/kdropout_converged_width_experiment.py`
 
-**Where the candidate architecture lives, and why (boundary rule, MASTER Decision 19).** The
-normalised variant is defined **in the driver**, not in the package: it is a candidate under test, not
-a certified architecture, and the package holds architectures of record. It carries a comment saying
-exactly that. **Promotion into the package is a SEPARATE later task, and only if this one passes** —
-this keeps the write set disjoint from the package chain (which FP-4/FP-10/WSEL-3 all write) so this
-task can run in parallel with them.
+**Where the candidate architecture lives, and why (boundary rule, MASTER Decision 19; organisation
+rule §3.9).** The normalised variant goes in `automl_package/examples/width_candidates.py` — **not in
+the driver, and not in a file of its own.** Candidates under test live in exactly one module; the
+package holds architectures of record. **It must be a thin wrapper over
+`SharedTrunkPerWidthHeadNet`, not a copy of it** — §3.9's inventory already carries one duplicate pair
+and this task must not add another. Promotion into the package is WSEL-17's job, gated on this task
+passing. Keeping candidates out of the package also keeps this write set clear of the package chain
+(FP-4/FP-10/WSEL-3), so this task runs in parallel with them.
 
 **Arms (all on the certified `SharedTrunkPerWidthHeadNet` shape, MSE-only per §3.7):**
 - **A — no normalisation.** The certified net, unchanged. The reference.
@@ -1115,6 +1240,203 @@ passes with the prove-it-fails run shown; (2)
 PASS; (3) 9 JSONs under `automl_package/examples/capacity_ladder_results/WSEL15/`, each carrying every
 field in Step 3 and `hit_cap: false`; (4)
 `automl_package/examples/capacity_ladder_results/WSEL15/frozen.json` carries every field in Step 5.
+
+### WSEL-16 — the architecture comparison: can the CHEAP structure be trained to work?
+
+**The question, stated once.** Two structures produce a width dial from one shared hidden layer:
+
+- **Design A — one output weight per unit.** Width-k prediction `= b + Σ_{j<=k} w_j * h_j`. The weight
+  on `h_1` is the same number at every width. `NestedWidthNet`
+  (`automl_package/models/architectures/nested_width_net.py:39-111`). At `w_max=12`: **13 output
+  parameters.** **Trained normally, this FAILS** (MASTER Decision 1).
+- **Design B — a separate output layer per width.** Width-k has its own weights on `h_1..h_k`.
+  `SharedTrunkPerWidthHeadNet` (`:164-230`). At `w_max=12`: **78 effective output weights + 12
+  biases.** **Certified: `G-WIDTH = PASS`.**
+
+**Design A is 6x cheaper in output parameters and it is the structure the ordering theory is written
+for** (the running-sum form). Its failure is a TRAINING failure, not a structural one: `w_1` receives
+gradient from all 12 width terms and is pulled 12 ways at once — the tug-of-war
+(`shared/width_transformer_port.md` §1). **This task asks whether a training change fixes it.**
+
+**Files (write set):** `automl_package/examples/width_wsel16.py` (Create) ·
+`automl_package/examples/width_candidates.py` (EXTEND — created by WSEL-15; **this is why the two
+serialise**) · `automl_package/examples/capacity_ladder_results/WSEL16/` (Create by runs)
+**Reads (never writes):** `automl_package/models/architectures/nested_width_net.py` ·
+`automl_package/examples/cascade_width_net.py` · `automl_package/examples/width_wsel13.py` (imports
+its ordering statistic — **rung 2 of the ladder: import it, do not reimplement it**) ·
+`automl_package/utils/capacity_accounting.py`
+
+**⚠️ REUSE INVENTORY — READ §3.9 BEFORE WRITING ANY CLASS.** Four of this task's six arms need NO new
+architecture at all: three are package classes, and the staged-boosting arm is
+`cascade_width_net.ResidualCascadeNet`, **already implemented**. Only the gate arm is new, and it is a
+thin wrapper. **Writing a fresh nested-width class here is a defect** — the plan already carries a
+duplicate pair (§3.9 finding 1) and this task must not add a third.
+
+#### The five stage-1 arms — exact definitions, nothing left to choose
+
+Let `h = hidden(x)` (shape `(N, 12)`), `c_j = w_j * h[:, j]` the per-unit contribution, and
+`S_k = b + Σ_{j<=k} c_j` the width-k running sum.
+
+1. **`B_HEADS`** — `SharedTrunkPerWidthHeadNet`, loss `Σ_k MSE(head_k(mask_k(h)), y)`. **THE
+   REFERENCE.** Unchanged from the certified run.
+2. **`A_JOINT`** — `NestedWidthNet`, loss `Σ_k MSE(S_k, y)`. **NEGATIVE CONTROL — this must FAIL.**
+3. **`A_STOPGRAD`** — same structure and same loss shape, one change:
+   `Σ_k MSE(detach(S_k - c_k) + c_k, y)`. Each unit is then trained only against what the units
+   before it left over; `w_1` feels only the width-1 term. Computed in ONE pass from the cumulative
+   sums — no python loop over widths, no staging, no extra forward.
+4. **`A_GATES`** — **the ONLY new code in this task**, a thin wrapper over `NestedWidthNet` added to
+   `automl_package/examples/width_candidates.py` (never a new nested-width class). Same structure,
+   contribution `c_j = g_j * w_j * h[:, j]` with
+   `g_j = exp(-softplus(nu) * (j - 1))`, `nu` a **single learnable scalar** initialised so
+   `g_12 = 0.5` (i.e. `softplus(nu) = ln(2)/11`). Monotonically decreasing in `j` **by construction**,
+   one extra parameter, **no penalty term added to the loss** (the strand's no-arbitrary-penalty rule
+   holds). Loss is `A_JOINT`'s. ⚠️ **This is OUR simplification of the published monotone-gate
+   mechanism, which derives its gate from a variational bound; we are not reproducing that
+   derivation, and the arm must be labelled as a simplification wherever it is reported.**
+5. **`INDEPENDENT`** — `IndependentWidthNet`, 12 disjoint sub-nets. **POSITIVE CONTROL / ceiling.**
+
+#### Steps
+
+- [ ] **Step 1 — the stop-gradient identity test, BEFORE any training.**
+  `tests/test_stopgrad_width_loss.py`: on a fixed seed and fixed `(64, 1)` input, assert (a) the
+  stop-gradient loss VALUE equals the plain summed loss value exactly (`detach` changes gradients, not
+  values), and (b) the gradient of `w_1` under stop-gradient equals the gradient of `w_1` from the
+  width-1 term ALONE. **Prove-it-fails:** drop the `detach`, show (b) FAILS, restore. If (b) cannot be
+  made to pass, the arm is mis-implemented and the task STOPS here.
+- [ ] **Step 2 — build the five arms** in the driver, sharing the toy, schedule, convergence gate and
+  selection rule with the rest of the strand. **Squared error, mean-only, `--loss mse` explicit
+  (§3.7).**
+- [ ] **Step 3 — CONTROLS FIRST, ALONE (MASTER Decision 14).** Run `A_JOINT` and `INDEPENDENT` on
+  tier 1 only, 3 seeds, before spending anything on the candidates.
+  **HALT CONDITIONS — either one stops the task and escalates:**
+  (a) `A_JOINT` does NOT fail — i.e. its per-width held-out MSE is within 10% of `B_HEADS` at every
+  width. The premise of this task would then be wrong and the failure that motivates it unreproduced.
+  (b) `INDEPENDENT` does not reach its certified fit bar against
+  `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_independent_mse.json`.
+- [ ] **Step 4 — stage 1 grid (ROOT runs it, backgrounded).** 5 arms × tier 1 + tier 2 × seeds 0/1/2 =
+  **30 runs**, `--tag wsel16_<arm>_<tier>`.
+- [ ] **Step 5 — record per arm:** per-width held-out MSE · **full-width held-out MSE** · train-minus-
+  held-out gap per width · `params_allocated` and `params_effective` · `executed_flops` per width via
+  `automl_package/utils/capacity_accounting.py` · `train_wall_clock_s` · `steps_to_converge` · the
+  **ordering statistic imported from WSEL-13** · the width selected by BOTH rules (cheapest-within-
+  tolerance globally, and the distilled per-input router).
+- [ ] **Step 6 — write `automl_package/examples/capacity_ladder_results/WSEL16/frozen.json`** with
+  every field in Step 5 per arm, plus `controls_passed: bool`, `stage1_winner: str`,
+  `stage2_required: bool`.
+
+#### Pre-registered bars (fixed BEFORE the run; no bar edits after seeing numbers)
+
+- **PRIMARY — full-width accuracy.** `A_STOPGRAD`'s full-width held-out MSE within **10%** of
+  `B_HEADS`', on tier 1 **and** tier 2, on **all 3 seeds**. *(This is where greedy training is
+  expected to hurt if it hurts at all: every unit fits only the leftover and no unit is ever adjusted
+  to work better in the final combination.)*
+- **ORDERING.** `A_STOPGRAD`'s ordering statistic at least as strong as `B_HEADS`' on the same
+  measure and the same cells.
+- **COST.** Report both parameter counts (13 vs 90 at `w_max=12`) and require `A_STOPGRAD`'s
+  wall-clock per step within **1.3x** of `B_HEADS`'.
+- **DECISION RULE, mechanical:** `stage1_winner = A_STOPGRAD` if PRIMARY and ORDERING both pass;
+  else `A_GATES` if it passes both; else `B_HEADS`, and `stage2_required = true`.
+
+#### Stage 2 — CONDITIONAL, runs only if `stage2_required` (tier 1 only, 3 arms × 3 seeds = 9 runs)
+
+Its purpose is to separate **"greedy hurts"** from **"the moving target hurts"** — under stop-gradient
+each unit fits a predecessor that is still changing, which staged boosting never does.
+- **`A_CORRECTIVE`** — `A_STOPGRAD`, plus: after every 2000 epochs, 200 optimizer steps on the plain
+  summed loss (no `detach`), then resume. Removes greediness, keeps the moving target.
+- **`A_STOPGRAD_DISTILL`** — `A_STOPGRAD` with the target for every `k < 12` replaced by
+  `detach(S_12)`; `k = 12` keeps the true target `y`. Costs nothing extra per step.
+- **`A_CASCADE_STAGED`** — **`cascade_width_net.ResidualCascadeNet` + `train_cascade`, ALREADY
+  IMPLEMENTED (`automl_package/examples/cascade_width_net.py:80,157`) — do not rewrite it.** The
+  literal staged frozen cascade: the upper bound on what strict ordering buys, and the arm that
+  isolates the moving target (it has none — each block trains against a converged, frozen prefix).
+  **Required port before it runs: it is variance-fitting** (additive log-variance, NGBoost
+  parametrisation) and must be run mean-only per §3.7. **That port is scoped HERE and nowhere else** —
+  add a squared-error stage loss alongside the existing likelihood one, leaving the existing path
+  byte-identical, exactly as the width driver carries both. Its per-prefix readout bias is an extra
+  freedom versus `A_STOPGRAD` (`cascade_width_net.py:11-14`) and must be named when the two are
+  tabulated together.
+  *(This arm was previously written as "staged boosting is explicitly OUT". That was wrong the moment
+  the inventory was read: it is not future work to be avoided, it is code sitting on disk, and running
+  it is cheaper than arguing about whether staging would have helped.)*
+
+#### Stage 3 — the generality check (tier 3, **2 finalist arms ONLY**, 36 runs each = 72 runs)
+
+`B_HEADS` and the stage-1/stage-2 winner, across the data x noise ladder. **Bar:** the winner holds
+the PRIMARY bar at **every** ladder cell. A design that wins at `n=1500, sigma=0.05` and loses at
+`n=200` or `sigma=0.5` is a cell-specific result and must be reported as one.
+
+**Compute note for the root:** worst case **111 runs** (30 + 9 + 72). Stage 3 alone is the largest
+block in this strand. Run backgrounded, land each cell's JSON the moment it is produced, `--config`
+one seed per invocation.
+
+**Non-goals:** no real data, no transformer, no multi-layer net, no variance fitting, no new selection
+*rule*, no change to the toy suite, no promotion of any candidate into the package (that is WSEL-17's
+job and it is gated on this task's outcome), no new nested-width class (§3.9), and **no re-opening of
+`G-WIDTH = PASS`** — `B_HEADS` is the reference here, not a defendant.
+*Orchestration:* parallel: **no — shares `automl_package/examples/width_candidates.py` with WSEL-15** ·
+deps: **WSEL-12 merged** (cost parity on the fixed loop), **WSEL-13 landed** (its ordering statistic is
+imported), **WSEL-15 merged** (it creates the candidates module) ·
+tier: sonnet high (driver) + root (grids) · scale: dynamic (30 → 6 → 72) · shape: research ·
+verify: (1) `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_stopgrad_width_loss.py -q`
+passes with its prove-it-fails run shown; (2)
+`AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel16.py --selftest`
+PASS; (3) the Step-3 controls are shown to have run FIRST and their outcome recorded before any
+candidate cell exists; (4) every JSON under
+`automl_package/examples/capacity_ladder_results/WSEL16/` carries every field in Step 5 with
+`hit_cap: false`; (5)
+`automl_package/examples/capacity_ladder_results/WSEL16/frozen.json` carries every field in Step 6.
+
+### WSEL-17 — consolidate the width architectures: kill the duplicate, promote the winner, clean up
+
+**Why.** §3.9's inventory found six width architectures across two directories, one duplicate pair,
+two stranded never-promoted candidates, and two classes that fit a variance this strand parks. **User
+instruction 2026-07-21: organise them, no duplication, clean up.** This task is the cleanup, and it
+runs LAST because promoting the wrong class is worse than leaving the mess.
+
+**Files (write set):** `automl_package/models/architectures/nested_width_net.py` ·
+`automl_package/examples/matryoshka_width_net.py` · `automl_package/examples/width_candidates.py` ·
+`docs/plans/capacity_programme/shared/PROTECTED.tsv` · tests
+**⚠️ Write-set overlap:** touches the package architectures module, so it may NOT run beside FP-2's
+successors or WSEL-16. It is last in the strand for that reason too.
+
+**Spec (execution-level).**
+- [ ] **Step 1 — resolve the duplicate pair, by MEASUREMENT not by taste.** `MatryoshkaWidthNet`
+  (`automl_package/examples/matryoshka_width_net.py:62`, heads `Linear(k -> 1)`) and the certified
+  `SharedTrunkPerWidthHeadNet` (heads `Linear(w_max -> 1)` on a masked vector) are the same design.
+  Prove they are equivalent in function: assert their width-`k` outputs match to `1e-5` when the
+  masked head's columns `>= k` are zeroed, on a fixed seed. **They differ ONLY in nominal parameter
+  count**, and `params_effective` (§3.9) already accounts for that. → **Keep
+  `SharedTrunkPerWidthHeadNet`** (it is the certified class and the whole width paper trail cites it);
+  **reduce `matryoshka_width_net.py` to a re-export shim** naming the equivalence, exactly as
+  `automl_package/examples/convergence.py` does. **Move the logic, leave the shim, do not rewrite
+  callers** — a shim is not a deletion and passes the protected-path manifest check.
+- [ ] **Step 2 — promote the winner, if there is one.** If WSEL-16 named a stage-1/stage-2 winner
+  other than `B_HEADS`, move that class from `automl_package/examples/width_candidates.py` into
+  `automl_package/models/architectures/nested_width_net.py`, leaving a re-export shim.
+  **Promotion requires the verify clause below to reproduce the certified reference numbers** — this
+  is the step `MatryoshkaWidthNet` and `ResidualCascadeNet` never got, which is why they stranded.
+  If `B_HEADS` won, promote nothing and record that.
+- [ ] **Step 3 — record the variance status of every row of §3.9's inventory** in the class
+  docstrings, so the next reader cannot pick up a variance-fitting class by accident (the WSEL-11
+  failure mode, §3.7 WD7).
+- [ ] **Step 4 — leave no litter.** `git status --short` clean of anything this strand created and did
+  not intend to keep; every candidate either promoted, shimmed, or explicitly recorded as retained
+  for a named future task.
+
+**Non-goals:** **NO DELETIONS** — every disposition is a shim or a move, never a removal (deletions
+are user-gated programme-wide and `flexnn-package.md` FP-8 owns them, attended-only). No behaviour
+change to any certified class. No new architecture. No merging of classes that are NOT proven
+equivalent in Step 1 — a proof, not a resemblance.
+*Orchestration:* parallel: no (package architectures module is single-writer) · deps: **WSEL-16
+complete** (its winner decides Step 2) · tier: sonnet high · scale: static · shape: execution ·
+verify: (1) the Step-1 equivalence assertion passes, with a prove-it-fails run (perturb one head,
+show it FAILS); (2)
+`AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_flexible_width_network.py -q` green;
+(3) every importer of the shimmed paths still resolves — re-derive the importer list by `grep` AT
+EXECUTION TIME, never from this plan; (4) the canonical cell reproduces `fit_bar.ratio_to_floor`
+unchanged for every width against
+`automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse.json`;
+(5) no path listed in `docs/plans/capacity_programme/shared/PROTECTED.tsv` is deleted or renamed.
 
 ---
 
