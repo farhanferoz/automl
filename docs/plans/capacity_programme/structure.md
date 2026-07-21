@@ -22,14 +22,25 @@ resumes at the first wave not marked ✅ — never re-dispatches a ✅ wave.
 |---|---|---|---|
 | **0** | wave-1 closeout (root) | ✅ **complete 2026-07-21** | `ca18d59` test/example repair (suite 426P/2F/1S, the 2 = pre-accepted pair) · `9a80021` schedule refusal guard + 3 mislabelled `nested` cells voided (proven: differed from certified only in `provenance`+`training_schedule`) · `7ec5a58` this plan, gates 9/9 |
 | **0.5** | merge `capacity/wave-1` → master | ⏳ **DEFERRED — blocked by Wave A's uncommitted tree edits.** Merge only after PS-A1+PS-A2 commit. Width WSEL-14/15 are blocked on this. | — |
-| **A** | PS-A1 ∥ PS-A2 | 🔄 dispatched (agents `psa1`, `psa2`) | — |
+| **A** | PS-A1 ∥ PS-A2 | 🔄 **PS-A1 ✅ complete** · PS-A2 authoring (driver on disk, agent live) | **PS-A1 = `25fcf9a`, review clean (spec ✅ / quality approved, 0 Critical, 0 Important).** Own tests 5/5; the two most-exposed suites 101 passed with only the pre-accepted heteroscedastic failure, independently re-verified by the reviewer at a worktree of base `91d6525` as pre-existing. **Root hardening, reviewed unprivileged:** `head_spread` lacked the string coercion every other enum kwarg in that `__init__` has, so a string would have matched none of the `is` branches and silently behaved as `PER_INPUT` — the same silent-fall-through class as the voided width cells. Now coerces and refuses non-members. 2 Minor findings logged to the ledger for the final review. |
 | **B** | PS-1 trunk grid | ⬜ | — |
 | **C** | PS-2 patch audit | ⬜ | — |
 | **D** | PS-3 head battery | ⬜ | — |
 | **E** | PS-4 certification → ⛔ user gate | ⬜ | — |
 
-**Reversible defaults taken autonomously** (batched to the PS-4 memo; none is irreversible):
-- *(none yet)*
+**Root-applied decisions during the autonomous run** (batched to the PS-4 memo; none irreversible):
+- **D-PS-1 — §4.5 D2's metric was WRONG and is amended (not a default; a defect fix).** It named
+  `heldout_nll_own`, which is not comparable across the likelihood families this battery varies by
+  design, and does not exist at all for `fixed_shared` arms. The primary readout is now
+  `heldout_fixed_sigma_mll` (higher is better), identically defined for every arm. Caught by the
+  PS-A2 implementer, who flagged it rather than implementing a rule that would have ranked arms on
+  which loss they trained. **Had this shipped, PS-1's winner would have been a metric artefact.**
+- **D-PS-2 — D2 is read at k = 2 only** (truth-scale); k = 6 stays observational per §4.2. This was
+  genuinely un-locked in the plan; the implementer's reading was correct and is now a hard rule.
+- **D-PS-3 — `ProbabilisticRegressionModel.get_num_parameters()` fixed at source.** It called
+  `self.parameters()` on a `BaseModel` wrapper that is not an `nn.Module`, so it raised
+  `AttributeError` for every caller. Reproduced, then routed to the wrapped network with an
+  explicit error when unbuilt. PS-3's parameter-matching depends on it.
 
 ---
 
@@ -177,10 +188,31 @@ where argmax class = true percentile slice. Under `fixed_shared`, `per_class_sig
 - **D1 — degeneracy disqualifier.** An arm is DISQUALIFIED if, on any cell, `min_sigma_ratio`
   < 0.1 at any logged checkpoint after epoch 50 **and** the (heldout − train) own-NLL gap
   exceeds 0.5 nats with the gap monotonically increasing over the last 3 checkpoints.
-- **D2 — win rule.** Arm A beats arm B iff A's seed-mean held-out own-NLL is lower by more than
-  2× the combined bootstrap SE (1000 point-resamples per seed of the per-point NLL difference;
-  combined SE = sqrt(mean per-seed SE² / n_seeds)) on ≥ 2 toys of the battery, and is not worse
-  beyond 2×SE on any toy.
+- **D2 — win rule. ⚠️ AMENDED 2026-07-21 (root, during Wave A) — the original wording named the
+  wrong metric and would have manufactured a false result.** It compared `heldout_nll_own` across
+  arms, but this battery VARIES the likelihood family by design: a collapsed-Gaussian NLL, a
+  mixture NLL and a means-only arm are not one scale, and `fixed_shared` arms have **no fitted
+  predictive density at all**, so their own-NLL is undefined rather than merely different. Ranking
+  on it would have scored arms partly on which loss they trained — the precise "metric artefact
+  masquerading as a headline" failure `probreg.md` §0.5 exists to prevent.
+
+  **PRIMARY READOUT = `heldout_fixed_sigma_mll`, HIGHER IS BETTER.** Arm A beats arm B iff A's
+  seed-mean held-out fixed-σ mixture log-likelihood is **higher** by more than 2× the combined
+  bootstrap SE (1000 point-resamples per seed of the per-point difference, RNG seed 12345;
+  combined SE = `sqrt(mean(per_seed_SE**2)/n_seeds)`) on ≥ 2 toys of the battery, and is not worse
+  beyond 2×SE on any toy. This metric is **identically defined for every arm** — one shared
+  constant σ over the arm's own component means and weights — so no arm can win on variance
+  machinery rather than structure. It is Decision 24's sanctioned readout, unchanged.
+  **Comparison is read at k = 2** (the truth-scale condition); k = 6 is observational per §4.2 and
+  may never be read as a win.
+
+  **`heldout_nll_own` is a REPORTED COLUMN and a restricted tie-break, never the primary.** Fixed-σ
+  scoring is deliberately blind to whether an arm's *spread* is any good, so an arm that learns a
+  genuinely well-calibrated predictive density earns nothing for it under the primary. Own-NLL is
+  where that can surface — but only **among arms for which it is defined** (those producing a
+  proper normalised density over y; `fixed_shared` arms record `null` and are excluded from this
+  comparison), and only when the primary cannot separate them. A tie-break on own-NLL must be
+  recorded in the decision JSON as such, never silently folded into the primary.
 - **D3 — identifiability disqualifier.** `ce` arms: DISQUALIFIED if final `slice_accuracy`
   < 1.5/k on any seed. `none` arms: DISQUALIFIED if final `ordering_violations` > 0 on any seed
   (labels have no stable meaning without it).

@@ -1705,5 +1705,13 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
         Returns:
             int: The total number of parameters.
+
+        Raises:
+            RuntimeError: If called before the network is built.
         """
-        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+        # This class is a BaseModel wrapper, NOT an nn.Module -- it has no `.parameters()` of its
+        # own, so the obvious `self.parameters()` raised AttributeError for every caller. The
+        # trainable parameters live on the wrapped network.
+        if self.model is None:
+            raise RuntimeError("get_num_parameters() requires a built model; call fit() first.")
+        return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
