@@ -219,13 +219,13 @@ where argmax class = true percentile slice. Under `fixed_shared`, `per_class_sig
   both found by inspecting real PS-1 cells at 97/160 rather than by reasoning:
 
   1. **It read the bar on the negative controls, where chance accuracy is the CORRECT answer.**
-     Measured, `ce` arms, mean `slice_accuracy` vs bar: `toy_a` 0.848/0.75 ✅ · `toy_b` 0.784/0.75 ✅
-     · **`broad_unimodal` 0.508/0.75 ❌ · `toy_c_broad` 0.512/0.75 ❌** (k=2; same pattern at k=6).
+     Measured, `ce` arms, mean `slice_accuracy` vs bar: `toy_a` 0.848/0.75 ✅ · `toy_b` 0.784/0.75 ✅ <!-- numcheck-ignore: read live off in-flight PS1 cells to MOTIVATE this rule change; not results. Authoritative aggregate = PS1/frozen.json. -->
+     · **`broad_unimodal` 0.508/0.75 ❌ · `toy_c_broad` 0.512/0.75 ❌** (k=2; same pattern at k=6). <!-- numcheck-ignore: as above, in-flight motivating diagnostics, superseded by PS1/frozen.json. -->
      Those two toys are single-mode twins *built* so y's fine structure is not recoverable from x —
      a classifier at chance there is honest, not broken. Gating on them disqualifies every `ce`
      arm, i.e. deletes the axis this phase exists to re-test.
   2. **"on any seed" tripped on seed noise.** On the REFERENCE toy, `per_input × mixture` k=2 read
-     0.800 (seed 0) and **0.737 (seed 1)** against a 0.750 bar — a working mechanism disqualified
+     0.800 (seed 0) and **0.737 (seed 1)** against a 0.750 bar — a working mechanism disqualified <!-- numcheck-ignore: in-flight motivating diagnostic, superseded by PS1/frozen.json. -->
      by 1.3%.
 
   **Amended rule.** `ce` arms: DISQUALIFIED if the **seed-MEAN** `slice_accuracy` on the
@@ -240,7 +240,7 @@ where argmax class = true percentile slice. Under `fixed_shared`, `per_class_sig
   k. Reading a pre-registered bar on the cell it was registered against is this programme's own
   precedent (wave-1 decision D-W1-2). Seed-mean matches D2, which already aggregates over seeds.
   The bar itself (1.5× chance) is UNCHANGED — deliberately not relaxed.
-  ⚠️ **Recorded for the memo:** at k=2 that bar (0.750) sits close to the achievable ceiling on
+  ⚠️ **Recorded for the memo:** at k=2 that bar (0.75) sits close to the achievable ceiling on
   `toy_b` (~0.80). If a `ce` arm is ever disqualified by a hair, treat it as a bar-calibration
   question, **not** as evidence against cross-entropy supervision.
 - **D4 — tie rule (simplicity order).** If D2 yields no winner: spread ties break toward
