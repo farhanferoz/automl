@@ -155,6 +155,15 @@ Recommendation: **(1)** — J-3 is the design's own next candidate and the singl
 fittable; the width-vs-solvability confound is the crux to nail in the spec. Awaiting user GO on the
 direction; the finding above is complete and reversible (nothing committed).
 
+**✅ RULED 2026-07-21 (user-delegated to the root): direction = Option 1, timing = DEFERRED.** The
+J-3 design spec is authored only after (i) `depth-selection.md` DSEL-2c/DSEL-2 resolve whether the
+feed-forward group-word substrate carries a depth signal at all — J-3 builds on that same substrate
+family, and designing on it now would build on sand — and (ii) `width.md` WSEL-8 and
+`depth-selection.md` DSEL-10 land their selection verdicts, which the joint dial consumes. The spec
+itself REMAINS user-gated (reviewed-spec-before-build; no toy improvised). This strand is OUT of
+the 2026-07-21 autonomous run's scope, and this ruling replaces the open "Option 1/3" escalation —
+nothing here awaits a user answer mid-run.
+
 ---
 
 ---

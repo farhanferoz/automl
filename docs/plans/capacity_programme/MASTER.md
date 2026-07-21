@@ -16,7 +16,7 @@ copy (gate: `test_plan_gates.py`).
 | 1 | `width-cert.md` | Certification of arch #2 + seam/robustness analyses → **G-WIDTH** | — | **DONE — G-WIDTH PASS (2026-07-16)** |
 | 2 | `probreg-report.md` | Report (a): ProbReg fixed-k & dynamic-k vs baselines on toys | `shared/metrics-accounting.md` T-S1..S3 | **DONE — P0-P3 done, report (a) delivered** (`docs/reports/probreg_toys/report_a_probreg_toys.{pdf,md}`) |
 | 3 | `depth.md` | S5 substrate (D1 **DONE**) + selection-without-oracle (D8) → **G-DEPTH = D5 ∧ D8** | **G-WIDTH ✓** | **DONE 2026-07-17 — G-DEPTH = PASS.** Substrate D5 (3/3) ∧ selection D8b (2/2: S1–S4 pass, S5 surface covariate 100%/Option-A). Verdict `verdict_per_input_depth.md` §12; D8b toy AS-RUN rebuild (L10/involutions/shared-readout, flagged). old D2/D3 retired. → `width-depth.md` J0 |
-| 4 | `width-depth.md` | Joint 2-D capacity dial + transformer halting → **G-JOINT** | **G-DEPTH** (D5 ∧ D8) | **J0 RAN 2026-07-17 — J-1/J-2 DEAD (multi-track fold substrate fails S1); G-JOINT BLOCKED, J-3 redesign ESCALATED to user** (post-mortem in strand) |
+| 4 | `width-depth.md` | Joint 2-D capacity dial + transformer halting → **G-JOINT** | **G-DEPTH** (D5 ∧ D8) | **J0 RAN 2026-07-17 — J-1/J-2 DEAD (multi-track fold substrate fails S1); G-JOINT BLOCKED. RULED 2026-07-21 (user-delegated): Option 1 — a proper J-3 design spec — DEFERRED until DSEL-2's feed-forward question resolves and WSEL-8/DSEL-10 land; the spec gets user review before any build (the no-improvised-toy gate survives autonomy). NOT in the autonomous run.** (post-mortem in strand) |
 | 5 | `flexnn-moe.md` | MoE build (M0-M2 early) + reports (b), (c) | build: none; comparisons+reports: **G-JOINT** | **DONE — M0-M2 DONE 2026-07-16**; M3 rescoped as flexnn-core F6; M4/M5 superseded by F7 (user 2026-07-18) |
 | 6 | `flexnn-core.md` | Package refactor + FF-depth pilot + unified report | — | **yes** — but see the SPLIT note below; this file is 4 workstreams in one |
 | 7 | `probreg.md` | **ProbReg k-selection: models M1/M2/M3, defects, battery, report** | — | **yes — the live workstream (user, 2026-07-20)** |
@@ -268,7 +268,9 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     **discriminating check** (weight decay λ ∈ {0, 1e-4, 1e-2} on its sweep reference; does the
     selected value move beyond tolerance?) BEFORE its battery is read: `width.md` WSEL-11,
     `probreg.md` P8; depth inherits after its positive control passes (DSEL-2c). A check that
-    moves the selection is a HALT, not a footnote. Weight decay is the Gaussian prior it is — the
+    moves the selection BLOCKS that strand's battery reads — strand-local, logged prominently,
+    batched for end-of-run user review while the run continues elsewhere — never a silent footnote
+    *(block semantics set 2026-07-21 with the autonomous-run authorization)*. Weight decay is the Gaussian prior it is — the
     no-arbitrary-penalty premise binds the SELECTION objective, not MAP training. A schedule's
     stochasticity (or its absence) must never be the de-facto regulariser. Baselines receive the
     same treatment or the comparison is not like-for-like.
@@ -351,6 +353,16 @@ git branch --merged master | grep -v '^\*\| master$'   # expect EMPTY. Merged-bu
 A wave branch still present after its wave is complete is a **defect to fix before new work starts**,
 not a thing to leave for later. *(As of 2026-07-20 both checks are clean: no branches besides
 `master`.)*
+
+**Autonomous run authorization (user, 2026-07-21).** The execution phase runs unattended in a
+fresh session. **Pre-authorized:** wave-branch commits, local merges, branch deletion per this
+protocol, and docs-only commits straight to `master`. **Still user-gated:** pushing to `origin`
+(standing decision: do not push), publishing or sharing anything outward, deletions (`FP-8` stays
+attended-only), and any change to a strand's §1 model definitions beyond what Decisions 20/21
+already license. **Strand-local blocks** (a Decision-21 check that moves the selection; DSEL-2c's
+all-arms-fail branch) block ONLY their own strand's downstream reads and are batched for
+end-of-run review — the run continues on the other strands and never idles awaiting the user.
+`width-depth.md`/G-JOINT is OUT of the autonomous run's scope (strand-index row 4).
 
 **Why per-wave and not one long programme branch:** four strands over weeks on a single branch
 diverges from `master` far enough that the merge becomes its own risky project — which is precisely

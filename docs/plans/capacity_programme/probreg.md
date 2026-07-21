@@ -278,7 +278,11 @@ user-only for the end of the run.
 2. A study comes back **incoherent rather than merely negative** (e.g. PB's curve is non-monotone
    beyond noise) — that is a broken instrument, and running the battery on it wastes the budget.
 3. Any change to **§1's model definitions**. They are the user's, not the run's.
-4. Anything **irreversible or outward-facing** (deleting artifacts, publishing, committing).
+4. Anything **irreversible or outward-facing** (deleting artifacts, publishing, **pushing to
+   `origin`**). *(Amended 2026-07-21, user: COMMITTING per the `MASTER.md` branch protocol —
+   wave-branch commits, local merge, branch delete, docs straight to `master` — is
+   PRE-AUTHORIZED for the autonomous run and is no longer a HALT trigger. Pushing, publishing
+   and deletion remain user-gated; `FP-8` stays attended-only.)*
 
 ## 3.6 Constants the studies FREEZE, and the battery READS
 
@@ -638,9 +642,11 @@ dials and invisible to cross-strand agreement. Discriminating check, one toy: tr
 ORDINARY sweep models at AdamW `weight_decay` λ ∈ {0, 1e-4, 1e-2}, 2 seeds, unchanged convergence
 gates; apply the strand's selection rule to each per-k curve; report whether the selected k moves
 beyond tolerance, emitting the verdict to
-`automl_package/examples/capacity_ladder_results/P8/frozen.json`. **Moves → HALT and escalate**
-(the strand's numbers conflate capacity with regularisation; the battery may not be read until
-re-derived). **Does not move → robustness note that P6's report MUST cite.** The reported numbers come from a split not used for stopping or
+`automl_package/examples/capacity_ladder_results/P8/frozen.json`. **Moves → block THIS strand's
+battery reads (P4/P6 may not proceed), log prominently, continue the OTHER strands, batch for
+end-of-run user review** *(pre-authorized 2026-07-21 — a strand-local block, not a whole-run halt;
+the strand's numbers conflate capacity with regularisation and the battery may not be read until
+re-derived)*. **Does not move → robustness note that P6's report MUST cite.** The reported numbers come from a split not used for stopping or
 selection. Weight decay is framed as the Gaussian prior it is — the no-arbitrary-penalty premise
 binds the SELECTION objective, not MAP training.
 **Non-goals:** no change to any model definition; no tuning of λ beyond the fixed grid; no real

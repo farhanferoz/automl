@@ -269,7 +269,11 @@ user-only for the end of the run.
 2. A study comes back **incoherent rather than merely negative** (e.g. a non-monotone curve beyond
    noise) — that is a broken instrument, and running the battery on it wastes the budget.
 3. Any change to **§1's model definitions or the selection rule.**
-4. Anything **irreversible or outward-facing** (deleting artifacts, publishing, committing).
+4. Anything **irreversible or outward-facing** (deleting artifacts, publishing, **pushing to
+   `origin`**). *(Amended 2026-07-21, user: COMMITTING per the `MASTER.md` branch protocol —
+   wave-branch commits, local merge, branch delete, docs straight to `master` — is
+   PRE-AUTHORIZED for the autonomous run and is no longer a HALT trigger. Pushing, publishing
+   and deletion remain user-gated; `FP-8` stays attended-only.)*
 5. Any result that would **call `G-WIDTH = PASS` into question.** That gate is closed; a finding that
    reopens it is a user decision, never a run's.
 
@@ -650,7 +654,10 @@ invisible.
 **Spec:** Discriminating check, one toy: train the per-width sweep (the existing converged-width
 machinery, ordinary per-width models) at AdamW weight_decay `λ ∈ {0, 1e-4, 1e-2}`, 2 seeds, unchanged
 convergence gates; apply the strand's selection rule (§1, cheapest-within-tolerance) to each curve.
-Report whether the selected width moves beyond tolerance. **It moves → HALT and escalate** — the
+Report whether the selected width moves beyond tolerance. **It moves → block THIS strand's battery
+reads (WSEL-8/WSEL-10 may not proceed), log the finding prominently, continue the OTHER strands, and
+batch it for end-of-run user review** *(pre-authorized 2026-07-21 — a strand-local block, not a
+whole-run halt)* — the
 strand's numbers conflate capacity with regularisation, and the battery may not be read until
 re-derived. **It does not move → robustness note that WSEL-10's report MUST cite.**
 **Non-goals:** no sweep over toys or seeds beyond what's specified; no change to §1's selection rule

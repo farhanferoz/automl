@@ -195,7 +195,11 @@ it, keep going.
    `positive-control bar` row: held-out accuracy ≥ 0.90 AND `trustworthy=true`, on BOTH seeds.
 2. A study is **incoherent rather than merely negative** — a broken instrument.
 3. Any change to **§1's definitions, the primary-object ruling, or the selection rule.**
-4. Anything **irreversible or outward-facing** (deleting artifacts, publishing, committing).
+4. Anything **irreversible or outward-facing** (deleting artifacts, publishing, **pushing to
+   `origin`**). *(Amended 2026-07-21, user: COMMITTING per the `MASTER.md` branch protocol —
+   wave-branch commits, local merge, branch delete, docs straight to `master` — is
+   PRE-AUTHORIZED for the autonomous run and is no longer a HALT trigger. Pushing, publishing
+   and deletion remain user-gated; `FP-8` stays attended-only.)*
 5. Any result that would **reopen `G-DEPTH = PASS`.** That gate is closed; reopening it is a user
    decision, never a run's.
 
@@ -613,7 +617,11 @@ they always have.
 **Bar unchanged:** full-depth **test** accuracy ≥ 0.90, `trustworthy=true` on both gates, both seeds
 (§3.6's positive-control-bar row, read against test rather than val per the split above). Any
 corrected arm clearing the bar → DSEL-2 UNHALTS under that arm's scheme, recorded as the strand's
-scheme going forward (if several clear it, the cheapest). All four fail → option (a) is
+scheme going forward (if several clear it, the cheapest). All four fail → *(pre-authorized
+2026-07-21, so the autonomous run never blocks here)*: record option (a) as the evidence-backed
+finding, PARK this strand's downstream feed-forward tasks (DSEL-2/2b and the selection studies that
+need the substrate), CONTINUE the other strands, and batch the finding for end-of-run user review.
+Option (a) is
 evidence-backed and goes to the user as a finding, never taken as a default by any task.
 **No weight decay or dropout in this task** (MASTER Decision 21: regularisation is tested by its own
 discriminating check, never mixed silently into a control repair).
