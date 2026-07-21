@@ -235,6 +235,29 @@ bootstrap standard error transfers **unchanged**, with its published figures sti
 The comparison is between three ways of choosing **k**, the number of classes the model resolves
 the target into.
 
+⚠️ **σ IS FIXED IN TRAINING AS WELL AS IN SELECTION — MODEL-DEFINITION CHANGE (user, 2026-07-21;
+MASTER Decision 26).** ProbReg fits no variance anywhere. With σ a shared constant, each rung's NLL
+reduces to squared error up to a constant, so **training is MSE on the mixture mean**, the per-class
+heads predict **means only**, and the within-component term of the law-of-total-variance combination
+is the constant. Predictive spread is therefore the **between-component spread plus σ²** — still
+meaningful, never fitted.
+
+**Why (the reason is a confound, not tidiness):** a learned per-class variance lets **one component
+absorb dispersion by widening itself**, so the model fits spread-out data *without* needing more
+components — precisely the question the k dial exists to answer. Fixing σ forces dispersion to be
+explained by structure rather than by width.
+
+**Consequences that bind every task in this strand:**
+- **All prior k-dropout results are now OLD-OBJECTIVE** as well as old-schedule (Decision 20). Two
+  labels travel with historical numbers; neither may be dropped.
+- **The suite bar must be RE-BASELINED before this lands** — the two accepted heteroscedastic
+  failures test variance behaviour directly, and this changes what a component can express. The
+  "366 passed / 2 failed / 1 skipped, no new failures and no newly-passing tests" bar **does not
+  carry across this change.** Re-baseline, record the new expected result, and treat any other
+  movement as the regression signal.
+- **`flexnn-package.md` FP-12 now covers training as well as scoring**, which overlaps **P7**'s
+  rewrite of the training objective. Sequence deliberately or merge them; do not dispatch both.
+
 ⚠️ **HEAD LAYOUT PINNED — all three models use `RegressionStrategy.SEPARATE_HEADS` (root, 2026-07-21,
 at the user's instruction to correct this omission).** The plan previously never named a head layout
 anywhere (`grep -in 'regression_strategy\|separate_heads' probreg.md` → **zero hits** before this
@@ -316,8 +339,18 @@ already builds them that way — `_probreg_fixed` sets `NClassesSelectionMethod.
 **`docs/probreg_benchmark/benchmark_spec.md` §2.0 and §2.3 still carry the superseded wording and
 must be corrected — see P0-b1 below.**)*
 
-⚠️ **M3's CANDIDATE SET MUST SPAN THE SAME RUNGS AS THE LADDER, BYPASS INCLUDED — OPEN, settle it
-when M3 is built (raised by the user, 2026-07-21).**
+✅ **M3's CANDIDATE SET SPANS THE SAME RUNGS AS THE LADDER, BYPASS INCLUDED — RULED BY THE USER
+2026-07-21 (MASTER Decision 25). No longer open; P3 and P4 are unblocked on this count.** The grid is
+widened to cover k ∈ {1..k_max}, bypass rung included, so both sides can return the same answer. **The
+cost increase is accepted and must be REPORTED, never absorbed silently** — a wider grid makes the
+reference more expensive, and the reference's price is the denominator of every efficiency claim
+here. The narrow-grid fallback below is therefore NOT taken; it is retained only as the record of
+what was rejected.
+
+*(Original framing retained below as the pre-registration this ruling answers.)*
+
+⚠️ **M3's CANDIDATE SET MUST SPAN THE SAME RUNGS AS THE LADDER, BYPASS INCLUDED — raised by the user,
+2026-07-21.**
 
 **The asymmetry.** M1/M2 read a ladder over **k ∈ {1..k_max}, bypass rung included** — stated in
 this file's own schedule ruling ("the loss is the mean over rungs k ∈ {1..k_max} (bypass rung
@@ -1326,12 +1359,13 @@ run through the escalation ladder (LR sweep → clipping → warmup → init sch
 before being recorded as an architecture finding rather than an optimization one.
 **Non-goals:** no real data (P4); no baselines (P4); do not re-tune the arbiter's neighbourhood
 width.
-*Orchestration:* parallel: no · deps: P1, PA, PB, P7, **FP-12** (the fixed-σ scorer — without it M1
-and M3 both select on a learned variance), **⛔ AND the §1 M3 CANDIDATE-SET RULING, which is OPEN and
-needs the USER** (the arms' candidate sets must be able to return the same answer; see §1). *(The
-blocking ruling was previously stated only in prose above this task — a dependency-driven dispatcher
-would have seen these deps clear and dispatched P3 straight past the ⛔ banner. Carried into the deps
-field 2026-07-21 after an audit caught exactly that gap.)* (the arbiter must be correct, M1's
+*Orchestration:* parallel: no · deps: P1, PA, PB, P7, **FP-12** (the fixed-σ scorer AND fixed-σ
+training — without it M1 and M3 both select on a learned variance) · **✅ the §1 M3 candidate-set
+ruling is SETTLED (user, 2026-07-21, MASTER Decision 25 — grid spans the ladder, bypass included);
+this dep is CLEARED.** *(It was previously stated only in prose above this task — a dependency-driven
+dispatcher would have seen the deps clear and dispatched P3 straight past the ⛔ banner. Carried into
+the deps field 2026-07-21 after an audit caught exactly that gap, and now discharged here rather than
+silently dropped.)* (the arbiter must be correct, M1's
 mechanism must exist, and the selection-set fraction must be frozen before M1's choices mean
 anything) ·
 tier: sonnet high · scale: static · shape: execution · verify:

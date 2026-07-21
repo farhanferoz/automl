@@ -389,6 +389,59 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     - **Width parity:** Decision 2 (amended) already fixes σ at the generator's true value for width.
       Same principle, two dials — neither strand learns a variance it then selects on.
 
+25. **M3's candidate set spans the same rungs the ladder is read over, bypass included (user,
+    2026-07-21).** The cheap arms (M1/M2) read k ∈ {1..k_max} including the bypass rung; M3's grid
+    started at k=5, so the reference could not consider a candidate the cheap arms could select.
+    - **On any cell where the bypass is the honest answer — including the strand's own smooth-data
+      negative control — M1 would have beaten its own reference for a reason unrelated to selection
+      quality**, and in the direction that flatters the cheap method.
+    - **Cost is accepted and must be reported, not hidden:** a wider grid makes M3 more expensive, and
+      M3's price is the denominator of every efficiency claim in the strand. This ruling makes the
+      cheap arms look *worse*, which is why it is the conservative choice.
+    - **Unblocks `probreg.md` P3 and P4**, whose deps carried this as an explicit blocking entry.
+
+26. **ProbReg trains at FIXED σ — a MODEL-DEFINITION change (user, 2026-07-21).** σ is not fitted
+    anywhere in ProbReg: not in selection (Decision 24), and now not in training either. This is the
+    ProbReg counterpart of Decision 2 (amended) for width — same principle, two dials, one premise.
+    - **The reason is a confound, not consistency.** With a learned per-class variance, **a single
+      component can absorb dispersion by widening itself**, so the model fits spread-out data without
+      needing more components — which is exactly the question "does this input need more k?" is trying
+      to measure. Fixing σ removes that escape hatch and forces dispersion to be explained by
+      **structure** (more components) rather than by **width** (one fatter component).
+    - **What it means mechanically:** with σ constant the rung NLL reduces to squared error up to a
+      constant, so training becomes MSE on the mixture mean. **⇒ ROOT-APPLIED IMPLEMENTATION RULING
+      (flagged for the user to overturn if unintended): the per-class heads predict MEANS ONLY, and
+      the within-component term in the law-of-total-variance combination becomes the shared constant.**
+      The alternative — keeping a `log_var` output that the loss no longer trains — would leave an
+      **untrained head that `predict_uncertainty` would happily expose**, which is a worse trap than
+      the one this decision removes.
+    - **Predictive spread stays meaningful:** it becomes the between-component spread plus the
+      constant. The variance *machinery* is not deleted (Decision 2's carry-over); it is simply never
+      fitted and never selected on.
+    - **⚠️ CONSEQUENCE — the suite bar must be RE-BASELINED before this lands.** The two accepted
+      heteroscedastic failures test variance behaviour directly, and this changes what the model can
+      express within a component. **The "no new failures, no newly-passing tests" bar cannot be
+      carried across this change** — re-baseline first, record the new expected result, and treat any
+      *other* movement as the regression signal.
+    - **All prior k-dropout numbers become OLD-OBJECTIVE** and are citable only when labelled as such
+      — the same treatment Decision 20's retired schedule already receives. Two labels now travel
+      with historical ProbReg results: old-schedule and old-objective.
+    - **Scope consequence:** `flexnn-package.md` **FP-12** grows from a scoring change to a scoring
+      **and training** change, and now overlaps `probreg.md` **P7** (which rewrites the training
+      objective for the schedule migration). **Those two must be sequenced deliberately or merged.**
+
+27. **ProbReg head-layout arm list (user, 2026-07-21).** Separate per-class heads are the model of
+    record (`probreg.md` §1). The single-head-with-per-class-outputs layout is **retained as a
+    LABELLED comparison arm, never a default** — it distinguishes "components help" from
+    "*independent* components help". The single-head-final-output layout stays **blocked under
+    `NESTED`** and serves only as P11's mechanism control, because it produces no components at all.
+
+28. **Depth stays parked until both live strands close (user, 2026-07-21).** Confirms the existing
+    park rather than changing it. Rationale recorded so it is not re-litigated: width's architecture
+    comparison is about to test the ordering/cascade assumptions any depth task would be designed on,
+    and Decision 22 already names depth as the better transformer-port target. Unparking earlier
+    means designing depth's tasks on premises that are mid-test.
+
 ## Rules (cache discipline)
 
 ⚠️ **THE NUMBERS GATE IS PARTIAL — strengthen it before the next planning round.**

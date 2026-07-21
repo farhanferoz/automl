@@ -10,12 +10,16 @@ When a row is settled, the root records it in `MASTER.md`'s decision register (t
 strikes the row here. **This file is a queue, never a source of truth** — a decision that lives only
 here has not landed.
 
+**Status: 6 of 7 settled 2026-07-21. Only D-4 remains open** — the user asked for a clearer
+explanation before ruling it. Settled rows are retained with their reasoning rather than deleted, so
+the rejected alternative stays auditable.
+
 **Status legend:** 🔴 blocks dispatchable work now · 🟡 blocks work that is itself blocked · ⚪ no
 current block, wanted for completeness.
 
 ---
 
-## 🔴 D-1 — The sweep's candidate grid must be able to return the answer the cheap arms can return
+## ✅ D-1 — SETTLED (user, 2026-07-21): widen the grid, bypass included. → MASTER Decision 25
 
 **Blocks:** `probreg.md` **P3** and **P4** — every cheap-vs-expensive headline in the strand.
 
@@ -41,7 +45,7 @@ Both sides must be able to return the same answer or the comparison is not like-
 
 ---
 
-## 🔴 D-2 — Does ProbReg's TRAINING objective also move to fixed σ, or only its selection metric?
+## ✅ D-2 — SETTLED (user, 2026-07-21): fix σ in TRAINING too. → MASTER Decision 26 (model-definition change; suite must be re-baselined)
 
 **Blocks:** nothing today, but it determines whether `flexnn-package.md` **FP-12** (wave zero) is
 scoped as selection-only or also touches training. **Answer this before FP-12 is dispatched.**
@@ -79,7 +83,7 @@ the report** as a known limitation, and reason 1 above remains a live confound o
 
 ---
 
-## 🟡 D-3 — Is the middle head layout an allowed comparison arm, or excluded outright?
+## ✅ D-3 — SETTLED (user, 2026-07-21): keep it as a labelled comparison arm. → MASTER Decision 27
 
 **Blocks:** the exact arm list of `probreg.md` **P11** (which is itself behind FP-12/P7/P10).
 
@@ -96,7 +100,7 @@ it costs one arm in a battery that is already running, and it distinguishes "com
 
 ---
 
-## 🟡 D-4 — The cross-k class-identity defect: fix, or continue to avoid?
+## 🔴 D-4 — STILL OPEN — the user asked for a clearer explanation before ruling. The cross-k class-identity defect: fix, or continue to avoid?
 
 **Blocks:** nothing in the current battery (which runs `REGRESSION_ONLY` throughout, where the defect
 cannot fire). Recorded so it is not re-discovered a fourth time.
@@ -114,7 +118,7 @@ the trap cannot be entered silently — that is a few lines and belongs with FP-
 
 ---
 
-## ⚪ D-5 — Push to `origin`?
+## ✅ D-5 — SETTLED (user, 2026-07-21): PUSH. Executed the same day.
 
 **Current state:** `master` is **47 commits ahead**, unpushed, by a standing decision from earlier in
 the programme. The tree is clean and gates are 9/9.
@@ -126,7 +130,7 @@ to remove. *(Outward-facing, so it stays yours — the root will not push withou
 
 ---
 
-## ⚪ D-6 — Depth: stay parked?
+## ✅ D-6 — SETTLED (user, 2026-07-21): stay parked. → MASTER Decision 28
 
 **Current state:** parked completely at your instruction; the live programme is width + ProbReg only.
 Two untried levers (per-depth output layers, regularisation) and a missing early-exit literature
@@ -140,7 +144,7 @@ tasks on assumptions the width work is about to test.
 
 ---
 
-## ⚪ D-7 — Your ProbReg architecture questions
+## ✅ D-7 — CLOSED (user, 2026-07-21): "I think you answered all." Reopen by naming a question.
 
 You noted several architecture questions for ProbReg that were deferred. The root cannot list them
 for you. **Two are already answered** by this session's work and can be struck if they were yours:

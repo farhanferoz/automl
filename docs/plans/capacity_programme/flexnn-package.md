@@ -1429,7 +1429,44 @@ including the two known-failing heteroscedastic tests — **no new failures and 
 with `OMP_NUM_THREADS=4` pinned; (5) every NEW path in the target tree above exists on disk and every
 OLD path still exists as a shim.
 
-### FP-12 — the fixed-σ mixture scorer, built ONCE ⭐ — **WAVE ZERO for ProbReg; nothing that selects may run before it**
+### FP-12 — fixed σ everywhere in ProbReg: the scorer AND the training objective ⭐ — **WAVE ZERO; nothing that trains or selects may run before it**
+
+⚠️ **SCOPE WIDENED 2026-07-21 BY USER RULING (MASTER Decision 26): σ is fixed in TRAINING too, not
+only in selection.** This task was written as a scoring change; it is now a scoring **and
+model-definition** change. Read this block before the original spec below, which it supersedes on
+scope while leaving every scoring requirement intact.
+
+**The training half.**
+- With σ a shared constant, each rung's NLL reduces to squared error up to a constant ⇒ **training
+  becomes MSE on the mixture mean.**
+- **The per-class heads predict MEANS ONLY.** *(Root-applied implementation ruling, derived from the
+  user's decision and flagged in MASTER Decision 26 for overturn if unintended.)* The rejected
+  alternative — keep a `log_var` output that the loss no longer trains — would leave an **untrained
+  head that `predict_uncertainty` still exposes**, a worse trap than the one being removed.
+- **The within-component term of the law-of-total-variance combination becomes the constant**, so
+  predictive spread = between-component spread + σ². Spread stays meaningful and is never fitted.
+- **The variance machinery is NOT deleted** (Decision 2's carry-over): it is never *fitted* and never
+  *selected on*. Deleting it is out of scope and user-gated.
+
+**⚠️ RE-BASELINE THE SUITE BEFORE LANDING — the standing bar does NOT carry across this change.** The
+two accepted heteroscedastic failures test variance behaviour directly, and this alters what a
+component can express. **Verify clause (d) below is therefore AMENDED:** run the suite first, record
+the new expected result as the baseline in this task's completion note, and treat any movement
+*beyond* that as the regression signal. **Do not drive the old numbers to green** — that would mean
+suppressing the change's real effect.
+
+**⚠️ SEQUENCING — FP-12 and `probreg.md` P7 now overlap.** P7 rewrites the training objective for the
+schedule migration; FP-12 now rewrites it for the σ change. **Both touch the same loss.** Sequence
+them deliberately or merge them into one change; **do not dispatch both.** They already share
+`automl_package/models/probabilistic_regression.py` with P10, so the three were a strict serial chain
+before this ruling — this makes the FP-12/P7 pair a *merge candidate* rather than merely serial.
+
+---
+
+*(Original spec follows. Every scoring requirement in it stands; only the scope statement above is
+new.)*
+
+### FP-12 — the fixed-σ mixture scorer, built ONCE ⭐
 
 **Why this task exists — the capacity readout does not exist in code.** MASTER Decision 24 makes the
 per-sample **fixed-σ mixture log-likelihood** the readout for choosing capacity, and forbids a
