@@ -251,6 +251,42 @@ already builds them that way — `_probreg_fixed` sets `NClassesSelectionMethod.
 **`docs/probreg_benchmark/benchmark_spec.md` §2.0 and §2.3 still carry the superseded wording and
 must be corrected — see P0-b1 below.**)*
 
+⚠️ **M3's CANDIDATE SET MUST SPAN THE SAME RUNGS AS THE LADDER, BYPASS INCLUDED — OPEN, settle it
+when M3 is built (raised by the user, 2026-07-21).**
+
+**The asymmetry.** M1/M2 read a ladder over **k ∈ {1..k_max}, bypass rung included** — stated in
+this file's own schedule ruling ("the loss is the mean over rungs k ∈ {1..k_max} (bypass rung
+included)") and implemented as rung 1 = the direct-regression head. **M3's grid today starts at 5**:
+`K_GRID = (5, 8, 10, 12)`, "P1's pre-registered small grid"
+(`automl_package/examples/report_a_benchmark.py:102`), consumed by `select_k_for_toy` (`:331-350`),
+which fits a dedicated fixed-k model per grid point and takes the argmin validation NLL.
+
+**Why this is not bookkeeping.** The cheap arms can select *"do not discretize at all"*; the
+reference structurally **cannot** select anything below k=5. On any cell where the honest answer is
+the bypass — and this strand's own negative control is smooth data, where the bypass IS the right
+answer — M1 would beat its own ceiling **for a reason that has nothing to do with selection
+quality**. An arm that outscores the reference because the reference was not allowed to consider the
+winning candidate is not evidence about selection; it is a rigged grid. Note the direction: this
+flatters the cheap method, which is the direction a reader will least suspect.
+
+**Status: OPEN, deliberately not ruled here.** This file defines M3 as *generalising*
+`select_k_for_toy`, and never pinned the generalised grid — checked before this block was written
+(`grep -in 'k_grid\|k grid'` over this file returned only the constant's own mentions, no ruling).
+So this is an **unpinned decision surfacing early**, not a defect in shipped code, and the current
+grid is the old driver's, not M3's.
+
+**Recommendation to rule on (root, for the user):** M3's candidate set spans the same rung range the
+ladder is read over, **including the bypass**, so that both sides may return the same answer. The
+cost consequence is honest and must be reported, not hidden: widening the grid raises M3's price,
+and M3's price is the denominator of every efficiency claim in this strand. If the grid is instead
+left narrow for cost reasons, then **every M1-vs-M3 comparison must exclude cells whose selected
+rung lies outside M3's grid**, and say so in the report. What is NOT acceptable is a narrow grid
+with an unqualified "M1 matches M3" headline.
+
+**Binds:** **P3** (the M1 ≈ M3 claim, both halves) and **P4** (real data + baselines) — neither may
+report an M1-vs-M3 headline until this is settled. Also fold the ruling into §3.6's frozen-constants
+table when it lands, since the grid becomes a constant the battery reads.
+
 🔑 **EACH MODEL IS THE COMPLETE SYSTEM, INCLUDING ITS SELECTION MACHINERY** (user, 2026-07-20).
 **M1 = ProbReg + arbiter. M2 = ProbReg + distillation. M3 = ProbReg + sweep selector.** Every one is
 scored end-to-end and costed end-to-end: the selection step is *inside* the model, never a
@@ -1153,6 +1189,11 @@ below.
 
 ### P3 — the M1 ≈ M3 claim, both halves, on toys
 
+⛔ **BLOCKED on the M3 candidate-set ruling (§1, raised 2026-07-21).** M3's grid starts at k=5 while
+the ladder is read from the bypass up, so M1 can currently select a rung M3 is not allowed to
+consider. **No M1-vs-M3 headline may be produced until that is settled** — an unqualified "M1
+matches M3" off a narrow grid would flatter the cheap arm for a reason unrelated to selection.
+
 **Files (write set):** `automl_package/examples/probreg_p3.py` (Create) ·
 `automl_package/examples/capacity_ladder_results/P3/`
 **Spec:** On the existing 3 toy problems: train M3 (one dedicated model per k over the frozen k
@@ -1183,6 +1224,10 @@ each containing `m1_chosen_k`, `m3_chosen_k`, `per_k_held_out_scores`, `held_out
 `hit_cap: false`.
 
 ### P4 — real data + baselines
+
+⛔ **Inherits P3's block on the M3 candidate-set ruling (§1).** Same reason: the reference's grid must
+be able to return the answer the cheap arms can return, or the comparison is not like-for-like. The
+plain-network baseline is a separate question from the bypass rung — do not conflate them.
 
 **Files (write set):** `automl_package/examples/probreg_benchmark.py` (Create) ·
 `automl_package/examples/capacity_ladder_results/P4/`
