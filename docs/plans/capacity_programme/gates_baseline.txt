@@ -91,3 +91,10 @@ automl_package/examples/probreg_p11.py                                # P11
 
 # --- flexnn-package.md FP-12 Create target (parked 2026-07-21, root) ----------------------------
 # Fixed-sigma mixture scorer test. Created by FP-12 (wave zero for ProbReg).
+
+# --- structure.md Create targets (parked 2026-07-21, root) ------------------------------------
+# Each verified: named in a PS task's Files line AND consumed by that task's verify command.
+# Remove each entry the moment the artifact lands.
+tests/test_structure_phase_heads.py                                 # PS-A1 (Test/Create)
+automl_package/examples/probreg_structure_battery.py                # PS-A2 (Create)
+docs/plans/capacity_programme/shared/ps-certification-memo.md       # PS-4 (memo)
