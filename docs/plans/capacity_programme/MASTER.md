@@ -302,9 +302,14 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     returned OPPOSITE verdicts and between them either cleared or blocked three downstream tasks.
     **Both are REOPENED and their results DISCARDED.** Binding additions:
     - **A discriminating check runs on its own strand's sanctioned objective and metric.** Width and
-      the joint strand: mean-only, squared error. ProbReg: the point-prediction set. Depth:
-      classification. A check measured on a different objective from the arms it protects proves
-      nothing about them.
+      the joint strand: mean-only, squared error. **ProbReg: the fixed-σ mixture log-likelihood —
+      ⚠️ AMENDED 2026-07-21, see Decision 24.** Depth: classification. A check measured on a
+      different objective from the arms it protects proves nothing about them.
+      *(The original text here read "ProbReg: the point-prediction set." **That was wrong and it
+      survived being written into this register**, which is how `probreg.md` §0.5 and P8 both came to
+      mandate squared-error selection. Decision 24 is the authority; this line is corrected rather
+      than deleted so the error is auditable. The diagnosis of what voided P8 stands — it selected on
+      a **learned** variance — but the remedy is a likelihood at FIXED σ, never squared error.)*
     - **The check's own compliance is part of its verify line** — the task states the objective and
       the run's provenance shows it. "The driver defaulted to it" is how both of these happened.
     - **RESULTS PRODUCED IN VIOLATION OF A CONSTRAINT ARE DISCARDED, NOT REINTERPRETED** (user ruling,

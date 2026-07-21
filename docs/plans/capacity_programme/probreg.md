@@ -116,9 +116,19 @@ FP-11 task zero.
 **Non-goals:** no deletion of anything failing any one check; no deletion of report evidence, ever; no
 behaviour change to any driver that a live task will run; no merging of drivers that are not proven
 equivalent; **no touching `n_classes_strategies.py`** (FP-11 moves it, P7 rewrites it).
-*Orchestration:* parallel: no · deps: **FP-11** and **P7 merged** (P7 rewrites the training schedule,
-which is what supersedes several of these drivers) · tier: sonnet high for Steps 1-6, **root +
-ATTENDED for Step 7** · scale: static · shape: execution ·
+*Orchestration:* parallel: **NO — and this is a hard single-writer constraint, not a preference** ·
+deps: **FP-11** and **P7 merged** (P7 rewrites the training schedule, which is what supersedes several
+of these drivers) **· AND P3, P4, P8, PB, PC, P11 ALL CLOSED** · tier: sonnet high for Steps 1-6,
+**root + ATTENDED for Step 7** · scale: static · shape: execution ·
+
+⚠️ **P9 COLLIDES WITH SIX OPEN TASKS BY CONSTRUCTION (added 2026-07-21 after an execution-level
+audit).** P9's write set is the glob `automl_package/examples/probreg_*.py` — which **matches every
+driver the open tasks create**: `probreg_p3.py` (P3), `probreg_benchmark.py` (P4), `probreg_p8.py`
+(P8), `probreg_pb.py` (PB), `probreg_pc.py` (PC), `probreg_p11.py` (P11). Nothing in the previous
+deps line prevented a wave-partitioner from scheduling P9 **concurrently** with any of them, and a
+relocate or `git mv` racing another task mid-write is the exact single-writer failure this programme
+has a hook to catch. P9's own eligibility checks would probably block a *deletion* of a live-cited
+file — but they do not protect a **rename**. **⇒ P9 runs LAST in this strand, after all six close.**
 verify: (1) `shared/p9-cleanup-manifest.tsv` exists and every DELETE row records all four checks;
 (2) every relocated study's JSONs resolve at their new path and no driver writes outside
 `capacity_ladder_results/`; (3) neither shell launcher contains the string `/home/`;
@@ -618,10 +628,28 @@ take.
 
 ## 4. Tasks
 
-Order is **P0 → P0b → P0-b1 → P1 → P2 → PA → P7 → PB ∥ PC ∥ P8 → P3 → P4 → P5 → P6** *(amended
+Order is **`flexnn-package.md` FP-12 → P0 → P0b → P0-b1 → P1 → P2 → PA → P7 → P10 → PB ∥ PC ∥ P8 →
+P11 → P3 → P4 → P5 → P9 → P6** *(amended
 2026-07-21: P7, the Decision-20 schedule migration, precedes every task that trains M1/M2; P8, the
 Decision-21 regularisation check, runs parallel and gates P4's read; P0-b1 and P1 were found
-already landed — see their headers)*. (PT is parked and gates nothing — the existing toys are retained.) P0–P2 plus PA are the "fix it properly
+already landed — see their headers)*.
+
+⚠️ **ORDER LINE CORRECTED 2026-07-21 (root, after an execution-level audit). P9, P10 and P11 all had
+full specs — write set, deps, verify line — and NONE of them appeared in this order line.** A
+dispatcher following the order literally would never have scheduled any of the three, and since P10
+gates P11, the omission also severed P11's only path into the sequence. *(Recorded as case law: a
+task is not scheduled because it is well-specified; it is scheduled because it is in the order. Both
+are required, and this file had drifted so that adding a task no longer meant adding it here.)*
+
+**Two things this linear line cannot express — read them before partitioning waves:**
+- **FP-12 is WAVE ZERO and lives in another strand.** It builds the fixed-σ scorer that MASTER
+  Decision 24 makes the capacity readout. Until it lands, **every task here that selects or reports a
+  chosen k reads through a mechanism that scores on a LEARNED variance** — the forbidden case. That
+  includes P8's re-run, P11, PB, PC, P3, P4, P5 and P7's re-validation.
+- **FP-12, P7 and P10 are a STRICT SERIAL CHAIN**: all three write
+  `automl_package/models/probabilistic_regression.py`. The write-set guard is **session-scoped, not
+  liveness-scoped**, so they cannot be worker-written in one session even sequentially — they need
+  separate sessions or a root-applied handoff. **Plan this at dispatch, not on discovery.** (PT is parked and gates nothing — the existing toys are retained.) P0–P2 plus PA are the "fix it properly
 and completely" phase the user gated everything else behind (2026-07-20); no comparison compute runs
 until they close. **PB and PC must precede P3/P4**: both fix a *parameter of the method* (how much
 selection data, what router), and running the battery before they are settled would produce results
@@ -1037,9 +1065,27 @@ run**", and MASTER Decision 21 blocks a battery read until it has. So **P4 and P
 but nobody may now cite "regularisation moves k" as an established finding, because that finding was
 produced on the wrong metric. **Both the block and the claim it rested on are open questions.**
 
-**What the re-run must change (and ONLY this):** select on the point-prediction metric (squared
-error), keeping the λ grid, seeds, splits, convergence gates and the twice-bootstrap-SE selection rule
-byte-identical to the spec below. Recording NLL alongside as a labelled context number is fine;
+⚠️ **THE REMEDY BELOW WAS ITSELF WRONG — CORRECTED 2026-07-21 (root), and this is the second time
+this strand has been about to select on a metric that cannot see its own dial.** The text originally
+read *"select on the point-prediction metric (squared error)"*. **Do NOT do that.** Per MASTER
+Decision 24 and the corrected §0.5, squared error is *structurally blind to k* for symmetric targets:
+the mixture mean is identical whether the model resolves one component or five, so the selection
+curve flattens, cheapest-within-tolerance returns k=1 at every λ, and P8 reports a confident **"the
+selected k does not move"** — a verdict manufactured by the metric, not measured from the data. **On
+THIS task that failure is maximally deceptive**, because "does not move" is the outcome that
+*unblocks* the battery. A blind metric would have cleared the block it exists to enforce.
+
+**The diagnosis of what voided the original run stands unchanged** — it selected on a **learned**
+variance. What changes is only the remedy: the fix is a likelihood at **FIXED σ**, not a retreat to
+squared error. Both errors share one root cause, which is why §0.5 now states the test as *"is σ
+learned?"* rather than *"is it a likelihood?"*.
+
+**What the re-run must change (and ONLY this):** select on the **per-sample fixed-σ mixture
+log-likelihood** (MASTER Decision 24), keeping the λ grid, seeds, splits, convergence gates and the
+twice-bootstrap-SE selection rule byte-identical to the spec below. **⇒ P8 therefore deps on FP-12**
+(`flexnn-package.md`), which builds that scorer — until it exists there is nothing compliant to
+select on, and re-running P8 before it lands would void the result a third time. Recording squared
+error alongside as a labelled point-accuracy column is fine;
 selecting on it is not.
 
 **⚠️ Same defect, same day, different strand — this is a PATTERN, not an incident.** The width
@@ -1280,8 +1326,14 @@ run through the escalation ladder (LR sweep → clipping → warmup → init sch
 before being recorded as an architecture finding rather than an optimization one.
 **Non-goals:** no real data (P4); no baselines (P4); do not re-tune the arbiter's neighbourhood
 width.
-*Orchestration:* parallel: no · deps: P1, PA, PB, P7 (the arbiter must be correct, M1's mechanism must
-exist, and the selection-set fraction must be frozen before M1's choices mean anything) ·
+*Orchestration:* parallel: no · deps: P1, PA, PB, P7, **FP-12** (the fixed-σ scorer — without it M1
+and M3 both select on a learned variance), **⛔ AND the §1 M3 CANDIDATE-SET RULING, which is OPEN and
+needs the USER** (the arms' candidate sets must be able to return the same answer; see §1). *(The
+blocking ruling was previously stated only in prose above this task — a dependency-driven dispatcher
+would have seen these deps clear and dispatched P3 straight past the ⛔ banner. Carried into the deps
+field 2026-07-21 after an audit caught exactly that gap.)* (the arbiter must be correct, M1's
+mechanism must exist, and the selection-set fraction must be frozen before M1's choices mean
+anything) ·
 tier: sonnet high · scale: static · shape: execution · verify:
 `test -f automl_package/examples/capacity_ladder_results/P3/m3_control.json` and
 `python -c "import json; d=json.load(open('automl_package/examples/capacity_ladder_results/P3/m3_control.json')); assert d['reproduces'] is True, d"`

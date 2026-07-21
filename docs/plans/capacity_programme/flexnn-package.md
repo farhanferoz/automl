@@ -1429,6 +1429,101 @@ including the two known-failing heteroscedastic tests — **no new failures and 
 with `OMP_NUM_THREADS=4` pinned; (5) every NEW path in the target tree above exists on disk and every
 OLD path still exists as a shim.
 
+### FP-12 — the fixed-σ mixture scorer, built ONCE ⭐ — **WAVE ZERO for ProbReg; nothing that selects may run before it**
+
+**Why this task exists — the capacity readout does not exist in code.** MASTER Decision 24 makes the
+per-sample **fixed-σ mixture log-likelihood** the readout for choosing capacity, and forbids a
+likelihood read at a learned `log_var`. **Both mechanisms that actually choose k do exactly the
+forbidden thing**, verified at the root 2026-07-21 by reading them:
+- `automl_package/models/flexnn/strategies/n_classes.py:230` `all_rung_log_likelihood` — M1's arbiter
+  score table — takes `log_var = all_outputs[..., 1]` (the model's **predicted** log-variance) and
+  scores a Gaussian against it.
+- `automl_package/models/probabilistic_regression.py:1197` `_per_sample_log_likelihood_at_k` — M3's
+  sweep selector and `held_out_arbiter_advantage` — does the same with `out[:, 1]`.
+
+Neither accepts a σ argument. **⇒ Every ProbReg task that selects, scores or reports a chosen k reads
+through one of these two functions**, so all of them are currently non-compliant with the decision
+that governs them: **P8** (its re-run), **P3**, **P4**, **P5**, **PB**, **PC**, **P7**'s
+re-validation, and **P11**. This is why FP-12 is wave zero rather than a cleanup item.
+
+**⚠️ THIS IS NOT THE ONE-LINE SUBSTITUTION THE SPEC DESCRIBES — read this before scoping.**
+`docs/probreg_benchmark/benchmark_spec.md` §4.3 says the affected sites "substitute the shared
+constant" and calls it *"No other change"*. **That is optimistic, and a worker who believes it will
+under-deliver.** The current functions score a **single collapsed Gaussian**: `all_rung_outputs`
+builds each rung from `_compute_predictions_for_k`, which returns the regression module's *combined*
+output — the per-class predictions already collapsed through the law of total variance
+(`automl_package/models/common/regression_heads.py:461`). The spec's target object is the **genuine
+mixture** `Σ_{c≤k} p_c(x) · N(μ_c(x), σ²)` (§4.0). Those are different objects, and no substitution
+of a constant turns one into the other. **FP-12 must expose a per-component readout per rung**
+(the modules already have `forward_per_class`, `regression_heads.py:376` and `:465` — **reuse it, do
+not write a new path**) and score the mixture from `(p_c, μ_c)` with σ as a constant.
+
+**♻️ REUSE-FIRST — what was checked.** `automl_package/utils/losses.py:104` `mdn_nll` already
+computes `-mean log Σ_j p_j N(y; μ_j, σ_j²)` with log-sum-exp stability. **It is the right primitive
+and it has ZERO callers** — meanwhile `examples/` contains **four independent reimplementations**
+(`probreg_k_sweep.py:116`, `probreg_k10_sweep.py:119`, `probreg_k20_sweep.py:98`, and a
+different-signature `probreg_kselection_comparison.py:100`). ⇒ **Extend `mdn_nll`'s home, do not
+create a parallel one**, and this task is the reason FP-9's "built once" rule exists.
+
+**Files (write set):** `automl_package/utils/losses.py` (extend) ·
+`automl_package/models/flexnn/strategies/n_classes.py` ·
+`automl_package/models/probabilistic_regression.py` · `automl_package/examples/report_a_benchmark.py` ·
+`tests/test_fixed_sigma_scorer.py` (new)
+
+**Spec.**
+1. **The scorer.** `fixed_sigma_mixture_log_likelihood(y, probs, mus, sigma) -> per-sample (N,)` in
+   `automl_package/utils/losses.py`, beside `mdn_nll`. `sigma` is **REQUIRED, scalar, no default** —
+   a default is how a per-arm σ silently returns. Higher is better (log-likelihood, not NLL); state
+   the direction in the docstring, since `mdn_nll` returns the negative and mixing them is a sign bug
+   waiting to happen.
+2. **σ's value — the binding rule, quoted from spec §2 so the worker does not choose it.** ONE σ per
+   dataset, fixed by the SAME rule for every arm: **on toys, the known construction value; on real
+   data, the held-out root-mean-square residual of the plain-NN baseline**, computed once and reused
+   for all arms. **A per-arm σ is FORBIDDEN** — each arm under its own σ makes the likelihoods
+   incomparable. **Record σ's value in every results JSON.**
+3. **Migrate all FIVE call sites** — the spec's migration list names three and is incomplete;
+   **re-derive the list at execution time** and report what you find:
+   `all_rung_log_likelihood` · `_per_sample_log_likelihood_at_k` · the router's error table and the
+   arbiter's per-rung readout in `probabilistic_regression.py` (spec §4.3 cites `:828`/`:843` —
+   **line numbers are stale, locate by symbol**) · and `select_k_for_toy`
+   (`automl_package/examples/report_a_benchmark.py:341-345`), the **fourth site the spec's list
+   omits**, which selects M3's k on `predict_uncertainty`'s fitted σ.
+4. **The learned-variance path is NOT deleted** — `predict_uncertainty` and the variance machinery
+   stay (MASTER Decision 2, amended: the machinery stays, it is simply never what selection reads).
+   FP-12 changes what the SELECTOR scores, nothing else.
+
+**Non-goals:** no change to any training objective (this is scoring only); no new selection algorithm;
+no deletion; no touching width's or depth's scorers; **do not "simplify" the four example-tree
+reimplementations** — consolidating those is P9's cleanup, and several of those files are protected.
+
+*Orchestration:* parallel: **no — it writes `probabilistic_regression.py`, which `probreg.md` P7 and
+P10 also write; those three are a STRICT SERIAL CHAIN and cannot share a session under the
+session-scoped write-set guard** · deps: **FP-11** (done) · tier: sonnet high · scale: static ·
+shape: execution ·
+**verify:**
+```bash
+cd /home/ff235/dev/MLResearch/automl
+# (a) KNOWN ANSWER: with k=1 and one component, the mixture reduces to a plain Gaussian at fixed sigma
+AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python - <<'PY'
+import math, torch
+from automl_package.utils.losses import fixed_sigma_mixture_log_likelihood as f
+y = torch.tensor([0.5]); probs = torch.tensor([[1.0]]); mus = torch.tensor([[0.0]]); s = 2.0
+want = -0.5*(math.log(2*math.pi) + 2*math.log(s) + (0.5**2)/s**2)
+got = float(f(y, probs, mus, sigma=s)[0])
+assert abs(got-want) < 1e-6, (got, want)
+# (b) sigma is REQUIRED -- calling without it must raise, not default
+try: f(y, probs, mus); print("P12-FAIL: sigma defaulted")
+except TypeError: print("FP12-SIGMA-REQUIRED-OK")
+PY
+# (c) NO selection path reads a learned log_var any more -- this is the gate with teeth
+grep -n 'log_var' automl_package/models/flexnn/strategies/n_classes.py automl_package/models/probabilistic_regression.py \
+  | grep -iE 'likelihood|score|select|arbiter|router'
+# (d) the suite is unchanged: 366 passed / 2 failed (the accepted heteroscedastic pair) / 1 skipped
+AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python -m pytest tests/ -q
+```
+(a) prints nothing and exits 0; (b) prints `FP12-SIGMA-REQUIRED-OK`; **(c) must print NOTHING** — any
+hit is a selection path still scoring on a learned variance; (d) matches the known result exactly.
+
 ### FP-8 — the cleanup itself
 
 **Files (write set):** determined by FP-7's inventory, listed explicitly in the task before it runs

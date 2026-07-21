@@ -91,3 +91,7 @@ shared/p9-cleanup-manifest.tsv                                       # probreg.m
 # --- probreg.md P11 Create target (parked 2026-07-21, root) -------------------------------------
 # Head-structure comparison driver. Created by P11; deps P7 + P10, so not yet written.
 automl_package/examples/probreg_p11.py                                # P11
+
+# --- flexnn-package.md FP-12 Create target (parked 2026-07-21, root) ----------------------------
+# Fixed-sigma mixture scorer test. Created by FP-12 (wave zero for ProbReg).
+tests/test_fixed_sigma_scorer.py                                      # FP-12
