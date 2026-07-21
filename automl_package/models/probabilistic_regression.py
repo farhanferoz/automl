@@ -10,6 +10,7 @@ import torch.nn as nn
 
 from automl_package.enums import (
     BoundaryRegularizationMethod,
+    CapacitySelection,
     ExplainerType,
     NClassesRegularization,
     NClassesSelectionMethod,
@@ -44,11 +45,11 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
     Recommended dynamic-k path (capacity-programme Task F9, MASTER Decision 13 -- selection is
     DISTILLED, never in-training): train with `n_classes_selection_method=NESTED` (per-sample k
-    drawn as a training schedule, ported from `_capacity_ladder_nested.py`), then call
-    `fit_router()` + `predict(x, inference_mode="routed")` for per-input k at inference. The
-    other dynamic strategies -- SOFT_GATING, GUMBEL_SOFTMAX, STE, REINFORCE, and
-    `NClassesRegularization` (K_PENALTY/ELBO) -- remain fully functional but are labeled
-    COMPARISON ARMS, not the recommended path.
+    drawn as a training schedule, ported from `_capacity_ladder_nested.py`), then construct with
+    `capacity_selection=CapacitySelection.PER_INPUT`, call `fit_router()`, and `predict(x)` routes
+    per-input k with no caller flag (capacity-programme Task FP-3). The other dynamic strategies --
+    SOFT_GATING, GUMBEL_SOFTMAX, STE, REINFORCE, and `NClassesRegularization` (K_PENALTY/ELBO) --
+    remain fully functional but are labeled COMPARISON ARMS, not the recommended path.
 
     Warning:
         Dynamic n_classes selection (`n_classes_selection_method != NONE`) combined with an
@@ -102,10 +103,18 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         "ordering_constraint_weight": None,
         "ordering_constraint_margin": 0.0,
         "ordering_top_decile_fraction": 0.1,
+        "capacity_selection": CapacitySelection.FIXED,
     }
 
     def __init__(self, **kwargs: Any) -> None:
         """Initializes the ProbabilisticRegressionModel."""
+        if "inference_mode" in kwargs:
+            raise TypeError(
+                "inference_mode is not a constructor parameter -- ProbabilisticRegressionModel no "
+                "longer accepts it (capacity-programme FP-3: removed from predict()/"
+                "predict_uncertainty() too, clean break, no shim). Use "
+                "capacity_selection=CapacitySelection.PER_INPUT and call fit_router() instead."
+            )
         for key, value in self._defaults.items():
             kwargs.setdefault(key, value)
 
@@ -141,6 +150,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             self.n_classes_regularization = NClassesRegularization[self.n_classes_regularization.upper()]
         if isinstance(self.prob_reg_loss_type, str):
             self.prob_reg_loss_type = ProbRegLossType[self.prob_reg_loss_type.upper()]
+        if isinstance(self.capacity_selection, str):
+            self.capacity_selection = CapacitySelection[self.capacity_selection.upper()]
 
         if self.n_classes_selection_method == NClassesSelectionMethod.NESTED and self.uncertainty_method != UncertaintyMethod.PROBABILISTIC:
             raise ValueError(
@@ -595,7 +606,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
         return super()._fit_single(x_train, y_train, x_val, y_val, forced_iterations, forward_pass_kwargs=forward_pass_kwargs)
 
-    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True, inference_mode: str = "soft") -> np.ndarray:
+    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
         """Predicts on x, applying inverse target transform if configured.
 
         For symlog, predictions are computed as the MC mean of ``symexp(samples)`` so
@@ -605,14 +616,13 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         Args:
             x: Input features.
             filter_data: Whether to filter input columns to those seen at fit time.
-            inference_mode: "soft" (default) uses the trained selection strategy/full forward
-                pass. "routed" uses a `DistilledCapacityRouter` fitted via `fit_router()` to
-                pick a per-sample rung post-hoc (capacity-programme Task F9; MASTER
-                Decision 13) -- mirrors `FlexibleHiddenLayersNN.predict(inference_mode=...)`.
+
+        Under `capacity_selection=CapacitySelection.FIXED` (default) uses the trained selection
+        strategy/full forward pass. Under `CapacitySelection.PER_INPUT`, routes with a
+        `DistilledCapacityRouter` fitted via `fit_router()` -- no caller flag needed
+        (capacity-programme Task FP-3; MASTER Decision 13).
         """
-        if inference_mode not in ("soft", "routed"):
-            raise ValueError(f"Unknown inference_mode: {inference_mode!r}")
-        if inference_mode == "routed":
+        if self.capacity_selection == CapacitySelection.PER_INPUT:
             mean, log_var = self._forward_routed(x, filter_data=filter_data)
             if self.target_transform == "symlog":
                 std_symlog = np.sqrt(np.exp(log_var))
@@ -691,7 +701,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         stds = np.sqrt(np.exp(log_var))
         return MixtureOfGaussiansDistribution(weights=weights, means=means, stds=stds)
 
-    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True, inference_mode: str = "soft") -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty, converting from symlog space if configured.
 
         For symlog targets the linearized Jacobian (``exp(|μ|)``) is inaccurate
@@ -703,11 +713,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         Args:
             x: Input features.
             filter_data: Whether to filter input columns to those seen at fit time.
-            inference_mode: see :meth:`predict`.
+
+        Follows `self.capacity_selection`, same as :meth:`predict`.
         """
-        if inference_mode not in ("soft", "routed"):
-            raise ValueError(f"Unknown inference_mode: {inference_mode!r}")
-        if inference_mode == "routed":
+        if self.capacity_selection == CapacitySelection.PER_INPUT:
             mean, log_var = self._forward_routed(x, filter_data=filter_data)
             std = np.sqrt(np.exp(log_var))
             if self.target_transform == "symlog":
@@ -734,7 +743,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if getattr(self, "capacity_router_", None) is None:
-            raise RuntimeError("No router fitted; call fit_router() before predict(inference_mode='routed').")
+            raise RuntimeError("No router fitted; call fit_router() before predict() under CapacitySelection.PER_INPUT.")
         if filter_data:
             x = self._filter_predict_data(x)
         x_array = x.values if hasattr(x, "values") else x
@@ -759,7 +768,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         tolerance: float = DEFAULT_TOLERANCE,
         cost_fn: Callable[[tuple[int, ...]], float] | None = None,
     ) -> DistilledCapacityRouter:
-        """Fits a `DistilledCapacityRouter` post-hoc for `predict(..., inference_mode="routed")`.
+        """Fits a `DistilledCapacityRouter` post-hoc for `predict()` under `CapacitySelection.PER_INPUT`.
 
         Decision 13 (distilled, never in-training): trains an MLP mapping raw `x_val` to a rung,
         entirely separate from the trained selection strategy. `eval_fn` forces every sample

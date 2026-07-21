@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import ActivationFunction, DepthRegularization, ExplainerType, LayerSelectionMethod, TaskType, UncertaintyMethod
+from automl_package.enums import ActivationFunction, CapacitySelection, DepthRegularization, ExplainerType, LayerSelectionMethod, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.common.distilled_router import DEFAULT_TOLERANCE, DistilledCapacityRouter
@@ -19,8 +19,10 @@ from automl_package.models.selection_strategies.layer_selection_strategies impor
     SoftGatingStrategy,
     SteStrategy,
 )
+from automl_package.utils.capacity_accounting import _linear_macs, _sequential_linear_macs, executed_flops
 from automl_package.utils.convergence import DEFAULT_PATIENCE, ConvergenceTracker
 from automl_package.utils.losses import nll_loss
+from automl_package.utils.numerics import calculate_binned_stats
 from automl_package.utils.pytorch_utils import get_activation_function_map, get_device
 
 BINARY_CLASSIFICATION_THRESHOLD = 0.5
@@ -51,10 +53,18 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         "depth_regularization": DepthRegularization.NONE,
         "depth_penalty_weight": 0.01,
         "cost_aware_lambda": 1.0,
+        "capacity_selection": CapacitySelection.FIXED,
     }
 
     def __init__(self, **kwargs: Any) -> None:
         """Initializes the FlexibleHiddenLayersNN."""
+        if "inference_mode" in kwargs:
+            raise TypeError(
+                "inference_mode is not a constructor parameter -- FlexibleHiddenLayersNN no longer "
+                "accepts it (capacity-programme FP-3: removed from predict()/predict_uncertainty() "
+                "too, clean break, no shim). Use capacity_selection=CapacitySelection.PER_INPUT and "
+                "call fit_router() instead, or hard_execution=True for the execution shortcut."
+            )
         # Apply this class's defaults and then pass to the parent constructor
         for key, value in FlexibleHiddenLayersNN._defaults.items():
             kwargs.setdefault(key, value)
@@ -364,7 +374,10 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             self.model.load_state_dict(best_model_state)
 
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
-            y_pred_train = self.predict(x_train, filter_data=False)
+            # FP-3: was self.predict(x_train, filter_data=False) -- now bypasses via _predict_soft
+            # since capacity_selection may be PER_INPUT with no router fitted yet. See
+            # _predict_soft's docstring.
+            y_pred_train = self._predict_soft(x_train, filter_data=False)
             self._train_residual_std = np.std(y_train - y_pred_train)
             if np.isnan(self._train_residual_std):
                 self._train_residual_std = 0.0
@@ -383,23 +396,58 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
 
         return best_epoch + 1, val_loss_history
 
-    def predict(self, x: np.ndarray, filter_data: bool = True, inference_mode: str = "soft") -> np.ndarray:
+    def _predictions_from_output(self, final_output: torch.Tensor) -> np.ndarray:
+        """Shared postprocessing: raw net output -> flat predictions array."""
+        if self.task_type == TaskType.CLASSIFICATION:
+            if self.output_size == 1:
+                predictions = (torch.sigmoid(final_output) > BINARY_CLASSIFICATION_THRESHOLD).cpu().numpy().astype(int)
+            else:
+                predictions = torch.argmax(final_output, dim=1).cpu().numpy()
+        else:
+            predictions = final_output[:, 0].cpu().numpy() if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else final_output.cpu().numpy()
+        return predictions.flatten()
+
+    def _predict_soft(self, x: np.ndarray, filter_data: bool) -> np.ndarray:
+        """Predicts via the full soft forward pass, bypassing `capacity_selection`/`hard_execution` entirely.
+
+        FP-3 side effect, not part of the public API: several generic call sites -- this class's
+        own `_fit_single`'s `_train_residual_std` bookkeeping below, and
+        `BinnedUncertaintyMixin.calibrate_uncertainty`/`predict_binned_uncertainty`
+        (`models/common/mixins.py:99,112`, overridden below for the same reason) -- call
+        `self.predict(x)` expecting SOME concrete prediction regardless of whether this instance
+        is configured `CapacitySelection.PER_INPUT` (no router exists yet during `.fit()`).
+        Matches this class's pre-FP-3 default (`inference_mode="soft"`) for exactly this internal
+        bookkeeping use, without weakening the public `predict()` contract (which correctly raises
+        under `PER_INPUT` with no router fitted -- FP-3.b.4's sibling rule for this family).
+        """
+        if filter_data:
+            x = self._filter_predict_data(x)
+        x_array = x.values if hasattr(x, "values") else x
+        x_tensor = torch.tensor(x_array, dtype=torch.float32).to(self.device)
+        self.model.eval()
+        with torch.no_grad():
+            final_output, _, _, _, _ = self.model(x_tensor)
+        return self._predictions_from_output(final_output)
+
+    def predict(self, x: np.ndarray, filter_data: bool = True, hard_execution: bool = False) -> np.ndarray:
         """Makes predictions with the FlexibleHiddenLayersNN.
 
         Args:
             x: Input features.
             filter_data: Whether to filter input columns to those seen at fit time.
-            inference_mode: "soft" uses the trained selection strategy (full forward pass).
-                "hard" runs only the argmax-selected depth per sample for compute savings.
-                "routed" uses a `DistilledCapacityRouter` fitted via `fit_router()` to pick a
-                per-sample depth post-hoc (capacity-programme Task F3; MASTER Decision 13).
+            hard_execution: execution shortcut, ORTHOGONAL to `capacity_selection` (not a selection
+                mode -- FP-3.c): run only the argmax-selected depth per sample (compute savings)
+                instead of the full soft forward pass. Only meaningful under
+                `CapacitySelection.FIXED`; ignored under `CapacitySelection.PER_INPUT` (routing
+                already forces exactly one depth per sample).
+
+        Under `CapacitySelection.PER_INPUT`, routes with a `DistilledCapacityRouter` fitted via
+        `fit_router()` -- no caller flag needed (capacity-programme Task FP-3; MASTER Decision 13).
         """
-        if inference_mode not in ("soft", "hard", "routed"):
-            raise ValueError(f"Unknown inference_mode: {inference_mode!r}")
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
-        if inference_mode == "routed" and getattr(self, "capacity_router_", None) is None:
-            raise RuntimeError("No router fitted; call fit_router() before predict(inference_mode='routed').")
+        if self.capacity_selection == CapacitySelection.PER_INPUT and getattr(self, "capacity_router_", None) is None:
+            raise RuntimeError("No router fitted; call fit_router() before predict() under CapacitySelection.PER_INPUT.")
         if filter_data:
             x = self._filter_predict_data(x)
         x_array = x.values if hasattr(x, "values") else x
@@ -417,22 +465,15 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
 
         self.model.eval()
         with torch.no_grad():
-            if inference_mode == "hard":
-                final_output = self.model.hard_forward(x_tensor)
-            elif inference_mode == "routed":
+            if self.capacity_selection == CapacitySelection.PER_INPUT:
                 depths_np = np.array([capacity[0] for capacity in self.capacity_router_.route(x_array)], dtype=np.int64)
                 depths_tensor = torch.as_tensor(depths_np, dtype=torch.long, device=self.device)
                 final_output = self.model.forward_at_depths(x_tensor, depths_tensor)
+            elif hard_execution:
+                final_output = self.model.hard_forward(x_tensor)
             else:
                 final_output, _, _, _, _ = self.model(x_tensor)
-            if self.task_type == TaskType.CLASSIFICATION:
-                if self.output_size == 1:
-                    predictions = (torch.sigmoid(final_output) > BINARY_CLASSIFICATION_THRESHOLD).cpu().numpy().astype(int)
-                else:
-                    predictions = torch.argmax(final_output, dim=1).cpu().numpy()
-            else:
-                predictions = final_output[:, 0].cpu().numpy() if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC else final_output.cpu().numpy()
-        return predictions.flatten()
+        return self._predictions_from_output(final_output)
 
     def fit_router(
         self,
@@ -442,7 +483,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         tolerance: float = DEFAULT_TOLERANCE,
         cost_fn: Callable[[tuple[int, ...]], float] | None = None,
     ) -> DistilledCapacityRouter:
-        """Fits a `DistilledCapacityRouter` post-hoc for `predict(..., inference_mode="routed")`.
+        """Fits a `DistilledCapacityRouter` post-hoc for `predict()` under `CapacitySelection.PER_INPUT`.
 
         Decision 13 (distilled, never in-training): trains an MLP mapping raw `x_val` to a depth,
         entirely separate from the trained `n_predictor`/selection strategy. `eval_fn` forces every
@@ -457,11 +498,9 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             capacity_grid: candidate depths as 1-tuples, e.g. `[(1,), (2,), (3,)]`. Defaults to
                 every depth `1..max_hidden_layers`.
             tolerance: cheapest-within-tolerance labeling tolerance (see `DistilledCapacityRouter`).
-            cost_fn: `cost_fn(capacity) -> float`. Defaults to `executed_flops` from
-                `automl_package/examples/capacity_accounting.py` (S2 accounting) at the routed
-                depth. Imported inside this method, not at module top, to avoid a load-time
-                circular import: `capacity_accounting.py` itself imports `FlexibleHiddenLayersNN`
-                to register its own accounting for this class.
+            cost_fn: `cost_fn(capacity) -> float`. Defaults to `automl_package.utils.capacity_accounting
+                .executed_flops` at the routed depth, dispatched on `FlexibleNNModule` via the
+                registration at the bottom of this file.
 
         Returns:
             The fitted `DistilledCapacityRouter` (also stored as `self.capacity_router_`).
@@ -489,7 +528,6 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             return (target - y_val_arr) ** 2
 
         if cost_fn is None:
-            from automl_package.examples.capacity_accounting import executed_flops  # noqa: PLC0415, I001 -- avoids a load-time circular import (capacity_accounting.py imports this class)
 
             def cost_fn(capacity: tuple[int, ...]) -> float:
                 return float(executed_flops(self.model, capacity[0]))
@@ -499,29 +537,28 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         self.capacity_router_ = router
         return router
 
-    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True, inference_mode: str = "soft") -> np.ndarray:
+    def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True, hard_execution: bool = False) -> np.ndarray:
         """Estimates uncertainty for regression.
 
         Args:
             x: Input features.
             filter_data: Whether to filter input columns to those seen at fit time.
-            inference_mode: Must match the `inference_mode` a paired `predict()` call used, so
-                the returned spread comes from the same selected depth as the mean it accompanies
+            hard_execution: must match the `hard_execution` a paired `predict()` call used, so the
+                returned spread comes from the same selected depth as the mean it accompanies
                 (DD2: previously this always used the soft selection regardless of what mode
                 `predict()` was called with, silently pairing a hard/routed mean with a
                 soft-selected uncertainty). Only `uncertainty_method=PROBABILISTIC` varies its
                 depth selection with this argument -- it reuses `hard_forward`/`forward_at_depths`
-                so the per-sample depths are byte-identical to `predict(inference_mode=...)`.
-                CONSTANT is a fixed training-time residual std with no per-call depth dependence,
-                and MC_DROPOUT's `predict()` already ignores `inference_mode` and always uses the
-                soft selection (a separate, pre-existing quirk, out of DD2's scope) -- both accept
-                any value of this argument without effect, since neither ever varies by depth
+                so the per-sample depths are byte-identical to `predict()`'s. Follows
+                `self.capacity_selection` under `PER_INPUT`, same as `predict()`. CONSTANT is a
+                fixed training-time residual std with no per-call depth dependence, and
+                MC_DROPOUT's `predict()` already ignores execution mode and always uses the soft
+                selection (a separate, pre-existing quirk, out of DD2's scope) -- both accept any
+                value of this argument without effect, since neither ever varies by depth
                 selection the way `predict()`'s mean does.
         """
         if not self.is_regression_model:
             raise ValueError("predict_uncertainty is only available for regression models.")
-        if inference_mode not in ("soft", "hard", "routed"):
-            raise ValueError(f"Unknown inference_mode: {inference_mode!r}")
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
@@ -534,14 +571,14 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
             self.model.eval()  # Use eval mode for prediction
             with torch.no_grad():
-                if inference_mode == "hard":
-                    final_output = self.model.hard_forward(x_tensor)
-                elif inference_mode == "routed":
+                if self.capacity_selection == CapacitySelection.PER_INPUT:
                     if getattr(self, "capacity_router_", None) is None:
-                        raise RuntimeError("No router fitted; call fit_router() before predict_uncertainty(inference_mode='routed').")
+                        raise RuntimeError("No router fitted; call fit_router() before predict_uncertainty() under CapacitySelection.PER_INPUT.")
                     depths_np = np.array([capacity[0] for capacity in self.capacity_router_.route(x_array)], dtype=np.int64)
                     depths_tensor = torch.as_tensor(depths_np, dtype=torch.long, device=self.device)
                     final_output = self.model.forward_at_depths(x_tensor, depths_tensor)
+                elif hard_execution:
+                    final_output = self.model.hard_forward(x_tensor)
                 else:
                     final_output, _, _, _, _ = self.model(x_tensor)
                 log_var = final_output[:, 1]
@@ -557,6 +594,34 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             self.model.eval()  # Set back to eval mode
             return np.std(mc_predictions, axis=0)  # Return std dev of MC samples
         raise ValueError(f"Unknown uncertainty_method: {self.uncertainty_method.value}")
+
+    def calibrate_uncertainty(self, x: np.ndarray, y: np.ndarray, n_bins: int = 10) -> None:
+        """Calibrates `BINNED_RESIDUAL_STD` uncertainty (`BinnedUncertaintyMixin`, `models/common/mixins.py:97`).
+
+        Overridden ONLY to swap the mixin's generic `self.predict(x)` (would raise under
+        `CapacitySelection.PER_INPUT` with no router fitted yet -- see `_predict_soft`) for
+        `_predict_soft`. Logic otherwise identical to the mixin's.
+        """
+        predictions = self._predict_soft(x, filter_data=True)
+        residuals = y.flatten() - predictions.flatten()
+        bin_edges, stats = calculate_binned_stats(probas=predictions, values=residuals, n_bins=n_bins, aggregations={"std": np.std}, min_value=-np.inf, max_value=np.inf)
+        self._binned_uncertainty_edges = bin_edges
+        self._binned_uncertainty_lookup = stats["std"]
+
+    def predict_binned_uncertainty(self, x: np.ndarray) -> np.ndarray:
+        """Looks up calibrated `BINNED_RESIDUAL_STD` uncertainty (`models/common/mixins.py:107`).
+
+        Overridden ONLY to swap the mixin's generic `self.predict(x)` for `_predict_soft` -- same
+        reason as `calibrate_uncertainty` above; logic otherwise identical to the mixin's.
+        """
+        if self._binned_uncertainty_edges is None or self._binned_uncertainty_lookup is None or len(self._binned_uncertainty_lookup) == 0:
+            raise RuntimeError("Uncertainty model has not been calibrated. Call `calibrate_uncertainty` first.")
+        predictions = self._predict_soft(x, filter_data=True)
+        bin_indices = np.searchsorted(self._binned_uncertainty_edges[1:], predictions.flatten(), side="left")
+        bin_indices = np.clip(bin_indices, 0, len(self._binned_uncertainty_edges) - 2)
+        stds = self._binned_uncertainty_lookup[bin_indices]
+        fallback = float(np.nanmean(self._binned_uncertainty_lookup)) if np.any(~np.isnan(self._binned_uncertainty_lookup)) else 0.0
+        return np.nan_to_num(stds, nan=fallback)
 
     def predict_proba(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Predicts class probabilities for classification tasks."""
@@ -662,3 +727,32 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
     def get_shap_explainer_info(self) -> dict[str, Any]:
         """Gets the SHAP explainer type and the model to be explained."""
         return {"explainer_type": ExplainerType.DEEP, "model": self.get_internal_model()}
+
+
+# ---------------------------------------------------------------------------
+# executed_flops registration (capacity-programme Task FP-1) -- self-registered here, not from
+# `automl_package/utils/capacity_accounting.py`, to avoid a circular import: that module would
+# otherwise need to import this file's class while this file imports its `executed_flops`.
+# ---------------------------------------------------------------------------
+
+
+@executed_flops.register(FlexibleHiddenLayersNN.FlexibleNNModule)
+def _executed_flops_flexnn(net: FlexibleHiddenLayersNN.FlexibleNNModule, config: int) -> int:
+    """Routed depth-`config` MACs for FlexNN's inner module.
+
+    Mirrors `hard_forward`'s ACTUAL compute-saving code path (`FlexibleNNModule.hard_forward`
+    above): `blocks[0..config-1]` run in sequence (depth blocks chain through activations -- no
+    width-style slicing trick, they are simply not entered at all past the routed depth), then
+    `output_layer` runs once. If `n_predictor` exists (dynamic depth selection is on),
+    `hard_forward` calls it on EVERY input to decide where to route -- so its MACs are added
+    unconditionally, not only at `config` depth.
+    """
+    d = config
+    max_hidden_layers = len(net.hidden_layers_blocks)
+    if not (1 <= d <= max_hidden_layers):
+        raise ValueError(f"config={d} out of range [1, {max_hidden_layers}]")
+    total = sum(_sequential_linear_macs(net.hidden_layers_blocks[i]) for i in range(d))
+    total += _linear_macs(net.output_layer.in_features, net.output_layer.out_features)
+    if net.n_predictor is not None:
+        total += _sequential_linear_macs(net.n_predictor)
+    return total

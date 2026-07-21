@@ -156,16 +156,16 @@ def run_hard_vs_soft():
 
     t0 = time.perf_counter()
     for _ in range(n_runs):
-        y_soft = model.predict(x_large, inference_mode="soft")
+        y_soft = model.predict(x_large)
     t_soft = time.perf_counter() - t0
 
     t0 = time.perf_counter()
     for _ in range(n_runs):
-        y_hard = model.predict(x_large, inference_mode="hard")
+        y_hard = model.predict(x_large, hard_execution=True)
     t_hard = time.perf_counter() - t0
 
-    y_soft_test = model.predict(x_test, inference_mode="soft")
-    y_hard_test = model.predict(x_test, inference_mode="hard")
+    y_soft_test = model.predict(x_test)
+    y_hard_test = model.predict(x_test, hard_execution=True)
     mse_soft = float(np.mean((y_test - y_soft_test) ** 2))
     mse_hard = float(np.mean((y_test - y_hard_test) ** 2))
     diff = float(np.mean((y_soft_test - y_hard_test) ** 2))

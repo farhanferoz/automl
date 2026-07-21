@@ -6,6 +6,7 @@ import torch
 from sklearn.model_selection import train_test_split
 
 from automl_package.enums import (
+    CapacitySelection,
     NClassesRegularization,
     NClassesSelectionMethod,
     ProbabilisticRegressionOptimizationStrategy,
@@ -399,10 +400,13 @@ class TestELBOkSelection:
         )
 
 
-def _compute_nll(model, x, y, inference_mode="soft"):
-    """Helper: compute gaussian NLL from model predictions + uncertainty."""
-    y_pred = model.predict(x, inference_mode=inference_mode)
-    y_std = model.predict_uncertainty(x, inference_mode=inference_mode)
+def _compute_nll(model, x, y):
+    """Helper: compute gaussian NLL from model predictions + uncertainty.
+
+    Follows `model.capacity_selection` -- set at construction, not per-call (FP-3).
+    """
+    y_pred = model.predict(x)
+    y_std = model.predict_uncertainty(x)
     log_var = 2 * np.log(np.clip(y_std, 1e-6, None))
     nll = 0.5 * np.mean(log_var + ((y - y_pred) ** 2) / np.exp(log_var))
     return float(nll)
@@ -484,7 +488,7 @@ class TestNestedKTraining:
     @pytest.mark.skipif(get_device().type == "cpu", reason="requires a non-CPU device (CUDA/XPU) to exercise cross-device placement in forward_at_k")
     def test_forward_at_k_runs_on_accelerator_device(self, multimodal_data):
         """Regression guard: `forward_at_k` (used directly here, and internally by
-        `fit_router`/`predict(inference_mode="routed")`) takes a raw tensor and does no device
+        `fit_router`/PER_INPUT-routed `predict()`) takes a raw tensor and does no device
         transfer of its own -- callers must place the input on `model.device` first. Every
         production call site already does this (see `_forward_routed`/`fit_router` in
         `probabilistic_regression.py`); this test would have caught the two now-fixed sibling
@@ -504,7 +508,7 @@ class TestNestedKTraining:
 class TestNestedKDistilledRouting:
     """Task F9 items 2 & 4: DistilledCapacityRouter-routed inference + the arbiter diagnostic."""
 
-    def _fit_nested(self, x, y, max_k=3, n_epochs=250, seed=0):
+    def _fit_nested(self, x, y, max_k=3, n_epochs=250, seed=0, capacity_selection=CapacitySelection.FIXED):
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=max_k,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
@@ -513,6 +517,7 @@ class TestNestedKDistilledRouting:
             optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
             n_epochs=n_epochs, learning_rate=0.01, random_seed=seed,
             calculate_feature_importance=False,
+            capacity_selection=capacity_selection,
         )
         model.fit(x, y)
         return model
@@ -529,11 +534,36 @@ class TestNestedKDistilledRouting:
         with pytest.raises(RuntimeError, match="NESTED"):
             model.fit_router(x, y)
 
+    def test_per_input_routes_with_no_caller_flag(self, heteroscedastic_data):
+        """FP-3 test 1: a router-fitted model constructed with `CapacitySelection.PER_INPUT`
+        routes on a plain `predict(x)` call, with no caller flag."""
+        x, y, _, _ = heteroscedastic_data
+        model = self._fit_nested(x, y, max_k=4, n_epochs=15, capacity_selection=CapacitySelection.PER_INPUT)
+        model.fit_router(x, y)
+
+        y_pred = model.predict(x)
+        assert y_pred.shape == (len(x),)
+        assert not np.any(np.isnan(y_pred))
+
     def test_predict_routed_requires_fitted_router(self, heteroscedastic_data):
         x, y, _, _ = heteroscedastic_data
-        model = self._fit_nested(x, y, max_k=4, n_epochs=15)
+        model = self._fit_nested(x, y, max_k=4, n_epochs=15, capacity_selection=CapacitySelection.PER_INPUT)
         with pytest.raises(RuntimeError, match="No router fitted"):
+            model.predict(x)
+
+    def test_inference_mode_kwarg_rejected_at_predict(self, heteroscedastic_data):
+        """FP-3.b: `inference_mode` is removed entirely -- `predict` has no `**kwargs`, so passing
+        it raises `TypeError` for free once the parameter is deleted."""
+        x, y, _, _ = heteroscedastic_data
+        model = self._fit_nested(x, y, max_k=4, n_epochs=5)
+        with pytest.raises(TypeError):
             model.predict(x, inference_mode="routed")
+
+    def test_inference_mode_kwarg_rejected_at_construction(self):
+        """FP-3.d: a removed selection kwarg passed to the CONSTRUCTOR must raise `TypeError`, not
+        be silently swallowed into `self.params`/`setattr` (`base.py:45,52`, `base_pytorch.py:49-50`)."""
+        with pytest.raises(TypeError):
+            ProbabilisticRegressionModel(input_size=1, inference_mode="hard")
 
     def test_held_out_arbiter_advantage_requires_nested_strategy(self, heteroscedastic_data):
         x, y, _, _ = heteroscedastic_data
@@ -568,10 +598,10 @@ class TestNestedKDistilledRouting:
         x_test, y_test = _two_regime_data(600, seed=2)
 
         max_k = 3
-        model = self._fit_nested(x_train, y_train, max_k=max_k, n_epochs=250, seed=0)
+        model = self._fit_nested(x_train, y_train, max_k=max_k, n_epochs=250, seed=0, capacity_selection=CapacitySelection.PER_INPUT)
         model.fit_router(x_val, y_val)
 
-        routed_nll = _compute_nll(model, x_test, y_test, inference_mode="routed")
+        routed_nll = _compute_nll(model, x_test, y_test)
 
         global_nlls = []
         x_test_t = torch.tensor(x_test, dtype=torch.float32).to(model.device)

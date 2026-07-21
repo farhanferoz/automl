@@ -1,42 +1,22 @@
-"""S2 — the ONE source of params/FLOPs numbers for reports (b)/(c) and the strand-4 deploy bars.
+"""S2 -- the ONE source of params/FLOPs numbers for reports (b)/(c) and the strand-4 deploy bars.
 
-`docs/plans/capacity_programme/shared/metrics-accounting.md` Task S2. Analytic (not timed)
-accounting: `param_count` (trainable parameter count) and `executed_flops` (multiply-add count
-of one forward pass AT A ROUTED CAPACITY — width `k`, depth `d`, or MoE `top_k`) for the
-programme's architecture families.
+Thin re-export shim over `automl_package.utils.capacity_accounting` -- the accounting logic itself
+moved there in `docs/plans/capacity_programme/flexnn-package.md` Task FP-1 (the
+`automl_package/examples/convergence.py` precedent: move the logic, leave a shim, keep every
+existing script's `import capacity_accounting as ca` / `from automl_package.examples
+.capacity_accounting import ...` resolving unchanged).
 
-**Search-first result** (ladder rung 2, `grep -rn "def count_params|flops|def .*param_count"
-automl_package/ --include="*.py"`): the only hit is `sep_heads_vs_single_final.py:47`
-(`_param_count`), a private one-off (`sum(p.numel() for p in m.model.parameters() if
-p.requires_grad)` on one specific model type, no path filtering, no FLOPs, not exported). Nothing
-generalizable to extend — this module is new.
+**What stays here, and why.** `executed_flops` dispatches on the four `nested_width_net.py` width
+classes (`NestedWidthNet`, `SharedTrunkPerWidthHeadNet`, `IndependentWidthNet`,
+`SharedReadoutPerWidthAffineNet`), imported by bare name below. Those classes don't move into the
+package until FP-2, and the package module must import nothing from `examples/` -- so their
+registrations stay here, registered onto the SAME `executed_flops` singledispatch function via its
+public `.register()` (the ordinary `functools.singledispatch` extension mechanism; no bespoke
+registration hook needed). FP-2's last step moves these four registrations into the package
+alongside the classes, and this file drops to a pure re-export.
 
-**Families and how each is accounted:**
-- **Width nets** (`nested_width_net.py`: `NestedWidthNet`, `SharedTrunkPerWidthHeadNet`,
-  `IndependentWidthNet`, `SharedReadoutPerWidthAffineNet`) — derived from the REAL classes'
-  `nn.Linear` shapes. `param_count` is generic over any `nn.Module` (one implementation covers
-  all four). `executed_flops` is registered per class because each shares weights differently
-  (see each registration's docstring for its derivation) — do NOT copy one class's formula onto
-  another; the S2 brief explicitly warns against a blind "3k+1" guess.
-- **FlexNN** (`models/flexible_neural_network.py`: `FlexibleHiddenLayersNN.FlexibleNNModule`) —
-  derived from the REAL class, mirroring `hard_forward`'s actual compute-saving code path
-  (models/flexible_neural_network.py:128-159).
-- **Depth nets** (planned `nested_depth_net.py`, `docs/plans/capacity_programme/depth.md` Task
-  D2) and **MoE** (planned `moe_regression.py`, `docs/plans/capacity_programme/flexnn-moe.md`
-  Task M2) have NO real class yet at S2 authoring time (2026-07-16) — both are still "Create"
-  tasks in their strand files. Per the S2 brief's explicit fallback ("if a family's net class
-  isn't importable cleanly, accept a lightweight shape descriptor ... and document it"), these
-  two use `DepthNetShapeDescriptor` / `MoEShapeDescriptor` dataclasses sized from the shapes each
-  strand file already specifies (D2: "shared blocks + ONE shared output head"; M2: "experts are
-  small MLPs `Linear(d_in->H) -> tanh -> Linear(H->1)`; router is a linear layer over the
-  input"). When the real classes land, add `nn.Module`-based registrations here alongside these
-  (do not delete the descriptors — historical ledger numbers may still cite them).
-
-Under MASTER Decision 2 (MSE-only across the capacity strands,
-`docs/plans/capacity_programme/MASTER.md`), the width nets' `logvar_head` is dead weight at
-inference: `param_count` exposes `path_filter` so a caller can EXCLUDE it explicitly (e.g.
-`path_filter=LOGVAR_HEAD_PATH_SUBSTRING`), while `executed_flops` excludes it UNCONDITIONALLY
-(no flag) since no MSE-only deployment ever calls it.
+The scripted selftest CLI also stays here, since that is example-script behavior, not package
+logic (same rationale as `convergence.py`'s selftest).
 
 Usage:
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/capacity_accounting.py --selftest
@@ -45,12 +25,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import functools
 import os
 import sys
-from dataclasses import dataclass
-
-import torch.nn as nn
 
 _EXAMPLES_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _EXAMPLES_DIR)
@@ -60,165 +36,34 @@ import nested_width_net as nwn  # noqa: E402
 
 from automl_package.enums import LayerSelectionMethod  # noqa: E402
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN  # noqa: E402
-from automl_package.models.flexible_width_network import FlexibleWidthNN  # noqa: E402
+from automl_package.utils.capacity_accounting import (  # noqa: E402
+    LOGVAR_HEAD_PATH_SUBSTRING,
+    DepthNetShapeDescriptor,
+    MoEShapeDescriptor,
+    _linear_macs,
+    executed_flops,
+    held_out_read_cost,
+    param_count,
+    router_fit_cost,
+    sweep_cost,
+)
 
-LOGVAR_HEAD_PATH_SUBSTRING = "logvar"  # nested_width_net.py's NestedWidthNet/IndependentWidthNet attribute name
-
-
-# ---------------------------------------------------------------------------
-# Shape descriptors for families with no real class yet (see module docstring).
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class DepthNetShapeDescriptor:
-    """Shape of the depth-net family's shared-blocks-plus-shared-head arm.
-
-    Planned `NestedDepthNet` (`docs/plans/capacity_programme/depth.md` Task D2 — not built at S2
-    authoring time). One `input_size -> hidden_size` block, `max_depth - 1` chained
-    `hidden_size -> hidden_size` blocks, and ONE shared `hidden_size -> output_size` readout
-    applied after the routed depth's blocks (D2: "shared blocks + ONE shared output head over
-    every depth prefix"). D2's other two planned arms (per-depth heads, independent nets) are not
-    represented here — this descriptor covers only the shared-head arm; extend when the real
-    classes land instead of guessing their per-arm deltas.
-    """
-
-    input_size: int
-    hidden_size: int
-    output_size: int
-    max_depth: int
-
-
-@dataclass(frozen=True)
-class MoEShapeDescriptor:
-    """Shape of the planned MoE family.
-
-    `MoERegressionNet` (`docs/plans/capacity_programme/flexnn-moe.md` Task M2 — not built at S2
-    authoring time). M2's frozen spec: each expert is `Linear(d_in -> expert_hidden) -> tanh ->
-    Linear(expert_hidden -> 1)`; the router is a single `Linear(d_in -> n_experts)`. `n_experts`
-    is the TOTAL expert count (the router's output width); `executed_flops`'s `config` argument
-    is `top_k`, the number of experts actually dispatched to.
-    """
-
-    d_in: int
-    expert_hidden: int
-    n_experts: int
+__all__ = [
+    "LOGVAR_HEAD_PATH_SUBSTRING",
+    "DepthNetShapeDescriptor",
+    "MoEShapeDescriptor",
+    "executed_flops",
+    "held_out_read_cost",
+    "param_count",
+    "router_fit_cost",
+    "sweep_cost",
+]
 
 
 # ---------------------------------------------------------------------------
-# Shared arithmetic primitives.
+# executed_flops registrations for the four nested_width_net.py classes -- stay here until FP-2
+# (see module docstring). Formulas unchanged from before the FP-1 move.
 # ---------------------------------------------------------------------------
-
-
-def _linear_macs(in_features: int, out_features: int) -> int:
-    """Multiply-add (MAC) count of one `Linear(in_features, out_features)` matmul.
-
-    This module's convention: MACs = `in_features * out_features`. Bias adds (`O(out_features)`,
-    dominated by the matmul term) are NOT separately counted — a stated convention of this module,
-    not a claim about any external profiler's convention.
-    """
-    return int(in_features) * int(out_features)
-
-
-def _linear_params(in_features: int, out_features: int) -> int:
-    """Trainable parameter count of one `Linear(in_features, out_features)`: weight + bias."""
-    return int(in_features) * int(out_features) + int(out_features)
-
-
-def _sequential_linear_macs(seq: nn.Sequential) -> int:
-    """Sums `_linear_macs` over every `nn.Linear` directly inside a `Sequential`.
-
-    Non-`Linear` layers (activation, `BatchNorm1d`, `Dropout`) contribute no matmul and are
-    skipped — this makes the helper correct for both FlexNN's `hidden_layers_blocks[i]` (Linear +
-    optional BatchNorm + activation + optional Dropout) and its `n_predictor` (alternating Linear
-    + activation) without needing a separate formula for each.
-    """
-    return sum(_linear_macs(m.in_features, m.out_features) for m in seq if isinstance(m, nn.Linear))
-
-
-# ---------------------------------------------------------------------------
-# param_count — one generic nn.Module implementation covers every width-net class and the FlexNN
-# module; the two shape descriptors get explicit analytic overloads.
-# ---------------------------------------------------------------------------
-
-
-@functools.singledispatch
-def param_count(net: object, path_filter: str | None = None) -> int:
-    """Trainable parameter count of `net`.
-
-    Args:
-        net: an `nn.Module` (any width-net class from `nested_width_net.py`, or the FlexNN
-            module `FlexibleHiddenLayersNN.FlexibleNNModule`), or one of this module's shape
-            descriptors (`DepthNetShapeDescriptor`, `MoEShapeDescriptor`) for a family whose real
-            class does not exist yet.
-        path_filter: if given, EXCLUDES any parameter whose dotted name contains this substring
-            (e.g. `LOGVAR_HEAD_PATH_SUBSTRING`, to drop the width nets' unused-under-MSE logvar
-            heads). No effect on the shape-descriptor overloads — they have no named parameters
-            to filter; the argument is accepted there for signature symmetry only.
-
-    Returns:
-        Total trainable (`requires_grad=True`) parameter count, honoring `path_filter` if given.
-
-    Raises:
-        TypeError: `net`'s type has no registered accounting implementation.
-    """
-    del path_filter  # unused in the dispatch stub — always raises before it would be read
-    raise TypeError(f"param_count: no accounting implementation registered for {type(net).__name__}")
-
-
-@param_count.register(nn.Module)
-def _param_count_module(net: nn.Module, path_filter: str | None = None) -> int:
-    """Generic `nn.Module` implementation: sums `numel()` over trainable params, name-filtered."""
-    return sum(p.numel() for name, p in net.named_parameters() if p.requires_grad and (path_filter is None or path_filter not in name))
-
-
-@param_count.register(DepthNetShapeDescriptor)
-def _param_count_depth_descriptor(net: DepthNetShapeDescriptor, path_filter: str | None = None) -> int:
-    """Total params of the shared-blocks-plus-shared-head arm (see class docstring)."""
-    del path_filter  # no named parameters on a shape descriptor
-    total = _linear_params(net.input_size, net.hidden_size)  # block 0
-    total += (net.max_depth - 1) * _linear_params(net.hidden_size, net.hidden_size)  # blocks 1..max_depth-1
-    total += _linear_params(net.hidden_size, net.output_size)  # shared output head
-    return total
-
-
-@param_count.register(MoEShapeDescriptor)
-def _param_count_moe_descriptor(net: MoEShapeDescriptor, path_filter: str | None = None) -> int:
-    """Total params of ALL `n_experts` experts plus the router (params exist regardless of `top_k`)."""
-    del path_filter  # no named parameters on a shape descriptor
-    router = _linear_params(net.d_in, net.n_experts)
-    per_expert = _linear_params(net.d_in, net.expert_hidden) + _linear_params(net.expert_hidden, 1)
-    return router + net.n_experts * per_expert
-
-
-# ---------------------------------------------------------------------------
-# executed_flops — one registration per family; see module docstring for why width nets can't
-# share a single generic implementation the way param_count does.
-# ---------------------------------------------------------------------------
-
-
-@functools.singledispatch
-def executed_flops(net: object, config: int) -> int:
-    """Analytic multiply-add (MAC) count of one forward pass of `net` AT ITS ROUTED CAPACITY.
-
-    Not a timed benchmark (S2 spec is analytic-only). "Routed capacity" (`config`) means: width
-    nets -> the routed width `k`; FlexNN -> the selected depth `d`; the depth-net descriptor ->
-    its routed depth `d`; the MoE descriptor -> `top_k` (experts actually executed).
-
-    Args:
-        net: one of the width-net classes, the FlexNN module, or one of this module's shape
-            descriptors for a family with no real class yet.
-        config: the routed capacity level (see above); family-specific range checks raise
-            `ValueError` if out of bounds.
-
-    Returns:
-        Multiply-add count for that one forward call at the given routed capacity.
-
-    Raises:
-        TypeError: `net`'s type has no registered accounting implementation.
-    """
-    del config  # unused in the dispatch stub — always raises before it would be read
-    raise TypeError(f"executed_flops: no accounting implementation registered for {type(net).__name__}")
 
 
 @executed_flops.register(nwn.NestedWidthNet)
@@ -226,11 +71,11 @@ def _executed_flops_nested_width(net: nwn.NestedWidthNet, config: int) -> int:
     """Routed width-`config` MACs for `NestedWidthNet` (shared trunk + ONE shared mean head).
 
     The prefix property (`nested_width_net.py` selftests (a)/(b)) guarantees hidden nodes
-    `>= config` never influence a width-`config` output — they are zeroed before both readouts in
+    `>= config` never influence a width-`config` output -- they are zeroed before both readouts in
     `forward_width`, so an efficient width-`config` DEPLOYMENT needs only the first `config` trunk
     output rows and the first `config` input columns of `mean_head`, NOT the full `w_max`-wide
     matmuls `forward_width`/`all_widths_forward` literally compute (they compute the full width
-    for masking-consistency, not for efficiency). `logvar_head` is excluded unconditionally — see
+    for masking-consistency, not for efficiency). `logvar_head` is excluded unconditionally -- see
     module docstring (MASTER Decision 2).
     """
     k = config
@@ -246,7 +91,7 @@ def _executed_flops_shared_trunk_per_width_head(net: nwn.SharedTrunkPerWidthHead
     Same trunk-slicing argument as `NestedWidthNet` (the prefix property is trunk-level, not
     readout-level, so it holds for any head reading the masked hidden vector), then width-
     `config`'s OWN `mean_heads[config - 1]`, sliced to its own first `config` input columns by the
-    same masked-to-zero argument. No logvar branch — this class's `log_var` is a dummy zero
+    same masked-to-zero argument. No logvar branch -- this class's `log_var` is a dummy zero
     tensor, never computed (class docstring, `nested_width_net.py:236`).
     """
     k = config
@@ -260,9 +105,9 @@ def _executed_flops_shared_trunk_per_width_head(net: nwn.SharedTrunkPerWidthHead
 def _executed_flops_independent_width(net: nwn.IndependentWidthNet, config: int) -> int:
     """Routed width-`config` MACs for `IndependentWidthNet` (K disjoint sub-nets, no sharing).
 
-    No slicing trick needed here (unlike the shared-trunk classes above) — sub-net `config` is
+    No slicing trick needed here (unlike the shared-trunk classes above) -- sub-net `config` is
     already sized exactly `config`, with literal full compute: `trunk = Linear(1, config)` then
-    `mean_head = Linear(config, 1)`. `logvar_head` excluded unconditionally — module docstring.
+    `mean_head = Linear(config, 1)`. `logvar_head` excluded unconditionally -- module docstring.
     """
     k = config
     if not (1 <= k <= net.w_max):
@@ -278,86 +123,13 @@ def _executed_flops_shared_readout_per_width_affine(net: nwn.SharedReadoutPerWid
 
     Same trunk- and shared-`mean_head`-slicing argument as `NestedWidthNet`, plus the width-
     `config` affine `a_k * mean + c_k`: one multiply per sample (the shift-add is excluded under
-    this module's bias convention, same as every Linear layer here) — `+1` MAC.
+    this module's bias convention, same as every Linear layer here) -- `+1` MAC.
     """
     k = config
     if not (1 <= k <= net.w_max):
         raise ValueError(f"config={k} out of range [1, {net.w_max}]")
     affine_scale_mac = 1
     return _linear_macs(net.trunk.in_features, k) + _linear_macs(k, net.mean_head.out_features) + affine_scale_mac
-
-
-@executed_flops.register(FlexibleHiddenLayersNN.FlexibleNNModule)
-def _executed_flops_flexnn(net: FlexibleHiddenLayersNN.FlexibleNNModule, config: int) -> int:
-    """Routed depth-`config` MACs for FlexNN's inner module.
-
-    Mirrors `hard_forward`'s ACTUAL compute-saving code path
-    (`models/flexible_neural_network.py:128-159`): `blocks[0..config-1]` run in sequence (depth
-    blocks chain through activations — no width-style slicing trick, they are simply not entered
-    at all past the routed depth), then `output_layer` runs once. If `n_predictor` exists (dynamic
-    depth selection is on), `hard_forward` calls it on EVERY input to decide where to route — so
-    its MACs are added unconditionally, not only at `config` depth.
-    """
-    d = config
-    max_hidden_layers = len(net.hidden_layers_blocks)
-    if not (1 <= d <= max_hidden_layers):
-        raise ValueError(f"config={d} out of range [1, {max_hidden_layers}]")
-    total = sum(_sequential_linear_macs(net.hidden_layers_blocks[i]) for i in range(d))
-    total += _linear_macs(net.output_layer.in_features, net.output_layer.out_features)
-    if net.n_predictor is not None:
-        total += _sequential_linear_macs(net.n_predictor)
-    return total
-
-
-@executed_flops.register(FlexibleWidthNN.FlexibleWidthNNModule)
-def _executed_flops_flexible_width_module(net: FlexibleWidthNN.FlexibleWidthNNModule, config: int) -> int:
-    """Routed width-`config` MACs for the package's `FlexibleWidthNN` (F2/F3).
-
-    Same shared-trunk-prefix + per-width-head shape and slicing argument as
-    `SharedTrunkPerWidthHeadNet` above (`FlexibleWidthNN`'s module docstring,
-    `models/flexible_width_network.py`, states this class ports that exact architecture) --
-    reuses the identical formula shape with this class's own attribute names (`trunk_linear`,
-    `heads[str(w)]`).
-    """
-    w = config
-    if w not in net.widths:
-        raise ValueError(f"config={w} is not one of the configured widths {net.widths}")
-    head = net.heads[str(w)]
-    return _linear_macs(net.trunk_linear.in_features, w) + _linear_macs(w, head.out_features)
-
-
-@executed_flops.register(DepthNetShapeDescriptor)
-def _executed_flops_depth_descriptor(net: DepthNetShapeDescriptor, config: int) -> int:
-    """Routed depth-`config` MACs for the depth-net descriptor (see class docstring).
-
-    Same block-chain-plus-output-head shape as FlexNN, so the same formula shape applies: one
-    `input_size -> hidden_size` block, `config - 1` chained `hidden_size -> hidden_size` blocks,
-    one shared `hidden_size -> output_size` readout.
-    """
-    d = config
-    if not (1 <= d <= net.max_depth):
-        raise ValueError(f"config={d} out of range [1, {net.max_depth}]")
-    total = _linear_macs(net.input_size, net.hidden_size)  # block 0
-    total += (d - 1) * _linear_macs(net.hidden_size, net.hidden_size)  # blocks 1..d-1
-    total += _linear_macs(net.hidden_size, net.output_size)  # shared output head
-    return total
-
-
-@executed_flops.register(MoEShapeDescriptor)
-def _executed_flops_moe_descriptor(net: MoEShapeDescriptor, config: int) -> int:
-    """Routed top-`config` MACs for the MoE descriptor (see class docstring).
-
-    The router ALWAYS scores every one of `n_experts` (top-k selection needs every gate logit
-    before it can pick), so router MACs are fixed regardless of `config`; only `config` experts'
-    own forward passes (`Linear(d_in, expert_hidden) -> Linear(expert_hidden, 1)`, tanh excluded
-    — no matmul) run.
-    """
-    top_k = config
-    if not (1 <= top_k <= net.n_experts):
-        raise ValueError(f"config={top_k} out of range [1, {net.n_experts}]")
-    router_macs = _linear_macs(net.d_in, net.n_experts)
-    per_expert_macs = _linear_macs(net.d_in, net.expert_hidden) + _linear_macs(net.expert_hidden, 1)
-    return router_macs + top_k * per_expert_macs
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +142,7 @@ def run_selftest() -> bool:
     """Hand-computed known-answer checks, one small config per family.
 
     Every assertion's expected value is derived in its inline comment from the class's actual
-    `Linear` shapes, not copied from this module's own formulas — so a bug shared between the
+    `Linear` shapes, not copied from this module's own formulas -- so a bug shared between the
     formula and the check would still be caught.
     """
     results: list[tuple[str, bool]] = []
@@ -471,6 +243,22 @@ def run_selftest() -> bool:
     # top_k=2: router (3,8)=24 MACs (always full) + 2 * [(3,4)=12 + (4,1)=4].
     expected_moe_desc_flops_top2 = 24 + 2 * 16
     results.append(("MoEShapeDescriptor executed_flops(top_k=2)", executed_flops(moe_desc, 2) == expected_moe_desc_flops_top2))
+
+    # --- Selection-cost accounting (capacity-programme Task FP-9.c) ---
+    # The cost of CHOOSING a capacity, not of running one. Added here because `run_selftest` lives
+    # in this shim while the functions live in the package module; applied by the root, since the
+    # FP-9 worker's write set excludes `examples/` (single-writer discipline).
+    # router MLP 3 -> (4,) -> 2: forward MACs = 3*4 + 4*2 = 20. Full batch: x10 samples x5 epochs,
+    # x3 for forward+backward (backward ~ 2x forward).
+    expected_router_fit = (3 * 4 + 4 * 2) * 10 * 5 * 3
+    results.append(("router_fit_cost (selection)", router_fit_cost(in_dim=3, n_capacities=2, n_samples=10, n_epochs=5, hidden=(4,)) == expected_router_fit))
+    # cheap held-out read over the MoE descriptor above at top_k in {1,2}: one forward per sample
+    # per capacity, no backward. top_k=1: 24 + 16 = 40. top_k=2: 24 + 2*16 = 56.
+    expected_held_out_read = 7 * ((24 + 16) + (24 + 2 * 16))
+    results.append(("held_out_read_cost (selection)", held_out_read_cost(moe_desc, (1, 2), n_samples=7) == expected_held_out_read))
+    # sweep: one dedicated model trained per capacity -- same per-capacity FLOPs, x samples x epochs x3.
+    expected_sweep = 5 * 7 * (24 + 16) * 3 + 5 * 7 * (24 + 2 * 16) * 3
+    results.append(("sweep_cost (selection)", sweep_cost(moe_desc, (1, 2), n_train_samples=7, n_epochs=5) == expected_sweep))
 
     all_ok = all(isinstance(ok, bool) and ok for _, ok in results)
     for name, ok in results:

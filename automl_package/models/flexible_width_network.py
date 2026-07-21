@@ -19,18 +19,17 @@ the SANDWICH schedule). Wired into `PyTorchModelBase`'s existing generic `_fit_s
 `multi_width_loss` criterion wrapper (see `build_model`/`_multi_width_criterion`) rather than an
 overridden training loop, so batching / early stopping / regularization are reused unmodified.
 
-`inference_mode="routed"` (per-input width selection) is implemented via `fit_router()` +
-`DistilledCapacityRouter` (`automl_package/models/common/distilled_router.py`, capacity-programme
-Task F3): call `fit_router(x_val, y_val)` after `.fit()`, then `predict(x,
-inference_mode="routed")`. `width_selection_method=DISTILLED` is a separate, still-unwired flag
-that continues to raise `NotImplementedError` at construction (see
-`TestFlexibleWidthNNValidation` in `tests/test_flexible_width_network.py`) -- routing does not
-require it. Only MSE (regression) and CE/BCE (classification) tasks are supported here, mirroring
+`capacity_selection=CapacitySelection.PER_INPUT` (per-input width selection) is implemented via
+`fit_router()` + `DistilledCapacityRouter` (`automl_package/models/common/distilled_router.py`,
+capacity-programme Task FP-3): call `fit_router(x_val, y_val)` after `.fit()`, then plain
+`predict(x)` -- no caller flag needed, the constructor's `capacity_selection` already says which
+path to take. Only MSE (regression) and CE/BCE (classification) tasks are supported here, mirroring
 `FlexibleHiddenLayersNN.build_model`'s task_type/output_size criterion-selection dispatch
 (`automl_package/models/flexible_neural_network.py`); its PROBABILISTIC branch is intentionally
 out of scope for this port (Task F2 spec).
 """
 
+import inspect
 from collections.abc import Callable
 from typing import Any, ClassVar
 
@@ -38,10 +37,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import ActivationFunction, ExplainerType, TaskType, UncertaintyMethod, WidthSelectionMethod
+from automl_package.enums import ActivationFunction, CapacitySelection, ExplainerType, TaskType, UncertaintyMethod
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.common.distilled_router import DEFAULT_TOLERANCE, DistilledCapacityRouter
+from automl_package.utils.capacity_accounting import _linear_macs, executed_flops
 from automl_package.utils.convergence import DEFAULT_PATIENCE, ConvergenceTracker
+from automl_package.utils.numerics import calculate_binned_stats
 from automl_package.utils.pytorch_utils import get_activation_function_map
 
 _BINARY_CLASSIFICATION_THRESHOLD = 0.5
@@ -76,11 +77,17 @@ class FlexibleWidthNN(PyTorchModelBase):
     _defaults: ClassVar[dict[str, Any]] = {
         "widths": (16, 32, 48, 64),
         "activation": ActivationFunction.RELU,
-        "width_selection_method": WidthSelectionMethod.NONE,
+        "capacity_selection": CapacitySelection.FIXED,
     }
 
     def __init__(self, **kwargs: Any) -> None:
         """Initializes the FlexibleWidthNN."""
+        if "inference_mode" in kwargs:
+            raise TypeError(
+                "inference_mode is not a constructor parameter -- FlexibleWidthNN no longer accepts "
+                "it (capacity-programme FP-3: removed from predict() too, clean break, no shim). Use "
+                "capacity_selection=CapacitySelection.PER_INPUT and call fit_router() instead."
+            )
         for key, value in FlexibleWidthNN._defaults.items():
             kwargs.setdefault(key, value)
         super().__init__(**kwargs)
@@ -88,12 +95,6 @@ class FlexibleWidthNN(PyTorchModelBase):
         self.widths = tuple(sorted({int(w) for w in self.widths}))
         if not self.widths or any(w <= 0 for w in self.widths):
             raise ValueError(f"widths must be a non-empty tuple of positive integers, got {self.widths}.")
-        if self.width_selection_method == WidthSelectionMethod.DISTILLED:
-            raise NotImplementedError(
-                "width_selection_method=WidthSelectionMethod.DISTILLED requires DistilledCapacityRouter "
-                "(task F3, docs/plans/capacity_programme/flexnn-core.md), which has not landed yet. "
-                "Use WidthSelectionMethod.NONE and call predict(x, width=...) with an explicit width."
-            )
 
     @property
     def name(self) -> str:
@@ -162,8 +163,40 @@ class FlexibleWidthNN(PyTorchModelBase):
         widths, not a per-width breakdown. A genuine per-width trajectory would require overriding
         the shared `PyTorchModelBase._fit_single` loop itself, out of scope here, so this is a single
         COMBINED convergence summary of the joint trajectory, not one per width.
+
+        FP-3 side effect, handled here: `PyTorchModelBase._fit_single` (`base_pytorch.py:217-218`,
+        not in this class's write set) computes `_train_residual_std` for
+        `uncertainty_method=CONSTANT` (the default) by calling `self.predict(x_train,
+        filter_data=False)` with NO `width` -- which, now that `predict()`'s `width=None` RAISES
+        under `CapacitySelection.FIXED` (FP-3.b.4) instead of silently defaulting, would crash
+        every `.fit()` call under the default uncertainty method. `uncertainty_method` is checked
+        in the base loop exactly once, at the very end (after training, right before that
+        residual-std branch), so temporarily swapping it to something else lets the base class's
+        own attempt fall through harmlessly; this method then redoes the SAME computation itself
+        via `_predict_at_explicit_width` (`max(self.widths)`, matching this class's pre-FP-3
+        implicit default) -- functionally identical to the old behavior for this internal
+        bookkeeping use, while the PUBLIC `predict()` contract still enforces "no width given ->
+        raise" for callers. See also `calibrate_uncertainty`/`predict_binned_uncertainty` below,
+        which need the identical fix for the same reason (`models/common/mixins.py:99,112`).
         """
-        best_epoch, val_loss_history = super()._fit_single(*args, **kwargs)
+        needs_residual_std = self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT
+        original_uncertainty_method = self.uncertainty_method
+        if needs_residual_std:
+            self.uncertainty_method = UncertaintyMethod.BINNED_RESIDUAL_STD  # anything != CONSTANT; restored below
+        try:
+            best_epoch, val_loss_history = super()._fit_single(*args, **kwargs)
+        finally:
+            self.uncertainty_method = original_uncertainty_method
+
+        if needs_residual_std:
+            bound = inspect.signature(PyTorchModelBase._fit_single).bind(self, *args, **kwargs)
+            bound.apply_defaults()
+            x_train, y_train = bound.arguments["x_train"], bound.arguments["y_train"]
+            y_pred_train = self._predict_at_explicit_width(x_train, filter_data=False, width=max(self.widths))
+            self._train_residual_std = np.std(np.asarray(y_train, dtype=np.float32) - y_pred_train)
+            if np.isnan(self._train_residual_std):
+                self._train_residual_std = 0.0
+
         patience = self.early_stopping_rounds if self.early_stopping_rounds is not None else DEFAULT_PATIENCE
         tracker = ConvergenceTracker(patience=patience, min_delta=0.0)
         for i, v in enumerate(val_loss_history, start=1):
@@ -189,27 +222,66 @@ class FlexibleWidthNN(PyTorchModelBase):
             raise ValueError("task_type must be 'regression' or 'classification'")
         self.criterion = _multi_width_criterion(base_criterion)
 
-    def predict(self, x: np.ndarray, filter_data: bool = True, width: int | None = None, inference_mode: str = "fixed") -> np.ndarray:
+    def _predictions_from_output(self, final_output: torch.Tensor) -> np.ndarray:
+        """Shared postprocessing: raw net output -> flat predictions (classification argmax/threshold, else raw)."""
+        if self.task_type == TaskType.CLASSIFICATION:
+            predictions = (
+                (torch.sigmoid(final_output) > _BINARY_CLASSIFICATION_THRESHOLD).cpu().numpy().astype(int)
+                if self.output_size == 1
+                else torch.argmax(final_output, dim=1).cpu().numpy()
+            )
+        else:
+            predictions = final_output.cpu().numpy()
+        return predictions.flatten()
+
+    def _predict_at_explicit_width(self, x: np.ndarray, filter_data: bool, width: int) -> np.ndarray:
+        """Predicts at ONE explicit width, bypassing the `capacity_selection` gate entirely.
+
+        FP-3 side effect, not part of the public API: several generic `BaseModel`/mixin call sites
+        outside this class's write set -- `PyTorchModelBase._fit_single`'s `_train_residual_std`
+        bookkeeping (`base_pytorch.py:217-218`), `BinnedUncertaintyMixin.calibrate_uncertainty`/
+        `predict_binned_uncertainty` (`models/common/mixins.py:99,112`) -- call `self.predict(x)`
+        polymorphically with NO width, expecting SOME concrete prediction regardless of whether
+        this instance is configured `FIXED` or `PER_INPUT` (no router exists yet during `.fit()`
+        in either case). `predict()`'s public contract now correctly raises on a caller-omitted
+        width (FP-3.b.4); this helper is what those internal callers use instead, always at
+        `max(self.widths)` -- matching this class's pre-FP-3 implicit default for exactly this
+        internal bookkeeping use, without weakening the public contract.
+        """
+        if filter_data:
+            x = self._filter_predict_data(x)
+        x_array = x.values if hasattr(x, "values") else x
+        x_tensor = torch.tensor(x_array, dtype=torch.float32).to(self.device)
+        self.model.eval()
+        with torch.no_grad():
+            final_output = self.model.forward_width(x_tensor, width)
+        return self._predictions_from_output(final_output)
+
+    def predict(self, x: np.ndarray, filter_data: bool = True, width: int | None = None) -> np.ndarray:
         """Makes predictions with the FlexibleWidthNN.
 
         Args:
             x: Input features.
             filter_data: Whether to filter input columns to those seen at fit time.
-            width: Which configured width to predict at (`inference_mode="fixed"` only). Defaults
-                to the largest configured width (`max(self.widths)`) when omitted.
-            inference_mode: `"fixed"` (default) predicts at `width` via that width's own head.
-                `"routed"` uses a `DistilledCapacityRouter` fitted via `fit_router()` to pick a
-                per-sample width post-hoc (capacity-programme Task F3; MASTER Decision 13).
+            width: Which configured width to predict at, under `CapacitySelection.FIXED` (the
+                default). Must be given explicitly -- no implicit default to the largest
+                configured width. Must be omitted under `CapacitySelection.PER_INPUT`; the fitted
+                router chooses per input instead.
+
+        Under `CapacitySelection.PER_INPUT`, routes with a `DistilledCapacityRouter` fitted via
+        `fit_router()` -- no caller flag needed (capacity-programme Task FP-3; MASTER Decision 13).
         """
-        if inference_mode not in ("fixed", "routed"):
-            raise ValueError(f"Unknown inference_mode: {inference_mode!r}")
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
-        if inference_mode == "routed" and getattr(self, "capacity_router_", None) is None:
-            raise RuntimeError("No router fitted; call fit_router() before predict(inference_mode='routed').")
 
-        if inference_mode == "fixed":
-            width = max(self.widths) if width is None else width
+        if self.capacity_selection == CapacitySelection.PER_INPUT:
+            if width is not None:
+                raise ValueError("width must not be passed under CapacitySelection.PER_INPUT: the fitted router chooses per input.")
+            if getattr(self, "capacity_router_", None) is None:
+                raise RuntimeError("No router fitted; call fit_router() before predict() under CapacitySelection.PER_INPUT.")
+        else:
+            if width is None:
+                raise ValueError("width must be specified under CapacitySelection.FIXED (no implicit default to the largest configured width).")
             if width not in self.widths:
                 raise ValueError(f"width={width} is not one of the configured widths {self.widths}")
 
@@ -220,21 +292,13 @@ class FlexibleWidthNN(PyTorchModelBase):
 
         self.model.eval()
         with torch.no_grad():
-            if inference_mode == "routed":
+            if self.capacity_selection == CapacitySelection.PER_INPUT:
                 widths_np = np.array([capacity[0] for capacity in self.capacity_router_.route(x_array)], dtype=np.int64)
                 widths_tensor = torch.as_tensor(widths_np, dtype=torch.long, device=self.device)
                 final_output = self.model.forward_at_widths(x_tensor, widths_tensor)
             else:
                 final_output = self.model.forward_width(x_tensor, width)
-            if self.task_type == TaskType.CLASSIFICATION:
-                predictions = (
-                    (torch.sigmoid(final_output) > _BINARY_CLASSIFICATION_THRESHOLD).cpu().numpy().astype(int)
-                    if self.output_size == 1
-                    else torch.argmax(final_output, dim=1).cpu().numpy()
-                )
-            else:
-                predictions = final_output.cpu().numpy()
-        return predictions.flatten()
+        return self._predictions_from_output(final_output)
 
     def fit_router(
         self,
@@ -244,7 +308,7 @@ class FlexibleWidthNN(PyTorchModelBase):
         tolerance: float = DEFAULT_TOLERANCE,
         cost_fn: Callable[[tuple[int, ...]], float] | None = None,
     ) -> DistilledCapacityRouter:
-        """Fits a `DistilledCapacityRouter` post-hoc for `predict(..., inference_mode="routed")`.
+        """Fits a `DistilledCapacityRouter` post-hoc for `predict()` under `CapacitySelection.PER_INPUT`.
 
         Same pattern as `FlexibleHiddenLayersNN.fit_router` (capacity-programme Task F3): `eval_fn`
         forces every sample through a fixed width via `FlexibleWidthNNModule.forward_width` and
@@ -256,11 +320,9 @@ class FlexibleWidthNN(PyTorchModelBase):
             capacity_grid: candidate widths as 1-tuples, e.g. `[(16,), (32,)]`. Defaults to every
                 configured width in `self.widths`.
             tolerance: cheapest-within-tolerance labeling tolerance (see `DistilledCapacityRouter`).
-            cost_fn: `cost_fn(capacity) -> float`. Defaults to `executed_flops` from
-                `automl_package/examples/capacity_accounting.py` (S2 accounting) at the routed
-                width. Imported inside this method, not at module top -- see
-                `FlexibleHiddenLayersNN.fit_router` for why (the same load-time circular import
-                this class would otherwise create with `capacity_accounting.py`).
+            cost_fn: `cost_fn(capacity) -> float`. Defaults to `automl_package.utils.capacity_accounting
+                .executed_flops` at the routed width, dispatched on `FlexibleWidthNNModule` via the
+                registration at the bottom of this file.
 
         Returns:
             The fitted `DistilledCapacityRouter` (also stored as `self.capacity_router_`).
@@ -287,7 +349,6 @@ class FlexibleWidthNN(PyTorchModelBase):
             return (raw_output.squeeze(1).cpu().numpy() - y_val_arr) ** 2
 
         if cost_fn is None:
-            from automl_package.examples.capacity_accounting import executed_flops  # noqa: PLC0415, I001 -- avoids a load-time circular import (capacity_accounting.py imports this class)
 
             def cost_fn(capacity: tuple[int, ...]) -> float:
                 return float(executed_flops(self.model, capacity[0]))
@@ -302,8 +363,11 @@ class FlexibleWidthNN(PyTorchModelBase):
 
         `CONSTANT` and `BINNED_RESIDUAL_STD` delegate straight to the inherited
         (`PyTorchModelBase` / `BaseModel`) implementation: `CONSTANT` only reads
-        `self._train_residual_std`, and `BINNED_RESIDUAL_STD` only calls `self.predict()`
-        (overridden above) -- neither ever touches `FlexibleWidthNNModule.forward`'s raw
+        `self._train_residual_std`, and `BINNED_RESIDUAL_STD` calls
+        `self.predict_binned_uncertainty()` (overridden below, alongside
+        `calibrate_uncertainty()`, to use `_predict_at_explicit_width` instead of the mixin's
+        generic `self.predict(x)` -- same FP-3 reason as `_fit_single`'s residual-std fix above)
+        -- neither ever touches `FlexibleWidthNNModule.forward`'s raw
         `(len(widths), N, output_size)` stacked-over-widths output, so nothing about this
         architecture breaks them.
 
@@ -332,6 +396,35 @@ class FlexibleWidthNN(PyTorchModelBase):
             )
         return super().predict_uncertainty(x, filter_data=filter_data)
 
+    def calibrate_uncertainty(self, x: np.ndarray, y: np.ndarray, n_bins: int = 10) -> None:
+        """Calibrates `BINNED_RESIDUAL_STD` uncertainty (`BinnedUncertaintyMixin`, `models/common/mixins.py:97`).
+
+        Overridden ONLY to swap the mixin's generic `self.predict(x)` (no width -- would raise
+        under `CapacitySelection.FIXED` per FP-3.b.4) for `_predict_at_explicit_width` at
+        `max(self.widths)`. Logic otherwise identical to the mixin's.
+        """
+        predictions = self._predict_at_explicit_width(x, filter_data=True, width=max(self.widths))
+        residuals = y.flatten() - predictions.flatten()
+        bin_edges, stats = calculate_binned_stats(probas=predictions, values=residuals, n_bins=n_bins, aggregations={"std": np.std}, min_value=-np.inf, max_value=np.inf)
+        self._binned_uncertainty_edges = bin_edges
+        self._binned_uncertainty_lookup = stats["std"]
+
+    def predict_binned_uncertainty(self, x: np.ndarray) -> np.ndarray:
+        """Looks up calibrated `BINNED_RESIDUAL_STD` uncertainty (`models/common/mixins.py:107`).
+
+        Overridden ONLY to swap the mixin's generic `self.predict(x)` for
+        `_predict_at_explicit_width` at `max(self.widths)` -- same reason as `calibrate_uncertainty`
+        above; logic otherwise identical to the mixin's.
+        """
+        if self._binned_uncertainty_edges is None or self._binned_uncertainty_lookup is None or len(self._binned_uncertainty_lookup) == 0:
+            raise RuntimeError("Uncertainty model has not been calibrated. Call `calibrate_uncertainty` first.")
+        predictions = self._predict_at_explicit_width(x, filter_data=True, width=max(self.widths))
+        bin_indices = np.searchsorted(self._binned_uncertainty_edges[1:], predictions.flatten(), side="left")
+        bin_indices = np.clip(bin_indices, 0, len(self._binned_uncertainty_edges) - 2)
+        stds = self._binned_uncertainty_lookup[bin_indices]
+        fallback = float(np.nanmean(self._binned_uncertainty_lookup)) if np.any(~np.isnan(self._binned_uncertainty_lookup)) else 0.0
+        return np.nan_to_num(stds, nan=fallback)
+
     def get_params(self) -> dict[str, Any]:
         """Gets the parameters of the model."""
         params = super().get_params()
@@ -339,7 +432,7 @@ class FlexibleWidthNN(PyTorchModelBase):
             {
                 "widths": self.widths,
                 "activation": self.activation,
-                "width_selection_method": self.width_selection_method,
+                "capacity_selection": self.capacity_selection,
                 "trustworthy": getattr(self, "convergence_summary_", {}).get("trustworthy", False),
             }
         )
@@ -348,3 +441,26 @@ class FlexibleWidthNN(PyTorchModelBase):
     def get_shap_explainer_info(self) -> dict[str, Any]:
         """Gets the SHAP explainer type and the model to be explained (at `w_max`, via `forward`)."""
         return {"explainer_type": ExplainerType.DEEP, "model": self.get_internal_model()}
+
+
+# ---------------------------------------------------------------------------
+# executed_flops registration (capacity-programme Task FP-1) -- self-registered here, not from
+# `automl_package/utils/capacity_accounting.py`, to avoid a circular import: that module would
+# otherwise need to import this file's class while this file imports its `executed_flops`.
+# ---------------------------------------------------------------------------
+
+
+@executed_flops.register(FlexibleWidthNN.FlexibleWidthNNModule)
+def _executed_flops_flexible_width_module(net: FlexibleWidthNN.FlexibleWidthNNModule, config: int) -> int:
+    """Routed width-`config` MACs for `FlexibleWidthNN`.
+
+    Same shared-trunk-prefix + per-width-head shape and slicing argument as
+    `nested_width_net.SharedTrunkPerWidthHeadNet` (`FlexibleWidthNN`'s module docstring states this
+    class ports that exact architecture) -- reuses the identical formula shape with this class's
+    own attribute names (`trunk_linear`, `heads[str(w)]`).
+    """
+    w = config
+    if w not in net.widths:
+        raise ValueError(f"config={w} is not one of the configured widths {net.widths}")
+    head = net.heads[str(w)]
+    return _linear_macs(net.trunk_linear.in_features, w) + _linear_macs(w, head.out_features)

@@ -10,8 +10,6 @@ automl_package/examples/probreg_benchmark.py
 # Each verified before parking: marked `(new)` in a named task's `Files (write set)` line AND
 # consumed by that task's verify command, so none is a typo. Task ownership recorded so the entry
 # can be removed the moment the artifact lands.
-automl_package/utils/capacity_selection.py                          # FP-9 (write set L339)
-tests/test_capacity_selection.py                                    # FP-9 (write set L340)
 docs/plans/capacity_programme/shared/fp4-schedule-deviation.md      # FP-4 (write set L694)
 docs/plans/capacity_programme/shared/router-capabilities.md         # FP-5 (write set L745)
 
@@ -36,7 +34,6 @@ docs/width_benchmark/benchmark_spec.md                              # WSEL-9 (PA
 # verify line. NOTE the directory names are hyphen-FREE (DSEL1b, not DSEL-1b) -- corrected during
 # this repair to match all 34 existing result dirs and the other two strands. Task IDs keep their
 # hyphens; only the paths dropped them.
-automl_package/examples/depth_dsel2.py                              # DSEL-2
 automl_package/examples/depth_dsel2b.py                             # DSEL-2b
 docs/plans/capacity_programme/shared/dsel2b_middle_depth_cost.md    # DSEL-2b
 automl_package/examples/depth_dsel7.py                              # DSEL-7

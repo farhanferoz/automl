@@ -11,7 +11,7 @@ import pytest
 import torch
 from sklearn.model_selection import train_test_split
 
-from automl_package.enums import ActivationFunction, TaskType, UncertaintyMethod, WidthSelectionMethod
+from automl_package.enums import ActivationFunction, CapacitySelection, TaskType, UncertaintyMethod
 from automl_package.models.flexible_width_network import FlexibleWidthNN
 from automl_package.utils.pytorch_utils import get_device
 
@@ -196,16 +196,12 @@ class TestFlexibleWidthNNValidation:
         with pytest.raises(ValueError, match="widths"):
             FlexibleWidthNN(input_size=1, output_size=1, widths=(0, 4))
 
-    def test_distilled_selection_not_implemented(self):
-        with pytest.raises(NotImplementedError, match="DistilledCapacityRouter"):
-            FlexibleWidthNN(input_size=1, output_size=1, width_selection_method=WidthSelectionMethod.DISTILLED)
-
-    def test_routed_inference_mode_without_router_raises(self, simple_linear_data):
+    def test_per_input_without_router_raises(self, simple_linear_data):
         x, y = simple_linear_data
-        model = _make_width_model(n_epochs=1)
+        model = _make_width_model(n_epochs=1, capacity_selection=CapacitySelection.PER_INPUT)
         model.fit(x, y)
         with pytest.raises(RuntimeError, match="fit_router"):
-            model.predict(x, inference_mode="routed")
+            model.predict(x)
 
     def test_predict_rejects_unconfigured_width(self, simple_linear_data):
         x, y = simple_linear_data
@@ -214,24 +210,43 @@ class TestFlexibleWidthNNValidation:
         with pytest.raises(ValueError, match="not one of the configured widths"):
             model.predict(x, width=3)
 
-    def test_unknown_inference_mode_rejected(self, simple_linear_data):
+    def test_fixed_width_none_raises(self, simple_linear_data):
+        """FP-3.b.4: under `CapacitySelection.FIXED` (the default), `width=None` must raise --
+        no implicit default to the largest configured width."""
         x, y = simple_linear_data
         model = _make_width_model(n_epochs=1)
         model.fit(x, y)
-        with pytest.raises(ValueError, match="Unknown inference_mode"):
-            model.predict(x, inference_mode="bogus")
+        with pytest.raises(ValueError, match="width"):
+            model.predict(x)
+
+    def test_inference_mode_kwarg_rejected_at_predict(self, simple_linear_data):
+        """FP-3.b: `inference_mode` is removed entirely -- `predict` has no `**kwargs`, so passing
+        it raises `TypeError` for free once the parameter is deleted."""
+        x, y = simple_linear_data
+        model = _make_width_model(n_epochs=1)
+        model.fit(x, y)
+        with pytest.raises(TypeError):
+            model.predict(x, inference_mode="routed")
+
+    def test_inference_mode_kwarg_rejected_at_construction(self):
+        """FP-3.d: a removed selection kwarg passed to the CONSTRUCTOR must raise `TypeError`, not
+        be silently swallowed into `self.params` (`BaseModel.__init__`, `base.py:45,52`)."""
+        with pytest.raises(TypeError):
+            FlexibleWidthNN(input_size=1, output_size=1, inference_mode="hard")
 
 
 class TestFlexibleWidthNNRouting:
-    """`fit_router()` + `predict(inference_mode="routed")` -- capacity-programme Task F3."""
+    """`fit_router()` + `predict()` under `CapacitySelection.PER_INPUT` -- capacity-programme Task FP-3."""
 
     def test_routed_predict_shape_and_no_nan(self, simple_linear_data):
+        """FP-3 test 1: a router-fitted model constructed with `CapacitySelection.PER_INPUT`
+        routes on a plain `predict(x)` call, with no caller flag."""
         x, y = simple_linear_data
-        model = _make_width_model()
+        model = _make_width_model(capacity_selection=CapacitySelection.PER_INPUT)
         model.fit(x, y)
         model.fit_router(x, y)
 
-        y_pred = model.predict(x, inference_mode="routed")
+        y_pred = model.predict(x)
         assert y_pred.shape == (len(x),)
         assert not np.any(np.isnan(y_pred))
 

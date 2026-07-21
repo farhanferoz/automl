@@ -112,7 +112,7 @@ class TestCrossModelRanking:
         x, y, _, _ = heteroscedastic_data
         x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=42)
 
-        probreg = _make_probreg(use_hpo=False, n_epochs=150, early_stopping_rounds=20)
+        probreg = _make_probreg(optimize_hyperparameters=False, n_epochs=150, early_stopping_rounds=20)
         probreg.fit(x_train, y_train)
         probreg_nll = _compute_nll(probreg, x_test, y_test)
 
@@ -120,7 +120,7 @@ class TestCrossModelRanking:
             input_size=1, output_size=1, hidden_layers=2, hidden_size=32,
             learning_rate=0.01, n_epochs=100, early_stopping_rounds=15,
             validation_fraction=0.2, uncertainty_method=UncertaintyMethod.CONSTANT,
-            random_seed=42, calculate_feature_importance=False, use_hpo=False,
+            random_seed=42, calculate_feature_importance=False, optimize_hyperparameters=False,
         )
         nn.fit(x_train, y_train)
         nn_nll = _compute_nll(nn, x_test, y_test)
@@ -250,8 +250,8 @@ class TestHardInference:
         )
         model.fit(x_train, y_train)
 
-        y_soft = model.predict(x_test, inference_mode="soft")
-        y_hard = model.predict(x_test, inference_mode="hard")
+        y_soft = model.predict(x_test)
+        y_hard = model.predict(x_test, hard_execution=True)
 
         assert y_soft.shape == y_hard.shape
         assert not np.any(np.isnan(y_hard))
@@ -277,7 +277,7 @@ class TestHardInference:
 
         t0 = time.perf_counter()
         for _ in range(5):
-            y_hard = model.predict(x_large, inference_mode="hard")
+            y_hard = model.predict(x_large, hard_execution=True)
         t_hard = time.perf_counter() - t0
 
         assert y_hard.shape == (len(x_large),)

@@ -1,6 +1,6 @@
 """Enums for AutoML package."""
 
-from enum import Enum, StrEnum
+from enum import Enum
 
 
 class TaskType(Enum):
@@ -102,11 +102,20 @@ class DepthRegularization(Enum):
     COST_AWARE_ELBO = "cost_aware_elbo"
 
 
-class WidthSelectionMethod(StrEnum):
-    """Enum for per-input width selection in `FlexibleWidthNN` (capacity-programme F2)."""
+class CapacitySelection(Enum):
+    """The ONE capacity-selection API, shared by every capacity-dial family.
 
-    NONE = "none"  # fixed width, chosen explicitly via predict(x, width=...).
-    DISTILLED = "distilled"  # per-input routed width via `DistilledCapacityRouter` -- capacity-programme F3, not yet landed.
+    Capacity-programme Task FP-3, `docs/plans/capacity_programme/flexnn-package.md`.
+    Ships only the members whose mechanism exists today -- an enum member is a promise that it
+    works, not a placeholder. `GLOBAL_CHEAP` (a cheap held-out global read) and `GLOBAL_SWEEP` (an
+    expensive per-value sweep) are each added later, by the task that builds its mechanism; do not
+    add them here.
+    """
+
+    FIXED = "fixed"  # no distilled-router selection; the model's own default single-pass behavior
+    # (an explicit width/depth/k, or its trained in-training selection strategy) is used unchanged.
+    PER_INPUT = "per_input"  # a `DistilledCapacityRouter` fitted via `fit_router()` chooses the
+    # capacity per sample; `predict()`/`predict_uncertainty()` route with no caller flag.
 
 
 class NClassesRegularization(Enum):

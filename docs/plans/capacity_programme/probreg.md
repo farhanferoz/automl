@@ -580,7 +580,62 @@ verify: `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_phase3_dy
 green, THEN delete the transform, re-run, and show the new test FAILING, then restore and show the
 file checksum unchanged.
 
-### P2 — diagnose or accept the undocumented failing test (D3, second one)
+### P2 — diagnose or accept the undocumented failing test (D3, second one) — ✅ **DONE 2026-07-20. Outcome (c): ACCEPTED, no fix warranted.**
+
+**Verdict: the test is a brittle single-seed assertion, not a package defect.** Both halves of the
+task's own verify were executed at the root, on real `pytest`, one variable, both directions: at HEAD
+the test fails at MSE 2.8812, and with the recorded candidate fix applied it **still fails**, at  <!-- source: `automl_package/examples/capacity_ladder_results/P2/p2_warmstart_grid.json` -->
+2.8565 — a 0.9 % move against a 0.39 gap. **The recorded "fix applied → 1 passed" was refuted.** It  <!-- source: `automl_package/examples/capacity_ladder_results/P2/p2_warmstart_grid.json` -->
+had been transcribed from a killed worker's transcript and never re-executed; re-executing it is what
+overturned it. Outcome (a) is therefore excluded (the test does not pass) and (b) is excluded (there
+is no fix that survives prove-it-fails), so the outcome is the acceptance branch this task's spec
+requires — written up, cited, and in the same shape as `shared/hetero_nll_diagnosis.md`.
+
+Root cause, established across 5 seeds with per-epoch trajectories (MASTER Decision 9 satisfied):
+`k=5` on one hard-coded seed, with a bar sitting 0.25 above a distribution of spread 0.41. Four of
+five seeds land under the bar in **both** directions; only the seed the test hard-codes exceeds it.
+The culprit commit `445315e` is confirmed — the test passes at its parent — but the crossing is
+carried by the RNG-stream shift in that commit, not by the centroid warm-start the earlier note
+blamed. **The 2.5 bar was NOT loosened and must not be.** No change to
+`automl_package/models/probabilistic_regression.py` is warranted; the file is at HEAD, verified by
+`git diff --stat`.
+
+Full record, including the 2×2×5 grid and both trajectories:
+`docs/plans/capacity_programme/shared/p2_hetero_mse_diagnosis.md`. Ledger cells:
+`automl_package/examples/capacity_ladder_results/P2/p2_warmstart_grid.json` and
+`automl_package/examples/capacity_ladder_results/P2/p2_warmstart_seed42_trajectories.json`.
+
+**✅ RULED 2026-07-20 (user): the test's protocol IS to be repaired, and the repair WAITS for the
+selection rule. Do not patch this test twice.** Until then the failure stands as a known failure and
+is **not** to be treated as a regression, and the 2.5 bar does not move.
+
+**Why deferred, and what the deferral is really about — this is the load-bearing part, not the seed
+noise.** The configuration under test is `n_classes=5` with
+`n_classes_selection_method=NONE` (`tests/test_phase4_regression.py:51-62`, `_make_probreg`): no
+arbiter, no distilled router, no sweep, no k-dropout. **It is none of §1's three models** — it is the
+bare network trained ordinarily at ONE hand-picked rung, closest to a single *cell* of M3's sweep but
+without the selection step that makes M3 a model. Its bar was set from that same hand-picked run.
+⇒ **The test cannot distinguish "the model regressed" from "k=5 was never the right resolution for
+this data"**, because the dial the whole strand is about is frozen. Multi-seed averaging would make
+it stable and leave it arbitrary; that is why the seed fix alone was rejected.
+
+**The repair, when its dependency lands:** select `k` on held-out data using the strand's own rule —
+cheapest-within-tolerance at twice a bootstrap standard error — instead of pinning `k=5`, holding the
+per-seed bar at 2.5. **Tracked dependency: `flexnn-package.md` FP-9.a/FP-9.b** (the shared selector
+and its bootstrap standard-error helper) **and PA** (M1's selector built on `all_rung_log_likelihood`).
+Not a dispatchable task until both exist; re-read this block when PA closes.
+
+*(Method note, recorded because it cost two rounds: the first two explanations of this failure led
+with the noise floor and the per-seed spread and never stated the configuration. The configuration
+was the finding. Pin the variant — and whether the mechanism under study is switched on — before
+analysing any number.)*
+
+**Also noted, not scheduled:** the
+centroid warm-start is shipped, test-uncovered in both directions, and now measured as null on this
+configuration (`+0.0026 ± 0.0374` paired over 5 seeds) — keeping it is the recommendation, but it
+wants an executable identifiability check before anyone claims it works. <!-- numcheck-ignore: derived statistics over the grid cell cited above -->
+
+*(Original spec retained below, unchanged.)*
 
 **Files (write set):** `docs/plans/capacity_programme/shared/` (a new diagnosis note) ·
 possibly `automl_package/models/probabilistic_regression.py`

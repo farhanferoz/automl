@@ -79,7 +79,7 @@ import depth_composition_toy as dct  # noqa: E402
 import moe_regression as moe  # noqa: E402
 import nested_width_net as nwn  # noqa: E402
 
-from automl_package.enums import ActivationFunction, DepthRegularization, LayerSelectionMethod, TaskType, UncertaintyMethod, WidthSelectionMethod  # noqa: E402
+from automl_package.enums import ActivationFunction, CapacitySelection, DepthRegularization, LayerSelectionMethod, TaskType, UncertaintyMethod  # noqa: E402
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN  # noqa: E402
 from automl_package.models.flexible_width_network import FlexibleWidthNN  # noqa: E402
 
@@ -248,15 +248,17 @@ def build_flex_hidden(cfg: ToyConfig, seed: int) -> FlexibleHiddenLayersNN:
         depth_regularization=DepthRegularization.NONE, n_predictor_layers=1, uncertainty_method=UncertaintyMethod.CONSTANT,
         task_type=cfg.task_type, output_size=cfg.output_size, learning_rate=cfg.learning_rate, n_epochs=cfg.n_epochs_cap,
         early_stopping_rounds=cfg.patience, batch_size=cfg.batch_size, random_seed=seed, calculate_feature_importance=False,
+        capacity_selection=CapacitySelection.PER_INPUT,  # fit_router() + plain predict() below routes, no caller flag
     )
 
 
 def build_flex_width(cfg: ToyConfig, seed: int) -> FlexibleWidthNN:
     """The two regression toys' NATURAL dial net (width); the OFF-dial contender on the A5 toy."""
     return FlexibleWidthNN(
-        widths=cfg.width_ladder, activation=ActivationFunction.RELU, width_selection_method=WidthSelectionMethod.NONE,
+        widths=cfg.width_ladder, activation=ActivationFunction.RELU,
         task_type=cfg.task_type, output_size=cfg.output_size, learning_rate=cfg.learning_rate, n_epochs=cfg.n_epochs_cap,
         early_stopping_rounds=cfg.patience, batch_size=cfg.batch_size, random_seed=seed, calculate_feature_importance=False,
+        capacity_selection=CapacitySelection.PER_INPUT,  # fit_router() + plain predict() below routes, no caller flag
     )
 
 
@@ -410,8 +412,8 @@ def run_toy_seed(toy: ToyKey, seed: int) -> dict:
 
     flex_hidden.fit_router(data["x_val"], data["y_val"])
     flex_width.fit_router(data["x_val"], data["y_val"])
-    pred_hidden_routed = flex_hidden.predict(data["x_test"], inference_mode="routed", filter_data=False)
-    pred_width_routed = flex_width.predict(data["x_test"], inference_mode="routed", filter_data=False)
+    pred_hidden_routed = flex_hidden.predict(data["x_test"], filter_data=False)
+    pred_width_routed = flex_width.predict(data["x_test"], filter_data=False)
 
     def _decoded_score(pred: np.ndarray) -> dict[str, float]:
         if cfg.task_type is TaskType.REGRESSION:

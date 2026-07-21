@@ -5,7 +5,7 @@ import pytest
 import torch
 from sklearn.model_selection import train_test_split
 
-from automl_package.enums import DepthRegularization, LayerSelectionMethod, UncertaintyMethod
+from automl_package.enums import CapacitySelection, DepthRegularization, LayerSelectionMethod, UncertaintyMethod
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
 from automl_package.models.independent_weights_flexible_neural_network import IndependentWeightsFlexibleNN
 from automl_package.utils.pytorch_utils import get_device
@@ -480,8 +480,8 @@ class TestDD2PairedDepthUncertainty:
         return FlexibleHiddenLayersNN(**defaults)
 
     def test_hard_mode_uncertainty_matches_hard_mode_depths(self, simple_linear_data):
-        """`predict_uncertainty(inference_mode="hard")` must read `log_var` off the same
-        per-sample argmax depth `predict(inference_mode="hard")` uses -- not the soft mixture.
+        """`predict_uncertainty(hard_execution=True)` must read `log_var` off the same
+        per-sample argmax depth `predict(hard_execution=True)` uses -- not the soft mixture.
         """
         x, y = simple_linear_data
         model = self._make_model()
@@ -493,7 +493,7 @@ class TestDD2PairedDepthUncertainty:
             n_logits = model.model.n_predictor(x_tensor)
             n_actual = torch.argmax(n_logits, dim=1) + 1  # 1-indexed depth, matches hard_forward
 
-        got = model.predict_uncertainty(x, inference_mode="hard")
+        got = model.predict_uncertainty(x, hard_execution=True)
 
         expected = np.empty_like(got)
         with torch.no_grad():
@@ -506,17 +506,17 @@ class TestDD2PairedDepthUncertainty:
         np.testing.assert_allclose(got, expected, rtol=1e-5, atol=1e-6)
 
     def test_routed_mode_uncertainty_matches_routed_depths(self, simple_linear_data):
-        """Same check for `inference_mode="routed"` -- the literal motivating case from the
-        plan's DD2 description: `predict(inference_mode="routed")` paired with an
-        always-soft `predict_uncertainty`.
+        """Same check for `CapacitySelection.PER_INPUT` -- the literal motivating case from the
+        plan's DD2 description: PER_INPUT-routed `predict()` paired with an always-soft
+        `predict_uncertainty`.
         """
         x, y = simple_linear_data
-        model = self._make_model()
+        model = self._make_model(capacity_selection=CapacitySelection.PER_INPUT)
         model.fit(x, y)
         router = model.fit_router(x, y)
 
         routed_depths = np.array([capacity[0] for capacity in router.route(x)], dtype=np.int64)
-        got = model.predict_uncertainty(x, inference_mode="routed")
+        got = model.predict_uncertainty(x)
 
         x_tensor = torch.tensor(x, dtype=torch.float32).to(model.device)
         expected = np.empty_like(got)
@@ -531,17 +531,19 @@ class TestDD2PairedDepthUncertainty:
 
     def test_routed_uncertainty_without_fitted_router_raises(self, simple_linear_data):
         x, y = simple_linear_data
-        model = self._make_model(n_epochs=1)
+        model = self._make_model(n_epochs=1, capacity_selection=CapacitySelection.PER_INPUT)
         model.fit(x, y)
         with pytest.raises(RuntimeError, match="fit_router"):
-            model.predict_uncertainty(x, inference_mode="routed")
+            model.predict_uncertainty(x)
 
-    def test_unknown_inference_mode_rejected(self, simple_linear_data):
+    def test_inference_mode_kwarg_rejected(self, simple_linear_data):
+        """FP-3.b: `inference_mode` is removed entirely -- no `**kwargs` on `predict_uncertainty`,
+        so passing it raises `TypeError` for free once the parameter is deleted."""
         x, y = simple_linear_data
         model = self._make_model(n_epochs=1)
         model.fit(x, y)
-        with pytest.raises(ValueError, match="Unknown inference_mode"):
-            model.predict_uncertainty(x, inference_mode="bogus")
+        with pytest.raises(TypeError):
+            model.predict_uncertainty(x, inference_mode="routed")
 
 
 class TestNPredictorInMainOptimizer:
@@ -629,8 +631,8 @@ class TestConvergenceSummary:
         assert model.get_params()["trustworthy"] is False
 
 
-class TestCapacityRouterInferenceMode:
-    """`fit_router()` + `predict(inference_mode="routed")` -- capacity-programme Task F3."""
+class TestCapacityRouterPerInput:
+    """`fit_router()` + `predict()` under `CapacitySelection.PER_INPUT` -- capacity-programme Task FP-3."""
 
     def _make_model(self, **overrides):
         defaults = dict(
@@ -638,17 +640,20 @@ class TestCapacityRouterInferenceMode:
             layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
             max_hidden_layers=3, n_predictor_layers=1, hidden_size=16,
             n_epochs=10, random_seed=42, calculate_feature_importance=False,
+            capacity_selection=CapacitySelection.PER_INPUT,
         )
         defaults.update(overrides)
         return FlexibleHiddenLayersNN(**defaults)
 
     def test_routed_predict_shape_and_no_nan(self, simple_linear_data):
+        """FP-3 test 1: a router-fitted model constructed with `CapacitySelection.PER_INPUT`
+        routes on a plain `predict(x)` call, with no caller flag."""
         x, y = simple_linear_data
         model = self._make_model()
         model.fit(x, y)
         model.fit_router(x, y)
 
-        y_pred = model.predict(x, inference_mode="routed")
+        y_pred = model.predict(x)
         assert y_pred.shape == (len(x),)
         assert not np.any(np.isnan(y_pred))
 
@@ -657,14 +662,38 @@ class TestCapacityRouterInferenceMode:
         model = self._make_model(n_epochs=1)
         model.fit(x, y)
         with pytest.raises(RuntimeError, match="fit_router"):
-            model.predict(x, inference_mode="routed")
+            model.predict(x)
 
-    def test_unknown_inference_mode_rejected(self, simple_linear_data):
+    def test_inference_mode_kwarg_rejected_at_predict(self, simple_linear_data):
+        """FP-3.b: `inference_mode` is removed entirely -- `predict` has no `**kwargs`, so passing
+        it raises `TypeError` for free once the parameter is deleted."""
         x, y = simple_linear_data
         model = self._make_model(n_epochs=1)
         model.fit(x, y)
-        with pytest.raises(ValueError, match="Unknown inference_mode"):
-            model.predict(x, inference_mode="bogus")
+        with pytest.raises(TypeError):
+            model.predict(x, inference_mode="routed")
+
+    def test_inference_mode_kwarg_rejected_at_construction(self):
+        """FP-3.d: a removed selection kwarg passed to the CONSTRUCTOR must raise `TypeError`, not
+        be silently swallowed into `self.params` (`BaseModel.__init__`, `base.py:45,52`)."""
+        with pytest.raises(TypeError):
+            FlexibleHiddenLayersNN(input_size=1, output_size=1, inference_mode="hard")
+
+    def test_hard_execution_matches_todays_hard_forward(self, simple_linear_data):
+        """FP-3 test 5: the `hard_execution` boolean survives (orthogonal to `CapacitySelection`,
+        not swept up as a selection mode) and produces the same predictions `hard_forward` always
+        has."""
+        x, y = simple_linear_data
+        model = self._make_model(capacity_selection=CapacitySelection.FIXED)
+        model.fit(x, y)
+
+        x_tensor = torch.tensor(x, dtype=torch.float32).to(model.device)
+        model.model.eval()
+        with torch.no_grad():
+            expected = model.model.hard_forward(x_tensor).cpu().numpy().flatten()
+
+        got = model.predict(x, hard_execution=True)
+        np.testing.assert_allclose(got, expected, rtol=1e-5, atol=1e-6)
 
     def test_router_routes_only_within_capacity_grid(self, simple_linear_data):
         x, y = simple_linear_data

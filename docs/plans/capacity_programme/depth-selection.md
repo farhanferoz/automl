@@ -465,7 +465,9 @@ structure **and** 2.8× parameters (2,780 vs 7,880; Decision 15). **Therefore:**
 **⚠️ PRIOR EVIDENCE THE CONTROL MUST BE READ AGAINST — do not discover this after spending compute.**
 The full-depth feed-forward control has never cleared 0.90 on this substrate at any configuration
 tried: DSEL-1b's pilot peaked at val acc **0.28** at full depth (both readout arms, the JSONs above),
-and F5c-b's repaired-protocol control on the harder A5/L=10 configuration failed at **0.432 / 0.744**
+and F5c-b's repaired-protocol control on the harder A5/L=10 configuration failed at
+**0.432** (`automl_package/examples/capacity_ladder_results/D_TOY_PROBES/f5c_poscontrol_a5_seed0.json`)
+and **0.744** (`automl_package/examples/capacity_ladder_results/D_TOY_PROBES/f5c_poscontrol_a5_seed1.json`)
 with `train_acc` 0.97/1.00 — memorization-without-generalization, an exhausted Decision-16 ladder, and
 an **open user escalation** (§6, F5c-b). ⇒ Clause (i) is a live risk, not a formality. This task may
 scale **capacity and data** (trunk width, `n_train`, epoch cap) to give the control a fair chance —
@@ -488,6 +490,53 @@ Decision 9), and `trustworthy` computed on the metric the bar reads (MASTER Deci
 reading low on both train and held-out accuracy must carry the Decision-16 escalation-ladder record
 (LR sweep → clipping → warmup → init scheme → normalization) before it is read as an architecture
 finding — its absence invalidates that cell's reading.
+
+### DSEL-2 stage 1 RESULT (2026-07-20) — ⛔ **POSITIVE CONTROL FAILS. HALT #1. ESCALATED TO USER.**
+
+Driver: `automl_package/examples/depth_dsel2.py`. Artifacts: ten JSONs under
+`automl_package/examples/capacity_ladder_results/DSEL2/`. **Every one was re-checked at the root with
+the task's own command; all ten fail `val_acc >= 0.90 and trustworthy`.** Clause (ii), the
+wide-shallow falsifier, was correctly NOT run — it is gated on (i). No per-depth ladder, no readout
+comparison, no recurrent run.
+
+**The failure is memorization-without-generalization, and optimization is exonerated (Decision 16).**
+From the width-32 rung onward the net fits the training set outright — `train_acc` reaching 1.000 (`automl_package/examples/capacity_ladder_results/DSEL2/control_rung6_width64_seed0.json`) —
+while held-out accuracy sits between 0.32 and 0.75. Decision 16's exoneration condition is satisfied
+with margin, so **no further ladder rung is licensed**: learning-rate, warmup, init and normalization
+are remedies for under-fitting, and this is not under-fitting. Best found anywhere, width 32:
+seed 0 = **0.747** (`automl_package/examples/capacity_ladder_results/DSEL2/control_rung4_data75_seed0.json`);
+seed 1 = **0.590** (`automl_package/examples/capacity_ladder_results/DSEL2/control_rung4_data75_seed1.json`)
+— far below the 0.90 bar on both. All runs are patience-stopped with `hit_cap=false` on both gates
+(Decision 9), and both the accuracy gate and the loss gate are recorded per run (Decision 17).
+
+**This is the SECOND feed-forward configuration to fail this way**, and the first — F5c-b, §6 — is
+still an open user escalation. Two different substrates, ladders and protocols, same shape:
+the training set is fitted completely and held-out accuracy does not follow.
+
+**⚠️ ROOT CORRECTION — the data rungs are CONFOUNDED and must NOT be read as a curve.** The worker
+reported a "non-monotonic anomaly": more training data appearing to *hurt* held-out accuracy
+(0.747 → 0.387 → 0.410 at train fractions 0.75 → 0.80 → 0.90). **That comparison is invalid.** This  <!-- numcheck-ignore: three values from three different evaluation sets, quoted here to be refuted, not asserted -->
+toy enumerates its ENTIRE word space (4 generators, length 6 = 4,096 words — `_all_or_sampled_words`,
+`automl_package/examples/depth_composition_toy.py:269-280`), so raising the training fraction
+**shrinks and rewrites the evaluation set at the same time**: n_val goes 1024 → 819 → 410. Those
+three numbers are measured on three different test sets and are not comparable — two variables moved
+at once, which Decision 15 forbids. ⇒ **No anomaly is established, and none may be recorded as a
+finding.** What survives is the fixed-configuration evidence: at a FIXED 0.75 fraction, on the same
+evaluation set, two seeds and two widths all land 0.59–0.75, and widening 32 → 64 moves nothing —
+0.747 (`automl_package/examples/capacity_ladder_results/DSEL2/control_rung4_data75_seed0.json`) vs 0.746 (`automl_package/examples/capacity_ladder_results/DSEL2/control_rung6_width64_seed0.json`) — **capacity is not the binding constraint.**
+
+**Also corrected here — DSEL-1b's 0.28 was PARTLY a gate artifact.** DSEL-1b gated on ladder-mean
+held-out loss and restored best weights on it, while accuracy was still climbing; fixing the gate to
+read the metric the bar reads (Decision 17) moves the same configuration from 0.28 to **0.319** (`automl_package/examples/capacity_ladder_results/DSEL2/control_rung0_gatefix_seed0.json`).
+
+The gate defect was real and is now fixed in this driver; it was **not** the load-bearing cause.
+
+**⛔ THE USER DECISION THIS RAISES** (batched with the standing F5c-b escalation — they are the same
+question asked twice): is the feed-forward depth claim to be pursued on THIS substrate at all? The
+programme has now spent two protocol-repair cycles here. The options are (a) accept that this
+substrate does not carry a feed-forward depth signal and say so as a finding, (b) change the
+substrate, or (c) attack generalization directly rather than through the optimization ladder. **No
+task may take this decision** — §3.5 HALT #1 and #5.
 
 ### DSEL-2b — does the ladder cost the middle depths, the way ProbReg's k-ladder does?
 

@@ -278,7 +278,37 @@ Every path this prints must be attributable to a `move` or `supersede-with-point
 leaving `flexnn-core.md`. **A path printed here that belongs to a `retain` row fails the task**, and
 FP-0 records the conflict for the root rather than resolving it by editing either file.
 
-### FP-1 — break the circular dependency
+### FP-1 — break the circular dependency — ✅ **DONE 2026-07-20** (verify re-executed at the root)
+
+Accounting now lives at `automl_package/utils/capacity_accounting.py`, which imports nothing from
+`models/` or `examples/`; `automl_package/examples/capacity_accounting.py` is a re-export shim
+(verified at the root by object **identity**, so it is provably not a fork), and the four `nwn.*`
+branches stayed on the examples side exactly as ruled — the package module carries no
+`nested_width_net` import or dispatch branch, only comments naming it. Root-executed: verify clauses
+(a), (b), (c) and the `PROTECTED.tsv` deletion check all print nothing; the accounting selftest exits
+0 with all 20 known answers unchanged; `tests/test_capacity_accounting.py` (new, 13 tests) passes;
+bare-name `import capacity_accounting` from `examples/` still resolves, now onto the package module.
+**Full-suite clause deferred to the wave-end run** (the environment rule: the root runs `pytest tests/`
+once, at wave end, not while a heavy sibling worker is training).
+
+**⚠️ THE REGISTRATION-HOOK CONTRACT CHANGED SHAPE — FP-2 READ THIS FIRST.** This task's ruling said
+the shim would register the four `nwn.*` branches "through a registration hook the package module
+exposes". **No such hook exists, deliberately, and FP-2 must not look for one.** A package module
+that imports the model classes in order to register them centrally **recreates the very cycle FP-1
+removes**, relocated one file over: `flexible_width_network.py → utils/capacity_accounting.py →
+flexible_neural_network.py → utils/capacity_accounting.py` (partially initialised) → `ImportError`.
+**The actual contract is `functools.singledispatch` itself:** `executed_flops` and `param_count` are
+ordinary singledispatch functions exported from the package module, and any holder of a reference —
+the shim, or a model file — calls `.register(SomeType)` on that same dispatcher object. Each model
+file registers its own inner class from within itself, after the class is defined. ⇒ **FP-2's move is
+mechanical:** relocate the four `@executed_flops.register(...)` blocks out of the shim to wherever the
+classes land, then drop the shim to a pure re-export. No new API surface. *(Deviation raised by the
+worker rather than absorbed silently; adopted at the root because the literal reading provably
+fails.)*
+
+*(Original spec retained below, unchanged.)*
+
+### FP-1 — break the circular dependency (spec)
 
 **Files (write set):** `automl_package/utils/` (new accounting module) ·
 `automl_package/examples/capacity_accounting.py` (becomes a shim) ·
@@ -329,7 +359,45 @@ AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/ -q
 (a), (b) and (c) must each print **nothing**; the selftest must exit 0; the characterisation test must
 produce byte-identical numbers before and after the move.
 
-### FP-9 — the shared selection primitives (built ONCE, here) ⭐
+### FP-9 — the shared selection primitives (built ONCE, here) ⭐ — ✅ **DONE 2026-07-20** (verify re-executed at the root)
+
+**The contract every consumer imports** (WSEL-3, WSEL-5, DSEL-6, PA, FP-4 — do not reimplement):
+- `bootstrap_se(values, n_boot, seed) -> float` — `automl_package/utils/numerics.py`. Covers the
+  plain AND paired shapes: they are the same operation, the paired one applied to a difference
+  vector. `n_boot`/`seed` are REQUIRED, no defaults.
+- `two_sample_bootstrap_se(a, b, n_boot, seed) -> float` — same file.
+- `cheapest_within_tolerance(error_table, n_boot=1000, seed=0) -> int` —
+  `automl_package/utils/capacity_selection.py`. Compares every candidate against the **global best**
+  (FP-9.a's literal wording), not §4.1's sequential-staircase framing; both agree on all three
+  plan-given known answers, and the docstring records the choice.
+- `router_fit_cost(in_dim, n_capacities, n_samples, n_epochs, hidden)` / `held_out_read_cost(net,
+  capacity_grid, n_samples)` / `sweep_cost(net, capacity_grid, n_train_samples, n_epochs)` —
+  `automl_package/utils/capacity_accounting.py`. **`hidden` is REQUIRED**, deliberately: defaulting
+  it to `distilled_router.DEFAULT_HIDDEN` would silently drift when FP-5 changes that shared global.
+
+Root-executed: the plan's six-known-answer heredoc prints `FP9-KNOWN-ANSWERS-OK`; the accounting
+selftest exits 0 **having gained all three selection-cost cases** (`grep -c 'selection'` on the shim
+4 → 5); `tests/test_capacity_selection.py` = 18 passed; ruff clean on all four touched files (the 49
+findings under `automl_package/utils/` are pre-existing debt in files this task never opened).
+
+**FINDING — the paired-shape duplication is a RENAME, not a drift, and this closes a live worry.**
+The plan flagged the three independent paired-bootstrap implementations as "where genuine drift
+between the three strands' numbers could already be hiding". Re-read at the root, all three bodies
+are **character-for-character the same algorithm** (`rng.integers(0, n, size=(n_boot, n))` →
+`diff[idx].mean(axis=1)` → `.std(ddof=1)`), differing only in the parameter name and whether
+`n_boot`/`seed` carry defaults: `automl_package/examples/capacity_ladder_s1.py:258`,
+`automl_package/examples/capacity_ladder_k4.py:76`,
+`automl_package/examples/capacity_ladder_t2.py:337`. ⇒ **No cross-strand numeric drift exists or
+ever existed here**, and consolidating any caller onto `bootstrap_se` is behaviour-preserving.
+
+**Process note — FP-9.c was applied BY THE ROOT, not by the worker.** `write_set_guard` blocked the
+worker from `automl_package/utils/capacity_accounting.py` (FP-1's agent wrote it earlier in the same
+session; the guard is session-scoped, and it was right). The worker drafted, the root reviewed and
+applied — the sanctioned handoff. The `hidden`-required change above came out of that review.
+
+*(Original spec retained below, unchanged.)*
+
+### FP-9 — the shared selection primitives (spec)
 
 **Why this task exists.** Three sibling plans each independently specify the same three pieces of
 machinery. Built three times, they will differ — and the moment they differ, the three strands' numbers
@@ -550,7 +618,61 @@ AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/ -q
 (b) must print PASS for all five seeds; (c) and (d)'s grep must print nothing; the suite must be green.
 **Any seed outside 2% halts the task** — record both numbers and escalate; do not widen the bar.
 
-### FP-3 — the one selection API ⭐ (both other strands block on this)
+### FP-3 — the one selection API ⭐ — ✅ **LANDED 2026-07-20**, one follow-up carried (below)
+
+`CapacitySelection(FIXED, PER_INPUT)` ships in `automl_package/enums.py`; `WidthSelectionMethod` is
+retired **entirely** (grep-confirmed: zero references anywhere in `automl_package/` or `tests/`), and
+with it the `NotImplementedError` trap this task existed to kill. `inference_mode` is gone from
+`predict` and from **both** `predict_uncertainty` methods; passing it to a `predict`, a
+`predict_uncertainty` or a **constructor** now raises `TypeError` instead of being swallowed into
+`self.params`. Root-executed verify: clause (b) `ENUM-OK`, clause (c) `NO-TRAP-OK` for every family ×
+every member, clause (d) clean (the sole surviving `DISTILLED` string is prose about Decision 13).
+
+**Clause (a) as written in this plan is unsatisfiable and should not be "fixed" by deleting tests.**
+It greps for zero occurrences of `inference_mode` — but this task's own required tests #2 and #3
+assert that passing `inference_mode` RAISES, so the string must appear in the rejection code and in
+the tests that prove it. Read clause (a) as *no live call site passes it*; that is what was checked.
+
+**`independent_weights_flexible_neural_network.py` was correctly NOT touched** — root-verified: that
+class has no `inference_mode`, no `fit_router`, no selection surface at all. Its parity work is FP-6.
+Its absence from the FP-3 diff is not a missed file.
+
+**⚠️ FOLLOW-UP CARRIED — a fragile workaround landed and should be replaced (small, well-scoped).**
+`PyTorchModelBase._fit_single` (`automl_package/models/base_pytorch.py:217-219`) computes the
+CONSTANT-uncertainty residual std by calling `self.predict(x_train, filter_data=False)` with **no
+width** — which now raises under `FIXED` (FP-3.b.4), so every `.fit()` under the default uncertainty
+method would crash. That base file was outside FP-3's write set, so the worker worked around it
+inside `FlexibleWidthNN._fit_single`: it temporarily reassigns `self.uncertainty_method`, wraps the
+super call in `try/finally`, and recovers `x_train`/`y_train` via
+`inspect.signature(...).bind(...)`. It is documented and it works, but it is brittle — a signature
+change to the base breaks it at runtime, and a method that lies about its own configuration mid-fit
+is the shape of defect this strand exists to remove.
+**The clean fix, verified as available at the root:** `uncertainty_method` is read exactly ONCE in
+`_fit_single`, in a three-line block at the very end. Extract those three lines into an overridable
+`_fit_residual_std(self, x_train, y_train)` on `PyTorchModelBase`, and have `FlexibleWidthNN`
+override it to predict at `max(self.widths)`. That deletes the reassignment, the `try/finally` and
+the `inspect` binding. **Not done here** — it edits a base class every model inherits from, at the
+close of a session, which is not the moment. Do it as the first act of the next package wave.
+
+**⛔ AND THE SAME DEFECT IS STILL LIVE, DORMANT, IN FIVE MORE PLACES — FP-3.b.4's blast radius was
+never scoped.** Found by the FP-3 worker and **re-verified at the root by grep**: generic machinery
+calls `predict(x)` polymorphically, with no width, at
+`automl_package/models/base.py:353` and `:444` (CV folds), `:372` (the HPO objective), `:513`
+(evaluation), and `automl_package/utils/data_handler.py:102` (the log-scale check). Under
+`CapacitySelection.FIXED` every one of them now **raises** for `FlexibleWidthNN`.
+**Dormant only because no test exercises `FlexibleWidthNN` with `optimize_hyperparameters=True` or
+`cv_folds`** — the suite is green and the breakage is real. ⇒ **`FlexibleWidthNN` currently cannot be
+used with HPO or cross-validation at all.** The ruling itself stays (silently defaulting to the
+largest width is exactly the silent-failure class this strand exists to remove); what is missing is
+an internal, non-caller-facing prediction path for bookkeeping and scoring — the same shape as the
+residual-std fix above, applied once, centrally. **Schedule with that fix; they are one task.**
+*(Case law: a settled sub-decision changed a method's contract for every polymorphic caller in the
+repo, and the plan scoped it as a signature change. Grep the generic callers before ruling that a
+widely-called method may start raising.)*
+
+*(Original spec retained below, unchanged.)*
+
+### FP-3 — the one selection API (spec)
 
 **Files (write set):** `automl_package/enums.py` · `automl_package/models/flexible_width_network.py` ·
 `automl_package/models/flexible_neural_network.py` ·
@@ -589,11 +711,17 @@ mechanism works.**
    (`flexible_width_network.py:192`, `flexible_neural_network.py:386`,
    `probabilistic_regression.py:598`). Clean break, no shim — the repo has no external users, and a
    shim keeps the silent-failure route alive until it is used by accident.
-2. **`predict_uncertainty` loses `inference_mode` too, wherever it has it.** Verified 2026-07-20:
-   that is **exactly one method**, `automl_package/models/probabilistic_regression.py:694`. Every
-   other `predict_uncertainty` in the repo already has the clean `(x, filter_data)` signature. Missing
-   this one is the ProbReg-specific silent-failure route (`probreg.md` PA: "forget that flag and you
-   silently get the un-routed model").
+2. **`predict_uncertainty` loses `inference_mode` too, wherever it has it.** ⚠️ **COUNT CORRECTED
+   2026-07-20 by the FP-3 worker, which re-derived it instead of trusting this plan — it is TWO
+   methods, not one:** `automl_package/models/probabilistic_regression.py:704` **and**
+   `automl_package/models/flexible_neural_network.py:500`. *(The previous text asserted "exactly one
+   method, verified 2026-07-20" and named a line number that has since moved. Re-verified at the root
+   by `grep -rn "def predict_uncertainty" automl_package/models/`: every OTHER `predict_uncertainty`
+   in the repo does have the clean `(x, filter_data)` signature, so that half stood — but a worker
+   driving the old text would have fixed one family and left the other's silent-failure route open.
+   **Second failed re-verification of a "verified" plan claim in one session; keep re-deriving.**)*
+   Missing either is the silent-failure route the strand exists to close (`probreg.md` PA: "forget
+   that flag and you silently get the un-routed model").
 3. **`WidthSelectionMethod.DISTILLED`'s `NotImplementedError` trap, and the test asserting it raises.**
    The feature is landed; it is reached through an entirely separate path. The enum must name the
    working mechanism, not a dead one.

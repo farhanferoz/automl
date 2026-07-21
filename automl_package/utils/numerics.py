@@ -225,3 +225,76 @@ def calculate_class_value_ranges(y_flat: np.ndarray, y_binned: np.ndarray, k: in
         final_bounds[middle_class_idx, 1] = per_class_ranges[middle_class_idx, 1]
 
     return final_bounds.to(device)
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap standard error (capacity-programme Task FP-9.b) -- ONE shared helper covering the
+# three shapes the capacity-programme example drivers use: plain (SE of a 1-D vector's mean),
+# paired (SE of a paired-difference vector's mean -- mathematically the SAME operation as plain,
+# applied to a difference vector, so `bootstrap_se` below covers both), and two-sample
+# (`two_sample_bootstrap_se`). See `docs/plans/capacity_programme/shared/zero-caller-inventory.md`
+# Part (ii) for the inventory this consolidates: 7 "plain" sites (`_boot_se` x3, `_plain_boot_se`
+# x4) that are already identical thin wrappers around one shared primitive (a pure rename here),
+# 3 "paired" sites (`_paired_bootstrap_se`, `paired_bootstrap_se`, `_paired_point_bootstrap_se`)
+# that each independently reimplement the same resample loop (genuine deduplication), and exactly
+# 1 "two-sample" site (`sinc_width_experiment.py::_two_sample_boot_se`).
+#
+# That inventory's shared low-level primitive, `automl_package/examples/_capacity_ladder.py
+# ::_bootstrap_col_means`, cannot be imported here: package code under `utils/` never imports from
+# `examples/` (capacity-programme boundary rule, `docs/plans/capacity_programme/flexnn-package.md`
+# §2). `bootstrap_se` below reimplements that primitive's single-column algorithm exactly (row-wise
+# i.i.d. resample-with-replacement, `n_boot` times, `std(ddof=1)` of the resampled means) rather
+# than inventing a new one.
+# ---------------------------------------------------------------------------
+
+
+def bootstrap_se(values: np.ndarray, n_boot: int, seed: int) -> float:
+    """Bootstrap standard error of a 1-D vector's mean (the "plain" and "paired" shapes).
+
+    A paired-difference SE is the identical resampling operation applied to the (already computed)
+    per-example difference vector, so this one function serves both shapes -- see module comment.
+
+    Args:
+        values: `(n,)` values -- raw observations for the "plain" shape, or a per-example paired
+            difference for the "paired" shape.
+        n_boot: number of bootstrap resamples. No default: a selection rule whose answer moves
+            between runs is not a rule (FP-9.b).
+        seed: RNG seed for the resample. No default, for the same reason.
+
+    Returns:
+        Standard deviation (`ddof=1`) of the `n_boot` resampled means. Exactly `0.0` for a constant
+        vector (every resampled mean equals the same constant).
+    """
+    arr = np.asarray(values, dtype=np.float64)
+    rng = np.random.default_rng(seed)
+    n = arr.shape[0]
+    idx = rng.integers(0, n, size=(n_boot, n))
+    boot_means = arr[idx].mean(axis=1)
+    return float(boot_means.std(ddof=1))
+
+
+def two_sample_bootstrap_se(a: np.ndarray, b: np.ndarray, n_boot: int, seed: int) -> float:
+    """Bootstrap standard error of `mean(a) - mean(b)` for two INDEPENDENT (unpaired) samples.
+
+    Vectorized (a single `rng.integers(..., size=(n_boot, n))` draw per sample), unlike the sole
+    prior site (`sinc_width_experiment.py::_two_sample_boot_se`, an explicit Python
+    `for i in range(n_boot)` loop) -- this matches that site's SEMANTICS (the same
+    resample-and-difference statistic), not its performance profile, per FP-9.b's instruction.
+
+    Args:
+        a: `(n_a,)` first independent sample.
+        b: `(n_b,)` second independent sample.
+        n_boot: number of bootstrap resamples. No default -- see `bootstrap_se`.
+        seed: RNG seed for the resample. No default -- see `bootstrap_se`.
+
+    Returns:
+        Standard deviation (`ddof=1`) of the `n_boot` resampled `mean(a) - mean(b)` differences.
+    """
+    arr_a = np.asarray(a, dtype=np.float64)
+    arr_b = np.asarray(b, dtype=np.float64)
+    rng = np.random.default_rng(seed)
+    n_a, n_b = arr_a.shape[0], arr_b.shape[0]
+    idx_a = rng.integers(0, n_a, size=(n_boot, n_a))
+    idx_b = rng.integers(0, n_b, size=(n_boot, n_b))
+    diffs = arr_a[idx_a].mean(axis=1) - arr_b[idx_b].mean(axis=1)
+    return float(diffs.std(ddof=1))
