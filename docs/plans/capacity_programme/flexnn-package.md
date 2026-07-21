@@ -1440,6 +1440,84 @@ including the two known-failing heteroscedastic tests — **no new failures and 
 with `OMP_NUM_THREADS=4` pinned; (5) every NEW path in the target tree above exists on disk and every
 OLD path still exists as a shim.
 
+### FP-12 — the READ side: the fixed-σ scorer + every `NESTED`-time guard ⭐ — ✅ **DONE 2026-07-21 (adjudicated: fix-first, then ship). The eight downstream ProbReg tasks may now read through it.**
+
+#### ✅ What landed, and what the root had to fix on top
+
+**The scorer is mathematically correct — verified by independent arithmetic, twice.** The risk this
+task carried was that a "substitute the constant" reading would leave the code scoring a **single
+collapsed Gaussian** while looking fixed. It does not. Root's own check: `y=1.0`, `p=(0.3, 0.7)`,
+`μ=(0, 2)`, `σ=0.5` → the code returns `-2.2257914`, matching the hand-computed genuine mixture <!-- numcheck-ignore: a closed-form hand-verification of a pure function, not a figure read from any run — there is no ledger cell to cite, which is the point (the check is reproducible from the constants on this line alone) -->
+`-2.2257914`; the collapsed Gaussian would be `-0.5457914`. **The two hypotheses differ by 1.68 <!-- numcheck-ignore: same closed-form hand-verification; the contrast value is what makes the check discriminating -->
+nats, so the test discriminates.** The adjudicator repeated it independently with unequal-weight
+two- and three-component cases and a `μ=(-3,+3)` separator, and checked the per-component readout
+reproduces the network's own masking line-for-line. Numerically stable in the far tail
+(`y=60, σ=1` → finite `-1742`, no underflow).
+
+**The migration is complete.** The spec's list was known-stale; it was re-derived by symbol, twice,
+independently. **Seven sites, all on a fixed σ, zero unmigrated.** The verify's grep for a selection
+path still reading a learned `log_var` prints nothing.
+
+**⚠️ TWO CRITICALS THE TASK ITSELF COULD NOT HAVE FIXED — root-applied in
+`automl_package/models/flexnn/depth/model.py`, which is outside FP-12's write set (that is exactly
+why they landed):**
+1. **`FlexibleHiddenLayersNN()` with its own defaults became UNCONSTRUCTABLE.** The class defaulted
+   to `GUMBEL_SOFTMAX`, which Decision 29 retires, so the plain constructor raised. **The worker's
+   report missed it because it grepped explicit keyword usages, and a default is invisible to that
+   grep.** Fixed: defaults are now `NONE` + `n_predictor_layers=0` (both survivors require 0).
+   *(Default choice justified, not invented: `ProbabilisticRegressionModel` already defaults its own
+   dial to `NClassesSelectionMethod.NONE` — same principle, both families, pre-existing convention.
+   Reversible; flagged for the user in case `NESTED` was intended instead.)*
+2. **The search space still offered all four retired members**, so a tuning run would sample one and
+   hard-crash the trial. Decision 29 names `get_hyperparameter_search_space` as *the* live exposure,
+   and only the constructor half had landed. Fixed to `[NONE, NESTED]`; `n_predictor_layers` is no
+   longer tunable because every value `> 0` raises under both survivors. **Verified by construction,
+   not by reading: every advertised choice constructs, and all four retired members are still
+   refused.**
+
+**⚠️ A TEST HAD CANONISED THE REGRESSION.** The worker wrote
+`test_default_construction_now_raises`, asserting that the broken default was correct behaviour —
+its docstring says it "documents that this is now a breaking default". **That converts a regression
+into an expected result, so no later run would ever flag it.** Decision 29 retires a *selection
+mechanism*; it does not license breaking a shipped class's constructor. The test is inverted: it now
+asserts the default constructs and yields a surviving method, and a companion asserts **every method
+the search space advertises actually constructs.**
+
+**Also root-applied:** the escape hatch now records itself in the results JSON
+(`automl_package/examples/report_a_benchmark.py`) — Decision 29 requires it and it was not built;
+written **unconditionally** so a missing field can never be misread as "the hatch was off". And the
+two `automl_package/enums.py` docstrings that still called the retired members "kept fully
+functional" are corrected.
+
+#### 🚫 KNOWN HOLE, deliberately left — depth's `DepthRegularization` is NOT gated
+`NESTED` + `DEPTH_PENALTY` / `ELBO` / `COST_AWARE_ELBO` **constructs cleanly today** and is live and
+unguarded, while the identical ProbReg gap is closed. Measured blast radius of closing it: **~9 test
+cases and ~12 example scripts.** Left open because depth is ⏸ PARKED (Decision 28) and nothing in
+this wave runs it — **half-doing it under time pressure is worse than recording it.** → follow-up
+task, and it must land before depth is ever unparked.
+
+#### 📋 NEEDS USER SIGN-OFF — the σ constant for the two heteroscedastic toys
+`TOY_SIGMA` for `HETEROSCEDASTIC` / `HETERO3` is a **judgment call**: the domain-RMS of the
+generator's own noise formula, because `docs/probreg_benchmark/benchmark_spec.md` §2 addresses only
+constant-noise toys. The arithmetic was verified against the generators. The appealing alternative —
+a known per-input `σ(x)` — is **forbidden** by that spec (one σ across all components, all inputs,
+all arms), so the choice is from the right family. **If it is wrong it costs statistical POWER, not
+fairness**, because the mis-specification is common to every arm: RMS is dominated by the noisy
+region, where the honest verdict is "stay at low k" anyway.
+**⚠️ The spec's own BINDING mitigation — re-scoring at `σ×0.5` and `σ×2`, and treating any change in
+arm ranking as an artefact of the σ choice — is implemented NOWHERE.** It must be attached to
+whichever downstream task reports these toys.
+
+#### The suite bar is re-baselined HERE, not in P7 — and every failure is attributed
+Decision 26 anticipated P7 carrying the re-baseline; **FP-12's guard reached it first.** Post-fix
+measured bar and the full attribution are recorded in `MASTER.md`'s decision register. **Zero
+unexplained failures**; the two pre-accepted heteroscedastic failures are still failing and were
+**not** driven green, per Decision 26.
+
+---
+
+*(Original task spec follows, retained as the pre-registration.)*
+
 ### FP-12 — the READ side: the fixed-σ scorer + every `NESTED`-time guard ⭐ — **WAVE ZERO; nothing that trains or selects may run before it**
 
 ⚠️ **SCOPE SETTLED 2026-07-21 (root), after the day's rulings grew this task to four changes spanning

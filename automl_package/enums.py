@@ -133,11 +133,18 @@ class CapacitySelection(Enum):
 class NClassesRegularization(Enum):
     """Enum for n_classes complexity control in probabilistic regression.
 
-    Only meaningful with an in-training `NClassesSelectionMethod` (SOFT_GATING/GUMBEL_SOFTMAX/
-    STE/REINFORCE) -- those strategies plus a regularizer are a labeled COMPARISON ARM (MASTER
-    Decision 13, `docs/plans/capacity_programme/MASTER.md`); the recommended path is
-    `NClassesSelectionMethod.NESTED` training + `DistilledCapacityRouter`-routed inference
-    (`ProbabilisticRegressionModel.fit_router`), which needs no regularizer at all.
+    K_PENALTY and ELBO are **RETIRED under the nested ladder** (MASTER Decision 29,
+    `docs/plans/capacity_programme/MASTER.md`): they are only meaningful alongside an in-training
+    `NClassesSelectionMethod`, and those are themselves retired. Under `NESTED` they raise at
+    construction and are absent from `get_hyperparameter_search_space`; they are reachable ONLY
+    behind the explicit `allow_retired_capacity_selection` opt-out, for a labelled comparison arm,
+    and any run using it records that fact in its results JSON.
+
+    The live path is `NClassesSelectionMethod.NESTED` training + `DistilledCapacityRouter`-routed
+    inference (`ProbabilisticRegressionModel.fit_router`), which needs no regularizer at all.
+
+    *(This docstring previously described these as a "labeled COMPARISON ARM" per Decision 13.
+    Decision 29 superseded that: demoted became unreachable-by-default.)*
     """
 
     NONE = "none"
@@ -148,8 +155,13 @@ class NClassesRegularization(Enum):
 class NClassesSelectionMethod(Enum):
     """Enum for different n_classes selection methods in probabilistic regression.
 
-    SOFT_GATING/GUMBEL_SOFTMAX/STE/REINFORCE are in-training selection: a labeled COMPARISON ARM
-    (MASTER Decision 13) kept fully functional but no longer the recommended path. NESTED is the
+    SOFT_GATING/GUMBEL_SOFTMAX/STE/REINFORCE are in-training selection and are **RETIRED**
+    (MASTER Decision 29): under the nested ladder they raise at construction and are absent from
+    `get_hyperparameter_search_space`, reachable only behind the explicit
+    `allow_retired_capacity_selection` opt-out for a labelled comparison arm. Retirement is not
+    deletion -- the code stays, and any run using the opt-out records that fact in its results JSON.
+    *(Previously "a labeled COMPARISON ARM kept fully functional"; Decision 29 superseded that.)*
+    NESTED is the
     recommended path: per-sample k drawn as a training SCHEDULE (capacity-ladder Task F9, ported
     from `automl_package/examples/_capacity_ladder_nested.py`), with per-input k at inference
     supplied post-hoc by `ProbabilisticRegressionModel.fit_router` +

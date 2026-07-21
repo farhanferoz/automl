@@ -10,6 +10,54 @@ from automl_package.models.flexnn.strategies.base import (
     BaseSelectionStrategy,
 )
 
+# Skip-forward threshold: a mode contributes zero to the batch if no sample's weight on it
+# exceeds this floor (saves a forward pass for modes nobody selected this batch).
+_MODE_PROB_SKIP_THRESHOLD = 1e-9
+# UncertaintyMethod.PROBABILISTIC heads emit (mean, log_var) -- this is that fixed width.
+_PROBABILISTIC_HEAD_OUTPUT_SIZE = 2
+
+
+class _RetiredDepthSelectionStrategy(BaseSelectionStrategy):
+    """Shared construction-time guard for the four RETIRED in-training layer-selection strategies.
+
+    MASTER Decision 29 (`docs/plans/capacity_programme/MASTER.md`): under the nested ladder,
+    nothing may choose or shape depth DURING TRAINING by default -- GumbelSoftmax/SoftGating/Ste/
+    Reinforce are retired to a labelled comparison arm, reachable only via the
+    `allow_retired_capacity_selection` escape hatch set on the model instance (never a default,
+    never search-space-reachable; the caller must record its use in any results JSON -- Decision
+    29's escape-hatch clause). This mirrors ProbReg's identical guard in
+    `ProbabilisticRegressionModel.__init__` (`automl_package/models/probabilistic_regression.py`)
+    -- same principle, two dials, same flag name, deliberately: the generic
+    `for key, value in kwargs.items(): setattr(self, key, value)` pattern every model constructor
+    shares (`base_pytorch.py:49-50`, `base.py:109`) means `FlexibleHiddenLayersNN(...,
+    allow_retired_capacity_selection=True)` reaches this check even though `layer_selection_method`'s
+    OWN model file never declares the kwarg (verified on disk before relying on it).
+
+    NOTE ON SCOPE (recorded so this is not mistaken for the whole guard -- flexnn-package.md
+    FP-12's write set is `layer.py` only, not `flexnn/depth/model.py`): `DepthRegularization`'s
+    `DEPTH_PENALTY`/`ELBO`/`COST_AWARE_ELBO` enum members are NOT gated here -- they are read by
+    `FlexibleHiddenLayersNN`'s loss calculation in that out-of-write-set file. Blocking
+    construction of these four strategies makes `depth_regularization` inert for
+    `layer_selection_method=NONE` (no `mode_selection_probs` at all). It does NOT close the
+    combination `layer_selection_method=NESTED` + a regularizer -- `NestedStrategy` (below) DOES
+    set a per-sample one-hot `mode_selection_probs`, the same live gap FP-12's report flags for
+    `NClassesRegularization` + `NESTED` on the ProbReg side (closed there because
+    `probabilistic_regression.py` IS in write set). See FP-12's report for this exact gap.
+    """
+
+    def __init__(self, model_instance: Any) -> None:
+        """Raises unless the caller opted in via the comparison-arm escape hatch."""
+        if not getattr(model_instance, "allow_retired_capacity_selection", False):
+            raise ValueError(
+                f"{type(self).__name__} is RETIRED under the nested ladder (MASTER Decision 29): "
+                "in-training depth-selection does not work (the FlexNN ELBO depth-selection claim "
+                "was refuted -- post-fix ELBO collapsed to depth=1 on all five seeds), so "
+                "LayerSelectionMethod has two live members, NONE and NESTED. Pass "
+                "allow_retired_capacity_selection=True on the model constructor for the "
+                "labelled-comparison-arm purpose only, and record that fact in your results JSON."
+            )
+        super().__init__(model_instance)
+
 
 class NoneStrategy(BaseSelectionStrategy):
     """A strategy that does not perform any layer selection, using all layers."""
@@ -49,7 +97,7 @@ class NoneStrategy(BaseSelectionStrategy):
         return final_output, n_actual, None, n_probs, torch.tensor(0.0)
 
 
-class GumbelSoftmaxStrategy(BaseSelectionStrategy):
+class GumbelSoftmaxStrategy(_RetiredDepthSelectionStrategy):
     """A strategy that uses Gumbel-Softmax for differentiable layer selection."""
 
     def setup_optimizers(self, policy_params: Any) -> None:
@@ -84,7 +132,7 @@ class GumbelSoftmaxStrategy(BaseSelectionStrategy):
 
         for i in range(max_depth_needed):
             prob = n_probs[:, i]
-            if not torch.any(prob > 1e-9):
+            if not torch.any(prob > _MODE_PROB_SKIP_THRESHOLD):
                 continue
             hidden_rep = hidden_representations[i]
             output_for_n = self.model.model.output_layer(hidden_rep)
@@ -95,7 +143,7 @@ class GumbelSoftmaxStrategy(BaseSelectionStrategy):
         return aggregated_output, n_actual, None, n_probs, torch.tensor(0.0)
 
 
-class SoftGatingStrategy(BaseSelectionStrategy):
+class SoftGatingStrategy(_RetiredDepthSelectionStrategy):
     """A strategy that uses Softmax for differentiable layer selection."""
 
     def setup_optimizers(self, policy_params: Any) -> None:
@@ -130,7 +178,7 @@ class SoftGatingStrategy(BaseSelectionStrategy):
 
         for i in range(max_depth_needed):
             prob = n_probs[:, i]
-            if not torch.any(prob > 1e-9):
+            if not torch.any(prob > _MODE_PROB_SKIP_THRESHOLD):
                 continue
             hidden_rep = hidden_representations[i]
             output_for_n = self.model.model.output_layer(hidden_rep)
@@ -141,7 +189,7 @@ class SoftGatingStrategy(BaseSelectionStrategy):
         return aggregated_output, n_actual, None, n_probs, torch.tensor(0.0)
 
 
-class SteStrategy(BaseSelectionStrategy):
+class SteStrategy(_RetiredDepthSelectionStrategy):
     """A strategy that uses Straight-Through Estimator (STE) for hard layer selection."""
 
     def setup_optimizers(self, policy_params: Any) -> None:
@@ -241,7 +289,7 @@ class NestedStrategy(BaseSelectionStrategy):
             torch.Tensor: Shape (batch, max_hidden_layers); higher is better.
         """
         all_outputs = self.all_depth_outputs(x_input)  # (batch, depth, out_features)
-        if all_outputs.size(-1) != 2:
+        if all_outputs.size(-1) != _PROBABILISTIC_HEAD_OUTPUT_SIZE:
             raise ValueError("all_depth_log_likelihood requires UncertaintyMethod.PROBABILISTIC (mean, log_var) heads.")
         mean = all_outputs[..., 0]
         log_var = all_outputs[..., 1]
@@ -275,7 +323,7 @@ class NestedStrategy(BaseSelectionStrategy):
         return final_output, n_actual, None, n_probs, torch.tensor(0.0)
 
 
-class ReinforceStrategy(BaseSelectionStrategy):
+class ReinforceStrategy(_RetiredDepthSelectionStrategy):
     """A strategy that uses REINFORCE for layer selection."""
 
     def setup_optimizers(self, policy_params: Any) -> None:

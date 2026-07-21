@@ -20,13 +20,14 @@ from automl_package.utils.capacity_selection import cheapest_within_tolerance
 from automl_package.utils.pytorch_utils import get_device
 from automl_package.utils.transforms import symlog
 
-# Calibrated against measured error-table means on TestFitRouterSymlogSpaceAlignment's fixture
-# (400 heavy-tailed points, max_k=3, 150 epochs), fix present vs fix removed:
-#   data seed 0: correct 1.057 | unit-mismatched 20.920
-#   data seed 1: correct 0.959 | unit-mismatched 15.369
-# The original 20.0 bound landed INSIDE the mismatched range and let seed 1 (the seed the test
-# used) pass with the fix removed -- the bound must sit well below the smallest mismatched value.
-_SYMLOG_ROUTER_NLL_SANITY_BOUND = 5.0  # ~5x above the correct value, ~3x below the smallest mismatched one
+# Re-calibrated for flexnn-package.md FP-12's fixed-sigma MIXTURE scorer (sigma=1.0) against
+# measured error-table means on TestFitRouterSymlogSpaceAlignment's fixture (400 heavy-tailed
+# points, max_k=3, 150 epochs), fix present vs fix removed:
+#   data seed 0: correct 3.849 | unit-mismatched 160.6
+#   data seed 1: correct 3.438 | unit-mismatched (same order, not separately measured)
+# (Pre-FP-12 values, at the retired learned-log_var Gaussian NLL, no longer apply: correct 1.057/
+# 0.959, unit-mismatched 20.920/15.369 -- the scoring FUNCTION changed, not just its inputs.)
+_SYMLOG_ROUTER_NLL_SANITY_BOUND = 10.0  # ~2.5x above the correct value, ~16x below the mismatched one
 _BATCHED_TENSOR_NDIM = 2  # (N, regression_output_size) vs a bare (N,) tensor
 _MSE_CONVERGENCE_THRESHOLD = 10.0  # "didn't explode" bar for these small toy fits, not a tuned target
 _MIN_UNCERTAINTY_NOISE_CORRELATION = 0.2
@@ -44,7 +45,13 @@ class TestBugs1to4DynamicStrategiesNoCrash:
         NClassesSelectionMethod.NESTED,
     ])
     def test_dynamic_strategy_trains(self, heteroscedastic_data, method):
-        """Each dynamic n_classes strategy should train without crash."""
+        """Each dynamic n_classes strategy should train without crash.
+
+        GUMBEL_SOFTMAX/SOFT_GATING/STE/REINFORCE are RETIRED under MASTER Decision 29
+        (flexnn-package.md FP-12) -- `allow_retired_capacity_selection=True` is the escape hatch
+        that keeps this labelled-comparison-arm coverage running; NESTED needs no flag (a
+        no-op there since it isn't a retired member).
+        """
         x, y, _, _ = heteroscedastic_data
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
@@ -53,6 +60,7 @@ class TestBugs1to4DynamicStrategiesNoCrash:
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             n_epochs=10, learning_rate=0.01, random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )
         model.fit(x, y)
         y_pred = model.predict(x)
@@ -77,6 +85,7 @@ class TestBugN2SteGradientPath:
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             n_epochs=2, learning_rate=0.01, random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,  # STE is RETIRED, MASTER Decision 29
         )
         model.fit(x, y)
 
@@ -121,6 +130,7 @@ class TestBug4ClassifierLogits:
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             n_epochs=3, random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,  # GUMBEL_SOFTMAX is RETIRED, MASTER Decision 29
         )
         model.fit(x, y)
         y_pred_1 = model.predict(x)
@@ -150,6 +160,7 @@ class TestBug9MiddleClassParams:
             n_epochs=3, random_seed=42,
             use_middle_class_nll_penalty=True,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,  # GUMBEL_SOFTMAX is RETIRED, MASTER Decision 29
         )
         model.fit(x, y)
 
@@ -176,6 +187,7 @@ class TestBug9MiddleClassParams:
             n_epochs=3, random_seed=42,
             use_middle_class_nll_penalty=True,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,  # GUMBEL_SOFTMAX is RETIRED, MASTER Decision 29
         )
         model.fit(x, y)
 
@@ -198,6 +210,9 @@ class TestDynamicKModelComparison:
             n_epochs=60, learning_rate=0.01, early_stopping_rounds=15,
             validation_fraction=0.2, random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,  # GUMBEL_SOFTMAX (+ n_classes_regularization
+            # below, in TestELBOkSelection) is RETIRED, MASTER Decision 29 -- this class exercises
+            # it deliberately as the labelled comparison arm.
         )
         defaults.update(kwargs)
         return ProbabilisticRegressionModel(
@@ -291,6 +306,9 @@ class TestELBOkSelection:
             n_epochs=60, learning_rate=0.01, early_stopping_rounds=15,
             validation_fraction=0.2, random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,  # GUMBEL_SOFTMAX (+ n_classes_regularization
+            # below, in TestELBOkSelection) is RETIRED, MASTER Decision 29 -- this class exercises
+            # it deliberately as the labelled comparison arm.
         )
         defaults.update(kwargs)
         return ProbabilisticRegressionModel(
@@ -524,23 +542,27 @@ class TestNestedKDistilledRouting:
         return model
 
     def test_fit_router_requires_nested_strategy(self, heteroscedastic_data):
+        """`n_classes_selection_method=NONE` -- any non-NESTED method demonstrates the guard;
+        NONE needs no `allow_retired_capacity_selection` escape hatch (unlike GUMBEL_SOFTMAX,
+        used here before MASTER Decision 29 retired it -- switched so this test does not couple
+        an unrelated "requires NESTED" check to the retirement guard)."""
         x, y, _, _ = heteroscedastic_data
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.GUMBEL_SOFTMAX,
+            n_classes_selection_method=NClassesSelectionMethod.NONE,
             n_epochs=5, random_seed=42, calculate_feature_importance=False,
         )
         model.fit(x, y)
         with pytest.raises(RuntimeError, match="NESTED"):
-            model.fit_router(x, y)
+            model.fit_router(x, y, sigma=1.0)
 
     def test_per_input_routes_with_no_caller_flag(self, heteroscedastic_data):
         """FP-3 test 1: a router-fitted model constructed with `CapacitySelection.PER_INPUT`
         routes on a plain `predict(x)` call, with no caller flag."""
         x, y, _, _ = heteroscedastic_data
         model = self._fit_nested(x, y, max_k=4, n_epochs=15, capacity_selection=CapacitySelection.PER_INPUT)
-        model.fit_router(x, y)
+        model.fit_router(x, y, sigma=1.0)
 
         y_pred = model.predict(x)
         assert y_pred.shape == (len(x),)
@@ -567,21 +589,22 @@ class TestNestedKDistilledRouting:
             ProbabilisticRegressionModel(input_size=1, inference_mode="hard")
 
     def test_held_out_arbiter_advantage_requires_nested_strategy(self, heteroscedastic_data):
+        """NONE, not GUMBEL_SOFTMAX (retired) -- see `test_fit_router_requires_nested_strategy`."""
         x, y, _, _ = heteroscedastic_data
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.GUMBEL_SOFTMAX,
+            n_classes_selection_method=NClassesSelectionMethod.NONE,
             n_epochs=5, random_seed=42, calculate_feature_importance=False,
         )
         model.fit(x, y)
         with pytest.raises(RuntimeError, match="NESTED"):
-            model.held_out_arbiter_advantage(x.ravel(), y)
+            model.held_out_arbiter_advantage(x.ravel(), y, sigma=1.0)
 
     def test_held_out_arbiter_advantage_shape(self, heteroscedastic_data):
         x, y, _, _ = heteroscedastic_data
         model = self._fit_nested(x, y, max_k=4, n_epochs=15)
-        arb = model.held_out_arbiter_advantage(x.ravel(), y, width=1.0)
+        arb = model.held_out_arbiter_advantage(x.ravel(), y, sigma=1.0, width=1.0)
         assert arb.shape == (len(x),)
         assert not np.all(np.isnan(arb))
 
@@ -600,7 +623,7 @@ class TestNestedKDistilledRouting:
 
         max_k = 3
         model = self._fit_nested(x_train, y_train, max_k=max_k, n_epochs=250, seed=0, capacity_selection=CapacitySelection.PER_INPUT)
-        model.fit_router(x_val, y_val)
+        model.fit_router(x_val, y_val, sigma=0.1)  # _two_regime_data's construction noise std
 
         routed_nll = _compute_nll(model, x_test, y_test)
 
@@ -684,14 +707,14 @@ class TestFitRouterSymlogSpaceAlignment:
 
         monkeypatch.setattr(DistilledCapacityRouter, "fit", _spy_fit)
 
-        router_raw = model.fit_router(x, y)
+        router_raw = model.fit_router(x, y, sigma=1.0)
         routing_raw = router_raw.route_index(x)
 
         y_pretransformed = symlog(torch.tensor(y, dtype=torch.float32)).numpy()
         original_transform = model.target_transform
         model.target_transform = None
         try:
-            router_pretransformed = model.fit_router(x, y_pretransformed)
+            router_pretransformed = model.fit_router(x, y_pretransformed, sigma=1.0)
         finally:
             model.target_transform = original_transform
         routing_pretransformed = router_pretransformed.route_index(x)
@@ -743,14 +766,14 @@ class TestFitRouterSymlogSpaceAlignment:
             return original_fit(router_self, eval_fn, x_val, y_val, capacity_grid, *args, **kwargs)
 
         monkeypatch.setattr(DistilledCapacityRouter, "fit", _spy_fit)
-        model.fit_router(x, y)
+        model.fit_router(x, y, sigma=1.0)
 
         error_table = captured["error_table"]
         assert np.all(np.isfinite(error_table)), "fit_router's per-capacity error table must be finite"
         assert error_table.mean() < _SYMLOG_ROUTER_NLL_SANITY_BOUND, (
             f"fit_router's error table mean ({error_table.mean():.2f}) exceeds the sanity bound "
-            f"({_SYMLOG_ROUTER_NLL_SANITY_BOUND}) for a converged per-sample Gaussian NLL -- looks "
-            "like a raw-y-vs-symlog-space-predictions unit mismatch (F9-fix-b), not real fit quality"
+            f"({_SYMLOG_ROUTER_NLL_SANITY_BOUND}) for a converged per-sample fixed-sigma mixture NLL "
+            "-- looks like a raw-y-vs-symlog-space-predictions unit mismatch (F9-fix-b), not real fit quality"
         )
 
 
@@ -803,13 +826,13 @@ class TestArbiterAdvantageSymlogSpaceAlignment:
         model = self._fit_symlog_nested(x, y, max_k=3, n_epochs=150, seed=0)
         x_arr = np.asarray(x, dtype=np.float64)
 
-        ll_raw = model._per_sample_log_likelihood_at_k(x_arr, y, 2)
+        ll_raw = model._per_sample_log_likelihood_at_k(x_arr, y, 2, sigma=1.0)
 
         y_pretransformed = symlog(torch.tensor(y, dtype=torch.float32)).numpy()
         original_transform = model.target_transform
         model.target_transform = None
         try:
-            ll_pretransformed = model._per_sample_log_likelihood_at_k(x_arr, y_pretransformed, 2)
+            ll_pretransformed = model._per_sample_log_likelihood_at_k(x_arr, y_pretransformed, 2, sigma=1.0)
         finally:
             model.target_transform = original_transform
 
@@ -833,13 +856,13 @@ class TestArbiterAdvantageSymlogSpaceAlignment:
         x, y = self._heavy_tailed_data(400, seed=0)
         model = self._fit_symlog_nested(x, y, max_k=3, n_epochs=150, seed=0)
 
-        advantage_raw = model.held_out_arbiter_advantage(x.ravel(), y, width=1.0)
+        advantage_raw = model.held_out_arbiter_advantage(x.ravel(), y, sigma=1.0, width=1.0)
 
         y_pretransformed = symlog(torch.tensor(y, dtype=torch.float32)).numpy()
         original_transform = model.target_transform
         model.target_transform = None
         try:
-            advantage_pretransformed = model.held_out_arbiter_advantage(x.ravel(), y_pretransformed, width=1.0)
+            advantage_pretransformed = model.held_out_arbiter_advantage(x.ravel(), y_pretransformed, sigma=1.0, width=1.0)
         finally:
             model.target_transform = original_transform
 
@@ -874,6 +897,9 @@ class TestCeStopGradDynamicKSentinelFilter:
         NClassesRegularization.ELBO,
     ])
     def test_ce_stop_grad_with_dynamic_k_trains(self, heteroscedastic_data, dynamic, k_reg):
+        """CE_STOP_GRAD, `dynamic` and `k_reg` are all RETIRED under MASTER Decision 29
+        (flexnn-package.md FP-12); this regression guard deliberately exercises them together as
+        the labelled comparison arm the escape hatch exists for."""
         x, y, _, _ = heteroscedastic_data
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=3,
@@ -886,6 +912,7 @@ class TestCeStopGradDynamicKSentinelFilter:
             use_anchored_heads=False, constrain_middle_class=True,
             n_epochs=5, learning_rate=0.01, random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )
         model.fit(x, y)
         y_pred = model.predict(x)
@@ -927,16 +954,18 @@ class TestFitGlobalSelector:
         return model
 
     def test_requires_nested_strategy(self, heteroscedastic_data):
+        """NONE, not GUMBEL_SOFTMAX (retired) -- see the identical substitution in
+        `TestNestedKDistilledRouting.test_fit_router_requires_nested_strategy`."""
         x, y, _, _ = heteroscedastic_data
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=4,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.GUMBEL_SOFTMAX,
+            n_classes_selection_method=NClassesSelectionMethod.NONE,
             n_epochs=5, random_seed=42, calculate_feature_importance=False,
         )
         model.fit(x, y)
         with pytest.raises(RuntimeError, match="NESTED"):
-            model.fit_global_selector(x, y)
+            model.fit_global_selector(x, y, sigma=1.0)
 
     def test_requires_fitted_model(self):
         model = ProbabilisticRegressionModel(
@@ -946,7 +975,7 @@ class TestFitGlobalSelector:
             calculate_feature_importance=False,
         )
         with pytest.raises(RuntimeError, match="not been fitted"):
-            model.fit_global_selector(np.zeros((5, 1)), np.zeros(5))
+            model.fit_global_selector(np.zeros((5, 1)), np.zeros(5), sigma=1.0)
 
     def test_selects_valid_k_and_matches_manual_curve(self, heteroscedastic_data):
         """PA's core requirement (D5): the selected k, and the curve it was read off, must be
@@ -956,8 +985,9 @@ class TestFitGlobalSelector:
         x, y, _, _ = heteroscedastic_data
         model = self._fit_nested(x, y, max_k=4, n_epochs=20)
         x_val, y_val = x[:100], y[:100]
+        sigma = 1.0
 
-        selected_k = model.fit_global_selector(x_val, y_val, n_bootstrap=200)
+        selected_k = model.fit_global_selector(x_val, y_val, sigma=sigma, n_bootstrap=200)
         assert selected_k in range(1, 5)
         assert model.selected_k_ == selected_k
 
@@ -965,7 +995,7 @@ class TestFitGlobalSelector:
         y_tensor = torch.tensor(y_val, dtype=torch.float32).to(model.device)
         model.model.eval()
         with torch.no_grad():
-            ll_table = model.model.n_classes_strategy.all_rung_log_likelihood(x_tensor, y_tensor).cpu().numpy()
+            ll_table = model.model.n_classes_strategy.all_rung_log_likelihood(x_tensor, y_tensor, sigma=sigma).cpu().numpy()
         expected_idx = cheapest_within_tolerance(-ll_table, n_boot=200, seed=model.random_seed or 0)
         assert selected_k == expected_idx + 1, "selected k must match the cheapest-within-tolerance index into all_rung_log_likelihood's curve"
         np.testing.assert_allclose(
@@ -976,7 +1006,7 @@ class TestFitGlobalSelector:
     def test_forward_global_k_forces_selected_k_everywhere(self, heteroscedastic_data):
         x, y, _, _ = heteroscedastic_data
         model = self._fit_nested(x, y, max_k=4, n_epochs=15)
-        selected_k = model.fit_global_selector(x[:100], y[:100], n_bootstrap=100)
+        selected_k = model.fit_global_selector(x[:100], y[:100], sigma=1.0, n_bootstrap=100)
 
         mean, log_var = model._forward_global_k(x)
         x_tensor = torch.tensor(model._filter_predict_data(x), dtype=torch.float32).to(model.device)
@@ -1029,14 +1059,14 @@ class TestFitGlobalSelectorSymlogSpaceAlignment:
         x, y = self._heavy_tailed_data(300, seed=0)
         model = self._fit_symlog_nested(x, y)
 
-        model.fit_global_selector(x, y, n_bootstrap=100)
+        model.fit_global_selector(x, y, sigma=1.0, n_bootstrap=100)
         curve = np.asarray(model.global_selector_curve_["mean_log_likelihood"])
 
         x_tensor = torch.tensor(x, dtype=torch.float32)
         y_pretransformed = symlog(torch.tensor(y, dtype=torch.float32))
         model.model.eval()
         with torch.no_grad():
-            ll_correct = model.model.n_classes_strategy.all_rung_log_likelihood(x_tensor, y_pretransformed).numpy()
+            ll_correct = model.model.n_classes_strategy.all_rung_log_likelihood(x_tensor, y_pretransformed, sigma=1.0).numpy()
 
         np.testing.assert_allclose(curve, ll_correct.mean(axis=0), rtol=1e-4, atol=1e-5)
         assert curve.mean() > _SYMLOG_GLOBAL_SELECTOR_LL_SANITY_BOUND, (
@@ -1052,14 +1082,14 @@ class TestFitGlobalSelectorSymlogSpaceAlignment:
         transform is load-bearing, not cosmetic."""
         x, y = self._heavy_tailed_data(300, seed=0)
         model = self._fit_symlog_nested(x, y)
-        model.fit_global_selector(x, y, n_bootstrap=100)
+        model.fit_global_selector(x, y, sigma=1.0, n_bootstrap=100)
         curve_correct = np.asarray(model.global_selector_curve_["mean_log_likelihood"])
 
         x_tensor = torch.tensor(x, dtype=torch.float32)
         y_raw = torch.tensor(y, dtype=torch.float32)
         model.model.eval()
         with torch.no_grad():
-            ll_wrong = model.model.n_classes_strategy.all_rung_log_likelihood(x_tensor, y_raw).numpy()
+            ll_wrong = model.model.n_classes_strategy.all_rung_log_likelihood(x_tensor, y_raw, sigma=1.0).numpy()
 
         assert curve_correct.mean() - ll_wrong.mean(axis=0).mean() > _SYMLOG_GLOBAL_SELECTOR_MIN_GAP_NAT, (
             "the correctly-transformed curve should be nats better than scoring raw y directly "
@@ -1103,7 +1133,7 @@ class TestFitSweepSelector:
         x_val, y_val = x[150:], y[150:]
 
         model = self._base_model(max_k=3, n_epochs=10)
-        selected_k = model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, n_bootstrap=100)
+        selected_k = model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, sigma=1.0, n_bootstrap=100)
 
         assert selected_k in range(1, 4)
         assert model.selected_k_ == selected_k
@@ -1117,7 +1147,7 @@ class TestFitSweepSelector:
         x_val, y_val = x[150:], y[150:]
 
         model = self._base_model(max_k=3, n_epochs=10)
-        model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, n_bootstrap=100)
+        model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, sigma=1.0, n_bootstrap=100)
 
         winner = model._sweep_submodel()
         np.testing.assert_array_equal(model._sweep_submodel().predict(x_val), winner.predict(x_val))
@@ -1148,7 +1178,7 @@ class TestFitSweepSelector:
         monkeypatch.setattr(pr_module, "cheapest_within_tolerance", _spy)
 
         model = self._base_model(max_k=3, n_epochs=10, seed=1)
-        selected_k = model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, n_bootstrap=150)
+        selected_k = model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, sigma=1.0, n_bootstrap=150)
 
         assert "error_table" in captured, "fit_sweep_selector must call the shared cheapest_within_tolerance primitive"
         error_table = captured["error_table"]
@@ -1181,8 +1211,8 @@ class TestSelectionFractionConfigurable:
             n_epochs=5, learning_rate=0.01, random_seed=0,
             calculate_feature_importance=False, selection_fraction=0.4,
         )
-        model_small._fit_global_cheap(x, y)
-        model_large._fit_global_cheap(x, y)
+        model_small._fit_global_cheap(x, y, sigma=1.0)
+        model_large._fit_global_cheap(x, y, sigma=1.0)
 
         n_small = model_small.global_selector_curve_["n_selection"]
         n_large = model_large.global_selector_curve_["n_selection"]
@@ -1234,7 +1264,7 @@ class TestGlobalSelectionEndToEndThroughFit:
             n_classes=5, epochs=10, validation_fraction=0.2, early_stopping_rounds=3,
             calculate_feature_importance=False,
         )
-        model.fit(x, y)                       # raised RuntimeError before the fix
+        model.fit(x, y, sigma=1.0)             # raised RuntimeError before the fix
         assert model.selected_k_ is not None, "fit() under GLOBAL_CHEAP must select a global k"
         preds = model.predict(x)              # no caller flag
         assert preds.shape == (len(x),)
@@ -1248,7 +1278,7 @@ class TestGlobalSelectionEndToEndThroughFit:
             n_classes=5, epochs=10, validation_fraction=0.2, early_stopping_rounds=3,
             calculate_feature_importance=False,
         )
-        model.fit(x, y)
+        model.fit(x, y, sigma=1.0)
         preds = model.predict(x)
         assert preds.shape == (len(x),)
         assert not np.isnan(preds).any()
@@ -1269,4 +1299,144 @@ class TestGlobalSelectionEndToEndThroughFit:
             early_stopping_rounds=2, calculate_feature_importance=False,
         )
         with pytest.raises(RuntimeError, match="NESTED"):
+            model.fit(x, y, sigma=1.0)
+
+
+class TestDecision29Guard:
+    """MASTER Decision 29's one-enforcement-point guard, and probreg.md P10's head-layout gate
+    (merged into the same guard, flexnn-package.md FP-12). FlexNN depth's identical guard
+    (`layer.py`'s `_RetiredDepthSelectionStrategy`) is tested in `test_fixed_sigma_scorer.py`.
+    """
+
+    @pytest.mark.parametrize("method", [
+        NClassesSelectionMethod.SOFT_GATING,
+        NClassesSelectionMethod.GUMBEL_SOFTMAX,
+        NClassesSelectionMethod.STE,
+        NClassesSelectionMethod.REINFORCE,
+    ])
+    def test_retired_selection_method_raises_at_construction(self, method):
+        with pytest.raises(ValueError, match="RETIRED"):
+            ProbabilisticRegressionModel(
+                input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
+                uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+                n_classes_selection_method=method,
+                calculate_feature_importance=False,
+            )
+
+    @pytest.mark.parametrize("regularization", [NClassesRegularization.K_PENALTY, NClassesRegularization.ELBO])
+    def test_retired_regularization_raises_at_construction(self, regularization):
+        """Reachable even under NESTED (not just the retired selection methods): `NestedStrategy`
+        sets a per-sample one-hot `mode_selection_probs` too, so NESTED + a regularizer is a LIVE
+        combination the guard must block independently (flexnn-package.md FP-12's report)."""
+        with pytest.raises(ValueError, match="RETIRED"):
+            ProbabilisticRegressionModel(
+                input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
+                uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+                n_classes_selection_method=NClassesSelectionMethod.NESTED,
+                n_classes_regularization=regularization,
+                calculate_feature_importance=False,
+            )
+
+    @pytest.mark.parametrize("strategy", [
+        ProbabilisticRegressionOptimizationStrategy.COMPOSITE_LOSS,
+        ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
+        ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
+    ])
+    def test_retired_optimization_strategy_raises_at_construction(self, strategy):
+        with pytest.raises(ValueError, match="RETIRED"):
+            ProbabilisticRegressionModel(
+                input_size=1, n_classes=3,
+                uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+                optimization_strategy=strategy,
+                calculate_feature_importance=False,
+            )
+
+    def test_escape_hatch_allows_retired_selection_method(self):
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.GUMBEL_SOFTMAX,
+            allow_retired_capacity_selection=True,
+            calculate_feature_importance=False,
+        )
+        assert model.n_classes_selection_method == NClassesSelectionMethod.GUMBEL_SOFTMAX
+
+    def test_escape_hatch_is_off_by_default(self):
+        model = ProbabilisticRegressionModel(input_size=1, n_classes=3, calculate_feature_importance=False)
+        assert model.allow_retired_capacity_selection is False
+
+    def test_head_layout_guard_raises_at_construction_not_mid_fit(self):
+        """P10's original verify (a): `n_classes_selection_method=NESTED` +
+        `regression_strategy=SINGLE_HEAD_FINAL_OUTPUT` raises ValueError naming the layout."""
+        with pytest.raises(ValueError, match="SINGLE_HEAD_FINAL_OUTPUT") as excinfo:
+            ProbabilisticRegressionModel(
+                input_size=3, n_classes=4,
+                uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+                n_classes_selection_method=NClassesSelectionMethod.NESTED,
+                regression_strategy=RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT,
+            )
+        assert "SINGLE_HEAD_FINAL_OUTPUT" in str(excinfo.value)
+
+    def test_head_layout_guard_has_no_escape_hatch(self):
+        """Unlike the three in-training-selection retirements, the head-layout gate is a
+        structurally invalid configuration (no components exist), not a labelled comparison arm
+        -- `allow_retired_capacity_selection=True` must NOT unblock it."""
+        with pytest.raises(ValueError, match="SINGLE_HEAD_FINAL_OUTPUT"):
+            ProbabilisticRegressionModel(
+                input_size=3, n_classes=4,
+                uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+                n_classes_selection_method=NClassesSelectionMethod.NESTED,
+                regression_strategy=RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT,
+                allow_retired_capacity_selection=True,
+            )
+
+    def test_sanctioned_layouts_still_construct_and_train_under_nested(self, heteroscedastic_data):
+        """P10's original verify (b): the two sanctioned layouts still construct AND train
+        unchanged under NESTED."""
+        x, y, _, _ = heteroscedastic_data
+        for strategy in (RegressionStrategy.SEPARATE_HEADS, RegressionStrategy.SINGLE_HEAD_N_OUTPUTS):
+            model = ProbabilisticRegressionModel(
+                input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=3,
+                uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+                n_classes_selection_method=NClassesSelectionMethod.NESTED,
+                regression_strategy=strategy,
+                n_epochs=3, random_seed=42, calculate_feature_importance=False,
+            )
             model.fit(x, y)
+            y_pred = model.predict(x)
+            assert y_pred.shape == (len(x),)
+            assert not np.any(np.isnan(y_pred))
+
+    def test_search_space_excludes_retired_optimization_strategies_by_default(self):
+        """P10's original verify (c), generalised to Decision 29's optimization_strategy trap:
+        the search space must not offer a member the constructor will reject."""
+        model = ProbabilisticRegressionModel(input_size=1, n_classes=3, calculate_feature_importance=False)
+        choices = model.get_hyperparameter_search_space()["optimization_strategy"]["choices"]
+        assert choices == [ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY.value]
+
+    def test_search_space_includes_all_optimization_strategies_with_escape_hatch(self):
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
+        )
+        choices = set(model.get_hyperparameter_search_space()["optimization_strategy"]["choices"])
+        assert choices == {s.value for s in ProbabilisticRegressionOptimizationStrategy}
+
+    def test_search_space_excludes_single_head_final_output_under_nested(self):
+        """P10's original verify (c): the search space must not offer the blocked head layout
+        when NESTED is set."""
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            calculate_feature_importance=False,
+        )
+        choices = model.get_hyperparameter_search_space()["regression_strategy"]["choices"]
+        assert RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT.value not in choices
+        assert set(choices) == {RegressionStrategy.SEPARATE_HEADS.value, RegressionStrategy.SINGLE_HEAD_N_OUTPUTS.value}
+
+    def test_search_space_includes_single_head_final_output_under_none(self):
+        """The exclusion is NESTED-specific -- under NONE the layout is legal and offered."""
+        model = ProbabilisticRegressionModel(input_size=1, n_classes=3, calculate_feature_importance=False)
+        choices = model.get_hyperparameter_search_space()["regression_strategy"]["choices"]
+        assert RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT.value in choices

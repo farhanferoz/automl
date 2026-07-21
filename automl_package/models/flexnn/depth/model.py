@@ -45,11 +45,14 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         "hidden_size": 64,
         "activation": ActivationFunction.RELU,
         "gumbel_tau": 0.5,
-        "n_predictor_layers": 1,
+        # MASTER Decision 29: NONE and NESTED are the only survivors, and both require
+        # `n_predictor_layers == 0` (see __init__'s check). The old defaults were
+        # GUMBEL_SOFTMAX + 1, which retirement turned into an unconstructable default.
+        "n_predictor_layers": 0,
         "feature_scaler": None,
         "gumbel_tau_anneal_rate": 0.99,
         "n_predictor_learning_rate": 0.001,
-        "layer_selection_method": LayerSelectionMethod.GUMBEL_SOFTMAX,
+        "layer_selection_method": LayerSelectionMethod.NONE,
         "depth_regularization": DepthRegularization.NONE,
         "depth_penalty_weight": 0.01,
         "cost_aware_lambda": 1.0,
@@ -651,16 +654,17 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                 "hidden_size": {"type": "int", "low": 32, "high": 128, "step": 32},
                 "activation": {"type": "categorical", "choices": [e.value for e in ActivationFunction]},
                 "gumbel_tau": {"type": "float", "low": 1e-8, "high": 1.0, "log": True},
-                "n_predictor_layers": {"type": "int", "low": 0, "high": 2},
+                # MASTER Decision 29: the four in-training selection methods are RETIRED and must be
+                # unreachable -- hard error at construction AND out of the search space. Leaving them
+                # here would let a tuning run sample a member that raises, turning every such trial
+                # into a crash. `n_predictor_layers` is NOT tunable any more for the same reason:
+                # both survivors require it to be 0, so any sampled value > 0 raises.
                 "n_predictor_learning_rate": {"type": "float", "low": 1e-8, "high": 1e-2, "log": True},
                 "layer_selection_method": {
                     "type": "categorical",
                     "choices": [
-                        LayerSelectionMethod.GUMBEL_SOFTMAX,
-                        LayerSelectionMethod.STE,
-                        LayerSelectionMethod.SOFT_GATING,
-                        LayerSelectionMethod.REINFORCE,
                         LayerSelectionMethod.NONE,
+                        LayerSelectionMethod.NESTED,
                     ],
                 },
             }

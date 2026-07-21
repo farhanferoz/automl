@@ -128,6 +128,47 @@ def mdn_nll(
     return -log_mixture.mean()
 
 
+def fixed_sigma_mixture_log_likelihood(
+    y: torch.Tensor,
+    probs: torch.Tensor,
+    mus: torch.Tensor,
+    sigma: float,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """Per-sample fixed-sigma mixture log-likelihood: log Σ_c p_c(x) N(y; μ_c(x), σ²).
+
+    The capacity-programme's k-selection readout (MASTER Decision 24,
+    `docs/plans/capacity_programme/MASTER.md`): σ is ONE shared constant across every component,
+    every input and every arm, so nothing is fitted here -- this is not a variance metric.
+    **HIGHER IS BETTER** (log-likelihood, not NLL) -- `mdn_nll` above returns the *negative* mean
+    of a closely related quantity; mixing the two signs up is a bug waiting to happen, hence the
+    distinct name and the explicit direction here.
+
+    `sigma` is **REQUIRED and has NO DEFAULT**: a default is exactly how a per-arm σ would
+    silently reappear, which Decision 24 forbids -- arms scored at different σ are not comparable.
+
+    Args:
+        y: [batch] or [batch, 1] target values.
+        probs: [batch, k] per-component mixture weights (e.g. classifier posteriors, possibly
+            renormalized over a rung's surviving classes); need not be pre-softmaxed, but must be
+            non-negative and sum to ~1 per row.
+        mus: [batch, k] per-component means.
+        sigma: the ONE shared standard deviation, fixed before scoring
+            (`docs/probreg_benchmark/benchmark_spec.md` §2): the known construction value on toys,
+            the held-out RMSE of the plain-NN baseline on real data. Same value for every arm and
+            every component -- never fitted, never per-arm.
+        eps: floor for `probs` before `log`, to prevent `-inf`.
+
+    Returns:
+        [batch] per-sample log Σ_c p_c(x) N(y; μ_c(x), σ²), in nats. Higher is better.
+    """
+    y = y.view(-1, 1)
+    log_var = 2.0 * math.log(sigma)
+    log_component = -0.5 * (math.log(2 * math.pi) + log_var + (y - mus) ** 2 / (sigma * sigma))
+    log_weights = torch.log(probs.clamp_min(eps))
+    return torch.logsumexp(log_weights + log_component, dim=-1)
+
+
 def boundary_regularization_loss(predictions: torch.Tensor, boundaries: torch.Tensor) -> torch.Tensor:
     """Calculates a penalty for predictions that fall outside the given boundaries.
 

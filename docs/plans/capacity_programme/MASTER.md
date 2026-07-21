@@ -520,6 +520,43 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
       report; if yes, run it there and then, and delete afterwards.** Recorded here because this is
       exactly the kind of ordering that is obvious in advance and invisible in the moment.
 
+30. **THE SUITE BAR IS RE-BASELINED — measured 2026-07-21, by `flexnn-package.md` FP-12, NOT by P7
+    (root).** Decision 26 anticipated **P7** carrying this re-baseline. **FP-12's Decision-29 guard
+    reached it first**, because retiring a configuration breaks every test that constructs one. The
+    bar is recorded here, once, so no later task re-derives it or quietly restores the old one.
+
+    | | old bar (pre-wave-1) | **NEW BAR (measured, post-fix)** |
+    |---|---|---|
+    | passed | 366 | **372** |
+    | failed | 2 | **56** |
+    | skipped | 1 | **1** |
+
+    **EVERY failure is attributed. Zero unexplained** — this is the claim that makes the number
+    usable, and it was checked per-test, not assumed:
+    - **54 = the Decision-29 guard firing on retired configurations.** The ratified decision working,
+      not damage. Concentrated in `test_phase2_flexible_nn.py` (28), `test_phase4_regression.py` (8),
+      `test_ce_stop_grad.py` (6, whole file — its subject `CE_STOP_GRAD` is retired),
+      `test_phase1_probabilistic_regression.py` (4), `test_probreg_identifiability_integration.py`
+      (4, all `CE_STOP_GRAD` parametrisations), `test_ordering_constraint.py` (3),
+      `test_capacity_accounting.py` (1).
+    - **2 = the pre-accepted heteroscedastic pair**, still failing. **They were NOT driven green** —
+      Decision 26 forbids it, because forcing them green suppresses the effect the change exists to
+      make visible.
+
+    **⚠️ THIS BAR IS A WAYPOINT, NOT THE DESTINATION.** The 54 guard failures are tests that must be
+    *updated* — they construct retired members and need the explicit opt-out flag at those sites, or
+    rewriting against a surviving member. **A follow-up task owns that**, and it must run BEFORE any
+    later task reads "no new failures" as a signal, because 54 failures drown any real regression.
+    **Until then, the only usable regression signal is the ATTRIBUTION, not the count**: a new
+    failure that is not a retired-member construction is a real regression, whatever the total says.
+
+    **Case law from this measurement, worth more than the number:** the worker wrote a test asserting
+    that the now-broken default constructor *should* raise. **A test that asserts a regression is
+    correct behaviour permanently blinds the suite to it** — it goes green and no later run flags it.
+    Retiring a mechanism never licenses breaking a shipped class's constructor. The test was inverted
+    to assert the default constructs, plus a companion asserting **every method the search space
+    advertises actually constructs** — the property that was really violated.
+
 ## Rules (cache discipline)
 
 ⚠️ **THE NUMBERS GATE IS PARTIAL — strengthen it before the next planning round.**
