@@ -573,7 +573,29 @@ increases); both pytest runs green.
 *(Function and parameter names above are the contract — if the task changes one, it changes it in this
 plan first, because three sibling plans import them.)*
 
-### FP-2 — bring the certified width architectures into the package
+### FP-2 — bring the certified width architectures into the package — ✅ **DONE (landed in wave 4, commit `aca2221`; completion marker added 2026-07-21 after the verify was re-executed at the root)**
+
+**Marker was MISSING while the work was complete on disk** — the exact defect class MASTER's
+repair-pass rule names (a task done on disk with no completion marker), and it was live: three other
+plan locations still ordered `FP-10 → FP-2 → FP-4`, so **FP-4 read as blocked when it was
+dispatchable, and FP-4 gates WSEL-3/WSEL-4/WSEL-5 and therefore the whole width battery line.**
+Found 2026-07-21 while deriving the execution order.
+
+**Verify re-executed at the root, all clauses:**
+- Four classes now live in `automl_package/models/architectures/nested_width_net.py:39-277`;
+  `automl_package/examples/nested_width_net.py:73-87` is a pure re-export shim that keeps every
+  `nwn.ClassName` call site resolving. ✓
+- The completion criterion carried from FP-1 — the four `executed_flops` registrations moved
+  alongside the classes — is done (`automl_package/models/architectures/nested_width_net.py:288-352`);
+  `automl_package/examples/capacity_accounting.py:9-17` documents that it now registers nothing and
+  only re-exports. ✓
+- **Clause (b), the five-seed reproduction through the MOVED classes, PASSES at the ≤2% bar with
+  effectively zero drift** (max relative error 0.001%): seeds 0–4 `ratio_to_floor` reproduced against
+  the three reference JSONs named above. Repro ledger:
+  `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse_n1500_s0.05_fp2repro_s0.json`
+  and its four siblings (`_s1` … `_s4`).
+
+*(Original spec follows, retained verbatim as the pre-registration this run was judged against.)*
 
 **Files (write set):** `automl_package/models/architectures/` · `automl_package/examples/nested_width_net.py`
 (becomes a shim) · call sites
