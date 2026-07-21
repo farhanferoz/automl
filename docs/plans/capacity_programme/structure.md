@@ -9,6 +9,30 @@
 staged shape and instructed: (a) lock all specifics in the plan, (b) run the phase autonomously,
 (c) **the only user gate is at the END (PS-4's certification memo)** — never mid-phase.
 
+---
+
+## 0. EXECUTION STATE — the root updates this IN PLACE after every wave
+
+**This block is the phase's authoritative progress record.** It is updated in the same action that
+completes a wave, before anything else is dispatched. `.superpowers/sdd/progress.md` mirrors it;
+if the two ever disagree, `git log` settles it. A resuming session reads THIS section first and
+resumes at the first wave not marked ✅ — never re-dispatches a ✅ wave.
+
+| wave | task(s) | status | evidence |
+|---|---|---|---|
+| **0** | wave-1 closeout (root) | ✅ **complete 2026-07-21** | `ca18d59` test/example repair (suite 426P/2F/1S, the 2 = pre-accepted pair) · `9a80021` schedule refusal guard + 3 mislabelled `nested` cells voided (proven: differed from certified only in `provenance`+`training_schedule`) · `7ec5a58` this plan, gates 9/9 |
+| **0.5** | merge `capacity/wave-1` → master | ⏳ **DEFERRED — blocked by Wave A's uncommitted tree edits.** Merge only after PS-A1+PS-A2 commit. Width WSEL-14/15 are blocked on this. | — |
+| **A** | PS-A1 ∥ PS-A2 | 🔄 dispatched (agents `psa1`, `psa2`) | — |
+| **B** | PS-1 trunk grid | ⬜ | — |
+| **C** | PS-2 patch audit | ⬜ | — |
+| **D** | PS-3 head battery | ⬜ | — |
+| **E** | PS-4 certification → ⛔ user gate | ⬜ | — |
+
+**Reversible defaults taken autonomously** (batched to the PS-4 memo; none is irreversible):
+- *(none yet)*
+
+---
+
 **Goal:** settle what the ProbReg model structurally *is* — classifier supervision, spread
 parameterisation, likelihood form, identifiability constraints, head layout — by pre-registered
 experiment, and emit ONE certified configuration for the k-estimation programme to run on.
@@ -396,7 +420,53 @@ Authoring: 2 task-workers (Wave A) ≈ $5–10 total. Compute: ≤ 495 cells × 
 at 3-way concurrency ≈ 6–11 h wall — one overnight, CPU only. Root review/decisions ≈ $10–20.
 No further fan-out; no Workflow needed (grids are root-run Bash, decisions are driver-computed).
 
-## 8. NON-GOALS (phase-wide)
+## 8. ARTIFACT ORGANISATION AND CLEANUP — binding on every task and every wave
+
+**Why this is a section and not an afterthought (user instruction, 2026-07-21: "the plan is doing a
+lot so organization is the key").** This phase creates ~495 result files, one driver, and four
+result directories. The same programme has already been bitten twice by artifact disorder: six
+width architectures across two directories needing a dedicated cleanup task, and three mislabelled
+result cells that looked legitimate on disk. Cleanup is therefore a per-wave obligation, never a
+task at the end.
+
+**ONE driver, ONE home per stage.**
+- `automl_package/examples/probreg_structure_battery.py` is the ONLY driver this phase creates.
+  🚫 No per-stage drivers, no `_v2`, no forked copies. Stages differ by FLAGS only.
+- Results live in exactly one place: `automl_package/examples/capacity_ladder_results/PS{1,2,3,4}/`.
+  Naming is locked in §2 and is the only permitted form. A file that does not match its stage
+  directory's pattern is a defect, not a variant.
+- `probreg_variance_degeneracy_check.py` (the uncommitted predecessor) is **absorbed and DELETED**
+  by PS-A2. Confirmed absent by the Wave A verify. It has no successor and must not reappear.
+
+**Per-wave cleanup gate — the root runs this before marking any wave ✅ in §0:**
+```bash
+cd /home/ff235/dev/MLResearch/automl
+git status --short          # nothing untracked except THIS stage's result JSONs
+ls automl_package/examples/capacity_ladder_results/PS*/   # every file matches its locked pattern
+~/dev/.venv/bin/python -m ruff check automl_package/
+```
+A wave is not complete while `git status --short` shows a file nobody intended. Stray scratch
+files, half-written JSONs from a killed cell, and orphan `.pt` states are deleted at the gate, not
+carried forward.
+
+**Commit granularity (locked).** Each stage commits its results directory **together with** its
+decision JSON, in one commit. A results set without the decision that reads it — or a decision
+without its inputs — is unauditable. Every stage commit message names the cell count and the
+decision outcome.
+
+**Scratch stays out of the repo.** Briefs, worker reports, diff packages and any probe output live
+under the session scratchpad. 🚫 Nothing temporary is written into the repo tree, per CLAUDE.md's
+temp-file rule. Worker briefs explicitly forbid it.
+
+**Model-side hygiene.** PS-A1 is the only task touching `automl_package/models/` or `enums.py`.
+Default behaviour for every pre-existing configuration must remain byte-identical; the phase adds
+capability, it never re-tunes the package. No retired mechanism is deleted by this phase.
+
+**Handoff cleanliness (PS-4).** The certification memo names every artifact the phase produced and
+its status: kept (evidence for the pinned structure), superseded (kept but labelled old-structure),
+or deleted (with the reason). Nothing is left for a later reader to guess about.
+
+## 9. NON-GOALS (phase-wide)
 
 No k estimated from data · no real-data experiments · no deletion of any retired mechanism ·
 no report writing beyond the memo · no changes to width/depth strands · no HPO (all
