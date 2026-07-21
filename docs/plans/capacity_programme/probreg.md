@@ -717,7 +717,40 @@ truncating the loss to the drawn-rung-only form, showing it FAIL, restoring;
 carries `schedule`, `middle_k_failures_old`, `middle_k_failures_new`; every per-cell JSON carries
 `held_out_trajectory` and `hit_cap: false`.
 
-### P8 — does explicit regularisation move the selected k? — ✅ **RAN 2026-07-21. VERDICT: MOVES → ⛔ STRAND-LOCAL BLOCK on P4/P6.**
+### P8 — does explicit regularisation move the selected k? — ⛔ **REOPENED 2026-07-21. RESULTS DISCARDED — SELECTED ON A FORBIDDEN METRIC (Gaussian NLL). The verdict below is VOID.**
+
+**Why it is void.** The selection was made on **Gaussian negative log-likelihood**, a variance-based
+metric: `automl_package/examples/probreg_p8.py:145` builds `sel_nll_per_sample` from the predicted
+mean AND predicted standard deviation, and `:180-182` feeds exactly that as the error table into
+`cheapest_within_tolerance`. The σ-scope decision removed variance from this strand and replaced the
+metric set with **point prediction, primary squared error** (P0b; `docs/probreg_benchmark/benchmark_spec.md`
+§4 — "NLL, CRPS, PIT, calibration/ECE, PICP, Winkler all assume σ… replace with a point-prediction
+set"). The run already computes `report_mse` (`:150`), so the sanctioned metric was in hand and was
+not the one selected on. *(User ruling 2026-07-21: results produced in violation of a constraint are
+DISCARDED, not reinterpreted.)*
+
+**Status of the artifacts.** The per-λ/seed JSONs and `frozen.json` under
+`automl_package/examples/capacity_ladder_results/P8/` **stay on disk as a record and may NOT be cited
+as evidence.** Deletion is user-gated and not proposed.
+
+**Downstream consequence — the block STAYS, and the reason changes.** The earlier state was "the check
+ran and the selection MOVED, therefore block". The correct state now is "**the check has not validly
+run**", and MASTER Decision 21 blocks a battery read until it has. So **P4 and P6 remain blocked** —
+but nobody may now cite "regularisation moves k" as an established finding, because that finding was
+produced on the wrong metric. **Both the block and the claim it rested on are open questions.**
+
+**What the re-run must change (and ONLY this):** select on the point-prediction metric (squared
+error), keeping the λ grid, seeds, splits, convergence gates and the twice-bootstrap-SE selection rule
+byte-identical to the spec below. Recording NLL alongside as a labelled context number is fine;
+selecting on it is not.
+
+**⚠️ Same defect, same day, different strand — this is a PATTERN, not an incident.** The width
+strand's equivalent check (`width.md` WSEL-11) was reopened at the same time for the same class of
+violation, with the OPPOSITE verdict. Two checks whose whole purpose was to protect batteries were
+themselves run outside the constraint they protect. → MASTER Decision 21 amended.
+
+*(Recorded verdict retained, struck, as the case law.)*
+~~✅ RAN 2026-07-21. VERDICT: MOVES → ⛔ STRAND-LOCAL BLOCK on P4/P6.~~
 
 **RESULT: `selection_moved: true`** — ledger `automl_package/examples/capacity_ladder_results/P8/frozen.json`, thirteen per-cell JSONs in the same directory (λ ∈ {0, 1e-4, 1e-2} × seeds {100, 101}, plus the driver's own epoch-raise and ceiling-raise re-runs). Toy: heteroscedastic. Selection rule:
 `cheapest_within_tolerance` at twice a bootstrap SE (`automl_package/utils/capacity_selection.py`).

@@ -743,7 +743,35 @@ skill); then `grep -c "WSEL-[0-9]" docs/reports/width_selection/*.md` is nonzero
 task ID, not restated from memory); then for each §3.6 constant name,
 `grep -q "<constant name>" docs/reports/width_selection/*.md` exits 0.
 
-### WSEL-11 — does explicit regularisation move the selected width? — ✅ **DONE 2026-07-21. VERDICT: SELECTION DOES NOT MOVE. Battery NOT blocked.**
+### WSEL-11 — does explicit regularisation move the selected width? — ⛔ **REOPENED 2026-07-21. RESULTS DISCARDED — RUN ON A FORBIDDEN OBJECTIVE (variance fitting). The verdict below is VOID.**
+
+**Why it is void.** The run trained on the **Gaussian negative log-likelihood** —
+`automl_package/examples/width_wsel11.py:98-101` calls
+`gaussian_log_likelihood(mean, log_var, y)` on `IndependentWidthNet`, whose variance heads are real —
+so it fitted **mean AND variance**. MASTER Decision 2 parks variance for this strand and §3.7 makes
+mean-only binding on every width run. The study is therefore measured on a **different objective from
+every arm it is compared against**, and its verdict may not stand. *(User ruling 2026-07-21: results
+produced in violation of a constraint are DISCARDED, not reinterpreted.)*
+
+**Status of the artifacts.** The six per-λ/seed JSONs and `frozen.json` under
+`automl_package/examples/capacity_ladder_results/WSEL11/` **stay on disk as a record of what was run
+and may NOT be cited as evidence for anything.** Deletion is user-gated and is not proposed — the
+record of a discarded run is worth keeping.
+
+**Downstream consequence — this is the part that matters.** MASTER Decision 21 requires this check to
+pass BEFORE the battery is read. With the check void, the precondition is **unmet, not satisfied**:
+**WSEL-8 and WSEL-10 are blocked again**, exactly as they would be had the check never run. The
+earlier "Battery NOT blocked" line is withdrawn.
+
+**What the re-run must change (and ONLY this):** train on squared error, mean-only, `--loss mse`
+explicit, everything else — toy, seeds, λ grid, convergence gates, selection rule — byte-identical to
+the original spec below, so the only moving part is the objective. **Do not widen the λ grid or change
+the selection rule while re-running; that would make the re-run incomparable to its own
+pre-registration.**
+
+*(The recorded verdict text is retained below, struck, because the case law is the point: a check
+designed to protect a battery was itself run outside the constraint it was protecting.)*
+~~✅ DONE 2026-07-21. VERDICT: SELECTION DOES NOT MOVE. Battery NOT blocked.~~
 
 **RESULT: `selection_moved: false`** — ledger `automl_package/examples/capacity_ladder_results/WSEL11/frozen.json`, six per-cell JSONs (λ ∈ {0, 1e-4, 1e-2} × seeds {0,1}) in the same directory.
 Selected width is **invariant across the whole weight-decay grid on both seeds**: seed 0 selects the

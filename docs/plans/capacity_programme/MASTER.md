@@ -275,6 +275,26 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     stochasticity (or its absence) must never be the de-facto regulariser. Baselines receive the
     same treatment or the comparison is not like-for-like.
 
+    **AMENDED 2026-07-21 (user), after BOTH checks were found to have violated their own strand's
+    constraint — a pattern, not an incident.** `width.md` WSEL-11 *trained* on the Gaussian
+    likelihood (fitting variance, which Decision 2 parks for width); `probreg.md` P8 *selected* on
+    Gaussian NLL (a variance metric, which the σ-scope decision removed from that strand). They
+    returned OPPOSITE verdicts and between them either cleared or blocked three downstream tasks.
+    **Both are REOPENED and their results DISCARDED.** Binding additions:
+    - **A discriminating check runs on its own strand's sanctioned objective and metric.** Width and
+      the joint strand: mean-only, squared error. ProbReg: the point-prediction set. Depth:
+      classification. A check measured on a different objective from the arms it protects proves
+      nothing about them.
+    - **The check's own compliance is part of its verify line** — the task states the objective and
+      the run's provenance shows it. "The driver defaulted to it" is how both of these happened.
+    - **RESULTS PRODUCED IN VIOLATION OF A CONSTRAINT ARE DISCARDED, NOT REINTERPRETED** (user ruling,
+      2026-07-21). They stay on disk as a record of what was run and may not be cited as evidence for
+      anything. A re-run changes ONLY the violated dimension, so it stays comparable to its own
+      pre-registration.
+    - **A void check does NOT clear a battery and does NOT settle the question it asked.** The
+      correct downstream state is *unmeasured* — which under this decision blocks the battery read
+      just as a failed check would.
+
 22. **The transformer port target is DEPTH; width ports only where the readout is linear (user,
     2026-07-21).** The programme's stated bet is a flexible-capacity architecture that transfers to a
     transformer. The analysis is recorded ONCE, in `shared/width_transformer_port.md`, and is
