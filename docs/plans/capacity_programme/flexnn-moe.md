@@ -17,7 +17,7 @@ Early tasks M0–M2 are dispatchable NOW (parallel with width/depth strands); M3
 ### Task M0: FlexNN post-bug re-validation runs
 
 **Files:**
-- Read: `automl_package/models/flexible_neural_network.py:24` (`FlexibleHiddenLayersNN`),
+- Read: `automl_package/models/flexnn/depth/model.py:24` (`FlexibleHiddenLayersNN`),
   `automl_package/models/independent_weights_flexible_neural_network.py`
 - Create (by runs): `automl_package/examples/report_b_results/flexnn_revalidation_*.json`
 

@@ -26,14 +26,14 @@ verify: the note exists and gives each of N1–N7 a verdict {FIXED at HEAD / OPE
 Audit the seven findings of `docs/research_plan.md` §1.1 against CURRENT code. Known already
 (2026-07-16, this plan's authoring session — re-confirm, don't trust):
 - **N1** (FlexNN depth prior unnormalized): appears FIXED —
-  `automl_package/models/flexible_neural_network.py:260` and
-  `automl_package/models/independent_weights_flexible_neural_network.py:306` use
+  `automl_package/models/flexnn/depth/model.py:260` and
+  `automl_package/models/flexnn/depth/independent_weights.py:306` use
   `torch.linspace(3.0, 1.0, ...)`.
 - **N3** (non-standard ECE): appears FIXED — `automl_package/utils/metrics.py:184` computes PIT
   values via `norm.cdf(y_true, loc, scale)`. Confirm the full formulation matches the
   Kuleshov/Fenner/Ermon calibration curve, not just the first line.
 - **N2** (n_classes STE gradient severed in `_hard_selection_logic`): site is
-  `automl_package/models/selection_strategies/base_selection_strategy.py:116` — determine
+  `automl_package/models/flexnn/strategies/base.py:116` — determine
   whether the multiplicative-STE pattern was applied. **Only matters for the report if any
   reported config uses STE**; the reported dynamic-k model is ELBO + SoftGating
   (`_weighted_average_logic`, which was already correct). If STE stays broken: verdict = OPEN,

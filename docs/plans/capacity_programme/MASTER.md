@@ -219,7 +219,7 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
       equivalents) select **cheapest-within-tolerance at twice a bootstrap-estimated standard error**:
       the smallest capacity whose held-out score is not meaningfully worse than the best.
     - **Per-input arms** (the distilled router — W-PERINPUT, ProbReg M2, D-PERINPUT) label each row at
-      a **flat `0.25` relative margin** (`automl_package/models/common/distilled_router.py:57`,
+      a **flat `0.25` relative margin** (`automl_package/models/flexnn/routing.py:57`,
       `DEFAULT_TOLERANCE`, applied as `error <= (1 + tolerance) * row_min`).
 
     **Why they legitimately differ:** a per-input decision has one row's worth of evidence, and **no
@@ -252,8 +252,8 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
 
     **The dependency arrow points ONE way.** Today it points both ways, and that is the defect:
     `automl_package/examples/capacity_accounting.py:62-63` imports two model classes from the
-    package at module level, while `automl_package/models/flexible_width_network.py:290` and
-    `automl_package/models/flexible_neural_network.py:492` import `executed_flops` back from that
+    package at module level, while `automl_package/models/flexnn/width/model.py:290` and
+    `automl_package/models/flexnn/depth/model.py:492` import `executed_flops` back from that
     example **inside method bodies**, commented as avoiding a load-time circular import. Shipping
     code depending on a research script, held together by deferred imports. → **FP-1** breaks it.
 
@@ -267,7 +267,7 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
 20. **Training-schedule rule for nested/anytime models (user, 2026-07-21).** Train **every rung
     every step wherever all rungs are computable in ~one forward** — depth (exits read off the
     shared prefix) and ProbReg k (`NestedStrategy.all_rung_outputs`,
-    `automl_package/models/selection_strategies/n_classes_strategies.py:207`). Where each extra
+    `automl_package/models/flexnn/strategies/n_classes.py:207`). Where each extra
     rung costs a real forward — width, each width being its own matmul slice — use the certified
     **sandwich** (always min + max plus 2 random middles,
     `automl_package/examples/nested_width_net.py:93`). The **per-sample uniform draw is retired as

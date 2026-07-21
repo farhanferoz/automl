@@ -34,7 +34,7 @@ does, so several tasks below block on it explicitly rather than re-deriving what
   commit `e3cc52b`. **WSEL-3** depends on it, and the dependency is now satisfied.
 - **`flexnn-package.md` FP-4** — the package width class's shared-training schedule deviates from
   the certified sandwich schedule (sums ALL configured widths every step instead of sampling a
-  subset, `automl_package/models/flexible_width_network.py:12-16`); FP-4 owns establishing whether
+  subset, `automl_package/models/flexnn/width/model.py:12-16`); FP-4 owns establishing whether
   that deviation is material. Added 2026-07-21 (repair audit): **WSEL-3** and **WSEL-4** depend on
   it — see §1's warning note and their own deps lines.
 
@@ -51,11 +51,11 @@ those two; they differ in exactly one thing, how the width is chosen.
 
 ⚠️ **Warning, added 2026-07-21 (cross-strand repair audit) — the paragraph above describes the
 certified schedule, not necessarily the schedule the shipping code runs.** The shipping class
-`FlexibleWidthNN` (`automl_package/models/flexible_width_network.py:12-16`, self-documented) sums
+`FlexibleWidthNN` (`automl_package/models/flexnn/width/model.py:12-16`, self-documented) sums
 the loss over **ALL** configured widths every step, not the sandwich's smallest+largest+2-random-mid
 subset — an **unvalidated deviation**, owned by `flexnn-package.md` FP-4, which has not yet shown it
 material or immaterial. Both W-SHARED (**WSEL-3**) and W-PERINPUT
-(`automl_package/models/flexible_width_network.py:239-298`, the file WSEL-3 also writes) are built on
+(`automl_package/models/flexnn/width/model.py:239-298`, the file WSEL-3 also writes) are built on
 this same class. **W-SHARED and W-PERINPUT may not be read off it until FP-4 rules the deviation
 material or immaterial** — see WSEL-3's and WSEL-4's deps in §4, and the cross-plan dependencies note
 above. If FP-4 finds it MATERIAL, this paragraph's "under its certified joint width-dial schedule"
@@ -81,7 +81,7 @@ metrics and the report. *(This is exactly what the current width results do NOT 
 | Model | = the certified net + | How w is chosen | Cost | Mechanism |
 |---|---|---|---|---|
 | **W-SHARED** | a cheap held-out read | ONE w for the dataset | cheap | to be built — **WSEL-3** |
-| **W-PERINPUT** | the distilled router | a w **per input** | cheap | `fit_router` + routed predict (`automl_package/models/flexible_width_network.py:239-298`) |
+| **W-PERINPUT** | the distilled router | a w **per input** | cheap | `fit_router` + routed predict (`automl_package/models/flexnn/width/model.py:239-298`) |
 | **W-SWEEP** | a per-width sweep | ONE w for the dataset, by training a **separate model per width** and scoring each held out | **expensive — the reference** | `automl_package/examples/converged_width_experiment.py` (exists; results `automl_package/examples/capacity_ladder_results/W_CONVERGED/w_converged_summary.json`) — **needs porting to the package class, WSEL-4** |
 
 **What W-SWEEP is for.** It is the honest, expensive way to pick a width. The efficiency claim of
@@ -117,7 +117,7 @@ a sensitivity sweep would turn it from inherited into measured and freeze the re
 
 **W-PERINPUT runs on a DIFFERENT tolerance rule, and that is legitimate, not an oversight.** The
 distilled router does not read a curve — it labels each row independently at a flat relative margin,
-`DEFAULT_TOLERANCE = 0.25` (`automl_package/models/common/distilled_router.py:57`), applied per the
+`DEFAULT_TOLERANCE = 0.25` (`automl_package/models/flexnn/routing.py:57`), applied per the
 docstring at `:64` and enforced in code at `:79-80` as `error <= (1 + tolerance) * row_min`. The two
 rules differ because the two selection problems differ: a **per-input** labelling decision has one
 row's worth of evidence and no standard error to estimate from it, while a **global** chooser reads
@@ -197,7 +197,7 @@ width claim). **`NestedWidthNet` (arch #1) is CLOSED — no further compute (use
 driver default"). **Correction to this entry's own original claim:** it previously said
 `FlexibleWidthNN` had zero test coverage on this path; that was true when written and is no longer
 true. `FlexibleWidthNN.predict_uncertainty` is now overridden
-(`automl_package/models/flexible_width_network.py:361-397`): `CONSTANT` / `BINNED_RESIDUAL_STD`
+(`automl_package/models/flexnn/width/model.py:361-397`): `CONSTANT` / `BINNED_RESIDUAL_STD`
 delegate to the inherited implementation (neither touches the stacked
 `(len(widths), N, output_size)` tensor), and `MC_DROPOUT` / `PROBABILISTIC` raise
 `NotImplementedError` explicitly instead of silently mis-indexing it. Covered by
@@ -208,7 +208,7 @@ per `uncertainty_method` value including both raise cases. **WSEL-1 is DONE by t
 **WD2 — FIXED, landed in commit `e3cc52b` (`flexnn-package.md` FP-3's write set); recognised
 2026-07-21.** *(Description of the defect as it stood, with its original line citations REMOVED
 rather than repaired: they pointed at `automl_package/enums.py:105-109` and
-`automl_package/models/flexible_width_network.py:92`, `:192`, `:204-205`, none of which describe the
+`automl_package/models/flexnn/width/model.py:92`, `:192`, `:204-205`, none of which describe the
 current file — the symbol they named no longer exists anywhere in the repo, so there is nothing left
 to cite. Per the repair-pass rule, this entry was re-verified against disk, not re-worded.)* The
 typed enum sat on the broken knob and the magic string on the working one: `WidthSelectionMethod.DISTILLED`
@@ -217,9 +217,9 @@ mechanism that *does* work was reached by the raw string `inference_mode="routed
 hand-rolled membership check. Omitting that string after fitting a router silently gave the largest
 fixed width — no error, no warning, nothing recording that a router was fitted and unused.
 **As fixed:** `capacity_selection` is a `CapacitySelection` member passed at construction
-(`automl_package/models/flexible_width_network.py:79`); `predict`
-(`automl_package/models/flexible_width_network.py:264`) and `predict_uncertainty`
-(`automl_package/models/flexible_width_network.py:365`) carry no `inference_mode` parameter;
+(`automl_package/models/flexnn/width/model.py:79`); `predict`
+(`automl_package/models/flexnn/width/model.py:264`) and `predict_uncertainty`
+(`automl_package/models/flexnn/width/model.py:365`) carry no `inference_mode` parameter;
 `grep -rn "WidthSelectionMethod" automl_package/ tests/` returns nothing — the enum is gone from the
 repo entirely, so the closed-set violation cannot recur. → **WSEL-2, now DONE (§4).**
 
@@ -313,7 +313,7 @@ copied here is a cache entry that rots.
 |---|---|---|
 | selection-set fraction | **WSEL-6** | `automl_package/examples/capacity_ladder_results/WSEL6/frozen.json` |
 | W-PERINPUT data-limited flag, per dataset | **WSEL-6** | same file, one boolean per (toy, arm) |
-| router hidden / depth / epochs / lr | **WSEL-7** | `automl_package/examples/capacity_ladder_results/WSEL7/frozen.json`, else the current frozen defaults at `automl_package/models/common/distilled_router.py:57-60` if that file's `invariant` field is `true` |
+| router hidden / depth / epochs / lr | **WSEL-7** | `automl_package/examples/capacity_ladder_results/WSEL7/frozen.json`, else the current frozen defaults at `automl_package/models/flexnn/routing.py:57-60` if that file's `invariant` field is `true` |
 | ~~labelling tolerance \| **WSEL-7** \| same file~~ — **struck 2026-07-21.** MASTER Decision 18 rules the tolerance sensitivity sweep **NOT scheduled** (§1's own note above, "Noted follow-up, NOT a blocker and NOT scheduled... Do not run it pre-emptively"); this row and WSEL-7's swept dimensions (§4) contradicted that ruling and are corrected to match it. WSEL-7 keeps router hidden/depth/epochs/lr only. |
 | width ladder / `w_max` after any ceiling raise | **WSEL-8** (WSEL-9 is ⏸ PARKED — would apply there too if a later ruling unparks it) | the per-cell result JSON under `automl_package/examples/capacity_ladder_results/WSEL8/` (or `.../WSEL9/`, dormant) that recorded the bind |
 | per-model selection cost | **WSEL-5** | the accounting module's own selftest artifact (exact path fixed by `flexnn-package.md` FP-1, see this file's cross-plan dependencies note) |
@@ -411,7 +411,7 @@ With sigma fixed, the Gaussian negative log-likelihood equals the squared error 
 
 **Architecture note, so this is not over-read:** the certified `SharedTrunkPerWidthHeadNet` cannot
 fit a variance at all — its `log_var` is a dummy zero tensor that never enters the loss
-(`automl_package/models/architectures/nested_width_net.py:179-181`). The exposure is confined to the
+(`automl_package/models/flexnn/width/architectures.py:179-181`). The exposure is confined to the
 two OTHER classes (`NestedWidthNet`, `IndependentWidthNet`) and to whichever loss flag a driver picks.
 
 ## 3.8 THE CANONICAL TOY SUITE — the SAME SET across every width architecture and experiment (user, 2026-07-21)
@@ -487,7 +487,7 @@ duplicate pair.** Inventory below is read off disk 2026-07-21, not recalled.
 
 | Class | Lives in | Status | Fits variance? |
 |---|---|---|---|
-| `NestedWidthNet` (Design A: one output weight per unit) | `automl_package/models/architectures/nested_width_net.py:39-111` | package · FAILED-under-joint-training, kept as negative control | yes (`logvar_head`) |
+| `NestedWidthNet` (Design A: one output weight per unit) | `automl_package/models/flexnn/width/architectures.py:39-111` | package · FAILED-under-joint-training, kept as negative control | yes (`logvar_head`) |
 | `SharedTrunkPerWidthHeadNet` (Design B: per-width output layer, `Linear(w_max -> 1)` + masking) | same file `:164-230` | package · **CERTIFIED** | no (dummy zeros) |
 | `IndependentWidthNet` (12 disjoint sub-nets) | same file `:114-161` | package · positive control | yes |
 | `SharedReadoutPerWidthAffineNet` (shared readout + 2-param per-width affine) | same file `:233-277` | package · minimum-seam arm | no (dummy zeros) |
@@ -630,7 +630,7 @@ migrated, `capacity_selection=CapacitySelection.PER_INPUT` + `fit_router()` + pl
 `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_flexible_width_network.py -q` → 24 passed.
 **One verify clause is not literally satisfiable, and is read the way FP-3's equivalent already was.**
 `grep -rn "inference_mode" automl_package/models/flexible_width_network.py` returns TWO hits
-(`automl_package/models/flexible_width_network.py:84`, `:86`) — both inside the constructor's own
+(`automl_package/models/flexnn/width/model.py:84`, `:86`) — both inside the constructor's own
 `TypeError` message, which names the rejected kwarg back to the caller. No live call site passes it.
 This is the identical situation `flexnn-package.md`'s FP-3 completion note ruled on for its clause
 (a) (`docs/plans/capacity_programme/flexnn-package.md:652-655`): once a discoverable rejection
@@ -638,10 +638,10 @@ message is required, a literal zero-substring grep is unsatisfiable, and deletin
 message to force the grep clean would degrade the error for callers with no behavioural gain.
 **Read the clause as "no live call site passes it."**
 **The selection-set fraction requirement is satisfied without a change:** `fit_router` takes
-caller-supplied `x_val`/`y_val` (`automl_package/models/flexible_width_network.py:307`), so no split
+caller-supplied `x_val`/`y_val` (`automl_package/models/flexnn/width/model.py:307`), so no split
 fraction is baked into this class at all — there was no constant to make configurable.
 **`fit()` does not internally call `fit_router()`, and that is CORRECT, not a gap.** The two-call
-pattern is the cross-family contract: `automl_package/models/flexible_neural_network.py:478` and
+pattern is the cross-family contract: `automl_package/models/flexnn/depth/model.py:478` and
 `automl_package/models/probabilistic_regression.py:906` expose the same separate `fit_router`, and
 their tests use the same two-call shape. A width-local auto-fit would be the "second implementation"
 this task's own doctrine section forbids.
@@ -791,7 +791,7 @@ exits 0; `ls automl_package/examples/capacity_ladder_results/WSEL6/*.json` shows
 **Files (write set):** `automl_package/examples/width_wsel7.py` (Create) ·
 `automl_package/examples/capacity_ladder_results/WSEL7/`
 **Spec:** The router is fixed at two hidden layers of 32 units, 300 full-batch Adam epochs, lr 1e-2,
-labelling tolerance 0.25 (`automl_package/models/common/distilled_router.py:57-60`), constants
+labelling tolerance 0.25 (`automl_package/models/flexnn/routing.py:57-60`), constants
 inherited rather than chosen. The only existing evidence is Task W6 — one dimension, two settings,
 one toy, 3 seeds, binary pass/fail (`width-cert.md:234`, `:237`). **Extend it to a search**: vary
 router width/depth (at least half/double/4× hidden, 1 vs 3 layers) and epochs. Establish whether
@@ -806,7 +806,7 @@ constant this task owns per §3.6 — router hidden/depth/epochs/lr. **Correctio
 line previously also named "the labelling tolerance" as an owned constant; struck along with the
 swept dimension above — §3.6's table row for the tolerance is struck too. If this task finds
 invariance, the file records the current frozen defaults
-(`automl_package/models/common/distilled_router.py:57-60`) rather than inventing new ones.
+(`automl_package/models/flexnn/routing.py:57-60`) rather than inventing new ones.
 **Doctrine:** the router stays FROZEN and untuned inside the battery so the W-SHARED/W-PERINPUT
 contrast measures selection rather than search effort. **This task does not unfreeze it** — it
 establishes whether the frozen choice is defensible, and any change lands as a new frozen default
@@ -1013,12 +1013,12 @@ split not used for stopping or selection.
 calls `_width_loss(...)`, which reaches `automl_package/examples/nested_width_net.py:131`
 `_width_mse` → `forward_width(x, k)`. **Every one of those calls recomputes the shared trunk from
 scratch** (`h = self.hidden(x)` inside `forward_width`,
-`automl_package/models/architectures/nested_width_net.py:75`). With the sandwich's four widths per
+`automl_package/models/flexnn/width/architectures.py:75`). With the sandwich's four widths per
 step the trunk is computed FOUR times and discarded three — defeating the entire point of a shared
 trunk.
 
 **The fix already exists and is unused by the training loop:** `all_widths_forward`
-(`automl_package/models/architectures/nested_width_net.py:81-91`) computes `h` ONCE and reads every
+(`automl_package/models/flexnn/width/architectures.py:81-91`) computes `h` ONCE and reads every
 width off it in a single vectorised pass, no python loop. It is currently used for scoring, not for
 training.
 
@@ -1057,7 +1057,7 @@ the loss helper after FP-2's move)
   (`automl_package/examples/kdropout_converged_width_experiment.py:118`), replace the
   `for k in widths: total_loss += _width_loss(...)` accumulation with ONE trunk evaluation whose
   per-width readouts are summed off it. Reuse `all_widths_forward`
-  (`automl_package/models/architectures/nested_width_net.py:81-95`) where the sampled set is all
+  (`automl_package/models/flexnn/width/architectures.py:81-95`) where the sampled set is all
   widths; otherwise add a helper alongside it that computes `h` once and applies the sampled widths'
   readouts. **Ladder rung 2: extend the existing helper, do not write a parallel one.**
 - [ ] **Step 3 — instrument cost (additive only).** Record into the summary JSON's `config` block:
@@ -1328,7 +1328,7 @@ field in Step 3 and `hit_cap: false`; (4)
 
 - **Design A — one output weight per unit.** Width-k prediction `= b + Σ_{j<=k} w_j * h_j`. The weight
   on `h_1` is the same number at every width. `NestedWidthNet`
-  (`automl_package/models/architectures/nested_width_net.py:39-111`). At `w_max=12`: **13 output
+  (`automl_package/models/flexnn/width/architectures.py:39-111`). At `w_max=12`: **13 output
   parameters.** **Trained normally, this FAILS** (MASTER Decision 1).
 - **Design B — a separate output layer per width.** Width-k has its own weights on `h_1..h_k`.
   `SharedTrunkPerWidthHeadNet` (`:164-230`). At `w_max=12`: **78 effective output weights + 12

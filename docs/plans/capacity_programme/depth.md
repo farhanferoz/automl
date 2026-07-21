@@ -23,7 +23,7 @@ with J0/M3+, which consume D8's certified mechanism.
 **The pre-registered transfer prediction — REFUTED 3/3.** Predicted (written before any battery
 ran): the shared-readout arm fails the fit bar while per-length heads pass, mirroring the width
 failure (FlexNN's shared `output_layer`,
-`automl_package/models/selection_strategies/layer_selection_strategies.py:90`). Outcome: the
+`automl_package/models/flexnn/strategies/layer.py:90`). Outcome: the
 opposite. `shared_readout` is the STRONGEST arm on every seed (S5 val_acc 1.000 at ℓ=4/6/8 and
 ≥0.990 at ℓ=10, all 3 seeds) while `per_length_head` merely passes. Mechanism reading: readout
 interference is WIDTH-SPECIFIC — a weight-shared recurrent block presents every depth with the

@@ -120,8 +120,8 @@ or D-SHARED and D-SWEEP are not answering the same question.
 do not conflate them.** The rule above (twice a bootstrap standard error) binds D-SHARED and D-SWEEP:
 each reads a whole held-out curve across the ladder, so a standard error is estimable at that grain.
 **D-PERINPUT does not read a curve.** The distilled router labels each row independently at a flat
-relative margin, `DEFAULT_TOLERANCE = 0.25` (`automl_package/models/common/distilled_router.py:57`),
-applied by `_cheapest_within_tolerance_labels` (`automl_package/models/common/distilled_router.py:63-66`).
+relative margin, `DEFAULT_TOLERANCE = 0.25` (`automl_package/models/flexnn/routing.py:57`),
+applied by `_cheapest_within_tolerance_labels` (`automl_package/models/flexnn/routing.py:63-66`).
 A single row has no distribution to bootstrap, so no standard error is estimable at that grain — the
 flat margin is the only rule available there. **Consequence, stated so the report does not paper over
 it:** D-PERINPUT's per-input depth choices are not directly comparable to D-SHARED's/D-SWEEP's on
@@ -169,9 +169,9 @@ Evidence: `docs/depth_capacity/depth_toy_negative_note.md`, `CHANGELOG.md` 2026-
 
 **DD1 — FIXED 2026-07-20, commit `84ad94d`.** The prefer-shallow depth prior `linspace(3.0, 1.0, ...)`
 was removed from `FlexibleHiddenLayersNN` because it caused complete depth-collapse to the prior; the
-comment recording the removal is at `automl_package/models/flexible_neural_network.py:300`. It was
+comment recording the removal is at `automl_package/models/flexnn/depth/model.py:300`. It was
 **also still present in `IndependentWeightsFlexibleNN`**, at
-`automl_package/models/independent_weights_flexible_neural_network.py:306` and `:312` — the fix had
+`automl_package/models/flexnn/depth/independent_weights.py:306` and `:312` — the fix had
 reached one twin and not the other. Both sites now use `torch.zeros(self.max_hidden_layers, ...)`
 (uniform prior), with a comment cross-citing the sibling's removal. Regression test:
 `TestDD1IndependentWeightsUniformPrior` (`tests/test_phase2_flexible_nn.py:410`). Found already fixed
@@ -194,7 +194,7 @@ inside `automl_package/examples/depth_selection_toy.py`, which imports nothing f
 that ships are not the same code**, and neither has been run against the other. **Corrected count
 (2026-07-20, verified by grep):** exactly FOUR router MLP classes exist —
 `automl_package/examples/capacity_ladder_k6.py:75`, `automl_package/examples/capacity_ladder_t2.py:233`,
-`automl_package/examples/depth_selection_toy.py:607`, `automl_package/models/common/distilled_router.py:84`
+`automl_package/examples/depth_selection_toy.py:607`, `automl_package/models/flexnn/routing.py:84`
 — and about nine example scripts *touch* one of them by import or reuse rather than defining their
 own. Reconciling the four implementations is owned by `flexnn-package.md`; this strand's dependency
 on that reconciliation is stated in DSEL-4.
@@ -250,7 +250,7 @@ for it.)
 | initial depth ladder | **DSEL-1b** | `automl_package/examples/capacity_ladder_results/DSEL1b/frozen.json` |
 | selection-set fraction | **DSEL-8** | `automl_package/examples/capacity_ladder_results/DSEL8/frozen.json` |
 | D-PERINPUT data-limited flag, per dataset | **DSEL-8** | same file, `perinput_data_limited` field, one boolean per (toy, arm) |
-| router hidden / depth / epochs / lr | **DSEL-9** | `automl_package/examples/capacity_ladder_results/DSEL9/frozen.json`, else the frozen defaults at `automl_package/models/common/distilled_router.py:57-60` if invariant |
+| router hidden / depth / epochs / lr | **DSEL-9** | `automl_package/examples/capacity_ladder_results/DSEL9/frozen.json`, else the frozen defaults at `automl_package/models/flexnn/routing.py:57-60` if invariant |
 | ~~labelling tolerance~~ | ~~DSEL-9~~ | **struck 2026-07-21 (cross-strand repair — MASTER Decision 18 rules the labelling-tolerance sensitivity sweep NOT scheduled and NOT to be run pre-emptively; DSEL-9's spec listed it before that ruling landed and was never updated to match — the same stale sweep was found in `width.md`'s WSEL-7 and `probreg.md`'s PC. See DSEL-9's spec note below.)** |
 | depth ladder ceiling raise (if §3.5's "ceiling binds" branch fires) | **DSEL-10** (DSEL-11 is ⏸ PARKED — would apply there too if a later ruling unparks it) | the per-cell result JSON under `automl_package/examples/capacity_ladder_results/DSEL10/` (or `.../DSEL11/`, dormant) that recorded the bind |
 | positive-control bar (feed-forward full-depth control, DSEL-2 (i)/(ii); also the HALT condition in §3.5) | **not set by any task in this strand — imported unchanged** | `docs/plans/capacity_programme/depth-selection.md:1048` (F5c-b's PASS BAR line itself, absorbed into §6 of this file by DSEL-0). **Value, stated once here so no task re-derives it:** held-out accuracy ≥ 0.90 AND `trustworthy=true`, on BOTH seeds. *(Citation repaired 2026-07-20 at the root: it read `flexnn-core.md:235`, which was correct before that file was split 760 → 254 lines and now points at frozen dispatch-wave prose. The citations gate passed throughout — a resolving path is not a correct one. **Re-repaired 2026-07-21: the 2026-07-20 fix landed on the line that then held the F5 task HEADER, not F5c-b's actual PASS BAR line — a resolving path that was still not the correct one, exactly the defect class the note above claims to have fixed. Corrected here to the PASS BAR sentence itself; line number re-verified after this same repair pass shifted the file, since the failure mode being fixed is a stale line number.**)* |
@@ -419,7 +419,7 @@ decisions this task must settle and record, each with the width strand's answer 
 - **Nesting: already correct in the shipping class, and it is prefix-of-layers.** For depth, nested
   means depth *n* executes the FIRST *n* blocks and skips the rest — not run as identity layers,
   simply not executed. `FlexibleHiddenLayersNN` already implements exactly this
-  (`automl_package/models/flexible_neural_network.py:29-38`) with a single shared output layer
+  (`automl_package/models/flexnn/depth/model.py:29-38`) with a single shared output layer
   (`:133`). **That is the certified-winning shape, already in the package.** This task does not
   redesign it.
 - **How the depths are trained: SUM/MEAN THE LOSS OVER EVERY DEPTH, EVERY STEP. No sampling.**
@@ -434,7 +434,7 @@ decisions this task must settle and record, each with the width strand's answer 
   **Two nested schemes exist, and both put every rung in the training objective — this is a choice
   between them, not a choice of whether to nest:**
   (a) **per-sample uniform draw over depths** —
-  `automl_package/models/selection_strategies/layer_selection_strategies.py:187` `NestedStrategy`
+  `automl_package/models/flexnn/strategies/layer.py:187` `NestedStrategy`
   (confirmed: each sample independently draws `d ~ Uniform{1..max_hidden_layers}` on every forward
   pass and the loss is the readout at that sample's own drawn depth);
   (b) **sum/mean the loss over every rung, every step** —

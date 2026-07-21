@@ -996,7 +996,7 @@ grep -rn -E "(^[[:space:]]*(import|from)[[:space:]]+_flexnn_prefix_selftest\\b)|
 Output: 3 matches. First 3:
 ```
   automl_package/examples/nested_width_net.py:39:      to both widths (the nested-prefix property, mirroring `_flexnn_prefix_selftest.py`'s
-  automl_package/models/selection_strategies/layer_selection_strategies.py:199:    property this relies on is the one audited in `_flexnn_prefix_selftest.py`.
+  automl_package/models/flexnn/strategies/layer.py:199:    property this relies on is the one audited in `_flexnn_prefix_selftest.py`.
   tests/test_nested_depth_strategy.py:7:(`automl_package/examples/_flexnn_prefix_selftest.py`) through the NESTED path instead
 ```
 Protected (PROTECTED.tsv): no

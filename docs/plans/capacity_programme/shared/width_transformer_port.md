@@ -48,7 +48,7 @@ Two conditions, and everything in §4–§5 follows from them:
 1. **The readout must be linear in the hidden vector.** Then zeroing the tail commutes with reading
    out, so every width's answer is a prefix sum over per-unit contributions and all widths come off
    ONE hidden-layer evaluation — implemented as a cumulative sum in
-   `automl_package/models/architectures/nested_width_net.py:81-95` (`all_widths_forward`, exact and
+   `automl_package/models/flexnn/width/architectures.py:81-95` (`all_widths_forward`, exact and
    loop-free for the shared-readout class).
 2. **Each width needs its own readout parameters** (§1).
 
@@ -69,7 +69,7 @@ units thins out, which is exactly where ordering could fail silently. → `width
 zeroed, so **only the first `k` columns of head `k` can ever influence its output**: the effective
 count is `1 + 2 + ... + w_max = w_max(w_max+1)/2`, roughly half the allocation, and the FLOP
 accounting already charges the sliced version
-(`automl_package/models/architectures/nested_width_net.py:306-320`, which bills
+(`automl_package/models/flexnn/width/architectures.py:306-320`, which bills
 `_linear_macs(k, ...)`, not `w_max`). Allocated ≠ executed; report both or the cost claim is wrong.
 
 **[ARGUMENT] At transformer scale**, with the nesting on the feed-forward hidden dimension (§4),

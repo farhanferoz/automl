@@ -18,11 +18,11 @@ FlexibleNN report, **(c)** = FlexNN-vs-MoE report (both (b)/(c) in `flexnn-moe.m
 
 **Verdict: FIXED at HEAD.**
 
-Evidence — `automl_package/models/flexible_neural_network.py:260`:
+Evidence — `automl_package/models/flexnn/depth/model.py:260`:
 ```
 depth_prior_logits = torch.linspace(3.0, 1.0, self.max_hidden_layers, dtype=torch.float, device=_batch_x.device)
 ```
-and the independent-weights variant, `automl_package/models/independent_weights_flexible_neural_network.py:306`
+and the independent-weights variant, `automl_package/models/flexnn/depth/independent_weights.py:306`
 (identical line). Both build the prior logits with `linspace(3.0, 1.0, max_hidden_layers)`,
 i.e. the endpoints are fixed regardless of `max_hidden_layers` — steepness no longer scales
 with the layer-count hyperparameter, which was the defect.
@@ -36,7 +36,7 @@ report (a).
 
 **Verdict: FIXED at HEAD** (multiplicative-STE pattern is applied) — **but moot for report (a)'s tables**, since the reported dynamic-k model is ELBO+SoftGating, not STE.
 
-Evidence — `automl_package/models/selection_strategies/base_selection_strategy.py:116-153`
+Evidence — `automl_package/models/flexnn/strategies/base.py:116-153`
 (`_hard_selection_logic`), docstring at line 119:
 ```
 """Applies hard selection using weighted-sum pattern to preserve STE gradients.
@@ -46,7 +46,7 @@ and the actual accumulation at line 151:
 final_predictions_contribution += prob_i * predictions_for_mode
 ```
 where `prob_i = mode_selection_one_hot[:, i]` (line 142). The caller,
-`automl_package/models/selection_strategies/n_classes_strategies.py:119` (`SteStrategy.forward`):
+`automl_package/models/flexnn/strategies/n_classes.py:119` (`SteStrategy.forward`):
 ```
 mode_selection_one_hot = f.gumbel_softmax(logits, tau=self.model.gumbel_tau, hard=True, dim=-1)
 ```
@@ -162,7 +162,7 @@ reported number, only on wall-clock cost of the report batteries.
 
 **Verdict: FIXED at HEAD.**
 
-Evidence — `automl_package/models/selection_strategies/layer_selection_strategies.py:44`
+Evidence — `automl_package/models/flexnn/strategies/layer.py:44`
 (`NoneStrategy.forward`):
 ```
 n_probs = torch.zeros(x_input.size(0), self.model.max_hidden_layers, device=x_input.device)

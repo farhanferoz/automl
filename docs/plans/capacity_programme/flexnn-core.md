@@ -63,7 +63,7 @@ strategy in `layer_selection_strategies.py` and `hard_forward`), HPO depth cap 3
 
 ### Task F1: package hygiene fixes in `flexible_neural_network.py`
 
-**⤳ SUPERSEDED — LANDED, and the residual work is now `depth-selection.md` DSEL-3's.** Verified on disk 2026-07-20: the uniform prior and its removal comment are at `automl_package/models/flexible_neural_network.py:300`, and the HPO range is `high: 6` at `:557`. This task's write set is DSEL-3's; retaining it would put two writers on one file.
+**⤳ SUPERSEDED — LANDED, and the residual work is now `depth-selection.md` DSEL-3's.** Verified on disk 2026-07-20: the uniform prior and its removal comment are at `automl_package/models/flexnn/depth/model.py:300`, and the HPO range is `high: 6` at `:557`. This task's write set is DSEL-3's; retaining it would put two writers on one file.
 
 ### Task F2: `FlexibleWidthNN` — port the certified width mechanism into the package
 

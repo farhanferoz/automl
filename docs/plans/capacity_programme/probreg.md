@@ -170,9 +170,49 @@ mixture structure is caught by construction. Width has no equivalent.
 The comparison is between three ways of choosing **k**, the number of classes the model resolves
 the target into.
 
+⚠️ **HEAD LAYOUT PINNED — all three models use `RegressionStrategy.SEPARATE_HEADS` (root, 2026-07-21,
+at the user's instruction to correct this omission).** The plan previously never named a head layout
+anywhere (`grep -in 'regression_strategy\|separate_heads' probreg.md` → **zero hits** before this
+block), while every capacity-programme driver on disk already pins `SEPARATE_HEADS`
+(`automl_package/examples/report_a_benchmark.py:192` and `:213`,
+`probreg_kselection_experiments.py:83`, `probreg_elbo_prior_check.py:57`, `capacity_ladder_h1.py:96`,
+`multi_seed_sweep.py:64`). The convention was universal and unwritten; this writes it down.
+
+**Why it is load-bearing and not bookkeeping — the nesting guarantee is about COMPONENTS.** The
+prefix property this strand's whole read-out machinery rests on is *"the first c rungs are a genuine
+c-component model"*. That sentence requires c components to exist. The three layouts differ in
+whether they produce any:
+
+| layout | per-class outputs? | prefix-masking gives | status under `NESTED` |
+|---|---|---|---|
+| `SEPARATE_HEADS` | yes; head `i` sees **only** `p_i` (`regression_heads.py:368-372`, `input_size=1`) | a probability-weighted combination over the surviving k classes; masked classes carry zero weight and cannot leak into any surviving head | ✅ **the sanctioned layout** |
+| `SINGLE_HEAD_N_OUTPUTS` | yes; ONE net reads the whole probability vector and emits every class's output, then the SAME weighted combination (`regression_heads.py:461`) | still a genuine k-class weighted combination — **but** each surviving class's output is computed from the zero-padded vector, so truncation leaks into every component | 🟡 **labelled comparison arm only, never a default** |
+| `SINGLE_HEAD_FINAL_OUTPUT` | **no** — the head maps probabilities straight to the prediction (`regression_heads.py:498-508`); uncertainty is whatever that single head emits, not a law-of-total-variance combination over components | a valid predictor, but not a c-component model of any kind | 🚫 **BLOCKED under `NESTED`** |
+
+**On the third row, state the claim precisely — an earlier draft of this analysis overreached.** The
+masked vector *is* valid and the rung *is* a well-defined model; k remains a real resolution dial on
+the classifier side. Nothing is ill-formed and nothing crashes. What fails is narrower and worse: the
+justifying guarantee is **vacuous** there rather than false, so the selector, the router and the
+arbiter would emit a perfectly plausible curve over k underwritten by a property that configuration
+does not have. Silent, not loud.
+
+**The codebase already draws exactly this line, for exactly this reason — one path over.**
+`predict_distribution` hard-refuses the same layout: *"predict_distribution is not available for
+SINGLE_HEAD_FINAL_OUTPUT; no per-class (mu, sigma) is produced"*
+(`automl_package/models/probabilistic_regression.py:792-794`). Two code paths, one underlying fact,
+opposite responses — the nested ladder accepts what `predict_distribution` refuses. **That
+inconsistency, not the structural argument above, is the primary evidence the gate is missing rather
+than deliberately omitted.** Closing it is task **P10**.
+
+**Exposure today is theoretical, and that is the reason to gate now rather than later:** no
+programme driver selects a non-sanctioned layout, but `get_hyperparameter_search_space` offers all
+three as categorical choices (`automl_package/models/probabilistic_regression.py:530`), so a tuning
+run may select one, and the only constructor gate on `NESTED` checks `uncertainty_method`, not the
+head layout (`:163-168`).
+
 **M1 and M2 train identically — with k-dropout** (per-sample `k ~ Uniform{1..k_max}`,
 `NClassesSelectionMethod.NESTED`,
-`automl_package/models/selection_strategies/n_classes_strategies.py:173`) — and are read off the
+`automl_package/models/flexnn/strategies/n_classes.py:173`) — and are read off the
 SAME trained network. Training is therefore NOT a variable between them; they differ in exactly one
 thing, **how k is chosen**, which is what makes that contrast controlled.
 
@@ -182,7 +222,7 @@ one network readable at every rung — is unchanged; what changes is how gradien
 rungs per step: the objective becomes the mean over rungs k ∈ {1..k_max} of that rung's NLL, every
 step, from ONE forward. Three facts force this: (i) every rung's output is already computable in
 essentially one forward (`NestedStrategy.all_rung_outputs`,
-`automl_package/models/selection_strategies/n_classes_strategies.py:207`), so per-sample sampling
+`automl_package/models/flexnn/strategies/n_classes.py:207`), so per-sample sampling
 buys no compute here; (ii) the width strand RAN a per-sample uniform draw and recorded its failure —
 the top rung trains only 1/k_max of the time
 (`docs/plans/width_dial_2026-07-11/EXECUTION_PLAN.md:119-129`, fixed by the W2 sandwich); (iii) this
@@ -220,7 +260,7 @@ report.
 
 | Model | = ProbReg + | How k is chosen | Cost | Mechanism |
 |---|---|---|---|---|
-| **M1** | **the arbiter** | ONE k for the dataset | cheap | `all_rung_log_likelihood` (`automl_package/models/selection_strategies/n_classes_strategies.py:230`) — see ⚠️ below, NOT `held_out_arbiter_advantage` |
+| **M1** | **the arbiter** | ONE k for the dataset | cheap | `all_rung_log_likelihood` (`automl_package/models/flexnn/strategies/n_classes.py:230`) — see ⚠️ below, NOT `held_out_arbiter_advantage` |
 | **M2** | **the distillation** | a k **per input** | cheap | `fit_router` + routed predict (`automl_package/models/probabilistic_regression.py:754`) |
 | **M3** | **the sweep selector** | ONE k for the dataset, by training a **separate ORDINARY model per k** (no k-dropout, `NClassesSelectionMethod.NONE`) and scoring each on held-out data | **expensive — the reference** | generalise `select_k_for_toy` (`automl_package/examples/report_a_benchmark.py:331`), which already builds fixed-k models via `_probreg_fixed` (`:185-191`) |
 
@@ -231,7 +271,7 @@ against the k=1 bypass (`:905-907`), and cannot express "chose k=4" for any midd
 one global answer for the whole dataset. The primitive that CAN — a full `(batch, n_classes)`
 per-rung held-out likelihood table, exactly what a cheapest-within-tolerance selector needs to run
 over — is `all_rung_log_likelihood`
-(`automl_package/models/selection_strategies/n_classes_strategies.py:230-252`), which as of this
+(`automl_package/models/flexnn/strategies/n_classes.py:230-252`), which as of this
 repair has **zero callers anywhere in the repo**
 (`grep -rn "all_rung_log_likelihood" automl_package/ tests/` matches only its own definition). PA
 builds M1's selector on top of it, not on `held_out_arbiter_advantage`. Recorded as **D5/D6** in §3.
@@ -252,7 +292,7 @@ same global k is found*; M2 is the separate question of whether k should be glob
 score is not meaningfully worse than the best (PA's selection rule, reusing the tolerance published
 in `docs/reports/probreg_kselection/probreg_kselection.md` §3.2). M2's distilled router does not
 read a curve — it labels each row independently at a flat relative margin,
-`DEFAULT_TOLERANCE = 0.25` (`automl_package/models/common/distilled_router.py:57`), applied as
+`DEFAULT_TOLERANCE = 0.25` (`automl_package/models/flexnn/routing.py:57`), applied as
 `error <= (1 + tolerance) * row_min` (`:80`). The two rules legitimately differ because the two
 selection problems differ: a per-input labelling decision has one row's worth of evidence, and no
 standard error is estimable from a single observation, whereas a global chooser reads a whole
@@ -361,7 +401,7 @@ the root 2026-07-21: 2 passed.
 prose was edited without re-checking disk while the fix already sat in history. The rule this
 motivates is now a `MASTER.md` Corrections entry. What SURVIVES of the earlier note, verified still
 true 2026-07-21: **the primitive M1 actually needs, `all_rung_log_likelihood`
-(`automl_package/models/selection_strategies/n_classes_strategies.py:230`), has the SAME shape of
+(`automl_package/models/flexnn/strategies/n_classes.py:230`), has the SAME shape of
 bug** — it passes `y_target` straight through with no symlog transform (`:251`), and has zero
 callers today. Whoever builds PA's M1 selector on top of it must apply the now-fixed transform
 pattern there too, or D2 reopens in the function that actually matters. It is PA's problem to close
@@ -395,7 +435,7 @@ task text).
 
 **D6 — OPEN, a stale docstring; recorded here, not fixed (no source edits in this repair).**
 `all_rung_log_likelihood`'s docstring
-(`automl_package/models/selection_strategies/n_classes_strategies.py:234-235`) claims *"This is
+(`automl_package/models/flexnn/strategies/n_classes.py:234-235`) claims *"This is
 the all-rung score table `ProbabilisticRegressionModel.held_out_arbiter_advantage` ...
 consume[s]"* — **false**. `held_out_arbiter_advantage` never calls `all_rung_log_likelihood`; it
 calls `_per_sample_log_likelihood_at_k` twice, once per rung
@@ -451,8 +491,8 @@ document). The driver reads these from disk; a reviewer resolves them by opening
 |---|---|---|
 | selection-set fraction | **PB** | `automl_package/examples/capacity_ladder_results/PB/frozen.json` |
 | M2 data-limited flag, per dataset | **PB** | same file, one boolean per (toy, arm) |
-| router hidden / depth / epochs / lr | **PC** | `automl_package/examples/capacity_ladder_results/PC/frozen.json`, else the current frozen defaults at `automl_package/models/common/distilled_router.py:57-60` if that file's `invariant` field is `true` |
-| ~~labelling tolerance~~ | ~~PC~~ | STRUCK 2026-07-21 — Decision 18: the sweep is not scheduled; the flat 0.25 (`automl_package/models/common/distilled_router.py:57`) stays inherited-and-accepted |
+| router hidden / depth / epochs / lr | **PC** | `automl_package/examples/capacity_ladder_results/PC/frozen.json`, else the current frozen defaults at `automl_package/models/flexnn/routing.py:57-60` if that file's `invariant` field is `true` |
+| ~~labelling tolerance~~ | ~~PC~~ | STRUCK 2026-07-21 — Decision 18: the sweep is not scheduled; the flat 0.25 (`automl_package/models/flexnn/routing.py:57`) stays inherited-and-accepted |
 | `k_max` after any ceiling raise | **P3/P4** | the per-cell result JSON that recorded the bind |
 
 **Feed-forward rule (binding):** if P3 or P4 runs at a value not justified by the artifact named
@@ -630,7 +670,7 @@ and defect D6.
 `automl_package/models/selection_strategies/n_classes_strategies.py`,
 `tests/test_phase3_dynamic_k.py`; 52 passed, 1 pre-existing skip):
 - **M1 = `fit_global_selector`**, built on `all_rung_log_likelihood`
-  (`automl_package/models/selection_strategies/n_classes_strategies.py:230`) — **never** on
+  (`automl_package/models/flexnn/strategies/n_classes.py:230`) — **never** on
   `held_out_arbiter_advantage` (§1 ⚠️, D5). Selects via FP-9's already-landed shared primitive
   `automl_package/utils/capacity_selection.py`; the bootstrap-SE/tolerance rule was IMPORTED, not
   re-derived (the third-copy failure this programme exists to stop).
@@ -720,7 +760,7 @@ and one is a trap. Verified 2026-07-20:
 - **M1** has no mechanism in code yet — the *rule* is now specified (`benchmark_spec.md` §2.1:
   cheapest-within-tolerance at twice a bootstrap standard error, bypass competing), so this is a
   build, not a design question. It is PA's main piece of work. **Build it on
-  `all_rung_log_likelihood`** (`automl_package/models/selection_strategies/n_classes_strategies.py:230`)
+  `all_rung_log_likelihood`** (`automl_package/models/flexnn/strategies/n_classes.py:230`)
   — the per-rung `(batch, n_classes)` held-out likelihood table — never on
   `held_out_arbiter_advantage`, which is a different, per-input readout that cannot answer a
   global "which k" question (§1 ⚠️, D5).
@@ -807,7 +847,7 @@ exits 0; `ls automl_package/examples/capacity_ladder_results/PB/*.json` shows on
 
 **What exists.** The router is fixed at two hidden layers of 32 units, ReLU, 300 full-batch Adam
 epochs, lr 1e-2, cross-entropy on cheapest-within-tolerance labels (tolerance 0.25) —
-`automl_package/models/common/distilled_router.py:57-60`. Those constants were **copied from an
+`automl_package/models/flexnn/routing.py:57-60`. Those constants were **copied from an
 earlier width experiment**, not chosen for ProbReg. The only sensitivity evidence anywhere is from
 the WIDTH strand: `docs/plans/capacity_programme/width-cert.md:234` ran half and double router hidden
 on 3 seeds and found the deploy claims invariant (`:237`). That is reassuring but it is (a) a
@@ -824,7 +864,7 @@ conclusions are invariant the way width's were, and if not, what the router actu
 `automl_package/examples/capacity_ladder_results/PC/frozen.json`, containing exactly the two
 constants this task owns per §3.6 — router hidden/depth/epochs/lr. If
 this task finds invariance, the file records the current frozen defaults
-(`automl_package/models/common/distilled_router.py:57-60`) rather than inventing new ones.
+(`automl_package/models/flexnn/routing.py:57-60`) rather than inventing new ones.
 **Doctrine:** the router stays FROZEN and untuned inside the benchmark (§2.2) so the M1/M2 contrast
 measures selection rather than search effort. **This task does not unfreeze it** — it establishes
 whether the frozen choice is defensible, and any change lands as a new frozen default *before* P4
@@ -1228,6 +1268,74 @@ scale: static · shape: execution · verify: the `research-report` skill's own c
 is nonzero (studies cited by task ID, not restated from memory); then for each §3.6 constant name
 (selection-set fraction, M2 data-limited flag, router hidden/depth/epochs/lr, labelling tolerance,
 `k_max`), `grep -q "<constant name>" docs/reports/probreg_kselection/*.md` exits 0.
+
+---
+
+### P10 — gate the head layout under `NESTED` (NEW 2026-07-21, user-instructed)
+
+**Why this exists.** §1's head-layout block rules that the nesting guarantee is a statement about
+per-class components, and that one of the three layouts produces none. `predict_distribution`
+already refuses that layout for precisely this reason
+(`automl_package/models/probabilistic_regression.py:792-794`); the nested ladder does not. This task
+makes the two paths consistent. **It is a guard, not a new mechanism — no behaviour changes for any
+configuration the programme actually runs** (every driver already pins `SEPARATE_HEADS`).
+
+**Files (write set):** `automl_package/models/probabilistic_regression.py` ·
+`tests/test_phase3_dynamic_k.py`
+
+**Spec — three changes, all mechanical:**
+1. **Constructor gate.** `n_classes_selection_method=NESTED` with
+   `regression_strategy=SINGLE_HEAD_FINAL_OUTPUT` raises `ValueError` at construction, beside the
+   existing `uncertainty_method` gate (`:163-168`), and for the same reason. The message must name
+   the cause — no per-class `(mu, sigma)` is produced, so "the first c rungs are a genuine
+   c-component model" is vacuous — and cite `predict_distribution`'s matching refusal, so the next
+   reader sees the two are one ruling.
+2. **Search-space repair.** `get_hyperparameter_search_space` (`:530`) must not offer a layout the
+   constructor will reject: when `NESTED` is set, the `regression_strategy` choices are the two
+   component-producing layouts. **This is the live exposure** — a tuning run is the only way the
+   programme could currently reach the blocked layout.
+3. **Label the middle layout.** `SINGLE_HEAD_N_OUTPUTS` under `NESTED` is legal but is a **labelled
+   comparison arm, never a default** (§1's table): its components are computed from the zero-padded
+   vector, so truncation leaks into every surviving component. Record this in the `NESTED` member's
+   docstring in `automl_package/enums.py`; no runtime restriction.
+
+**⚠️ Do NOT "fix" this by widening the guarantee.** The tempting alternative — redefining the prefix
+property so it covers a layout with no components — would retire the one criterion that makes the
+ladder auditable. The guarantee stays as written; the configurations that cannot satisfy it are
+excluded.
+
+**Non-goals:** no change to any sanctioned-layout numerical path (this must be a pure guard — every
+existing certified number stays reproducible); no new selection mechanism; no touching the three
+read-out methods; no deletion.
+
+*Orchestration:* parallel: no (single file, and P7 also writes it) · deps: **FP-11** (the strategies
+module moved) — **and must be serialised against P7**, which writes the same file · tier: sonnet high ·
+scale: static · shape: execution ·
+**verify:**
+```bash
+cd /home/ff235/dev/MLResearch/automl
+# (a) the blocked pairing raises at CONSTRUCTION, not mid-fit
+AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python - <<'PY'
+from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+from automl_package.enums import NClassesSelectionMethod, RegressionStrategy, UncertaintyMethod
+try:
+    ProbabilisticRegressionModel(input_size=3, n_classes=4,
+        uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+        n_classes_selection_method=NClassesSelectionMethod.NESTED,
+        regression_strategy=RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT)
+    print("P10-FAIL: no error raised")
+except ValueError as e:
+    assert "SINGLE_HEAD_FINAL_OUTPUT" in str(e), e
+    print("P10-GATE-OK")
+PY
+# (b) the two sanctioned layouts still construct AND train unchanged
+# (c) the search space no longer offers the blocked layout when NESTED is set
+# (d) no certified number moved: the suite matches its known result exactly
+AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python -m pytest tests/test_phase3_dynamic_k.py -q
+AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python -m pytest tests/ -q   # root runs this at wave end
+```
+(a) prints `P10-GATE-OK`; (d) must be **366 passed / 2 failed (the two accepted heteroscedastic
+tests) / 1 skipped** — no new failures and no newly-passing tests.
 
 ---
 

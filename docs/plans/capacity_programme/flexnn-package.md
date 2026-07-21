@@ -41,8 +41,8 @@ Surveyed 2026-07-20, read-only, every claim below re-verified at the root before
 **Verified, both directions:**
 - `automl_package/examples/capacity_accounting.py:62-63` imports `FlexibleHiddenLayersNN` and
   `FlexibleWidthNN` **from the package, at module level**.
-- `automl_package/models/flexible_width_network.py:290` and
-  `automl_package/models/flexible_neural_network.py:492` import `executed_flops`
+- `automl_package/models/flexnn/width/model.py:290` and
+  `automl_package/models/flexnn/depth/model.py:492` import `executed_flops`
   **from `automl_package.examples.capacity_accounting`, inside a method body**, with the comment
   *"avoids a load-time circular import (capacity_accounting.py imports this class)"*.
 
@@ -59,7 +59,7 @@ Three independent router `nn.Module` classes exist, plus seven files that reuse 
 | the original | `automl_package/examples/capacity_ladder_k6.py:75`, `:92` | scalar only | hard-label CE **or** soft-target CE |
 | a vector port | `automl_package/examples/capacity_ladder_t2.py:233`, `:256` | vector | soft targets only |
 | a second, independent vector port | `automl_package/examples/depth_selection_toy.py:607`, `:624` | vector | hard-label CE only |
-| **the package** | `automl_package/models/common/distilled_router.py:84`, `:108` | vector | cheapest-within-tolerance hard-label CE only |
+| **the package** | `automl_package/models/flexnn/routing.py:84`, `:108` | vector | cheapest-within-tolerance hard-label CE only |
 
 The two vector ports were written independently and do not know about each other — the same wheel
 invented twice. The package version is documented as a copy-not-import synthesis of the second vector
@@ -97,7 +97,7 @@ one package port) and four depth-dial classes (two package, two-plus research co
 
 - **`WidthSelectionMethod.DISTILLED` is a functional trap.** `automl_package/enums.py:109` documents
   it as "not yet landed"; constructing with it raises `NotImplementedError`
-  (`automl_package/models/flexible_width_network.py:91-95`), and there is a **passing test asserting
+  (`automl_package/models/flexnn/width/model.py:91-95`), and there is a **passing test asserting
   it raises** (`tests/test_flexible_width_network.py:200`). Meanwhile the real distilled routing
   works through an entirely separate path. The enum's docstring is false: the feature IS landed, just
   not through that member.
@@ -439,7 +439,7 @@ return the **smallest** capacity whose error is not meaningfully worse than the 
 difference**.
 
 **🚫 This is NOT `_cheapest_within_tolerance_labels`, and it must not be built by generalising it.**
-Read `automl_package/models/common/distilled_router.py:63` first. That function is a **per-row**
+Read `automl_package/models/flexnn/routing.py:63` first. That function is a **per-row**
 labeller for the per-input router: it takes an `(n_samples, n_capacities)` error *table* and applies a
 **fixed relative** tolerance (`error <= (1 + tolerance) * row_min`, `DEFAULT_TOLERANCE = 0.25`). It
 answers "which capacity for *this input*", with a hand-set margin.
@@ -582,11 +582,11 @@ dispatchable, and FP-4 gates WSEL-3/WSEL-4/WSEL-5 and therefore the whole width 
 Found 2026-07-21 while deriving the execution order.
 
 **Verify re-executed at the root, all clauses:**
-- Four classes now live in `automl_package/models/architectures/nested_width_net.py:39-277`;
+- Four classes now live in `automl_package/models/flexnn/width/architectures.py:39-277`;
   `automl_package/examples/nested_width_net.py:73-87` is a pure re-export shim that keeps every
   `nwn.ClassName` call site resolving. ✓
 - The completion criterion carried from FP-1 — the four `executed_flops` registrations moved
-  alongside the classes — is done (`automl_package/models/architectures/nested_width_net.py:288-352`);
+  alongside the classes — is done (`automl_package/models/flexnn/width/architectures.py:288-352`);
   `automl_package/examples/capacity_accounting.py:9-17` documents that it now registers nothing and
   only re-exports. ✓
 - **Clause (b), the five-seed reproduction through the MOVED classes, PASSES at the ≤2% bar with
@@ -714,7 +714,7 @@ that makes it work.
 **Why this is a rule and not a preference.** Shipping an enum member whose mechanism raises
 `NotImplementedError` is **exactly the trap FP-3 exists to retire**: `WidthSelectionMethod.DISTILLED`
 is documented in `automl_package/enums.py:109` as "not yet landed", raises on construction
-(`automl_package/models/flexible_width_network.py:91-95`), and has a passing test asserting it raises
+(`automl_package/models/flexnn/width/model.py:91-95`), and has a passing test asserting it raises
 (`tests/test_flexible_width_network.py:200`) — a named, discoverable, permanently broken option.
 Recreating that shape under a new name is a task failure. **An enum member is a promise that the
 mechanism works.**
@@ -728,7 +728,7 @@ mechanism works.**
 2. **`predict_uncertainty` loses `inference_mode` too, wherever it has it.** ⚠️ **COUNT CORRECTED
    2026-07-20 by the FP-3 worker, which re-derived it instead of trusting this plan — it is TWO
    methods, not one:** `automl_package/models/probabilistic_regression.py:704` **and**
-   `automl_package/models/flexible_neural_network.py:500`. *(The previous text asserted "exactly one
+   `automl_package/models/flexnn/depth/model.py:500`. *(The previous text asserted "exactly one
    method, verified 2026-07-20" and named a line number that has since moved. Re-verified at the root
    by `grep -rn "def predict_uncertainty" automl_package/models/`: every OTHER `predict_uncertainty`
    in the repo does have the clean `(x, filter_data)` signature, so that half stood — but a worker
@@ -745,7 +745,7 @@ mechanism works.**
 #### FP-3.c — what SURVIVES, and must not be swept up
 
 **`FlexibleHiddenLayersNN`'s `"hard"` mode is NOT a selection mode.** Its closed set today is
-`("soft", "hard", "routed")` (`automl_package/models/flexible_neural_network.py:397`). `"soft"` and
+`("soft", "hard", "routed")` (`automl_package/models/flexnn/depth/model.py:397`). `"soft"` and
 `"routed"` are ways of *choosing* a depth; `"hard"` is an **execution shortcut** — it runs only the
 argmax-selected depth per sample instead of the full forward pass, for compute savings. Different
 axis, different concept.
@@ -922,7 +922,7 @@ non-caller-facing prediction path for the five bookkeeping call sites (`base.py:
 **Files (write set):** `automl_package/models/flexible_width_network.py` ·
 `docs/plans/capacity_programme/shared/fp4-schedule-deviation.md` (new)
 **Spec:** The shipping width class sums **all** configured widths every step; the certified schedule
-samples a subset (`automl_package/models/flexible_width_network.py:15-16`, self-documented).
+samples a subset (`automl_package/models/flexnn/width/model.py:15-16`, self-documented).
 Establish whether this changes results. Either bring the class onto the certified schedule, or
 measure and document that the deviation is immaterial — **with numbers, not an argument.**
 **Doctrine:** "acknowledged in a docstring" is not "shown not to matter." The shipped class should
@@ -1031,7 +1031,7 @@ names change, but they are not import-breakage risks.
 
 #### 🚨 FP-5.b — the router constants are a shared global. MEASURE, do not overwrite.
 
-`automl_package/models/common/distilled_router.py:57-60` holds four module-level defaults —
+`automl_package/models/flexnn/routing.py:57-60` holds four module-level defaults —
 `DEFAULT_TOLERANCE = 0.25`, `DEFAULT_HIDDEN = (32, 32)`, `DEFAULT_N_EPOCHS = 300`, `DEFAULT_LR = 1e-2`
 — shared by **every** capacity family.
 
@@ -1135,7 +1135,7 @@ dispatch** — see §1.6 and §3's *Superseded ≠ deletable* clause. No halt re
 **Non-goals:** the prefer-shallow prior bug in this class is fixed by `depth-selection.md`; do not
 duplicate that fix here.
 **Parity target, named.** The twin `FlexibleHiddenLayersNN` sets `self.convergence_summary_` from a
-`ConvergenceTracker` (`automl_package/models/flexible_neural_network.py:382`) and surfaces
+`ConvergenceTracker` (`automl_package/models/flexnn/depth/model.py:382`) and surfaces
 `trustworthy` from it (`:612`). Verified 2026-07-20:
 `automl_package/models/independent_weights_flexible_neural_network.py` has **no** occurrence of
 `convergence`, `trustworthy`, `fit_router`, or any per-depth forward primitive. That is the gap.
@@ -1290,7 +1290,65 @@ git status --short automl_package/ | grep -v '^??' && echo CODE-TOUCHED || echo 
 (a) must print nothing; in (b) the second count must be **≥** the first; (c) must print a line; (d)
 must print `CODE-CLEAN`.
 
-### FP-11 — ONE HOME: move the flexible-capacity code under `models/flexnn/` — ⚡ **TASK ZERO, runs BEFORE everything else**
+### FP-11 — ONE HOME: move the flexible-capacity code under `models/flexnn/` — ✅ **DONE 2026-07-21; all five verify clauses executed, clause (4) run at the ROOT**
+
+**Verify, as executed (not as claimed — every clause re-run or run at the root):**
+- **(1)/(2)** Nine new paths exist; all nine old paths remain as re-export shims on the
+  `automl_package/examples/convergence.py` shape. Importer list re-derived at execution time (42
+  files, not the plan's stale 44): **41/42 import cleanly**. The single failure,
+  `automl_package.examples.noisy_data_example`, is **pre-existing and unrelated** — it imports
+  `JAXLinearRegression` from `automl_package/models/linear_regression.py`, which defines only
+  `LinearRegressionModel`; both files are untouched by this task (`git status --short` empty on
+  each). Recorded, not fixed — outside this task's write set.
+- **(3)** Protected-path check prints nothing. `git mv` used throughout, so status shows `R`/`RM`,
+  never `D`. `automl_package/examples/nested_width_net.py` (protected) untouched.
+- **(5)** Boundary rule holds in all three forms (qualified, bare-name, `sys.path`): nothing printed.
+  Accounting selftest passes all 23 cases, which is what proves the four `executed_flops`
+  singledispatch registrations survived the move — they travel in the same file as their classes, so
+  no new import cycle was created.
+- **Full suite, root-run:** `2 failed, 366 passed, 1 skipped` — **byte-identical to the pre-move
+  baseline captured before dispatch**, same two accepted heteroscedastic tests, no new failures and
+  no newly-passing tests.
+- **(4) the long reproduction, root-run backgrounded** with `OMP_NUM_THREADS=4` pinned, canonical
+  cell (`hetero`, `n_train=1500`, `sigma=0.05`, `shared_trunk`, mse). `fit_bar.ratio_to_floor`
+  against `…/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse.json`:
+  REFERENCE, seeds 0/1/2: `1.089284` · `1.060857` · `1.077474` <!-- source: `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse.json` -->
+  REPRODUCED through the moved classes: `1.089284` · `1.060850` · `1.077475` <!-- source: `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse_n1500_s0.05_fp11repro.json` -->
+  Relative error 0.0000% / 0.0006% / 0.0001% — **all three PASS the ≤2% bar with effectively zero <!-- numcheck-ignore: relative errors derived from the two cells cited on the lines above -->
+  drift.** Both cells are `per_case[i].fit_bar.ratio_to_floor`.
+
+**⚠️ CONSEQUENCE — the plan's own path citations broke the gates, and were repaired. ✅ DONE
+2026-07-21, root-applied.** *(An earlier draft of this note said "nothing is broken and no citation
+is wrong" because every shim still resolves. **That was wrong, and the gate caught it within the
+minute**: a shim is ~14-29 lines, so every citation naming an old path with a line suffix in the
+hundreds now pointed past end-of-file, and `test_cited_line_numbers_exist` failed across seven plan
+files. Recorded as case law
+— "the import still resolves" does not imply "the citation still resolves".)*
+
+**The repair, and why it was safe to do mechanically.** The moved files are byte-identical except for
+their own import lines, which changed **in place**: `git show HEAD:<old>` vs the new file gives equal
+line counts for all nine (e.g. router 352→352, depth model 758→758, n-classes strategy 292→292), so
+every cited line number is still correct at the new path and the sweep is a pure path substitution
+with no renumbering. **74 line-suffixed citations** were repointed across 12 files (width 22,
+flexnn-package 13, probreg 13, depth-selection 8, `shared/bug_audit_head.md` 5, MASTER 4, others 1-3).
+**Only citations carrying a `:line` suffix were rewritten**; bare path mentions were deliberately left
+alone, because there the old path IS the subject — FP-11's own target-tree table and every discussion
+of the shims would be destroyed by a blind substitution. `gates_baseline.txt` also shrank by the 10
+FP-11 Create targets that now exist (shrink-only, root-edited). Gates: **9/9 green.**
+
+**Residual, deliberately unrepaired: 63 BARE mentions** (no `:line` suffix) of the nine old paths
+remain across the plan — router 10, width model 16, depth model 8, independent-weights 7, nested
+width architectures 10, the four strategy modules 12. These are **gate-invisible** (the shims exist,
+so the citations gate passes) and a blind sweep would be actively harmful: many are structural
+references where the OLD path is the subject — FP-11's target-tree table, every `PROTECTED.tsv`
+discussion, the shim precedent, and FP-1/FP-2's completion notes describing what became a shim.
+**⇒ Repointing these is a judgement task, not a substitution**, and it is NOT scheduled. Rule for
+whoever picks it up: rewrite a bare mention only where the sentence is about *the logic*; leave it
+where the sentence is about *the file, the shim, or the move itself*.
+
+*(Original spec follows, retained as the pre-registration this run was judged against.)*
+
+### FP-11 — ONE HOME (spec) — ⚡ **TASK ZERO, ran BEFORE everything else**
 
 **Why FIRST and not last (user, 2026-07-21).** The root initially proposed doing this after the width
 comparison, on the grounds that the comparison promotes and collapses classes so we would "move things
