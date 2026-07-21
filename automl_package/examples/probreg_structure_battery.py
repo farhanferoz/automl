@@ -929,14 +929,30 @@ _D2_DECISION_K = 2
 _D3_REFERENCE_TOY = Toy.TOY_B.value
 
 
+def _is_decision_eligible(cell: dict[str, Any]) -> bool:
+    """A cell may carry a D2 comparison only if it converged (structure.md §2's locked re-run rule).
+
+    A cell still at `hit_cap` after its one re-run at 600 epochs is flagged `converged: false` and
+    "never silently averaged in" -- a non-converged cell compared against a converged one measures
+    optimisation budget, not structure, which is the exact confound this phase exists to avoid.
+    The exclusion is applied HERE, at the single choke point both D2 matrices pass through, and is
+    reported explicitly in the decision JSON rather than being left implicit.
+    """
+    return bool(cell["final"].get("converged", False))
+
+
 def _pairwise_metric_result(cells_a: list[dict[str, Any]], cells_b: list[dict[str, Any]], rng: np.random.Generator, perpoint_key: str) -> dict[str, Any]:
     """Per-toy {mean_diff, combined_se} of arm A's vs arm B's per-point `perpoint_key` array, at k=2.
 
     Shared by BOTH the D2 primary comparison (`fixed_sigma_ll_per_point`) and the restricted
     own-NLL tie-break (`own_nll_per_point`) -- same bootstrap machinery, different array.
+
+    Non-converged cells are dropped first (`_is_decision_eligible`); a (toy, seed) pair surviving
+    on only ONE side then falls out of the seed intersection below, so a comparison is never made
+    against a cell whose partner was excluded.
     """
-    by_toy_seed_a = {(c["toy"], c["seed"]): c for c in cells_a if c["k"] == _D2_DECISION_K}
-    by_toy_seed_b = {(c["toy"], c["seed"]): c for c in cells_b if c["k"] == _D2_DECISION_K}
+    by_toy_seed_a = {(c["toy"], c["seed"]): c for c in cells_a if c["k"] == _D2_DECISION_K and _is_decision_eligible(c)}
+    by_toy_seed_b = {(c["toy"], c["seed"]): c for c in cells_b if c["k"] == _D2_DECISION_K and _is_decision_eligible(c)}
     toys = sorted({toy for (toy, _seed) in by_toy_seed_a if any(t == toy for (t, _s) in by_toy_seed_b)})
 
     per_toy: dict[str, Any] = {}
@@ -1091,6 +1107,16 @@ def decide(stage_dir: str, stage: Stage) -> dict[str, Any]:
     survivors = [a for a in by_arm if a not in disqualified]
     rng = np.random.default_rng(12345)
 
+    # The locked re-run rule's second half, made auditable: every cell excluded from the D2
+    # matrices for non-convergence is listed here so the memo can report it, rather than the
+    # exclusion being visible only as a quietly smaller n_seeds inside a per_toy entry.
+    non_converged_excluded = [
+        {"arm": arm_id, "toy": c["toy"], "k": c["k"], "seed": c["seed"], "epochs_checked": len(c["trajectory"])}
+        for arm_id, arm_cells in sorted(by_arm.items())
+        for c in sorted(arm_cells, key=lambda x: (x["toy"], x["k"], x["seed"]))
+        if not _is_decision_eligible(c)
+    ]
+
     # D2 PRIMARY (structure.md §4.5, amended 2026-07-21): heldout_fixed_sigma_mll, HIGHER is
     # better -- identically defined for every arm, so this is the metric that actually decides.
     primary_matrix, primary_beats = _pairwise_matrix(survivors, by_arm, rng, "fixed_sigma_ll_per_point", higher_is_better=True)
@@ -1131,6 +1157,7 @@ def decide(stage_dir: str, stage: Stage) -> dict[str, Any]:
         "primary_metric": "heldout_fixed_sigma_mll",
         "n_arms": len(by_arm),
         "disqualified": disqualified,
+        "non_converged_excluded": non_converged_excluded,
         "d3_ce_report": d3_ce_report,
         "survivors": survivors,
         "null_own_nll_arms": null_own_nll_arms,
@@ -1337,7 +1364,12 @@ def main() -> None:
 
     final = case["final"]
     print(
-        f"final heldout_nll_own={final['heldout_nll_own']:.4f}  heldout_fixed_sigma_mll={final['heldout_fixed_sigma_mll']:.4f}  "
+        # `heldout_nll_own` is legitimately None for a no-fitted-spread arm (structure.md §4.5 D2),
+        # so it cannot be formatted numerically. This is a SUMMARY LINE ONLY -- the cell JSON is
+        # already on disk by this point -- but an unhandled None here exits non-zero and makes a
+        # completed cell look like a failed one to the grid runner.
+        f"final heldout_nll_own={'n/a (no fitted spread)' if final['heldout_nll_own'] is None else format(final['heldout_nll_own'], '.4f')}  "
+        f"heldout_fixed_sigma_mll={final['heldout_fixed_sigma_mll']:.4f}  "
         f"hit_cap={final['hit_cap']}  converged={final['converged']}"
     )
 
