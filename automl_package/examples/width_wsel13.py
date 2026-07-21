@@ -188,6 +188,7 @@ def run_cell(
     check_every: int = DEFAULT_CHECK_EVERY,
     patience: int = DEFAULT_PATIENCE,
     min_delta: float = DEFAULT_MIN_DELTA,
+    schedule: nwn.WidthSchedule = SCHEDULE,
 ) -> tuple[dict, dict]:
     """Runs one (tier, seed) cell: trains to convergence, then Step 2 + Step 3. Returns `(case, state_dict)`.
 
@@ -228,7 +229,7 @@ def run_cell(
         patience=patience,
         min_delta=min_delta,
         seed=seed,
-        schedule=SCHEDULE,
+        schedule=schedule,
     )
     n_trustworthy = sum(1 for r in conv.values() if r.trustworthy)
     all_trustworthy = n_trustworthy == w_max
@@ -310,17 +311,29 @@ def run_cell(
             "kendall_tau_greedy_vs_index": {"tau": float(kendall_res.statistic), "p": float(kendall_res.pvalue)},
             "mean_relative_prefix_gap": mean_relative_prefix_gap,
         },
+        "training_schedule": schedule.value,
         "provenance": run_provenance(),
     }
     return case, {name: t.detach().clone() for name, t in net.state_dict().items()}
 
 
-def _cell_json_path(tier: Tier, seed: int) -> str:
-    return os.path.join(RESULTS_DIR, f"wsel13_tier{tier.value}_seed{seed}.json")
+def _schedule_suffix(schedule: nwn.WidthSchedule) -> str:
+    """Filename suffix per training schedule.
+
+    The certified schedule keeps the ORIGINAL, suffix-free filenames on purpose: those exact paths are
+    cited in `width.md` and in `shared/width_transformer_port.md`, and the plan's citation gate checks
+    that cited paths resolve. Renaming them to be symmetric would break both. The alternative schedule
+    is additive.
+    """
+    return "" if schedule is SCHEDULE else f"_{schedule.value}"
 
 
-def _state_path(tier: Tier, seed: int) -> str:
-    return os.path.join(RESULTS_DIR, f"state_tier{tier.value}_seed{seed}.pt")
+def _cell_json_path(tier: Tier, seed: int, schedule: nwn.WidthSchedule = SCHEDULE) -> str:
+    return os.path.join(RESULTS_DIR, f"wsel13_tier{tier.value}{_schedule_suffix(schedule)}_seed{seed}.json")
+
+
+def _state_path(tier: Tier, seed: int, schedule: nwn.WidthSchedule = SCHEDULE) -> str:
+    return os.path.join(RESULTS_DIR, f"state_tier{tier.value}{_schedule_suffix(schedule)}_seed{seed}.pt")
 
 
 def _jsonable(obj: object) -> object:
@@ -479,6 +492,17 @@ def main() -> None:
     parser.add_argument("--selftest", action="store_true", help="Tiny w_max=2 known-answer wiring check, then exit.")
     parser.add_argument("--summarize", action="store_true", help="Aggregate every per-cell JSON on disk into WSEL13/frozen.json.")
     parser.add_argument("--tier", type=int, choices=[t.value for t in Tier], default=None, help="SS3.8 tier this cell runs (1 = reference, 2 = noisy-easy control).")
+    parser.add_argument(
+        "--schedule", type=str, choices=[s.value for s in nwn.WidthSchedule], default=SCHEDULE.value,
+        help=(
+            "Which width-training schedule to train under. "
+            "'sandwich' (default, the CERTIFIED one) trains the narrowest AND the widest every step plus 2 random "
+            "middles -- so the widest trains every step and the LAST unit is never starved. "
+            "'nested' draws ONE width per example per pass, so the last unit trains ~1/w_max of the time. "
+            "The decreasing-importance prediction is derived for the 'nested' case; running both is what separates "
+            "'the mechanism does not exist' from 'our schedule trains the asymmetry away'."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=None, help="RNG seed for this cell (canonical suite: 0, 1, 2).")
     parser.add_argument("--max-epochs", type=int, default=DEFAULT_MAX_EPOCHS)
     parser.add_argument("--check-every", type=int, default=DEFAULT_CHECK_EVERY)
@@ -498,7 +522,11 @@ def main() -> None:
     _assert_tier_objective_available(tier)
     os.makedirs(RESULTS_DIR, exist_ok=True)
     print(f"[wsel13] tier={tier.value} toy={_TIER_CONFIG[tier].toy.value} seed={args.seed} w_max={W_MAX} arch={ARCH.value} loss={LOSS.value}", flush=True)
-    case, state_dict = run_cell(tier, args.seed, max_epochs=args.max_epochs, check_every=args.check_every, patience=args.patience, min_delta=args.min_delta)
+    schedule = nwn.WidthSchedule(args.schedule)
+    case, state_dict = run_cell(
+        tier, args.seed, max_epochs=args.max_epochs, check_every=args.check_every,
+        patience=args.patience, min_delta=args.min_delta, schedule=schedule,
+    )
 
     if not case["all_widths_trustworthy"]:
         print(
@@ -506,12 +534,12 @@ def main() -> None:
             "trustworthily. Raise --max-epochs before drawing any conclusion. ***"
         )
 
-    cell_path = _cell_json_path(tier, args.seed)
+    cell_path = _cell_json_path(tier, args.seed, schedule)
     with open(cell_path, "w") as f:
         json.dump(_jsonable(case), f, indent=2)
     print(f"wrote {cell_path}")
 
-    state_path = _state_path(tier, args.seed)
+    state_path = _state_path(tier, args.seed, schedule)
     torch.save(state_dict, state_path)
     print(f"wrote {state_path}")
 

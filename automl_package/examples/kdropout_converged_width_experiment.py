@@ -79,6 +79,12 @@ DEFAULT_MAX_EPOCHS = 200000
 
 # Width-cert W5: widths drawn per step under the `--schedule uniform` ablation (see `--schedule` help).
 _UNIFORM_SCHEDULE_DRAW_N = 4
+
+# Schedules `_train_kdropout_to_convergence` actually implements. WidthSchedule.NESTED is deliberately
+# ABSENT: this trainer has no per-example-draw branch, and before this guard existed it silently trained
+# SANDWICH instead, yielding cells labelled `nested` whose numbers were byte-identical to the certified
+# ones. Add a member here only together with its branch in the training loop.
+_IMPLEMENTED_SCHEDULES = frozenset({nwn.WidthSchedule.SANDWICH, nwn.WidthSchedule.UNIFORM})
 # Width-cert W7: report-grade delta_tie sweep for the MSE deploy baseline; the 0.25 row must reproduce
 # the canonical `deploy_bar` (regression guard asserted in `run_case`), since `sw.DELTA_TIE == 0.25`.
 DELTA_TIE_SWEEP = (0.0, 0.1, 0.25, 0.5)
@@ -239,6 +245,14 @@ def _train_kdropout_to_convergence(
         of the whole-net checkpoint for `Arch.NESTED`, else `None` (inapplicable under per-width
         checkpointing).
     """
+    if schedule not in _IMPLEMENTED_SCHEDULES:
+        raise NotImplementedError(
+            f"schedule={schedule.value} is not implemented by this trainer; implemented: "
+            f"{sorted(s.value for s in _IMPLEMENTED_SCHEDULES)}. Refusing rather than falling through to "
+            f"{nwn.WidthSchedule.SANDWICH.value}: an unimplemented schedule previously fell through silently and "
+            "produced runs labelled with a schedule they had not been trained under."
+        )
+
     w_max = net.w_max
     opt = torch.optim.Adam(net.parameters(), lr=cwe.LR)
     gen = torch.Generator(device="cpu")
