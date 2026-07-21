@@ -97,6 +97,16 @@ task report, exactly as the absorbed predecessor flagged its own judgment call):
      `--rescore` all need per-point values. All three are saved to a companion
      `<cell>_perpoint.npz` next to the per-cell JSON -- an additional artifact, not a schema
      violation, the same role WSEL-13's companion `state_*.pt` files play.
+  7. D3's identifiability disqualifier (structure.md §4.5, AMENDED 2026-07-21 by the root after
+     inspecting real PS-1 cells mid-grid: the original "any toy, any seed" wording would have
+     disqualified every `ce` arm -- `broad_unimodal`/`toy_c_broad` are single-mode twins built so
+     y's fine structure is NOT recoverable from x, so chance-level `slice_accuracy` there is
+     correct, not broken; and "any seed" tripped a working mechanism on ~1% seed noise). `ce` arms
+     now gate ONLY on the SEED-MEAN `slice_accuracy` on the reference toy `toy_b` (the one toy
+     with genuine, known-k components), per k; every other toy's `slice_accuracy` is a recorded,
+     non-gating diagnostic. An arm with no `toy_b` cell at all is recorded as not-evaluated, never
+     disqualified by omission. `none` arms (`ordering_violations`, any seed) are unchanged; the
+     1.5/k bar itself is unchanged.
 
 CLI (locked):
     --stage {1,2,3,4} --supervision {none,ce} --spread {per_input,fixed_shared,all_constant}
@@ -913,6 +923,11 @@ def _load_perpoint(cell: dict[str, Any], key: str) -> np.ndarray | None:
 # now locked into structure.md §4.5 by the root's 2026-07-21 D2 amendment.
 _D2_DECISION_K = 2
 
+# D3-ce's amended reference toy (structure.md §4.5, amended 2026-07-21): the ONE toy whose classes
+# are genuine components with a known intrinsic k, so a cross-entropy-supervised classifier's
+# accuracy is a meaningful signal there. Every other toy's slice_accuracy is diagnostic only.
+_D3_REFERENCE_TOY = Toy.TOY_B.value
+
 
 def _pairwise_metric_result(cells_a: list[dict[str, Any]], cells_b: list[dict[str, Any]], rng: np.random.Generator, perpoint_key: str) -> dict[str, Any]:
     """Per-toy {mean_diff, combined_se} of arm A's vs arm B's per-point `perpoint_key` array, at k=2.
@@ -1008,6 +1023,7 @@ def decide(stage_dir: str, stage: Stage) -> dict[str, Any]:
         by_arm.setdefault(c["_arm_id"], []).append(c)
 
     disqualified: dict[str, list[str]] = {}
+    d3_ce_report: dict[str, Any] = {}
     for arm_id, arm_cells in by_arm.items():
         reasons: list[str] = []
         # D1 -- degeneracy disqualifier. min_sigma_ratio at a checkpoint is approximated as
@@ -1038,15 +1054,34 @@ def decide(stage_dir: str, stage: Stage) -> dict[str, Any]:
                         f"D1: toy={c['toy']} k={c['k']} seed={c['seed']} epoch={entry['epoch']} "
                         f"min_sigma_ratio~={ratio:.4f} gap={gaps[i]:.4f} (increasing over last 3 checkpoints)"
                     )
-        # D3 -- identifiability disqualifier.
+        # D3 -- identifiability disqualifier. AMENDED 2026-07-21 (see module docstring, design
+        # decision 7): `ce` arms gate ONLY on the reference toy's (toy_b) SEED-MEAN slice_accuracy,
+        # per k -- every other toy's slice_accuracy is a non-gating diagnostic, and an arm with no
+        # toy_b cell at all is recorded as not-evaluated rather than disqualified by omission.
+        # `none` arms are unchanged.
         supervision = arm_cells[0]["arm"]["supervision"]
-        for c in arm_cells:
-            if supervision == Supervision.CE.value:
-                sa = c["final"]["slice_accuracy"]
-                bar = 1.5 / c["k"]
-                if sa < bar:
-                    reasons.append(f"D3(ce): toy={c['toy']} k={c['k']} seed={c['seed']} slice_accuracy={sa:.4f} < 1.5/k={bar:.4f}")
-            else:
+        if supervision == Supervision.CE.value:
+            reference_cells_by_k: dict[int, list[dict[str, Any]]] = {}
+            for c in arm_cells:
+                if c["toy"] == _D3_REFERENCE_TOY:
+                    reference_cells_by_k.setdefault(c["k"], []).append(c)
+            per_k_report: dict[str, Any] = {}
+            for k, k_cells in reference_cells_by_k.items():
+                seed_mean_sa = float(np.mean([c["final"]["slice_accuracy"] for c in k_cells]))
+                bar = 1.5 / k
+                passed = seed_mean_sa >= bar
+                per_k_report[str(k)] = {"seed_mean_slice_accuracy": seed_mean_sa, "bar": bar, "n_seeds": len(k_cells), "pass": passed}
+                if not passed:
+                    reasons.append(f"D3(ce): toy={_D3_REFERENCE_TOY} k={k} seed_mean_slice_accuracy={seed_mean_sa:.4f} < 1.5/k={bar:.4f}")
+            other_toy_diagnostics = {f"{c['toy']}_seed{c['seed']}_k{c['k']}": c["final"]["slice_accuracy"] for c in arm_cells if c["toy"] != _D3_REFERENCE_TOY}
+            d3_ce_report[arm_id] = {
+                "reference_toy": _D3_REFERENCE_TOY,
+                "evaluated": bool(per_k_report),
+                "per_k": per_k_report,
+                "other_toy_slice_accuracy_diagnostic_only": other_toy_diagnostics,
+            }
+        else:
+            for c in arm_cells:
                 ov = c["trajectory"][-1]["ordering_violations"] if c["trajectory"] else 0
                 if ov > 0:
                     reasons.append(f"D3(none): toy={c['toy']} k={c['k']} seed={c['seed']} ordering_violations={ov} > 0")
@@ -1096,6 +1131,7 @@ def decide(stage_dir: str, stage: Stage) -> dict[str, Any]:
         "primary_metric": "heldout_fixed_sigma_mll",
         "n_arms": len(by_arm),
         "disqualified": disqualified,
+        "d3_ce_report": d3_ce_report,
         "survivors": survivors,
         "null_own_nll_arms": null_own_nll_arms,
         "per_arm_summary": per_arm_summary,
