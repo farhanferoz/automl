@@ -142,7 +142,24 @@ passed. `SharedTrunkPerWidthHeadNet` is the architecture of record. Evidence:
 `docs/width_mse_2026-07-16/verdict_variable_width_mse.md` §10, `width-cert.md:318-328`.
 **This is an architecture result. It certifies none of §1's three models.**
 
+**Established (MECHANISM, recorded 2026-07-21 after a user discussion — an ACCOUNT, not new evidence).**
+Why the shared readout fails and the per-width readout succeeds is now written down once, so it is not
+re-derived: `shared/width_transformer_port.md` §1. Summary: the summed-over-widths loss asks a single
+shared output weight for two incompatible things (width 1 wants hidden unit 1 to carry the whole
+prediction; width `w_max` wants it as one contributor of `w_max`), and per-width output nodes end the
+conflict by giving each width its own copy of the contested parameter. Same note carries the parameter
+cost arithmetic (§3), the conditions under which this design ports to a transformer (§4–§5), and the
+structural argument that DEPTH is the better port target (§7, an input to `depth-selection.md`, not a
+width claim). **`NestedWidthNet` (arch #1) is CLOSED — no further compute (user, 2026-07-21).**
+
 **NOT established — each is a task below:**
+- **The importance-ordering property the account above rests on.** Hidden unit `j` receives gradient
+  only from widths `k >= j`, so the summed loss *induces* a decreasing importance ordering — never
+  measured. It matters more at transformer scale, not less. → **WSEL-13**
+- **What the width schedules cost and whether sampling buys anything once the trunk is computed
+  once.** Four-widths-per-step is measured (`width-cert.md:210-220`); one-width-per-batch and
+  all-widths-every-step are not, and no schedule cell has ever recorded parameters, executed FLOPs or
+  wall-clock. → **WSEL-14**
 - **W-SHARED does not exist as library code.** The only cheap global readouts are script-level
   `argmin` (`automl_package/examples/sinc_width_experiment.py:486-525`;
   `automl_package/examples/moe_flexnn_comparison.py:309-336`), which is the wrong rule per §1. → **WSEL-3**
@@ -323,6 +340,16 @@ models, which are trained independently and are exactly the non-shared implement
 Order: **WSEL-0 → WSEL-1 → WSEL-2 → WSEL-3 → WSEL-4 → WSEL-5 → (WSEL-6 ∥ WSEL-7 ∥ WSEL-11) → WSEL-8 →
 WSEL-10.** *(**WSEL-11** added 2026-07-21, MASTER Decision 21 — parallel, independent of WSEL-6/7,
 and must land before WSEL-8 reads its numbers.)*
+
+**Efficiency/mechanism track, added 2026-07-21 (user, discussion) — runs alongside the order above:
+WSEL-12 → WSEL-14, with WSEL-13 parallel to both.**
+- **WSEL-12 and WSEL-14 SHARE A WRITE SET** (`kdropout_converged_width_experiment.py` and
+  `automl_package/examples/nested_width_net.py`) and are therefore **NOT independent**: they may not be dispatched in
+  the same wave, and WSEL-14 must be briefed only after WSEL-12 has merged. Write-set overlap, not
+  topic overlap, is what decides this (MASTER, single-writer rule).
+- **WSEL-13 is disjoint** (new file only) and dispatches in parallel with either.
+- **Both WSEL-12 and WSEL-14 produce a DRIVER; the ROOT runs the grid** backgrounded — a subagent may
+  author a sweep but may never own its execution (MASTER §Rules, Environment).
 *(**WSEL-9 is ⏸ PARKED** by the 2026-07-20 toys-only ruling and is deliberately absent from this
 order — a dispatcher must skip it, not schedule it. Its spec is retained for a possible later pass.)*
 WSEL-0 through WSEL-5 are the "fix it properly and completely" phase; no comparison compute runs
@@ -774,18 +801,168 @@ That ablation drew FOUR widths per step, not one; one-width-per-batch is unteste
 **Files (write set):** `automl_package/examples/kdropout_converged_width_experiment.py` ·
 `automl_package/examples/nested_width_net.py` (or the package architectures module, whichever holds
 the loss helper after FP-2's move)
-**Spec:** route the training step through a single trunk evaluation — one `all_widths_forward` (or
-an equivalent that computes `h` once and applies each sampled width's readout to it) — and sum the
-sampled widths' losses off that. Bit-for-bit equivalence is the bar, not "close enough".
+**Spec (execution-level).** Steps, in order:
+- [ ] **Step 1 — the equivalence test FIRST, and prove it fails.** Add
+  `tests/test_nested_width_single_trunk.py`: build `SharedTrunkPerWidthHeadNet(w_max=6)` under
+  `torch.manual_seed(0)`, a fixed `(64, 1)` input and target; compute (a) the current per-width loop's
+  summed loss over `widths=[1, 6, 3, 4]` and its `.grad` for every parameter, (b) the single-trunk
+  path's; assert losses equal to `1e-12` and every gradient equal to `1e-10` (`torch.allclose`).
+  **Prove-it-fails run, recorded in the task report:** deliberately mis-index the readouts (use
+  `widths` reversed) and show the test FAILS; restore. A test that passes both ways is not evidence
+  (MASTER Corrections, 2026-07-20).
+- [ ] **Step 2 — implement.** In `_train_kdropout_to_convergence`
+  (`automl_package/examples/kdropout_converged_width_experiment.py:118`), replace the
+  `for k in widths: total_loss += _width_loss(...)` accumulation with ONE trunk evaluation whose
+  per-width readouts are summed off it. Reuse `all_widths_forward`
+  (`automl_package/models/architectures/nested_width_net.py:81-95`) where the sampled set is all
+  widths; otherwise add a helper alongside it that computes `h` once and applies the sampled widths'
+  readouts. **Ladder rung 2: extend the existing helper, do not write a parallel one.**
+- [ ] **Step 3 — instrument cost (additive only).** Record into the summary JSON's `config` block:
+  `train_wall_clock_s` (per seed), `trunk_evals_per_step` (int), and `run_provenance`
+  (`automl_package/utils/run_provenance.py`, already attached by this driver). Additive fields only —
+  no existing field changes.
+- [ ] **Step 4 — root re-runs one canonical cell** (`--arch shared_trunk --loss mse`, seeds 0/1/2,
+  defaults otherwise) and diffs against the ledger.
+**Bit-for-bit equivalence is the bar, not "close enough".**
 **Non-goals:** no change to the schedule, the architecture, the loss, or any bar. This is a pure
-efficiency fix and must not move a single number.
-*Orchestration:* parallel: yes (disjoint from the studies) · deps: none · tier: sonnet high ·
-scale: static · shape: execution ·
-verify: a test asserts the refactored step's loss and gradients match the per-width loop's to within
-float tolerance on a fixed seed (prove it FAILS if the readouts are mis-indexed); re-run one
-canonical cell and show `fit_bar.ratio_to_floor` unchanged against
+efficiency fix and must not move a single number. Do NOT add the new schedules here — that is WSEL-14.
+*Orchestration:* parallel: yes (disjoint from the studies; **NOT from WSEL-14**, shared write set) ·
+deps: none · tier: sonnet high · scale: static · shape: execution ·
+verify: (1) `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_nested_width_single_trunk.py -q`
+passes AND the prove-it-fails run is shown; (2) the re-run cell's `fit_bar.ratio_to_floor` is unchanged
+for every width against
 `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse.json`;
-report the wall-clock before/after.
+(3) the before/after wall-clock is reported, with `OMP_NUM_THREADS=4` pinned on both sides (thread
+count moves this metric by up to ~5% — `shared/fp5-stale-reference-finding.md`).
+
+### WSEL-13 — is the induced importance ordering real? (the one unmeasured property the design rests on)
+
+**Why.** The certified design's account (`shared/width_transformer_port.md` §1–§2) rests on a property
+nobody has measured: because hidden unit `j` receives gradient only from widths `k >= j`, the summed
+loss should induce **decreasing importance with index** — unit 1 the most important, the last unit the
+least. If it does not hold, "nested prefix" is a naming convention rather than a mechanism, and the
+transformer port argument (§4 of that note) loses its basis. It matters MORE with many rungs, which is
+the transformer regime.
+
+**⚠️ Correction to an earlier claim in `RESUME.md`: this task DOES retrain.** "No retraining, uses the
+landed models" was wrong — verified 2026-07-21, `find` over
+`automl_package/examples/capacity_ladder_results/` returns **no saved width state dicts** (the `.pt`
+files there belong to F1/V0, not to any W_ dir). The canonical cell is a 1-D toy and retraining 3 seeds
+is minutes, so this is cheap, but it is not free and the task must say so.
+
+**Files (write set):** `automl_package/examples/width_wsel13.py` (Create) ·
+`automl_package/examples/capacity_ladder_results/WSEL13/` (Create by runs)
+**Reads (never writes):** `automl_package/examples/kdropout_converged_width_experiment.py` (imports
+`_train_kdropout_to_convergence`, `:118`) · `automl_package/models/architectures/nested_width_net.py`
+
+**Spec (execution-level).**
+- [ ] **Step 1 — train the canonical cell, 3 seeds.** `SharedTrunkPerWidthHeadNet`, `w_max=12`,
+  `hetero`, `n_train=1500`, `sigma=0.05`, `lr=1e-2`, MSE loss, sandwich schedule, the driver's own
+  convergence gate — i.e. the certified configuration, by importing the driver's training function, not
+  by reimplementing a loop. Save each trained `state_dict` to `WSEL13/state_seed<S>.pt` so the
+  diagnostic is re-runnable without retraining ever again.
+- [ ] **Step 2 — diagnostic A, single-unit ablation (uses only the widest head).** For each hidden
+  unit `j` in `1..w_max`: zero unit `j` alone in the hidden vector (all others intact), read the
+  width-`w_max` head, and record the HELD-OUT MSE increase vs the unablated net. That is
+  `importance_j`. Report Spearman correlation between `j` and `importance_j`.
+- [ ] **Step 3 — diagnostic B, prefix vs greedy (the non-circular test).** The per-width heads were
+  trained on prefix masks, so scoring an arbitrary unit subset with them is circular. Instead **re-fit a
+  fresh linear readout by ordinary least squares (closed form) on the frozen trunk's hidden features**
+  for each candidate subset, on the training split, scored on held-out. For each `k in 1..w_max`
+  compare: `prefix_k` (units `1..k`) against `greedy_k` (units chosen by forward selection). Report
+  per-`k` held-out MSE for both, the greedy selection order, and Kendall tau between the greedy order
+  and the index order.
+- [ ] **Step 4 — write `automl_package/examples/capacity_ladder_results/WSEL13/frozen.json`** carrying `spearman_index_vs_importance` (per seed),
+  `mean_relative_prefix_gap`, `kendall_tau_greedy_vs_index` (per seed), and `ordering_holds: bool` per
+  the bars below.
+
+**Pre-registered bars (fixed BEFORE the run; no re-run on failure, no bar edits after seeing numbers).**
+- **Primary:** Spearman correlation between index and ablation importance `<= -0.5` on **at least 2 of
+  3 seeds**.
+- **Secondary:** mean over `k` of `(prefix_k - greedy_k) / greedy_k` `<= 0.10`.
+- `ordering_holds = primary AND secondary`.
+**A FAIL is a finding, not a bug** — it does not block this strand's battery; it invalidates §2/§4 of
+`shared/width_transformer_port.md`, which the root then corrects in the same turn, and it is reported
+prominently for end-of-run user review.
+
+**Non-goals:** no retuning, no architecture change, no new selection rule, no other toy, no other arch
+(`NestedWidthNet` is closed). Do not touch the driver — import it.
+*Orchestration:* parallel: yes (write set disjoint from WSEL-12/WSEL-14) · deps: none · tier: sonnet
+high · scale: static (3 seeds) · shape: research ·
+verify: `AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel13.py --selftest`
+PASS (a 2-unit toy where the true ordering is known by construction, asserting the diagnostic recovers
+it — the driver's own correctness check); then one JSON per seed plus
+`automl_package/examples/capacity_ladder_results/WSEL13/frozen.json` exist and carry every field named
+in Step 4.
+
+### WSEL-14 — schedule × bunch size, measured against the FIXED loop, with costs
+
+**Why.** MASTER Decision 20 gives width the sandwich because "each rung costs a real forward". WSEL-12
+removes that premise: with one trunk evaluation per step, training every width every step costs ~one
+forward plus cheap readout arithmetic. **So the sampling schedules can no longer be justified on
+compute for width, and any remaining case for them is a quality/regularisation claim that must be
+pre-registered as one** (`shared/width_transformer_port.md` §6). This task measures the axis properly
+and, for the first time in this strand, records what each cell COSTS.
+
+**Already measured — do NOT re-run for error, only for wall-clock:** four widths drawn uniformly per
+step reached the floor on 3 seeds (`width-cert.md:210-220`; draw count
+`automl_package/examples/kdropout_converged_width_experiment.py:80`). **Untested:** one width per batch,
+and all widths every step (the latter is what the shipping class already does unvalidated — §1's
+warning, `flexnn-package.md` FP-4).
+
+**Files (write set):** `automl_package/examples/kdropout_converged_width_experiment.py` ·
+`automl_package/examples/nested_width_net.py:108-116` (the `WidthSchedule` enum) ·
+`automl_package/examples/capacity_ladder_results/WSEL14/` (Create by runs)
+
+**Spec (execution-level).**
+- [ ] **Step 1 — the schedule axis becomes a parameter, defaults byte-identical.** Replace the
+  hardcoded `_UNIFORM_SCHEDULE_DRAW_N = 4`
+  (`automl_package/examples/kdropout_converged_width_experiment.py:80`) with a `--uniform-draw-n` CLI
+  argument **defaulting to 4**, and add a `WidthSchedule.ALL` member (all widths every step) to the
+  existing enum — **extend `WidthSchedule`, never a new enum and never a string literal** (CLAUDE.md:
+  closed sets get a type). Existing invocations must produce byte-identical results; show that.
+- [ ] **Step 2 — pin the optimiser footgun in a test.** `tests/test_width_schedule_bunching.py`:
+  under bunch size 1, assert that a parameter belonging to an unselected width's head has
+  `grad is None` after `backward()` (NOT a zero tensor), and that its values are unchanged after
+  `opt.step()`. **Prove-it-fails:** with `zero_grad(set_to_none=False)` the second assertion must FAIL
+  (the optimiser steps zero-gradient parameters; with weight decay it would shrink heads no batch asked
+  to change). Verified mechanism: plain Adam at
+  `automl_package/examples/nested_width_net.py:271`, PyTorch 2.10 `zero_grad(set_to_none=True)` default.
+- [ ] **Step 3 — cost instrumentation.** Each cell's summary records: `train_wall_clock_s`,
+  `steps_to_converge`, `params_allocated`, `params_effective` (the `1+2+...+w_max` triangle — see
+  `shared/width_transformer_port.md` §3), and `executed_flops` per width via
+  `automl_package/utils/capacity_accounting.py` (reuse; do not re-derive a FLOP formula). Also record
+  **train and held-out MSE per width** so the regularisation question is answerable.
+- [ ] **Step 4 — the grid (ROOT runs it, backgrounded; the worker only lands Steps 1–3).**
+  Cells: bunch size `b in {1, 2, 4, 12(=ALL)}` under `WidthSchedule.UNIFORM`/`ALL`, plus the
+  **sandwich** re-run purely for a post-fix wall-clock reference — 5 arms × seeds 0/1/2 = **15 runs**,
+  canonical cell throughout (`--arch shared_trunk --loss mse --toy hetero`, `n_train=1500`,
+  `sigma=0.05`, `w_max=12`), `--tag wsel14_b<N>`, `OMP_NUM_THREADS=4` pinned on every run (thread count
+  moves the metric by up to ~5%, `shared/fp5-stale-reference-finding.md`).
+
+**Pre-registered readouts and bars (fixed BEFORE the run).**
+- **Fit:** each arm's per-width held-out MSE vs the sandwich reference. Bar: within **10%** relative at
+  every width. *(The 2% bar is retired — it was tighter than its own thread-count noise floor;
+  `shared/fp5-stale-reference-finding.md`.)*
+- **Cost:** wall-clock per step and to convergence, per arm. Prediction on record: after WSEL-12 the
+  ALL arm is within ~1.5× of the b=1 arm per step; if it is not, the fix is incomplete.
+- **Regularisation:** per-width `train - held_out` MSE gap per arm. Prediction on record: sampling does
+  NOT reduce the gap. **This is the arm of the task that answers "does width dropout buy robustness".**
+- **Expected failure, recorded in advance so a confirmation is not read as a discovery:** `b=1` should
+  under-fit the widest width — the retired per-example draw already did, and it was *gentler* (every
+  width still saw gradient from a slice of every batch).
+
+**Non-goals:** no change to the architecture, the toy, the selection rule or the convergence gate; no
+new schedule beyond the bunch-size axis and `ALL`; no re-litigation of MASTER Decision 20 in prose —
+this task produces the measurement that Decision 20 gets revisited against, by the ROOT, afterwards.
+*Orchestration:* parallel: **no — shares a write set with WSEL-12** · deps: **WSEL-12 merged** · tier:
+sonnet high (driver) + root (grid) · scale: dynamic (15 cells) · shape: execution ·
+verify: (1) `--selftest` PASS and a default-flag run byte-identical to the pre-change output;
+(2) `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_width_schedule_bunching.py -q`
+passes with its prove-it-fails run shown; (3) 15 JSONs under
+`automl_package/examples/capacity_ladder_results/WSEL14/`, each carrying every field in Step 3 and
+`hit_cap: false`; (4) an
+`automl_package/examples/capacity_ladder_results/WSEL14/frozen.json` with the three readouts above.
 
 ---
 

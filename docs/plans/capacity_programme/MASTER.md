@@ -275,6 +275,34 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     stochasticity (or its absence) must never be the de-facto regulariser. Baselines receive the
     same treatment or the comparison is not like-for-like.
 
+22. **The transformer port target is DEPTH; width ports only where the readout is linear (user,
+    2026-07-21).** The programme's stated bet is a flexible-capacity architecture that transfers to a
+    transformer. The analysis is recorded ONCE, in `shared/width_transformer_port.md`, and is
+    **[ARGUMENT], not measurement** — it may not be cited as a result:
+    - **What ports from width:** per-rung readouts over a nested prefix, *wherever the readout is
+      linear and no normalisation intervenes* — in a transformer, the feed-forward hidden width and
+      the head count. Cost: `+~44%` FFN parameters, **zero extra inference cost** (§3 of the note).
+    - **What does not:** any claim that a narrow forward is a free by-product of a wide one across a
+      normalisation layer. Normalisation is repairable at bounded cost (cumulative prefix statistics;
+      per-rung normalisation parameters — the slimmable-networks fix), but the model-dimension case
+      stays global and expensive (§5).
+    - **Why depth is structurally better:** a transformer is already a stack of shape-preserving
+      blocks, so a depth prefix is *literally* a sub-computation of the full forward — no vector is
+      truncated, every normalisation sees a full-width vector, all rungs come off one pass, and ONE
+      output projection serves every rung. Width has to engineer all three. Consistent with what we
+      measured: depth's certified arm won with a SHARED readout, width with per-rung readouts.
+    - **Consequences, binding:** (a) `NestedWidthNet` (arch #1) is **CLOSED — no further compute**;
+      (b) width's remaining value is the mechanism account plus the unmeasured importance-ordering
+      property (`width.md` **WSEL-13**) and the schedule/cost sweep (**WSEL-14**) — not a broader
+      width programme; (c) **cost is a first-class recorded output** from here on (parameters,
+      executed FLOPs at the deployed rung, wall-clock), reusing
+      `automl_package/utils/capacity_accounting.py`, never argued in prose; (d) the depth material is
+      an INPUT to `depth-selection.md`, not a width claim, and is blocked behind that strand's
+      failing positive control (Decision 14); (e) ⚠️ **depth has NO literature pillar** — width got
+      one (`docs/plans/width_dial_2026-07-11/nested_architecture_research_2026-07-11.md`), early
+      exiting in transformer stacks is a crowded area, and **no depth result may be positioned as
+      novel until an equivalent survey exists.**
+
 ## Rules (cache discipline)
 
 ⚠️ **THE NUMBERS GATE IS PARTIAL — strengthen it before the next planning round.**

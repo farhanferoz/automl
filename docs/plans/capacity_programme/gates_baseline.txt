@@ -66,3 +66,11 @@ docs/plans/capacity_programme/shared/p5_middle_k_coherence.md       # P5
 automl_package/examples/capacity_ladder_results/P7/frozen.json      # P7 (verify test -f)
 
 # --- width.md Create target (parked 2026-07-21, root) ------------------------------------------
+# --- width.md WSEL-12/13/14 Create targets (parked 2026-07-21, root) ----------------------------
+# Efficiency/mechanism track added after the 2026-07-21 width discussion. Each is named in its
+# task's Files (write set) AND asserted by that task's own verify line (pytest / test -f).
+tests/test_nested_width_single_trunk.py                              # WSEL-12 Step 1 (verify 1, pytest)
+automl_package/examples/width_wsel13.py                              # WSEL-13 write set (verify --selftest)
+automl_package/examples/capacity_ladder_results/WSEL13/frozen.json   # WSEL-13 Step 4 (verify)
+tests/test_width_schedule_bunching.py                                # WSEL-14 Step 2 (verify 2, pytest)
+automl_package/examples/capacity_ladder_results/WSEL14/frozen.json   # WSEL-14 verify (4)
