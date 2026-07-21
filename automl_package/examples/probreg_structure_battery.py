@@ -1013,7 +1013,18 @@ def decide(stage_dir: str, stage: Stage) -> dict[str, Any]:
         # D1 -- degeneracy disqualifier. min_sigma_ratio at a checkpoint is approximated as
         # per_class_sigma.min / sigma_toy (design decision 4: exact for the homoscedastic screen
         # toys, an RMS-based approximation for the heteroscedastic ones).
-        for c in arm_cells:
+        #
+        # D1 is INAPPLICABLE to an arm with no fitted spread, and is skipped EXPLICITLY rather than
+        # by luck. D1 asks "did a LEARNED spread collapse onto individual targets"; a `fixed_shared`
+        # arm has none, so it cannot fail that way. The ratio guard below happens to skip it today
+        # (per_class_sigma == sigma_toy exactly, so the ratio is 1.0), but that is accidental: for
+        # such an arm the trajectory's `*_nll_own` entries hold squared error, not nats, so if the
+        # ratio definition or D1_MIN_SIGMA_RATIO_THRESHOLD ever changed, the gap test would compare
+        # a squared-error gap against a threshold in nats and could disqualify the Decision-26
+        # control arm on a units mismatch. Same principle as the D2 amendment: where a quantity is
+        # undefined for an arm, refuse it rather than let a number that happens to exist stand in.
+        d1_cells = arm_cells if _own_nll_is_defined_json(arm_cells[0]["arm"]) else []
+        for c in d1_cells:
             traj = c["trajectory"]
             gaps = [entry["heldout_nll_own"] - entry["train_nll_own"] for entry in traj]
             for i, entry in enumerate(traj):
