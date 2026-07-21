@@ -5,7 +5,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from automl_package.enums import NClassesSelectionMethod, ProbabilisticRegressionOptimizationStrategy, RegressionStrategy, TaskType, UncertaintyMethod
+from automl_package.enums import HeadSpread, NClassesSelectionMethod, ProbabilisticRegressionOptimizationStrategy, RegressionStrategy, TaskType, UncertaintyMethod
 from automl_package.models.common.monotonicity_config_mixin import MonotonicityConfigMixin
 from automl_package.models.common.regression_heads import SeparateHeadsRegressionModule, SingleHeadFinalOutputRegressionModule, SingleHeadNOutputsRegressionModule
 from automl_package.models.neural_network import PyTorchNeuralNetwork
@@ -39,6 +39,7 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
         # object.__init__ via cooperative MRO.
         centroids = kwargs.pop("centroids", None)
         use_anchored_heads = kwargs.pop("use_anchored_heads", False)
+        head_spread = kwargs.pop("head_spread", HeadSpread.PER_INPUT)
         MonotonicityConfigMixin.__init__(self, **kwargs)
         self.input_size = input_size
         self.device = device
@@ -116,6 +117,7 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
                 constrain_middle_class=self.constrain_middle_class,
                 centroids=centroids,
                 use_anchored_heads=use_anchored_heads,
+                head_spread=head_spread,
             )
         elif self.regression_strategy == RegressionStrategy.SINGLE_HEAD_N_OUTPUTS:
             self.regression_module = SingleHeadNOutputsRegressionModule(

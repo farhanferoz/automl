@@ -12,6 +12,7 @@ from automl_package.enums import (
     BoundaryRegularizationMethod,
     CapacitySelection,
     ExplainerType,
+    HeadSpread,
     NClassesRegularization,
     NClassesSelectionMethod,
     ProbabilisticRegressionOptimizationStrategy,
@@ -125,6 +126,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         "target_transform": None,
         "prob_reg_loss_type": ProbRegLossType.GAUSSIAN_LTV,
         "use_anchored_heads": False,
+        "head_spread": HeadSpread.PER_INPUT,
+        "fixed_sigma_train": None,
         # Ordering-constraint identifiability (see docs/probreg_identifiability_research.md §3.3, §7.7).
         # None = auto: enable (weight=1.0) only for the (SEPARATE_HEADS, Gaussian-LTV, REGRESSION_ONLY)
         # triple — the single configuration where the penalty measurably helps. Redundant under
@@ -169,10 +172,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             and kwargs.get("uncertainty_method") != UncertaintyMethod.PROBABILISTIC
         ):
             logger.warning(
-                f"Selected optimization_strategy requires a probabilistic uncertainty method. "
-                f"Overriding uncertainty_method from {kwargs.get('uncertainty_method').value} to {UncertaintyMethod.PROBABILISTIC.value}."
+                f"Selected optimization_strategy ({kwargs.get('optimization_strategy')}) normally pairs with a "
+                f"probabilistic uncertainty method, but uncertainty_method={kwargs.get('uncertainty_method').value} "
+                "is permitted for labelled comparison arms (structure.md PS-A1) -- uncertainty_method is left as-is."
             )
-            kwargs["uncertainty_method"] = UncertaintyMethod.PROBABILISTIC
 
         output_size = 2 if kwargs.get("uncertainty_method") == UncertaintyMethod.PROBABILISTIC else 1
         kwargs["output_size"] = output_size
@@ -191,6 +194,14 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             self.n_classes_regularization = NClassesRegularization[self.n_classes_regularization.upper()]
         if isinstance(self.prob_reg_loss_type, str):
             self.prob_reg_loss_type = ProbRegLossType[self.prob_reg_loss_type.upper()]
+        if isinstance(self.head_spread, str):
+            self.head_spread = HeadSpread[self.head_spread.upper()]
+        if not isinstance(self.head_spread, HeadSpread):
+            # The head-spread branches are `is` identity checks against enum members, so a non-member
+            # value would match none of them and SILENTLY behave as PER_INPUT. Refuse instead: this
+            # programme has already shipped one silent fall-through to a default that produced runs
+            # labelled with a configuration they were never trained under.
+            raise TypeError(f"head_spread must be a HeadSpread member or its string value, got {type(self.head_spread).__name__}: {self.head_spread!r}")
         if isinstance(self.capacity_selection, str):
             self.capacity_selection = CapacitySelection[self.capacity_selection.upper()]
 
@@ -246,6 +257,9 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 "vacuous (see predict_distribution's matching refusal for the same layout, and MASTER Decision 29 "
                 "/ probreg.md P10). SINGLE_HEAD_N_OUTPUTS remains legal under NESTED as a labelled comparison arm."
             )
+
+        if self.prob_reg_loss_type == ProbRegLossType.FIXED_SIGMA_MIXTURE and self.fixed_sigma_train is None:
+            raise ValueError("prob_reg_loss_type=FIXED_SIGMA_MIXTURE requires fixed_sigma_train (no default -- structure.md §4.3).")
 
         if self.use_monotonic_constraints and self.regression_strategy != RegressionStrategy.SEPARATE_HEADS:
             logger.warning("Monotonic constraints are only supported for the 'SEPARATE_HEADS' regression strategy.")
@@ -431,6 +445,18 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             mus = per_head_outputs[:, : self.n_classes, 0]
             log_vars = per_head_outputs[:, : self.n_classes, 1]
             regression_loss = mdn_nll(y_true_squeezed, probs_for_mdn, mus, log_vars)
+        elif self.prob_reg_loss_type == ProbRegLossType.FIXED_SIGMA_MIXTURE and per_head_outputs is not None:
+            if self.fixed_sigma_train is None:
+                raise ValueError("prob_reg_loss_type=FIXED_SIGMA_MIXTURE requires fixed_sigma_train (no default -- structure.md §4.3).")
+            logits_for_mix = classifier_logits_out
+            if self.optimization_strategy in (
+                ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
+                ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
+            ):
+                logits_for_mix = logits_for_mix.detach()  # mirror the MDN back-door plug
+            probs_for_mix = torch.softmax(logits_for_mix[:, : self.n_classes], dim=-1)
+            mus = per_head_outputs[:, : self.n_classes, 0]
+            regression_loss = -fixed_sigma_mixture_log_likelihood(y_true_squeezed, probs_for_mix, mus, sigma=self.fixed_sigma_train).mean()
         else:
             regression_loss = calculate_combined_loss(
                 predictions=final_predictions,
@@ -624,6 +650,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             constrain_middle_class=self.constrain_middle_class,
             centroids=getattr(self, "_per_class_centroids", None),
             use_anchored_heads=self.use_anchored_heads,
+            head_spread=self.head_spread,
         )
         self.model.to(self.device)
 
