@@ -74,3 +74,6 @@ automl_package/examples/width_wsel13.py                              # WSEL-13 w
 automl_package/examples/capacity_ladder_results/WSEL13/frozen.json   # WSEL-13 Step 4 (verify)
 tests/test_width_schedule_bunching.py                                # WSEL-14 Step 2 (verify 2, pytest)
 automl_package/examples/capacity_ladder_results/WSEL14/frozen.json   # WSEL-14 verify (4)
+tests/test_prefix_norm_equivalence.py                                # WSEL-15 Step 1 (verify 1, pytest)
+automl_package/examples/width_wsel15.py                              # WSEL-15 write set (verify 2, --selftest)
+automl_package/examples/capacity_ladder_results/WSEL15/frozen.json   # WSEL-15 Step 5 (verify 4)

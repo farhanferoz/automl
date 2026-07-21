@@ -335,6 +335,37 @@ models, which are trained independently and are exactly the non-shared implement
 
 ---
 
+## 3.7 MEAN-ONLY IS BINDING ON EVERY WIDTH RUN — and it is NOT enforced by the code
+
+MASTER Decision 2: the width strand is **MSE-only; variance fitting is PARKED** (user, re-affirmed
+2026-07-21: "we shouldn't be fitting the sigmas... it will overfit"). Recorded, but the code defaults
+the other way, so the rule has been leaking:
+
+- **WD6 (found 2026-07-21) — the shipping driver's default loss FITS VARIANCE.**
+  `automl_package/examples/kdropout_converged_width_experiment.py:553` defaults `--loss` to `nll`
+  (Gaussian negative log-likelihood, mean AND log-variance), commented "the old default". Every
+  certified run passed `--loss mse` explicitly; nothing stops the next one from forgetting.
+  **Binding on every task in §4: pass `--loss mse` explicitly and assert it in the run's own
+  provenance.** *(Not re-defaulted here: flipping a driver default silently changes the meaning of
+  every un-flagged historical invocation. Flipping it is a task for the cleanup pass, with a
+  reproduction check — not a drive-by edit.)*
+- **WD7 (found 2026-07-21) — the regularisation study TRAINED VARIANCE.**
+  `automl_package/examples/width_wsel11.py:98-101` trains through
+  `gaussian_log_likelihood(mean, log_var, y)` on `IndependentWidthNet`, whose variance heads are
+  real. So the study that concluded "explicit regularisation does not move the selected width" was
+  run on the **Gaussian-likelihood objective**, while everything it is compared against is
+  **mean-only**. **Consequence: that verdict is NOT like-for-like and may not be cited as clearing
+  the battery until it is re-derived mean-only, or the discrepancy is argued in writing.**
+  Escalated to the user 2026-07-21; **no re-run started** (the user asked that execution hold).
+  This does not automatically overturn the verdict — over-fitting the variance would, if anything,
+  bias toward *smaller* selected widths, the same direction the check was probing — but the argument
+  has to be made explicitly, not assumed.
+
+**Architecture note, so this is not over-read:** the certified `SharedTrunkPerWidthHeadNet` cannot
+fit a variance at all — its `log_var` is a dummy zero tensor that never enters the loss
+(`automl_package/models/architectures/nested_width_net.py:179-181`). The exposure is confined to the
+two OTHER classes (`NestedWidthNet`, `IndependentWidthNet`) and to whichever loss flag a driver picks.
+
 ## 4. Tasks
 
 Order: **WSEL-0 → WSEL-1 → WSEL-2 → WSEL-3 → WSEL-4 → WSEL-5 → (WSEL-6 ∥ WSEL-7 ∥ WSEL-11) → WSEL-8 →
@@ -348,6 +379,10 @@ WSEL-12 → WSEL-14, with WSEL-13 parallel to both.**
   the same wave, and WSEL-14 must be briefed only after WSEL-12 has merged. Write-set overlap, not
   topic overlap, is what decides this (MASTER, single-writer rule).
 - **WSEL-13 is disjoint** (new file only) and dispatches in parallel with either.
+- **WSEL-15** (normalisation / transformer-port repairs, added 2026-07-21) is also new-file-only and
+  disjoint from everything; it deps on WSEL-12 only so its cost numbers are measured on the fixed
+  loop and land in the same table as WSEL-14's.
+- **Every task in this section is MEAN-ONLY — see §3.7. The driver default fits variance.**
 - **Both WSEL-12 and WSEL-14 produce a DRIVER; the ROOT runs the grid** backgrounded — a subagent may
   author a sweep but may never own its execution (MASTER §Rules, Environment).
 *(**WSEL-9 is ⏸ PARKED** by the 2026-07-20 toys-only ruling and is deliberately absent from this
@@ -963,6 +998,95 @@ passes with its prove-it-fails run shown; (3) 15 JSONs under
 `automl_package/examples/capacity_ladder_results/WSEL14/`, each carrying every field in Step 3 and
 `hit_cap: false`; (4) an
 `automl_package/examples/capacity_ladder_results/WSEL14/frozen.json` with the three readouts above.
+
+### WSEL-15 — does the nested design survive a normalisation layer? (the transformer-port repairs, measured)
+
+**Why.** `shared/width_transformer_port.md` §5 lists four repairs for the one obstacle that stops this
+design porting to a transformer: a normalisation layer computes its statistics over the whole vector,
+so truncating to a prefix changes the divisor for every surviving unit. Three of the four repairs are
+testable on a toy TODAY; as written they are reasoning with no code behind them. **Our own toy has no
+normalisation, so nothing in the current width work would ever surface a problem here.** This task
+converts the argument into measurement, on the same toy, the same seeds and the same bars as the rest
+of the strand, so the answer is comparable rather than a side-experiment: **does it work, what does it
+cost, does it cost accuracy?**
+
+**Files (write set):** `automl_package/examples/width_wsel15.py` (Create) ·
+`automl_package/examples/capacity_ladder_results/WSEL15/` (Create by runs)
+**Reads (never writes):** `automl_package/models/architectures/nested_width_net.py` ·
+`automl_package/examples/kdropout_converged_width_experiment.py`
+
+**Where the candidate architecture lives, and why (boundary rule, MASTER Decision 19).** The
+normalised variant is defined **in the driver**, not in the package: it is a candidate under test, not
+a certified architecture, and the package holds architectures of record. It carries a comment saying
+exactly that. **Promotion into the package is a SEPARATE later task, and only if this one passes** —
+this keeps the write set disjoint from the package chain (which FP-4/FP-10/WSEL-3 all write) so this
+task can run in parallel with them.
+
+**Arms (all on the certified `SharedTrunkPerWidthHeadNet` shape, MSE-only per §3.7):**
+- **A — no normalisation.** The certified net, unchanged. The reference.
+- **B — prefix normalisation via running totals.** A normalisation layer between the shared hidden
+  layer and the per-width output heads, whose statistics are computed over the ACTIVE prefix `1..k`
+  from cumulative sums of the hidden units and their squares — so every width's normaliser still comes
+  off ONE pass.
+- **C — B plus per-width scale and shift** (the slimmable-networks fix). Isolates one variable against
+  B: **is a per-width affine actually needed, or does the per-width output head already absorb the
+  rung-dependent divisor?** (`shared/width_transformer_port.md` §5 repair 3 argues it should absorb it
+  exactly, for a linear head — that argument is what this arm tests.)
+- **D — naive per-width normalisation** (recompute the statistics separately for each width, the
+  textbook way). **NOT a science arm — it is the correctness oracle for B**, and it is the *only* arm
+  whose purpose is a test rather than a result.
+
+**Spec (execution-level).**
+- [ ] **Step 1 — exactness first: does the trick work at all?** `tests/test_prefix_norm_equivalence.py`:
+  assert arm B's per-width outputs equal arm D's to `1e-5` (`torch.allclose`) on a fixed seed and a
+  fixed `(64, 1)` input, for every width `1..w_max`, at initialisation and after 10 training steps.
+  **Prove-it-fails:** compute the running totals over the FULL vector instead of the prefix, show the
+  test FAILS, restore. If this test cannot be made to pass, **stop and report** — repair 2 of the note
+  is then wrong and the note must be corrected before anything else in this task runs.
+- [ ] **Step 2 — build arms A/B/C/D** in the driver, sharing the toy, the schedule, the convergence
+  gate and the selection rule with the rest of the strand. **MSE-only; `--loss mse` explicit; do NOT
+  fit a variance** (§3.7).
+- [ ] **Step 3 — cost instrumentation, same fields as WSEL-14** so the numbers sit in one table with
+  the rest of the width work: `train_wall_clock_s`, `steps_to_converge`, `params_allocated`,
+  `params_effective`, and `executed_flops` per width via `automl_package/utils/capacity_accounting.py`
+  (reuse; do not re-derive a FLOP formula). Also record **train and held-out MSE per width**.
+- [ ] **Step 4 — the grid (ROOT runs it, backgrounded; the worker lands Steps 1–3 only).** Arms A/B/C
+  × seeds 0/1/2 = **9 runs** (D is exercised by the Step 1 test, not by the grid), canonical cell
+  throughout (`--arch shared_trunk --loss mse --toy hetero`, `n_train=1500`, `sigma=0.05`, `w_max=12`),
+  `--tag wsel15_<arm>`, `OMP_NUM_THREADS=4` pinned on every run.
+- [ ] **Step 5 — write `automl_package/examples/capacity_ladder_results/WSEL15/frozen.json`** carrying
+  `prefix_norm_exact: bool`, per-arm per-width held-out MSE, the three cost fields per arm, and
+  `per_width_affine_needed: bool`.
+
+**Pre-registered bars (fixed BEFORE the run).**
+- **Does it work:** Step 1's equivalence test passes, with its prove-it-fails run shown. This is the
+  load-bearing claim — repair 2 of the note lives or dies here.
+- **Accuracy:** arm B's per-width held-out MSE within **10%** of arm A's at every width. *(Same bar as
+  WSEL-14; the old 2% bar is retired as tighter than its own thread-count noise —
+  `shared/fp5-stale-reference-finding.md`.)* **A degradation IS a finding**, not a failure to fix: it
+  would mean normalisation costs accuracy in a nested net, which is exactly what a transformer port
+  needs to know.
+- **Cost:** arm B within **1.3×** arm A on wall-clock per step. The running-totals trick adds one
+  cumulative sum; if it costs more than that, it was implemented as a loop.
+- **Is the per-width affine needed:** `per_width_affine_needed = true` iff arm C beats arm B by more
+  than 10% relative held-out MSE at any width. **The prediction on record is FALSE** (the per-width
+  output head should already absorb it) — recorded in advance so a confirmation is not mistaken for a
+  discovery.
+
+**Non-goals:** no transformer, no attention, no real data, no multi-layer net, no variance fitting, no
+change to the toy/schedule/selection rule, and **no promotion of the variant into the package** (that
+is a later task, gated on this one passing). Repair 4 of the note (a rung-independent normaliser) is
+**explicitly OUT** — its literature is unverified and it may not be built on until surveyed.
+*Orchestration:* parallel: yes (write set disjoint from every other live task) ·
+deps: **WSEL-12 merged** *(so arm A's cost numbers are measured on the fixed training loop and are
+comparable with WSEL-14's)* · tier: sonnet high (driver) + root (grid) · scale: dynamic (9 cells) ·
+shape: research ·
+verify: (1) `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_prefix_norm_equivalence.py -q`
+passes with the prove-it-fails run shown; (2)
+`AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel15.py --selftest`
+PASS; (3) 9 JSONs under `automl_package/examples/capacity_ladder_results/WSEL15/`, each carrying every
+field in Step 3 and `hit_cap: false`; (4)
+`automl_package/examples/capacity_ladder_results/WSEL15/frozen.json` carries every field in Step 5.
 
 ---
 
