@@ -335,18 +335,65 @@ models, which are trained independently and are exactly the non-shared implement
 
 ---
 
-## 3.7 MEAN-ONLY IS BINDING ON EVERY WIDTH RUN — and it is NOT enforced by the code
+## 3.7 VARIANCE IS FIXED AT THE TRUE VALUE, NEVER LEARNED (user ruling, 2026-07-21)
 
-MASTER Decision 2: the width strand is **MSE-only; variance fitting is PARKED** (user, re-affirmed
-2026-07-21: "we shouldn't be fitting the sigmas... it will overfit"). Recorded, but the code defaults
-the other way, so the rule has been leaking:
+**⚠️ THIS SUPERSEDES "mean-only" AS THE RULE OF THIS STRAND.** The user's clarification, verbatim in
+substance: *"I'm not saying we should drop the functionality of setting it. I'm just saying just fix
+it at the true value."* **The variance machinery STAYS. What is forbidden is LEARNING the variance,
+because that is what overfits.**
+
+### The rule, mechanically
+
+Every width run uses the Gaussian likelihood with `sigma` **clamped to the generator's true,
+per-point value** — never a learned `logvar_head`, never a free parameter. The toys know their own
+noise exactly and already return the region label needed to look it up:
+
+- `make_hetero` (`automl_package/examples/nested_width_net.py:143`): a single
+  `HETERO_NOISE_SIGMA = 0.05` everywhere.
+- `make_hetero3` (`automl_package/examples/nested_width_net.py:180`, the tier-2 control): `0.05` in
+  regions 0 and 1, `HETERO3_NOISY_SIGMA = 0.5` (`:95`) in region 2 — and the generator **returns
+  `region` as its third value**, so the true per-point sigma is a lookup, not an estimate.
+
+### How each tier implements it — no choice left to the implementer
+
+- **Tier 1:** `--loss mse`. This IS the fixed-sigma likelihood up to a constant scale (see below), and
+  it keeps every certified number byte-comparable. Do not add a redundant likelihood path.
+- **Tier 2 and Tier 3:** a **fixed-sigma weighted squared error** — per point, `(pred - y)^2 /
+  sigma_true(x)^2`, with `sigma_true` read from the generator's `region` output. Implemented ONCE, in
+  `automl_package/examples/width_candidates.py`, and imported; never re-derived per driver (§3.9).
+
+**Any variance head present in a class is held at the true value and excluded from the optimiser's
+parameter list.** A class whose `log_var` is a dummy zero (the certified `SharedTrunkPerWidthHeadNet`)
+satisfies this trivially at fixed unit sigma.
+
+### What this changes versus the squared error already on disk — state it, do not gloss it
+
+With sigma fixed, the Gaussian negative log-likelihood equals the squared error divided by
+`2 * sigma^2`, plus a constant. Therefore:
+
+- **Tier 1 (`hetero`, constant sigma): EXACTLY EQUIVALENT to the certified MSE objective** up to one
+  positive scale factor. Same optimum, same ordering of arms. **Every certified tier-1 number stays
+  comparable** — this is why the ruling is safe to adopt mid-strand.
+- **Tier 2 (`hetero3`, two different sigmas): a WEIGHTED squared error** — the noisy region is
+  down-weighted 100x relative to the quiet ones. **This is NOT the same objective as the plain MSE
+  previously run on that toy, and any table mixing the two must say so.**
+- **It sharpens the tier-2 control rather than blunting it.** That toy exists because noise is
+  common-mode across widths, so no width fits it down and the honest verdict is "stay narrow"; plain
+  squared error over-weights that region, which is the exact failure it was built to catch. Fixing
+  sigma at the truth makes the objective read capacity instead of noise, by construction rather than
+  by hope.
+- **Tier 3 (the `sigma` ladder):** sigma is fixed at whatever that cell's generator used, so each cell
+  is internally consistent. Cells at different sigma are NOT on a common loss scale and may not be
+  compared on raw loss — compare `ratio_to_floor`, never the raw number.
+
+### The two leaks this rule closes — both were LEARNED variance, which is the forbidden thing
 
 - **WD6 (found 2026-07-21) — the shipping driver's default loss FITS VARIANCE.**
   `automl_package/examples/kdropout_converged_width_experiment.py:553` defaults `--loss` to `nll`
   (Gaussian negative log-likelihood, mean AND log-variance), commented "the old default". Every
   certified run passed `--loss mse` explicitly; nothing stops the next one from forgetting.
-  **Binding on every task in §4: pass `--loss mse` explicitly and assert it in the run's own
-  provenance.** *(Not re-defaulted here: flipping a driver default silently changes the meaning of
+  **Binding on every task in §4: never leave the loss flag to the default; tier 1 passes `--loss mse`
+  explicitly, tiers 2/3 use the fixed-sigma weighted form, and the run's own provenance asserts which.** *(Not re-defaulted here: flipping a driver default silently changes the meaning of
   every un-flagged historical invocation. Flipping it is a task for the cleanup pass, with a
   reproduction check — not a drive-by edit.)*
 - **WD7 (found 2026-07-21) — the regularisation study TRAINED VARIANCE.**
@@ -354,8 +401,9 @@ the other way, so the rule has been leaking:
   `gaussian_log_likelihood(mean, log_var, y)` on `IndependentWidthNet`, whose variance heads are
   real. So the study that concluded "explicit regularisation does not move the selected width" was
   run on the **Gaussian-likelihood objective**, while everything it is compared against is
-  **mean-only**. **Consequence: that verdict is NOT like-for-like and may not be cited as clearing
-  the battery until it is re-derived mean-only, or the discrepancy is argued in writing.**
+  on a **fixed/absent** one. **Consequence: that verdict is NOT like-for-like and may not be cited as
+  clearing the battery until it is re-derived with sigma FIXED at the true value, or the discrepancy
+  is argued in writing.**
   Escalated to the user 2026-07-21; **no re-run started** (the user asked that execution hold).
   This does not automatically overturn the verdict — over-fitting the variance would, if anything,
   bias toward *smaller* selected widths, the same direction the check was probing — but the argument
@@ -376,8 +424,10 @@ comparison is like-for-like.** *(Corrected the same day — the first draft of t
 canonical toy". Wrong: this strand has a SUITE, and like-for-like means the same SUITE, not the same
 single cell.)* Written here ONCE; §4 tasks reference it and none restates it.
 
-**Fixed on every cell of every tier:** `w_max = 12` · seeds **0, 1, 2** · **squared error, mean-only**
-(`--loss mse` explicit — §3.7; the driver default is the forbidden one) · `lr = 1e-2` · the strand's
+**Fixed on every cell of every tier:** `w_max = 12` · seeds **0, 1, 2** · **sigma FIXED at the
+generator's true per-point value, never learned** — tier 1 via `--loss mse` (exactly equivalent), tiers
+2/3 via the fixed-sigma weighted squared error (§3.7; the driver's default loss LEARNS sigma and is
+forbidden) · `lr = 1e-2` · the strand's
 convergence gate unchanged with `hit_cap: false` required · `OMP_NUM_THREADS=4` pinned (the metric
 moves up to ~5% with thread count, `shared/fp5-stale-reference-finding.md`).
 Constants: `automl_package/examples/converged_width_experiment.py:45-49`.
@@ -462,8 +512,9 @@ duplicate pair.** Inventory below is read off disk 2026-07-21, not recalled.
    `shared/width_transformer_port.md` §1: the cascade is not a third architecture, it is Design A with
    a different training scheme.**
 3. **BOTH examples-side classes FIT VARIANCE and are therefore UNUSABLE as written** (§3.7, MASTER
-   Decision 2). Neither may enter a comparison until ported to mean-only. That port is scoped inside
-   the task that first needs it, never done ad hoc.
+   Decision 2, as clarified 2026-07-21). Neither may enter a comparison until its variance is FIXED at
+   the generator's true value rather than learned. That port is scoped inside the task that first
+   needs it, never done ad hoc.
 
 ### The rules (binding on WSEL-15, WSEL-16, WSEL-17 and anything later)
 
@@ -479,8 +530,9 @@ duplicate pair.** Inventory below is read off disk 2026-07-21, not recalled.
 - **Promotion is a task, never a side effect.** A candidate moves from `examples/` to the package only
   via a task whose verify line reproduces the certified reference numbers. This is what
   `MatryoshkaWidthNet` and `ResidualCascadeNet` never got, which is why they are stranded.
-- **Every candidate is MEAN-ONLY** (§3.7). A variance-fitting class is ported, never wrapped in a
-  driver that quietly passes it a likelihood loss.
+- **Every candidate holds sigma FIXED at the true value** (§3.7). A class with a LEARNED variance head
+  is ported — the head is clamped and dropped from the optimiser — never wrapped in a driver that
+  quietly passes it a free-sigma likelihood.
 
 ## 4. Tasks
 
@@ -501,7 +553,8 @@ WSEL-12 → WSEL-14, with WSEL-13 parallel to both.**
   statistic landed, and WSEL-17 needs WSEL-16's winner.
 - **Full order for this track:** `WSEL-12 → (WSEL-14 ∥ WSEL-15) → WSEL-16 → WSEL-17`, with
   **WSEL-13 parallel to all of it** and required before WSEL-16 reads out.
-- **Every task in this section is MEAN-ONLY — see §3.7. The driver default fits variance.**
+- **Every task in this section holds sigma FIXED at the true value — see §3.7. The driver default
+  LEARNS it, which is the forbidden thing.**
 - **Every task in this section runs the toy tiers assigned in §3.8. No task chooses its own cells.**
 - **Reuse before writing: §3.9's inventory is binding. A new nested-width class is a defect.**
 - **Both WSEL-12 and WSEL-14 produce a DRIVER; the ROOT runs the grid** backgrounded — a subagent may
@@ -870,7 +923,7 @@ task ID, not restated from memory); then for each §3.6 constant name,
 `automl_package/examples/width_wsel11.py:98-101` calls
 `gaussian_log_likelihood(mean, log_var, y)` on `IndependentWidthNet`, whose variance heads are real —
 so it fitted **mean AND variance**. MASTER Decision 2 parks variance for this strand and §3.7 makes
-mean-only binding on every width run. The study is therefore measured on a **different objective from
+sigma-fixed-at-truth binding on every width run. The study is therefore measured on a **different objective from
 every arm it is compared against**, and its verdict may not stand. *(User ruling 2026-07-21: results
 produced in violation of a constraint are DISCARDED, not reinterpreted.)*
 
@@ -884,7 +937,7 @@ pass BEFORE the battery is read. With the check void, the precondition is **unme
 **WSEL-8 and WSEL-10 are blocked again**, exactly as they would be had the check never run. The
 earlier "Battery NOT blocked" line is withdrawn.
 
-**What the re-run must change (and ONLY this):** train on squared error, mean-only, `--loss mse`
+**What the re-run must change (and ONLY this):** train with sigma FIXED at the generator's true value — on tier 1 that is `--loss mse`,
 explicit, everything else — toy, seeds, λ grid, convergence gates, selection rule — byte-identical to
 the original spec below, so the only moving part is the objective. **Do not widen the λ grid or change
 the selection rule while re-running; that would make the re-run incomparable to its own
@@ -1304,8 +1357,8 @@ Let `h = hidden(x)` (shape `(N, 12)`), `c_j = w_j * h[:, j]` the per-unit contri
   width-1 term ALONE. **Prove-it-fails:** drop the `detach`, show (b) FAILS, restore. If (b) cannot be
   made to pass, the arm is mis-implemented and the task STOPS here.
 - [ ] **Step 2 — build the five arms** in the driver, sharing the toy, schedule, convergence gate and
-  selection rule with the rest of the strand. **Squared error, mean-only, `--loss mse` explicit
-  (§3.7).**
+  selection rule with the rest of the strand. **Sigma FIXED at the true value per §3.7 — `--loss mse`
+  on tier 1, the fixed-sigma weighted form on tier 2.**
 - [ ] **Step 3 — CONTROLS FIRST, ALONE (MASTER Decision 14).** Run `A_JOINT` and `INDEPENDENT` on
   tier 1 only, 3 seeds, before spending anything on the candidates.
   **HALT CONDITIONS — either one stops the task and escalates:**
@@ -1350,7 +1403,7 @@ each unit fits a predecessor that is still changing, which staged boosting never
   literal staged frozen cascade: the upper bound on what strict ordering buys, and the arm that
   isolates the moving target (it has none — each block trains against a converged, frozen prefix).
   **Required port before it runs: it is variance-fitting** (additive log-variance, NGBoost
-  parametrisation) and must be run mean-only per §3.7. **That port is scoped HERE and nowhere else** —
+  parametrisation) and must be run with sigma FIXED at the generator's true value per §3.7. **That port is scoped HERE and nowhere else** —
   add a squared-error stage loss alongside the existing likelihood one, leaving the existing path
   byte-identical, exactly as the width driver carries both. Its per-prefix readout bias is an extra
   freedom versus `A_STOPGRAD` (`cascade_width_net.py:11-14`) and must be named when the two are
