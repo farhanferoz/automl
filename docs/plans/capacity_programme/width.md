@@ -1445,7 +1445,7 @@ candidate cell exists; (4) every JSON under
 `hit_cap: false`; (5)
 `automl_package/examples/capacity_ladder_results/WSEL16/frozen.json` carries every field in Step 6.
 
-### WSEL-17 — consolidate the width architectures: kill the duplicate, promote the winner, clean up
+### WSEL-17 — THE GRAND CLEANUP: consolidate the architectures, delete what is superseded
 
 **Why.** §3.9's inventory found six width architectures across two directories, one duplicate pair,
 two stranded never-promoted candidates, and two classes that fit a variance this strand parks. **User
@@ -1482,12 +1482,45 @@ successors or WSEL-16. It is last in the strand for that reason too.
   not intend to keep; every candidate either promoted, shimmed, or explicitly recorded as retained
   for a named future task.
 
-**Non-goals:** **NO DELETIONS** — every disposition is a shim or a move, never a removal (deletions
-are user-gated programme-wide and `flexnn-package.md` FP-8 owns them, attended-only). No behaviour
-change to any certified class. No new architecture. No merging of classes that are NOT proven
-equivalent in Step 1 — a proof, not a resemblance.
+#### Steps 5-7 — the deletion pass (user authorised 2026-07-21: "delete if not needed")
+
+**Why this is safe to do at all, and why it is LAST.** WSEL-16 re-runs every width architecture on the
+canonical suite under the sigma-fixed objective, recording cost and ordering fields that were **never
+captured before**. Four independent reasons make the old runs non-reusable rather than merely old —
+no saved models (so ordering cannot be computed after the fact), no cost fields, a changed tier-2
+objective, and a tier-3 ladder that covers 12 cells for `IndependentWidthNet` but only the **4
+corners** for the certified design (verified 2026-07-21 by listing
+`automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/`). So the replacement is
+genuine, and only after it exists is anything provably superseded.
+
+- [ ] **Step 5 — build the disposition inventory. ELIGIBILITY IS MECHANICAL, NOT A JUDGEMENT.**
+  One row per width driver, architecture module and results JSON. A file is **DELETE-ELIGIBLE only if
+  ALL FOUR hold**, each checked by a command whose output is recorded:
+  1. it is **not** listed in `docs/plans/capacity_programme/shared/PROTECTED.tsv`;
+  2. **no line in any live plan file cites it** (`grep` across the plan dir at execution time — the
+     citation gate's own resolver is the reference implementation);
+  3. **nothing under `tests/` and no non-deleted module imports it**;
+  4. it is **superseded by a NAMED replacement that exists on disk** — the replacement's path is
+     written in the row. "Looks old" is not a reason.
+  Everything else is **KEEP** or **SHIM**. **Results that are gate evidence are KEEP by rule** — any
+  JSON cited by a ledger `RESULT:` marker, or by `docs/width_mse_2026-07-16/verdict_variable_width_mse.md`, <!-- citecheck-ignore: names the gate's own marker, carries no result -->
+  backs a passed gate, and deleting it would break the paper trail that makes the gate citable.
+- [ ] **Step 6 — write the manifest and STOP.** `shared/wsel17-cleanup-manifest.tsv`: path, verdict,
+  reason, replacement path, and the four eligibility checks' outcomes. **The task ENDS here and the
+  manifest goes to the user.** The deletion itself is a separate, attended step — the user authorised
+  the category, not a blind sweep, and a 30+ file corpus is exactly where an unreviewed rule
+  misfires.
+- [ ] **Step 7 — attended deletion.** After sign-off: delete in ONE commit whose body is the manifest.
+  `git` history retains every file, so this is recoverable; say so in the commit body.
+
+**Non-goals:** no deletion of anything failing any one of the four checks. No deletion of gate
+evidence, ever. No behaviour change to any certified class. No new architecture. No merging of
+classes that are NOT proven equivalent in Step 1 — a proof, not a resemblance. **Deleting is not the
+same as consolidating: a class with live callers is SHIMMED, never removed** (that is what keeps the
+pre-registered driver names resolving).
 *Orchestration:* parallel: no (package architectures module is single-writer) · deps: **WSEL-16
-complete** (its winner decides Step 2) · tier: sonnet high · scale: static · shape: execution ·
+complete** (its winner decides Step 2 and its re-runs are what supersede the old results) ·
+tier: sonnet high for Steps 1-6, **root + ATTENDED for Step 7** · scale: static · shape: execution ·
 verify: (1) the Step-1 equivalence assertion passes, with a prove-it-fails run (perturb one head,
 show it FAILS); (2)
 `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_flexible_width_network.py -q` green;
@@ -1495,7 +1528,8 @@ show it FAILS); (2)
 EXECUTION TIME, never from this plan; (4) the canonical cell reproduces `fit_bar.ratio_to_floor`
 unchanged for every width against
 `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse.json`;
-(5) no path listed in `docs/plans/capacity_programme/shared/PROTECTED.tsv` is deleted or renamed.
+(5) no path listed in `docs/plans/capacity_programme/shared/PROTECTED.tsv` is deleted or renamed; (6)
+`shared/wsel17-cleanup-manifest.tsv` exists and every DELETE row records all four eligibility checks.
 
 ---
 

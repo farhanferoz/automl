@@ -93,3 +93,4 @@ automl_package/models/flexnn/strategies/layer.py                     # FP-11
 automl_package/models/flexnn/strategies/independent_weights.py       # FP-11
 automl_package/models/flexnn/routing.py                              # FP-11
 automl_package/models/flexnn/__init__.py                             # FP-11 Step 4
+shared/wsel17-cleanup-manifest.tsv                                   # WSEL-17 Step 6 (verify 6)
