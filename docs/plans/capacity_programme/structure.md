@@ -324,7 +324,7 @@ identical); no edits to selection/distillation code; no example scripts; no comm
 
 **Files:**
 - Create: `automl_package/examples/probreg_structure_battery.py` (absorbs and REPLACES the
-  uncommitted `automl_package/examples/probreg_variance_degeneracy_check.py` — reuse its toy
+  uncommitted predecessor driver `probreg_variance_degeneracy_check.py` (in `automl_package/examples/`; DELETED by this task, so the path no longer resolves) — reuse its toy
   wiring, trajectory instrumentation, selftest patterns, and `_sigma_for_toy` logic, then delete
   the old file; it was never committed)
 
