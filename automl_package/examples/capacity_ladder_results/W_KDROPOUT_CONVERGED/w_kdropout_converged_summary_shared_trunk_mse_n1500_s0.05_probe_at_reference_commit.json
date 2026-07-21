@@ -1,11 +1,11 @@
 {
   "config": {
     "schedule": "kdropout_sandwich",
-    "router_hidden_mult": 0.5,
+    "router_hidden_mult": 2.0,
     "arch": "shared_trunk",
     "loss": "mse",
     "toy": "hetero",
-    "tag": "rhhalf",
+    "tag": "probe_at_reference_commit",
     "w_max": 12,
     "n_train": 1500,
     "n_test": 500,
@@ -2548,26 +2548,26 @@
         "curve_gate_pass": false
       },
       "dial_bar": {
-        "mean_expected_width_centre": 7.258919586840959,
-        "mean_expected_width_tail": 4.45698547144377,
-        "diff": 2.801934115397189,
-        "se": 0.10890473648737137,
+        "mean_expected_width_centre": 7.128797458202007,
+        "mean_expected_width_tail": 4.33601975457195,
+        "diff": 2.7927777036300565,
+        "se": 0.1001544504442328,
         "separation_beats_2se": true
       },
       "deploy_bar": {
-        "mse_hardpick": 0.004033900876084621,
-        "mean_executed_width": 5.198,
+        "mse_hardpick": 0.003594060338723713,
+        "mean_executed_width": 5.17,
         "mse_best_fixed": 0.0026919872699685023,
         "best_fixed_k": 9,
-        "se_paired": 0.00024229360403270564,
+        "se_paired": 0.0001840417087729462,
         "accuracy_preserved": false,
         "compute_saved": true,
         "deploy_pass": false
       },
       "deploy_sweep": {
         "router_hidden": [
-          16,
-          16
+          64,
+          64
         ],
         "baseline_test_selected": {
           "mse_best_fixed": 0.0026919872699685023,
@@ -2579,25 +2579,25 @@
         },
         "per_delta_tie": {
           "0": {
-            "mse_hardpick": 0.002829312359799885,
-            "mean_executed_width": 7.764
+            "mse_hardpick": 0.00324956576863073,
+            "mean_executed_width": 8.188
           },
           "0.1": {
-            "mse_hardpick": 0.003636300045419367,
-            "mean_executed_width": 6.618
+            "mse_hardpick": 0.0030925781412814166,
+            "mean_executed_width": 6.96
           },
           "0.25": {
-            "mse_hardpick": 0.004033900876084621,
-            "mean_executed_width": 5.198
+            "mse_hardpick": 0.003594060338723713,
+            "mean_executed_width": 5.17
           },
           "0.5": {
-            "mse_hardpick": 0.0029856549522055825,
-            "mean_executed_width": 4.872
+            "mse_hardpick": 0.003674338298939594,
+            "mean_executed_width": 4.54
           }
         }
       },
       "soft_blend_mse_secondary": {
-        "mse": 0.0079612667247085,
+        "mse": 0.0064080018509422515,
         "note": "executes ALL widths (soft blend); not the compute/deploy claim"
       },
       "sensitivity_soft_targets": {
@@ -4416,26 +4416,26 @@
         "curve_gate_pass": true
       },
       "dial_bar": {
-        "mean_expected_width_centre": 8.159184973847733,
-        "mean_expected_width_tail": 3.7515356769299473,
-        "diff": 4.407649296917786,
-        "se": 0.0739511849586867,
+        "mean_expected_width_centre": 8.180333686779562,
+        "mean_expected_width_tail": 3.655945250727492,
+        "diff": 4.52438843605207,
+        "se": 0.07919840868266198,
         "separation_beats_2se": true
       },
       "deploy_bar": {
-        "mse_hardpick": 0.002955734969262494,
-        "mean_executed_width": 6.072,
+        "mse_hardpick": 0.003154137335441078,
+        "mean_executed_width": 5.972,
         "mse_best_fixed": 0.0026489844733015105,
         "best_fixed_k": 12,
-        "se_paired": 0.00011055831284358342,
+        "se_paired": 0.00014196255785606116,
         "accuracy_preserved": false,
         "compute_saved": true,
         "deploy_pass": false
       },
       "deploy_sweep": {
         "router_hidden": [
-          16,
-          16
+          64,
+          64
         ],
         "baseline_test_selected": {
           "mse_best_fixed": 0.0026489844733015105,
@@ -4447,25 +4447,25 @@
         },
         "per_delta_tie": {
           "0": {
-            "mse_hardpick": 0.002638578666442456,
-            "mean_executed_width": 7.234
+            "mse_hardpick": 0.002896249341958921,
+            "mean_executed_width": 6.778
           },
           "0.1": {
-            "mse_hardpick": 0.003126444101684385,
-            "mean_executed_width": 6.438
+            "mse_hardpick": 0.003073850239929584,
+            "mean_executed_width": 6.346
           },
           "0.25": {
-            "mse_hardpick": 0.002955734969262494,
-            "mean_executed_width": 6.072
+            "mse_hardpick": 0.003154137335441078,
+            "mean_executed_width": 5.972
           },
           "0.5": {
-            "mse_hardpick": 0.002745556678593289,
-            "mean_executed_width": 5.584
+            "mse_hardpick": 0.003622001788500029,
+            "mean_executed_width": 5.18
           }
         }
       },
       "soft_blend_mse_secondary": {
-        "mse": 0.007274546109451377,
+        "mse": 0.006679753138484042,
         "note": "executes ALL widths (soft blend); not the compute/deploy claim"
       },
       "sensitivity_soft_targets": {
@@ -7340,26 +7340,26 @@
         "curve_gate_pass": false
       },
       "dial_bar": {
-        "mean_expected_width_centre": 6.814276882198481,
-        "mean_expected_width_tail": 5.6601393582832396,
-        "diff": 1.1541375239152414,
-        "se": 0.07428684198932392,
+        "mean_expected_width_centre": 7.018880045544735,
+        "mean_expected_width_tail": 5.307904229162566,
+        "diff": 1.7109758163821693,
+        "se": 0.09362936767172553,
         "separation_beats_2se": true
       },
       "deploy_bar": {
-        "mse_hardpick": 0.0034465666461354462,
-        "mean_executed_width": 7.176,
+        "mse_hardpick": 0.0033584376463706425,
+        "mean_executed_width": 6.888,
         "mse_best_fixed": 0.002817446289577136,
         "best_fixed_k": 12,
-        "se_paired": 0.0001799312036936909,
+        "se_paired": 0.00013304155982582716,
         "accuracy_preserved": false,
         "compute_saved": true,
         "deploy_pass": false
       },
       "deploy_sweep": {
         "router_hidden": [
-          16,
-          16
+          64,
+          64
         ],
         "baseline_test_selected": {
           "mse_best_fixed": 0.002817446289577136,
@@ -7371,25 +7371,25 @@
         },
         "per_delta_tie": {
           "0": {
-            "mse_hardpick": 0.003097275924011692,
-            "mean_executed_width": 8.064
+            "mse_hardpick": 0.003098768234565464,
+            "mean_executed_width": 8.208
           },
           "0.1": {
-            "mse_hardpick": 0.0032034067587075957,
-            "mean_executed_width": 7.7
+            "mse_hardpick": 0.003229068818532236,
+            "mean_executed_width": 7.386
           },
           "0.25": {
-            "mse_hardpick": 0.0034465666461354462,
-            "mean_executed_width": 7.176
+            "mse_hardpick": 0.0033584376463706425,
+            "mean_executed_width": 6.888
           },
           "0.5": {
-            "mse_hardpick": 0.003960094354035827,
-            "mean_executed_width": 5.558
+            "mse_hardpick": 0.003554513838198213,
+            "mean_executed_width": 5.626
           }
         }
       },
       "soft_blend_mse_secondary": {
-        "mse": 0.008590570070710605,
+        "mse": 0.007585492493505585,
         "note": "executes ALL widths (soft blend); not the compute/deploy claim"
       },
       "sensitivity_soft_targets": {
@@ -7404,22 +7404,5 @@
       }
     }
   ],
-  "untrustworthy_seeds": [],
-  "provenance": {
-    "timestamp_utc": "2026-07-21T11:05:01+00:00",
-    "git": {
-      "commit": "928ed8f2e050460344f1825515c4dafd5278b535",
-      "dirty": true
-    },
-    "python": "3.12.13",
-    "torch": "2.10.0+xpu",
-    "numpy": "2.4.3",
-    "platform": "Linux-7.1.3-200.fc44.x86_64-x86_64-with-glibc2.43",
-    "threads": {
-      "omp_num_threads": "4",
-      "torch_num_threads": 4,
-      "cpu_count": 22
-    },
-    "automl_device": "cpu"
-  }
+  "untrustworthy_seeds": []
 }

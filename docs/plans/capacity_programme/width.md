@@ -736,6 +736,57 @@ carrying `selected_width`, `held_out_trajectory`, `hit_cap: false`; a `frozen.js
 `selection_moved: bool` and, if `true`, the per-λ selected widths. The reported numbers come from a
 split not used for stopping or selection.
 
+### WSEL-12 — stop recomputing the shared trunk once per width (efficiency defect, user-raised 2026-07-21)
+
+**The defect.** The k-dropout training loop evaluates one width at a time —
+`automl_package/examples/kdropout_converged_width_experiment.py:200-201` loops `for k in widths` and
+calls `_width_loss(...)`, which reaches `automl_package/examples/nested_width_net.py:131`
+`_width_mse` → `forward_width(x, k)`. **Every one of those calls recomputes the shared trunk from
+scratch** (`h = self.hidden(x)` inside `forward_width`,
+`automl_package/models/architectures/nested_width_net.py:75`). With the sandwich's four widths per
+step the trunk is computed FOUR times and discarded three — defeating the entire point of a shared
+trunk.
+
+**The fix already exists and is unused by the training loop:** `all_widths_forward`
+(`automl_package/models/architectures/nested_width_net.py:81-91`) computes `h` ONCE and reads every
+width off it in a single vectorised pass, no python loop. It is currently used for scoring, not for
+training.
+
+**Why this matters MORE at scale, not less.** In this toy the trunk is `Linear(1 -> w_max)`, so the
+waste is invisible and nobody noticed. In any realistic network the trunk is nearly all of the
+compute, so recomputing it once per sampled width is ~Kx the training cost of the whole forward
+pass, for nothing. The per-width readout arithmetic (1+2+...+w_max multiply-adds) is the *only*
+genuinely unavoidable extra cost of this architecture, and it is trivial by comparison.
+
+**Consequence for schedule choice — this defect has been distorting a design decision.** MASTER
+Decision 20 assigns width the sandwich because "each rung costs a real forward." **That premise is
+an artifact of this defect, not a property of the architecture.** Once the trunk is computed once,
+training EVERY width every step costs ~one forward plus trivial readout arithmetic — so the
+all-rungs schedule becomes nearly free for width too, and the efficiency argument for sampling
+(sandwich, or the user's one-width-per-batch "width dropout") largely evaporates. **Do not
+re-litigate Decision 20 until this is fixed** — measure the schedules against the fixed loop, since
+the old timings were measuring the defect.
+*(Prior evidence, for whoever picks this up: W5 already found the guaranteed sandwich is NOT
+load-bearing for the certified architecture — the uniform-draw ablation reached floor,
+`width-cert.md:218-220`, ledger `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse_n1500_s0.05_schedU.json`.
+That ablation drew FOUR widths per step, not one; one-width-per-batch is untested.)*
+
+**Files (write set):** `automl_package/examples/kdropout_converged_width_experiment.py` ·
+`automl_package/examples/nested_width_net.py` (or the package architectures module, whichever holds
+the loss helper after FP-2's move)
+**Spec:** route the training step through a single trunk evaluation — one `all_widths_forward` (or
+an equivalent that computes `h` once and applies each sampled width's readout to it) — and sum the
+sampled widths' losses off that. Bit-for-bit equivalence is the bar, not "close enough".
+**Non-goals:** no change to the schedule, the architecture, the loss, or any bar. This is a pure
+efficiency fix and must not move a single number.
+*Orchestration:* parallel: yes (disjoint from the studies) · deps: none · tier: sonnet high ·
+scale: static · shape: execution ·
+verify: a test asserts the refactored step's loss and gradients match the per-width loop's to within
+float tolerance on a fixed seed (prove it FAILS if the readouts are mis-indexed); re-run one
+canonical cell and show `fit_bar.ratio_to_floor` unchanged against
+`automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse.json`;
+report the wall-clock before/after.
+
 ---
 
 ## 5. Non-goals for this strand

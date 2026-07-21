@@ -62,6 +62,7 @@ import nested_width_net as nwn  # noqa: E402
 import sinc_width_experiment as sw  # noqa: E402
 
 from automl_package.utils.pytorch_utils import get_device  # noqa: E402
+from automl_package.utils.run_provenance import run_provenance  # noqa: E402
 
 RESULTS_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "W_KDROPOUT_CONVERGED")
 
@@ -642,6 +643,12 @@ def main() -> None:
             },
             "per_case": per_case,
             "untrustworthy_seeds": any_untrustworthy,
+            # What produced these numbers -- library versions, git commit, and above all THREAD
+            # COUNT, which changes float reduction order and therefore the low-order bits. Added
+            # 2026-07-21 after a saved reference could not be reproduced by its own commit and the
+            # artifact recorded nothing that could explain why
+            # (docs/plans/capacity_programme/shared/fp5-stale-reference-finding.md).
+            "provenance": run_provenance(),
         }
         with open(path, "w") as f:
             json.dump(sw._jsonable(summary), f, indent=2)
