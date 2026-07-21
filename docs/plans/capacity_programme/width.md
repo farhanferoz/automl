@@ -1106,15 +1106,24 @@ is minutes, so this is cheap, but it is not free and the task must say so.
   diagnostic is re-runnable without retraining ever again.
 - [ ] **Step 2 — diagnostic A, single-unit ablation (uses only the widest head).** For each hidden
   unit `j` in `1..w_max`: zero unit `j` alone in the hidden vector (all others intact), read the
-  width-`w_max` head, and record the HELD-OUT MSE increase vs the unablated net. That is
+  width-`w_max` head, and record the MSE increase vs the unablated net **on the REPORT split defined in
+  Step 3** (never on training data, never on the split used for any selection). That is
   `importance_j`. Report Spearman correlation between `j` and `importance_j`.
 - [ ] **Step 3 — diagnostic B, prefix vs greedy (the non-circular test).** The per-width heads were
   trained on prefix masks, so scoring an arbitrary unit subset with them is circular. Instead **re-fit a
-  fresh linear readout by ordinary least squares (closed form) on the frozen trunk's hidden features**
-  for each candidate subset, on the training split, scored on held-out. For each `k in 1..w_max`
-  compare: `prefix_k` (units `1..k`) against `greedy_k` (units chosen by forward selection). Report
-  per-`k` held-out MSE for both, the greedy selection order, and Kendall tau between the greedy order
-  and the index order.
+  fresh linear readout by ordinary least squares (closed form, WITH intercept) on the frozen trunk's
+  hidden features** for each candidate subset.
+  **THREE SPLITS, and the separation is load-bearing — do not collapse them:**
+  1. **FIT split** (the training split): the least-squares solve for a given unit subset.
+  2. **SELECT split**: greedy forward selection picks the next unit by lowest error **here**.
+  3. **REPORT split**: both `prefix_k` (units `1..k`) and `greedy_k` are finally scored **here**, and
+     this split is touched by neither the fit nor the selection.
+  **Why this matters: if greedy selected on the split it is scored on, it would beat the prefix by
+  construction and the secondary bar would be meaningless.** Splits are carved from the held-out data
+  the same way `automl_package/examples/probreg_p8.py:170-172` carves its selection/report split — the
+  precedent exists; reuse the shape.
+  Report per-`k` REPORT-split MSE for both, the greedy selection order, and Kendall tau between the
+  greedy order and the index order.
 - [ ] **Step 4 — write `automl_package/examples/capacity_ladder_results/WSEL13/frozen.json`** carrying `spearman_index_vs_importance` (per seed),
   `mean_relative_prefix_gap`, `kendall_tau_greedy_vs_index` (per seed), and `ordering_holds: bool` per
   the bars below.
@@ -1178,7 +1187,12 @@ warning, `flexnn-package.md` FP-4).
   **train and held-out MSE per width** so the regularisation question is answerable.
 - [ ] **Step 4 — the grid (ROOT runs it, backgrounded; the worker only lands Steps 1–3).**
   Cells: bunch size `b in {1, 2, 4, 12(=ALL)}` under `WidthSchedule.UNIFORM`/`ALL`, plus the
-  **sandwich** re-run purely for a post-fix wall-clock reference — 5 arms × seeds 0/1/2 = **15 runs**,
+  **sandwich** re-run purely for a post-fix wall-clock reference.
+  **Sampling, pinned:** `b` widths drawn per step by `torch.randint(1, w_max+1, (b,))` —
+  **uniform WITH replacement, no guaranteed inclusion of width 1 or `w_max`**, byte-identical to the
+  existing uniform path (`automl_package/examples/kdropout_converged_width_experiment.py:193`) so
+  `b=4` reproduces the ablation already on disk. `b=12` means ALL widths deterministically, not 12
+  draws — 5 arms × seeds 0/1/2 = **15 runs**,
   canonical cell throughout (`--arch shared_trunk --loss mse --toy hetero`, `n_train=1500`,
   `sigma=0.05`, `w_max=12`), `--tag wsel14_b<N>`, `OMP_NUM_THREADS=4` pinned on every run (thread count
   moves the metric by up to ~5%, `shared/fp5-stale-reference-finding.md`).
@@ -1236,17 +1250,25 @@ passing. Keeping candidates out of the package also keeps this write set clear o
 
 **Arms (all on the certified `SharedTrunkPerWidthHeadNet` shape, MSE-only per §3.7):**
 - **A — no normalisation.** The certified net, unchanged. The reference.
-- **B — prefix normalisation via running totals.** A normalisation layer between the shared hidden
-  layer and the per-width output heads, whose statistics are computed over the ACTIVE prefix `1..k`
-  from cumulative sums of the hidden units and their squares — so every width's normaliser still comes
-  off ONE pass.
-- **C — B plus per-width scale and shift** (the slimmable-networks fix). Isolates one variable against
-  B: **is a per-width affine actually needed, or does the per-width output head already absorb the
-  rung-dependent divisor?** (`shared/width_transformer_port.md` §5 repair 3 argues it should absorb it
-  exactly, for a linear head — that argument is what this arm tests.)
-- **D — naive per-width normalisation** (recompute the statistics separately for each width, the
-  textbook way). **NOT a science arm — it is the correctness oracle for B**, and it is the *only* arm
-  whose purpose is a test rather than a result.
+- **B — prefix normalisation via running totals. EXACT DEFINITION, no discretion:**
+  root-mean-square normalisation (**NO mean subtraction**), applied to the hidden vector between the
+  shared hidden layer and the per-width output heads. For width `k`:
+  `r_k(x) = sqrt( (1/k) * sum_{j<=k} h_j(x)^2 + eps )`, `eps = 1e-5`; the head then reads
+  `h_j / r_k` for `j <= k` and `0` beyond. **Divide by `k`, the ACTIVE count — never by `w_max`.**
+  Computed for every `k` at once from `cumsum(h^2)`, so one pass covers all widths.
+  **NO affine parameters in this arm.**
+  *(Why RMS and not mean-centred: mean subtraction needs a second cumulative sum AND interacts with
+  the head's bias term, which would move two things at once. Mean-centred normalisation is a DIFFERENT
+  question and is explicitly out of scope for this task — §4 non-goals.)*
+- **C — B plus a per-width SCALAR scale and shift.** `gamma_k * (h_j / r_k) + beta_k`, with `gamma_k`
+  initialised to 1 and `beta_k` to 0 — **2 parameters per width, 24 total at `w_max=12`.**
+  **Scalar, not per-unit, and that is the point:** the thing a per-width head might already absorb is
+  the rung-dependent **divisor**, which is one number per width
+  (`shared/width_transformer_port.md` §5 repair 3). A per-UNIT affine would test channel recalibration
+  — a different question, explicitly out of scope.
+- **D — naive per-width normalisation.** Identical formula to B, computed the textbook way: loop over
+  `k`, slice `h[:, :k]`, compute its root-mean-square directly. **NOT a science arm — it is the
+  correctness oracle for B**, and the only arm whose purpose is a test rather than a result.
 
 **Spec (execution-level).**
 - [ ] **Step 1 — exactness first: does the trick work at all?** `tests/test_prefix_norm_equivalence.py`:
@@ -1377,7 +1399,9 @@ Let `h = hidden(x)` (shape `(N, 12)`), `c_j = w_j * h[:, j]` the per-unit contri
 - [ ] **Step 5 — record per arm:** per-width held-out MSE · **full-width held-out MSE** · train-minus-
   held-out gap per width · `params_allocated` and `params_effective` · `executed_flops` per width via
   `automl_package/utils/capacity_accounting.py` · `train_wall_clock_s` · `steps_to_converge` · the
-  **ordering statistic imported from WSEL-13** · the width selected by BOTH rules (cheapest-within-
+  **ordering statistic imported from WSEL-13** — specifically its `spearman_index_vs_importance`,
+  computed by the same function on the same three-split carve, so the two tasks' numbers are directly
+  comparable · the width selected by BOTH rules (cheapest-within-
   tolerance globally, and the distilled per-input router).
 - [ ] **Step 6 — write `automl_package/examples/capacity_ladder_results/WSEL16/frozen.json`** with
   every field in Step 5 per arm, plus `controls_passed: bool`, `stage1_winner: str`,
