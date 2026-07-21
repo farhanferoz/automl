@@ -1290,6 +1290,83 @@ git status --short automl_package/ | grep -v '^??' && echo CODE-TOUCHED || echo 
 (a) must print nothing; in (b) the second count must be **≥** the first; (c) must print a line; (d)
 must print `CODE-CLEAN`.
 
+### FP-11 — ONE HOME: move the flexible-capacity code under `models/flexnn/` — ⚡ **TASK ZERO, runs BEFORE everything else**
+
+**Why FIRST and not last (user, 2026-07-21).** The root initially proposed doing this after the width
+comparison, on the grounds that the comparison promotes and collapses classes so we would "move things
+twice". **That reasoning was wrong and the user corrected it.** Promotion moves ONE class into the
+architectures module — the same small move wherever that module lives. Meanwhile: nothing is in flight
+right now, so there is nothing to collide with; four newly-written width tasks CREATE files, so
+reorganising afterwards moves *more* code, not less; and a worker writing into a messy layout follows
+the mess, because an organisation rule only binds when there is somewhere to put things.
+
+**The mess, read off disk 2026-07-21.** `automl_package/models/` is flat — ~40 modules — with three
+flexible-capacity classes sitting directly beside `xgboost_model.py` and `linear_regression.py`. The
+width architectures are one level down in `architectures/`; the selection strategies are in
+`selection_strategies/`; the router is in `common/`. Four locations, one family. MASTER's naming key
+already says FlexNN is the umbrella for all per-input capacity work; the directory tree does not.
+
+**Files (write set):** `automl_package/models/flexnn/` (Create) ·
+`automl_package/models/architectures/nested_width_net.py` ·
+`automl_package/models/flexible_width_network.py` · `automl_package/models/flexible_neural_network.py` ·
+`automl_package/models/independent_weights_flexible_neural_network.py` ·
+`automl_package/models/selection_strategies/base_selection_strategy.py` ·
+`automl_package/models/selection_strategies/layer_selection_strategies.py` ·
+`automl_package/models/selection_strategies/independent_weights_strategies.py` ·
+`automl_package/models/common/distilled_router.py`
+
+**The target tree — exact, no discretion:**
+
+| New path | Moved from |
+|---|---|
+| `automl_package/models/flexnn/width/architectures.py` | `automl_package/models/architectures/nested_width_net.py` |
+| `automl_package/models/flexnn/width/model.py` | `automl_package/models/flexible_width_network.py` |
+| `automl_package/models/flexnn/depth/model.py` | `automl_package/models/flexible_neural_network.py` |
+| `automl_package/models/flexnn/depth/independent_weights.py` | `automl_package/models/independent_weights_flexible_neural_network.py` |
+| `automl_package/models/flexnn/strategies/base.py` | `automl_package/models/selection_strategies/base_selection_strategy.py` |
+| `automl_package/models/flexnn/strategies/layer.py` | `automl_package/models/selection_strategies/layer_selection_strategies.py` |
+| `automl_package/models/flexnn/strategies/independent_weights.py` | `automl_package/models/selection_strategies/independent_weights_strategies.py` |
+| `automl_package/models/flexnn/routing.py` | `automl_package/models/common/distilled_router.py` |
+
+**EXPLICITLY OUT OF SCOPE, and why — do not move these:**
+- `automl_package/models/selection_strategies/n_classes_strategies.py` and
+  `automl_package/models/architectures/probabilistic_regression_net.py`
+  — **ProbReg is a LIVE strand** (`probreg.md` P7 writes `n_classes_strategies.py`). Moving them is a
+  write-set collision with live work. Named as a follow-up, not smuggled in here.
+- `automl_package/utils/capacity_accounting.py`, `automl_package/utils/capacity_selection.py` — generic
+  accounting/selection primitives, correctly in `utils/`, consumed by more than FlexNN.
+- Everything under `automl_package/examples/` — experiment drivers, boundary rule (MASTER Decision 19).
+
+**Spec (execution-level).**
+- [ ] **Step 1 — move the logic, LEAVE A SHIM at every old path.** The precedent and the exact shape
+  are `automl_package/examples/convergence.py`. **Do NOT rewrite callers** — several drivers cite exact
+  module names in their pre-registration (§3 item 5). A shim is not a deletion and preserves the
+  protected-path manifest.
+- [ ] **Step 2 — re-derive the importer list by `grep` AT EXECUTION TIME** (it was 44 files on
+  2026-07-21; that number is a sanity check, NOT the list — the list rots). Import every one and show
+  it resolves.
+- [ ] **Step 3 — no behaviour change anywhere.** Nothing is renamed, merged, split, or edited beyond
+  the import lines the move requires. A class that moves keeps its docstring verbatim (the FP-2
+  precedent).
+- [ ] **Step 4 — `automl_package/models/flexnn/__init__.py` re-exports the family** so `from automl_package.models.flexnn import ...`
+  is the one obvious import for new code.
+
+**Non-goals:** **NO DELETIONS** (user-gated; FP-8 owns them, attended-only). No behaviour change. No
+merging of classes — the duplicate pair is `width.md` WSEL-17's job and needs a proof of equivalence
+first. No touching ProbReg's files. No new architecture.
+*Orchestration:* parallel: **no — it moves files every other task reads** · deps: **none; it is TASK
+ZERO and every width task now deps on it** · tier: sonnet high (mechanical, high volume) ·
+scale: static · shape: execution ·
+verify: (1) every importer from Step 2 imports cleanly, list shown; (2)
+`AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/ -q` matches the pre-move result exactly,
+including the two known-failing heteroscedastic tests — **no new failures and no newly-passing tests**;
+(3) `git diff --name-status` shows no `D` or `R` for any path in
+`docs/plans/capacity_programme/shared/PROTECTED.tsv`; (4) the canonical cell reproduces
+`fit_bar.ratio_to_floor` unchanged for every width against
+`automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse.json`,
+with `OMP_NUM_THREADS=4` pinned; (5) every NEW path in the target tree above exists on disk and every
+OLD path still exists as a shim.
+
 ### FP-8 — the cleanup itself
 
 **Files (write set):** determined by FP-7's inventory, listed explicitly in the task before it runs

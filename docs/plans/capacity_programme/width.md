@@ -540,6 +540,12 @@ Order: **WSEL-0 → WSEL-1 → WSEL-2 → WSEL-3 → WSEL-4 → WSEL-5 → (WSEL
 WSEL-10.** *(**WSEL-11** added 2026-07-21, MASTER Decision 21 — parallel, independent of WSEL-6/7,
 and must land before WSEL-8 reads its numbers.)*
 
+⚡ **TASK ZERO — `flexnn-package.md` FP-11 RUNS BEFORE ANY TASK IN THIS FILE (user, 2026-07-21).**
+It moves the flexible-capacity code under one `models/flexnn/` home. **Every width task deps on it**,
+because every one of them either edits or imports a file it moves. Doing it first is cheapest: nothing
+is in flight to collide with, and four of the tasks below CREATE files that would otherwise have to be
+moved afterwards. *(The root first proposed doing it last and was corrected — see FP-11's rationale.)*
+
 **Efficiency/mechanism track, added 2026-07-21 (user, discussion) — runs alongside the order above:
 WSEL-12 → WSEL-14, with WSEL-13 parallel to both.**
 - **WSEL-12 and WSEL-14 SHARE A WRITE SET** (`kdropout_converged_width_experiment.py` and
@@ -551,8 +557,8 @@ WSEL-12 → WSEL-14, with WSEL-13 parallel to both.**
   `automl_package/examples/width_candidates.py`, WSEL-16 extends it, WSEL-17 consolidates the package
   module. Shared write sets — never the same wave. WSEL-16 additionally needs WSEL-13's ordering
   statistic landed, and WSEL-17 needs WSEL-16's winner.
-- **Full order for this track:** `WSEL-12 → (WSEL-14 ∥ WSEL-15) → WSEL-16 → WSEL-17`, with
-  **WSEL-13 parallel to all of it** and required before WSEL-16 reads out.
+- **Full order for this track:** `FP-11 (task zero) → WSEL-12 → (WSEL-14 ∥ WSEL-15) → WSEL-16 →
+  WSEL-17`, with **WSEL-13 parallel to everything after FP-11** and required before WSEL-16 reads out.
 - **Every task in this section holds sigma FIXED at the true value — see §3.7. The driver default
   LEARNS it, which is the forbidden thing.**
 - **Every task in this section runs the toy tiers assigned in §3.8. No task chooses its own cells.**

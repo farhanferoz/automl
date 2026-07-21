@@ -20,9 +20,9 @@ copy (gate: `test_plan_gates.py`).
 | 5 | `flexnn-moe.md` | MoE build (M0-M2 early) + reports (b), (c) | build: none; comparisons+reports: **G-JOINT** | **DONE — M0-M2 DONE 2026-07-16**; M3 rescoped as flexnn-core F6; M4/M5 superseded by F7 (user 2026-07-18) |
 | 6 | `flexnn-core.md` | Package refactor + FF-depth pilot + unified report | — | **yes** — but see the SPLIT note below; this file is 4 workstreams in one |
 | 7 | `probreg.md` | **ProbReg k-selection: models M1/M2/M3, defects, battery, report** | — | **yes — the live workstream (user, 2026-07-20)** |
-| 8 | `width.md` | **Width SELECTION: the three ways of choosing a width, the studies, battery, report.** Architecture certification stays in `width-cert.md` (CLOSED) | `flexnn-package.md` FP-3, FP-9 | **yes — DISPATCHABLE** (repair closed 2026-07-20; WSEL-9 ⏸ PARKED, toys-only) |
+| 8 | `width.md` | **Width SELECTION + (new 2026-07-21) the ARCHITECTURE comparison, the toy suite, and the code-organisation rules.** Architecture certification stays in `width-cert.md` (CLOSED) | **`flexnn-package.md` FP-11 (TASK ZERO)**, FP-3, FP-9, FP-4 | **yes — the LIVE strand.** Order: `FP-11 → WSEL-12 → (WSEL-14 ∥ WSEL-15) → WSEL-16 → WSEL-17`, WSEL-13 parallel. §3.7 sigma-fixed-at-truth · §3.8 the toy suite (3 tiers, per-task assignment) · §3.9 the architecture inventory + no-duplication rules. WSEL-9 ⏸ PARKED, toys-only |
 | 9 | `depth-selection.md` | **FEED-FORWARD depth (the object) + depth selection.** | — | **⛔ ENTIRE STRAND PARKED (user, 2026-07-21): "let's park depth completely". NOTHING dispatchable.** Supersedes the earlier strand-local block. Two untried levers (per-depth output layers; regularisation) and a missing literature survey are recorded in the strand header for whoever unparks it; neither lever has a written task, and writing them is a ROOT action on unpark. **Live programme = width + ProbReg only.** |
-| 10 | `flexnn-package.md` | **The codebase**: package-vs-scripts boundary, the ONE selection API, router de-duplication, shared selection primitives, cleanup | — | **yes — DISPATCHABLE** (repair closed 2026-07-20; boundary rule ratified as Decision 19) |
+| 10 | `flexnn-package.md` | **The codebase**: package-vs-scripts boundary, the ONE selection API, router de-duplication, shared selection primitives, cleanup, **and FP-11 — ONE HOME under `models/flexnn/`** | — | **yes — and FP-11 is TASK ZERO for the whole programme** (user, 2026-07-21: do the reorganisation FIRST, not last — nothing is in flight to collide with, and the new width tasks create files that would otherwise be moved twice). FP-2 DONE. Boundary rule = Decision 19 |
 
 **⚠ SPLIT PENDING on `flexnn-core.md` (opened 2026-07-20).** That file is 54KB holding FOUR
 workstreams — package refactor (F0–F4/F8/F13), the feed-forward depth attribution study (F5), the
@@ -48,12 +48,20 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
 ## Naming key
 
 - **FlexNN** = the umbrella for ALL per-input capacity work; strands are its width/depth/joint/MoE/core
-  facets; the package family is `flexible_neural_network.py` + `flexible_width_network.py` (F2).
+  facets. **The family gets ONE home, `automl_package/models/flexnn/`, via `flexnn-package.md` FP-11
+  (TASK ZERO, 2026-07-21).** Until FP-11 lands the code is split across four locations —
+  `models/` (flat), `models/architectures/`, `models/selection_strategies/`, `models/common/` — which
+  is the mess FP-11 exists to fix.
 - **#1 / #2 / #3** — width architectures: #1 `NestedWidthNet` (shared trunk + shared readout,
   fails), #2 `SharedTrunkPerWidthHeadNet` (shared trunk + per-width heads, **certified winner —
   G-WIDTH PASS 2026-07-16**),
-  #3 `IndependentWidthNet` (K disjoint sub-nets, positive control). All in
-  `automl_package/examples/nested_width_net.py`.
+  #3 `IndependentWidthNet` (K disjoint sub-nets, positive control), plus
+  `SharedReadoutPerWidthAffineNet` (minimum-seam arm). **All four are in
+  `automl_package/models/architectures/nested_width_net.py`** since FP-2;
+  `automl_package/examples/nested_width_net.py` is a re-export shim. *(This line previously named the
+  examples path as their home — stale since FP-2 landed. FP-11 moves them again, to
+  `automl_package/models/flexnn/width/architectures.py`, leaving another shim.)* **Candidate
+  architectures under test are NOT here — they live in one module, `width.md` §3.9.**
 - **G-WIDTH / G-DEPTH / G-JOINT** — the three programme gates.
 - **ProbReg models M1 / M2 / M3** — the three ways of choosing k. **Defined in ONE place:
   `probreg.md` §1. Do not restate the definition here or anywhere else.** *(This entry previously
@@ -111,6 +119,18 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
 2. **MSE-only** for all capacity strands (width/depth/joint). Variance stays parked.
    *(Amended 2026-07-17: binds the WIDTH strand only. The depth strand is CE classification per
    the `depth.md` PIVOT; the joint strand's metric follows the toy J0 adopts.)*
+   ✅ **AMENDED AND SHARPENED 2026-07-21 (user, live) — "FIXED AT THE TRUE VALUE", NOT "DROPPED".**
+   The user's clarification: *"I'm not saying we should drop the functionality of setting it. I'm just
+   saying just fix it at the true value."* **The variance machinery STAYS; LEARNING the variance is
+   what is forbidden**, because that is what overfits. Every width run uses sigma clamped to the
+   generator's true per-point value, excluded from the optimiser. Full rule, the per-tier
+   implementation, and the honest statement of what it changes versus the squared error already on
+   disk: `width.md` §3.7. Key consequence, so nobody re-derives it: on a constant-noise toy the
+   fixed-sigma likelihood **equals the squared error up to one positive constant**, so certified
+   numbers stay comparable; on the two-noise-level control it becomes a **weighted** squared error
+   that down-weights the noisy region 100x — a different objective from what was run there before,
+   which must be labelled in any shared table, and which *sharpens* that control rather than blunting
+   it.
 3. **Reports are toys-only.** UCI/real-data belongs to the later Paper A/B roadmap
    (`docs/research_plan.md`), not these reports.
    *(**AMENDED 2026-07-20, user live.** Binds the WIDTH/DEPTH capacity reports only. The ProbReg

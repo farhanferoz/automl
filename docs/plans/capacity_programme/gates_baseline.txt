@@ -81,3 +81,15 @@ automl_package/examples/width_candidates.py                          # WSEL-15 w
 automl_package/examples/width_wsel16.py                              # WSEL-16 write set (verify 2, --selftest)
 tests/test_stopgrad_width_loss.py                                    # WSEL-16 Step 1 (verify 1, pytest)
 automl_package/examples/capacity_ladder_results/WSEL16/frozen.json   # WSEL-16 Step 6 (verify 5)
+# --- flexnn-package.md FP-11 target tree (parked 2026-07-21, root) -----------------------------
+# Task-zero reorganisation. Every path is a Create target named in FP-11's target-tree table AND
+# asserted by its verify clause (5).
+automl_package/models/flexnn/width/architectures.py                  # FP-11
+automl_package/models/flexnn/width/model.py                          # FP-11
+automl_package/models/flexnn/depth/model.py                          # FP-11
+automl_package/models/flexnn/depth/independent_weights.py            # FP-11
+automl_package/models/flexnn/strategies/base.py                      # FP-11
+automl_package/models/flexnn/strategies/layer.py                     # FP-11
+automl_package/models/flexnn/strategies/independent_weights.py       # FP-11
+automl_package/models/flexnn/routing.py                              # FP-11
+automl_package/models/flexnn/__init__.py                             # FP-11 Step 4
