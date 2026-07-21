@@ -10,6 +10,9 @@ import torch.nn.functional as f
 from automl_package.enums import ActivationFunction, HeadSpread, Monotonicity, UncertaintyMethod
 from automl_package.utils.pytorch_utils import apply_law_of_total_variance, get_activation_function_map, monotonic_linear
 
+_PROBABILISTIC_OUTPUT_SIZE = 2  # a probabilistic head emits (mean, log_variance) per class; 1 => mean only
+_BOUNDARY_RANK_PER_CLASS = 2  # `boundaries` is (n_classes, 2); a higher rank means per-output bounds (SingleHeadNOutputs)
+
 
 class RegressionHead(nn.Module, ABC):
     """Abstract base class for per-class regression heads.
@@ -112,7 +115,7 @@ class BaseRegressionHead(RegressionHead):
     def _apply_boundary_constraints(self, logit: torch.Tensor, boundaries: torch.Tensor) -> torch.Tensor:
         """Applies hardsigmoid transformation to constrain logits within boundaries."""
         # Handle probabilistic case by separating mean and log_var
-        if self.output_size == 2:  # Probabilistic
+        if self.output_size == _PROBABILISTIC_OUTPUT_SIZE:
             # De-interleave mean and log_var
             # logit shape is (batch, n_classes * 2) for SingleHeadNOutputs, or (batch, 2)
             means = logit[:, 0::2]
@@ -122,7 +125,7 @@ class BaseRegressionHead(RegressionHead):
             log_vars = None
 
         # Now, apply boundaries ONLY to the means
-        if means.dim() > 1 and means.shape[1] > 1 and boundaries.dim() > 2 and boundaries.shape[1] == means.shape[1]:
+        if means.dim() > 1 and means.shape[1] > 1 and boundaries.dim() > _BOUNDARY_RANK_PER_CLASS and boundaries.shape[1] == means.shape[1]:
             # Per-output boundaries for SingleHeadNOutputs
             lower_bound = boundaries[..., 0]
             upper_bound = boundaries[..., 1]
@@ -229,7 +232,7 @@ class ConstantHead(RegressionHead):
         _ = boundaries
         batch_size = x.size(0)
         output_mean = self.mean.expand(batch_size, 1)
-        if self.regression_output_size == 2:
+        if self.regression_output_size == _PROBABILISTIC_OUTPUT_SIZE:
             output_log_var = self.log_variance.expand(batch_size, 1)
             output = torch.cat([output_mean, output_log_var], dim=1)
         else:
@@ -369,7 +372,9 @@ class SeparateHeadsRegressionModule(nn.Module):
         Args:
             probabilities: A tensor of class probabilities.
             return_head_outputs: If True, return per-head outputs alongside the final prediction.
-            boundaries: Optional boundaries for the sigmoid transformation.
+            boundaries: Optional per-class value ranges, shape (n_classes, 2) as built by
+                `calculate_class_value_ranges`. Head `i` is constrained to row `i` -- its OWN
+                class's [lower, upper] range -- which is the whole point of the constraint.
 
         Returns:
             The final prediction, or a tuple of (final_prediction, per_head_outputs).
@@ -377,7 +382,14 @@ class SeparateHeadsRegressionModule(nn.Module):
         per_head_outputs = []
         for i in range(len(self.heads)):
             p_i = probabilities[:, i].unsqueeze(1)
-            per_head_outputs.append(self.heads[i](p_i, boundaries=boundaries))
+            # Slice row i and KEEP the leading dim (i:i+1, not [i]), because
+            # `_apply_boundary_constraints` reads dim 0 as a broadcastable batch axis. Passing the
+            # whole (n_classes, 2) tensor here made every head try to broadcast n_classes bounds
+            # against a batch of means, which only happens to work when n_classes == batch_size --
+            # i.e. it raised for every real cell. Boundary regularization is off by default and has
+            # no test, so this never surfaced until the structure phase's PS-2 patch audit ran it.
+            head_boundaries = None if boundaries is None else boundaries[i : i + 1]
+            per_head_outputs.append(self.heads[i](p_i, boundaries=head_boundaries))
         per_head_outputs = torch.stack(per_head_outputs, dim=1)
         final_predictions = _calculate_final_predictions(probabilities, per_head_outputs, self.regression_output_size)
         return (final_predictions, per_head_outputs) if return_head_outputs else final_predictions
@@ -433,7 +445,7 @@ class SingleHeadNOutputsRegressionModule(nn.Module):
 
         if self.constrain_middle_class and self.n_classes % 2 != 0:
             self.middle_class_mean = nn.Parameter(torch.zeros(1))
-            if self.regression_output_size == 2:
+            if self.regression_output_size == _PROBABILISTIC_OUTPUT_SIZE:
                 self.middle_class_log_var = nn.Parameter(torch.zeros(1))
 
     def init_middle_class_mean(self, value: float) -> None:
@@ -450,7 +462,7 @@ class SingleHeadNOutputsRegressionModule(nn.Module):
             middle_class_idx = self.n_classes // 2
             batch_size = probabilities.shape[0]
             per_head_outputs[:, middle_class_idx, 0] = self.middle_class_mean.expand(batch_size)
-            if self.regression_output_size == 2:
+            if self.regression_output_size == _PROBABILISTIC_OUTPUT_SIZE:
                 per_head_outputs[:, middle_class_idx, 1] = self.middle_class_log_var.expand(batch_size)
 
         return per_head_outputs
@@ -519,4 +531,6 @@ class SingleHeadFinalOutputRegressionModule(nn.Module):
 
 def _calculate_final_predictions(probabilities: torch.Tensor, per_head_outputs: torch.Tensor, regression_output_size: int) -> torch.Tensor:
     """Helper to calculate final predictions from per-head outputs."""
-    return apply_law_of_total_variance(probabilities, per_head_outputs) if regression_output_size == 2 else torch.sum(probabilities.unsqueeze(-1) * per_head_outputs, dim=1)
+    if regression_output_size == _PROBABILISTIC_OUTPUT_SIZE:
+        return apply_law_of_total_variance(probabilities, per_head_outputs)
+    return torch.sum(probabilities.unsqueeze(-1) * per_head_outputs, dim=1)
