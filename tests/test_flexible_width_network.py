@@ -316,3 +316,39 @@ class TestFlexibleWidthNNPredictUncertainty:
 
         with pytest.raises(NotImplementedError, match="PROBABILISTIC"):
             model.predict_uncertainty(x)
+
+
+class TestFlexibleWidthNNBookkeepingPredictionPath:
+    """FP-3.b.4's blast radius (capacity-programme Task FP-10): generic `BaseModel` bookkeeping --
+    CV folds, the HPO objective, evaluation, the log-scale check -- calls `predict(x)`
+    polymorphically with no `width`, which raises for this class under the default
+    `CapacitySelection.FIXED` (FP-3.b.4). `_fit_residual_std` and `_predict_for_scoring`
+    (overridden in this class to use the internal `_predict_at_explicit_width` at `max(widths)`)
+    close that gap. Before the fix, `.fit()` itself crashed under `cv_folds` or
+    `optimize_hyperparameters` -- confirmed at runtime 2026-07-21 -- so these tests exercise `.fit()`
+    end to end, not just the internal helpers in isolation.
+    """
+
+    def test_fit_under_cv_does_not_raise(self, simple_linear_data):
+        """Runtime-confirmed crash (2026-07-21): `cv_folds` + `early_stopping_rounds` routes
+        through `_find_optimal_iterations_with_cv`, which calls `predict(x_val_fold)` with no width
+        (`base.py`'s CV-fold call site)."""
+        x, y = simple_linear_data
+        model = _make_width_model(n_epochs=5, cv_folds=3, early_stopping_rounds=1, validation_fraction=None)
+        model.fit(x, y)
+
+        y_pred = model.predict(x, width=max(model.widths))
+        assert y_pred.shape == (len(x),)
+        assert not np.any(np.isnan(y_pred))
+
+    def test_fit_under_hpo_does_not_raise(self, simple_linear_data):
+        """`optimize_hyperparameters=True` routes each Optuna trial through
+        `_evaluate_trial_performance`, which calls `predict(x_val)` with no width (`base.py`'s HPO
+        objective call site)."""
+        x, y = simple_linear_data
+        model = _make_width_model(n_epochs=5, optimize_hyperparameters=True, n_trials=2)
+        model.fit(x, y)
+
+        y_pred = model.predict(x, width=max(model.widths))
+        assert y_pred.shape == (len(x),)
+        assert not np.any(np.isnan(y_pred))

@@ -29,7 +29,6 @@ path to take. Only MSE (regression) and CE/BCE (classification) tasks are suppor
 out of scope for this port (Task F2 spec).
 """
 
-import inspect
 from collections.abc import Callable
 from typing import Any, ClassVar
 
@@ -164,38 +163,11 @@ class FlexibleWidthNN(PyTorchModelBase):
         the shared `PyTorchModelBase._fit_single` loop itself, out of scope here, so this is a single
         COMBINED convergence summary of the joint trajectory, not one per width.
 
-        FP-3 side effect, handled here: `PyTorchModelBase._fit_single` (`base_pytorch.py:217-218`,
-        not in this class's write set) computes `_train_residual_std` for
-        `uncertainty_method=CONSTANT` (the default) by calling `self.predict(x_train,
-        filter_data=False)` with NO `width` -- which, now that `predict()`'s `width=None` RAISES
-        under `CapacitySelection.FIXED` (FP-3.b.4) instead of silently defaulting, would crash
-        every `.fit()` call under the default uncertainty method. `uncertainty_method` is checked
-        in the base loop exactly once, at the very end (after training, right before that
-        residual-std branch), so temporarily swapping it to something else lets the base class's
-        own attempt fall through harmlessly; this method then redoes the SAME computation itself
-        via `_predict_at_explicit_width` (`max(self.widths)`, matching this class's pre-FP-3
-        implicit default) -- functionally identical to the old behavior for this internal
-        bookkeeping use, while the PUBLIC `predict()` contract still enforces "no width given ->
-        raise" for callers. See also `calibrate_uncertainty`/`predict_binned_uncertainty` below,
-        which need the identical fix for the same reason (`models/common/mixins.py:99,112`).
+        The `UncertaintyMethod.CONSTANT` residual std that `PyTorchModelBase._fit_single` computes
+        at the end of training is handled by this class's `_fit_residual_std` override below
+        (capacity-programme FP-10), not here -- no special-casing needed in this wrapper.
         """
-        needs_residual_std = self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT
-        original_uncertainty_method = self.uncertainty_method
-        if needs_residual_std:
-            self.uncertainty_method = UncertaintyMethod.BINNED_RESIDUAL_STD  # anything != CONSTANT; restored below
-        try:
-            best_epoch, val_loss_history = super()._fit_single(*args, **kwargs)
-        finally:
-            self.uncertainty_method = original_uncertainty_method
-
-        if needs_residual_std:
-            bound = inspect.signature(PyTorchModelBase._fit_single).bind(self, *args, **kwargs)
-            bound.apply_defaults()
-            x_train, y_train = bound.arguments["x_train"], bound.arguments["y_train"]
-            y_pred_train = self._predict_at_explicit_width(x_train, filter_data=False, width=max(self.widths))
-            self._train_residual_std = np.std(np.asarray(y_train, dtype=np.float32) - y_pred_train)
-            if np.isnan(self._train_residual_std):
-                self._train_residual_std = 0.0
+        best_epoch, val_loss_history = super()._fit_single(*args, **kwargs)
 
         patience = self.early_stopping_rounds if self.early_stopping_rounds is not None else DEFAULT_PATIENCE
         tracker = ConvergenceTracker(patience=patience, min_delta=0.0)
@@ -237,16 +209,16 @@ class FlexibleWidthNN(PyTorchModelBase):
     def _predict_at_explicit_width(self, x: np.ndarray, filter_data: bool, width: int) -> np.ndarray:
         """Predicts at ONE explicit width, bypassing the `capacity_selection` gate entirely.
 
-        FP-3 side effect, not part of the public API: several generic `BaseModel`/mixin call sites
-        outside this class's write set -- `PyTorchModelBase._fit_single`'s `_train_residual_std`
-        bookkeeping (`base_pytorch.py:217-218`), `BinnedUncertaintyMixin.calibrate_uncertainty`/
-        `predict_binned_uncertainty` (`models/common/mixins.py:99,112`) -- call `self.predict(x)`
-        polymorphically with NO width, expecting SOME concrete prediction regardless of whether
-        this instance is configured `FIXED` or `PER_INPUT` (no router exists yet during `.fit()`
-        in either case). `predict()`'s public contract now correctly raises on a caller-omitted
-        width (FP-3.b.4); this helper is what those internal callers use instead, always at
-        `max(self.widths)` -- matching this class's pre-FP-3 implicit default for exactly this
-        internal bookkeeping use, without weakening the public contract.
+        FP-3/FP-10 side effect, not part of the public API: several generic `BaseModel`/mixin call
+        sites outside this class's write set -- this class's own `_fit_residual_std` and
+        `_predict_for_scoring` overrides below, `BinnedUncertaintyMixin.calibrate_uncertainty`/
+        `predict_binned_uncertainty` (`models/common/mixins.py:99,112`) -- need SOME concrete
+        prediction with NO width, regardless of whether this instance is configured `FIXED` or
+        `PER_INPUT` (no router exists yet during `.fit()` in either case). `predict()`'s public
+        contract now correctly raises on a caller-omitted width (FP-3.b.4); this helper is what
+        those internal callers use instead, always at `max(self.widths)` -- matching this class's
+        pre-FP-3 implicit default for exactly this internal bookkeeping use, without weakening the
+        public contract.
         """
         if filter_data:
             x = self._filter_predict_data(x)
@@ -256,6 +228,38 @@ class FlexibleWidthNN(PyTorchModelBase):
         with torch.no_grad():
             final_output = self.model.forward_width(x_tensor, width)
         return self._predictions_from_output(final_output)
+
+    def _fit_residual_std(self, x_train: np.ndarray, y_train: np.ndarray) -> None:
+        """Computes the `UncertaintyMethod.CONSTANT` residual std at `max(self.widths)`.
+
+        Overrides `PyTorchModelBase._fit_residual_std` (capacity-programme FP-10): the base
+        implementation calls the public `self.predict(x_train, filter_data=False)`, which now
+        raises under `CapacitySelection.FIXED` when no `width` is given (FP-3.b.4). This override
+        uses `_predict_at_explicit_width` instead, at `max(self.widths)` -- matching this class's
+        pre-FP-3 implicit default for this internal bookkeeping use. Replaces the earlier
+        signature-introspection-based workaround that lived in `_fit_single`.
+        """
+        y_pred_train = self._predict_at_explicit_width(x_train, filter_data=False, width=max(self.widths))
+        self._train_residual_std = np.std(np.asarray(y_train, dtype=np.float32) - y_pred_train)
+        if np.isnan(self._train_residual_std):
+            self._train_residual_std = 0.0
+
+    def _predict_for_scoring(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+        """Internal, non-caller-facing prediction path for CV/HPO/evaluation bookkeeping (FP-10).
+
+        Overrides `BaseModel._predict_for_scoring`. Generic machinery -- `BaseModel`'s CV folds
+        (`base.py:353`, `:444`), the HPO objective (`base.py:372`), `evaluate()` (`base.py:513`),
+        and `utils/data_handler.py:102`'s log-scale check -- calls this polymorphically with no
+        width, expecting a concrete prediction regardless of `capacity_selection`. Under
+        `CapacitySelection.FIXED` the public `predict()` contract correctly raises when `width` is
+        omitted (FP-3.b.4); this override predicts at `max(self.widths)` instead, via
+        `_predict_at_explicit_width` -- same "internal bookkeeping, not the public API" shape as
+        `_fit_residual_std` above. Under `PER_INPUT`, `predict()` needs no width, so this just
+        delegates to it.
+        """
+        if self.capacity_selection == CapacitySelection.FIXED:
+            return self._predict_at_explicit_width(x, filter_data=filter_data, width=max(self.widths))
+        return self.predict(x, filter_data=filter_data)
 
     def predict(self, x: np.ndarray, filter_data: bool = True, width: int | None = None) -> np.ndarray:
         """Makes predictions with the FlexibleWidthNN.

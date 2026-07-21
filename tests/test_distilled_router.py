@@ -171,6 +171,93 @@ class TestNoOracleLabelLeakage:
         assert router_a.route(x) == router_b.route(x), "identical error tables produced different routes -- fit path is not purely a function of eval_fn's output"
 
 
+class TestFitSoft:
+    """`fit_soft` -- the soft-target training path ported from K6/T2 (capacity-programme FP-5)."""
+
+    def test_routes_by_soft_target_peak(self):
+        """Soft targets peaked at capacity 8 in the hard regime / capacity 1 in the easy regime
+        must route the same way `fit()` does on the equivalent hard labels (the two-regime test
+        above), confirming `fit_soft`'s soft-label cross-entropy loop actually discriminates.
+        """
+        x, _y, is_hard = _make_two_regime_dataset()
+        n = len(x)
+        soft_targets = np.zeros((n, len(CAPACITY_GRID)), dtype=np.float32)
+        hard_col, easy_col = CAPACITY_GRID.index((8,)), CAPACITY_GRID.index((1,))
+        soft_targets[is_hard, hard_col] = 1.0
+        soft_targets[~is_hard, easy_col] = 1.0
+
+        router = DistilledCapacityRouter(seed=RANDOM_SEED)
+        router.fit_soft(x_val=x, soft_targets=soft_targets, capacity_grid=CAPACITY_GRID)
+
+        routed = np.array([c[0] for c in router.route(x)])
+        mean_easy_capacity = routed[~is_hard].mean()
+        mean_hard_capacity = routed[is_hard].mean()
+        assert mean_hard_capacity > mean_easy_capacity, (
+            f"hard-regime routed capacity ({mean_hard_capacity:.2f}) is not greater than "
+            f"easy-regime routed capacity ({mean_easy_capacity:.2f}) -- fit_soft did not learn the regime split."
+        )
+
+    def test_mismatched_lengths_rejected(self):
+        x, _y, _is_hard = _make_two_regime_dataset()
+        soft_targets = np.full((len(x) - 1, len(CAPACITY_GRID)), 1.0 / len(CAPACITY_GRID), dtype=np.float32)
+        router = DistilledCapacityRouter()
+        with pytest.raises(ValueError, match="same length"):
+            router.fit_soft(x_val=x, soft_targets=soft_targets, capacity_grid=CAPACITY_GRID)
+
+    def test_empty_capacity_grid_rejected(self):
+        x, _y, _is_hard = _make_two_regime_dataset()
+        soft_targets = np.full((len(x), len(CAPACITY_GRID)), 1.0 / len(CAPACITY_GRID), dtype=np.float32)
+        router = DistilledCapacityRouter()
+        with pytest.raises(ValueError, match="capacity_grid"):
+            router.fit_soft(x_val=x, soft_targets=soft_targets, capacity_grid=[])
+
+    def test_wrong_soft_target_column_count_rejected(self):
+        x, _y, _is_hard = _make_two_regime_dataset()
+        soft_targets = np.full((len(x), len(CAPACITY_GRID) - 1), 1.0 / (len(CAPACITY_GRID) - 1), dtype=np.float32)
+        router = DistilledCapacityRouter()
+        with pytest.raises(ValueError, match="columns"):
+            router.fit_soft(x_val=x, soft_targets=soft_targets, capacity_grid=CAPACITY_GRID)
+
+
+class TestBlendScores:
+    """`blend_scores`/`blend_nll` -- the blend-likelihood evaluation path ported from T2."""
+
+    def test_raises_before_fit(self):
+        router = DistilledCapacityRouter()
+        with pytest.raises(RuntimeError, match="fit"):
+            router.blend_scores(np.zeros((3, 1), dtype=np.float32), np.zeros((3, len(CAPACITY_GRID))))
+
+    def test_confident_hard_route_blend_nll_matches_routed_nll(self):
+        """Once the router is confidently discriminating (the two-regime task, trained plenty of
+        epochs), its logits are near one-hot, so the blend (a softmax-weighted mixture) and the
+        hard route (an argmax) must nearly agree -- `blend_nll` on a `score` table built from the
+        SAME `eval_fn` the router routes on should sit close to the routed NLL.
+        """
+        x, _y, is_hard = _make_two_regime_dataset()
+        eval_fn = _make_eval_fn(is_hard)
+        router = DistilledCapacityRouter(seed=RANDOM_SEED)
+        router.fit(eval_fn=eval_fn, x_val=x, y_val=np.zeros(len(x)), capacity_grid=CAPACITY_GRID)
+
+        # score table: NEGATIVE error as a log-likelihood stand-in (lower error -> higher score)
+        score = -np.stack([eval_fn(x, capacity) for capacity in CAPACITY_GRID], axis=1).astype(np.float64)
+
+        col_idx = router.route_index(x)
+        routed_nll = float(-score[np.arange(len(x)), col_idx].mean())
+        blend_nll = router.blend_nll(x, score)
+        assert blend_nll == pytest.approx(routed_nll, abs=0.05), (
+            f"blend_nll ({blend_nll:.4f}) does not track routed_nll ({routed_nll:.4f}) for a confidently-discriminating router"
+        )
+
+    def test_blend_scores_shape(self):
+        x, _y, is_hard = _make_two_regime_dataset()
+        eval_fn = _make_eval_fn(is_hard)
+        router = DistilledCapacityRouter(seed=RANDOM_SEED)
+        router.fit(eval_fn=eval_fn, x_val=x, y_val=np.zeros(len(x)), capacity_grid=CAPACITY_GRID)
+        score = -np.stack([eval_fn(x, capacity) for capacity in CAPACITY_GRID], axis=1).astype(np.float64)
+        scores = router.blend_scores(x, score)
+        assert scores.shape == (len(x),)
+
+
 class TestDistilledCapacityRouterValidation:
     def test_mismatched_lengths_rejected(self):
         x, y, is_hard = _make_two_regime_dataset()

@@ -11,7 +11,6 @@ automl_package/examples/probreg_benchmark.py
 # consumed by that task's verify command, so none is a typo. Task ownership recorded so the entry
 # can be removed the moment the artifact lands.
 docs/plans/capacity_programme/shared/fp4-schedule-deviation.md      # FP-4 (write set L694)
-docs/plans/capacity_programme/shared/router-capabilities.md         # FP-5 (write set L745)
 
 # --- width.md Create targets (parked 2026-07-20, root) ----------------------------------------
 # Each verified: named in a WSEL task's write set and asserted by that task's verify line.
@@ -65,8 +64,5 @@ docs/plans/capacity_programme/shared/p5_middle_k_coherence.md       # P5
 # Decision 20/21 tasks added by the 2026-07-21 repair. Each named in the task's Files (write set)
 # AND asserted by its verify line (test -f / pytest).
 automl_package/examples/capacity_ladder_results/P7/frozen.json      # P7 (verify test -f)
-automl_package/examples/probreg_p8.py                               # P8 (write set)
-automl_package/examples/capacity_ladder_results/P8/frozen.json      # P8 (verify test -f)
 
 # --- width.md Create target (parked 2026-07-21, root) ------------------------------------------
-automl_package/examples/width_wsel11.py                             # WSEL-11 (Decision 21 check)

@@ -1,0 +1,37 @@
+{
+  "lambdas": [
+    0.0,
+    0.0001,
+    0.01
+  ],
+  "seeds": [
+    0,
+    1
+  ],
+  "baseline_lambda": 0.0,
+  "selected_width_by_seed_and_lambda": {
+    "0": {
+      "0.0": 7,
+      "0.0001": 7,
+      "0.01": 7
+    },
+    "1": {
+      "0.0": 6,
+      "0.0001": 6,
+      "0.01": 6
+    }
+  },
+  "moved_vs_baseline_by_seed_and_lambda": {
+    "0": {
+      "0.0": false,
+      "0.0001": false,
+      "0.01": false
+    },
+    "1": {
+      "0.0": false,
+      "0.0001": false,
+      "0.01": false
+    }
+  },
+  "selection_moved": false
+}

@@ -188,14 +188,23 @@ delegate to the inherited implementation (neither touches the stacked
 per `uncertainty_method` value including both raise cases. **WSEL-1 is DONE by this commit — see
 §4.**
 
-**WD2 — OPEN, API.** The typed enum sits on the broken knob and the magic string on the working one.
-`WidthSelectionMethod.DISTILLED` (`automl_package/enums.py:105-109`) is documented as "not yet
-landed" and raises `NotImplementedError` at construction
-(`automl_package/models/flexible_width_network.py:92`), while the mechanism that *does* work is
-reached by the raw string `inference_mode="routed"` (`:192`, validated by a hand-rolled membership
-check at `:204-205`). Omit that string after fitting a router and you silently get the largest fixed
-width — no error, no warning, nothing recording that a router was fitted and unused. Breaks the
-repo's own closed-set rule. → **WSEL-2**
+**WD2 — FIXED, landed in commit `e3cc52b` (`flexnn-package.md` FP-3's write set); recognised
+2026-07-21.** *(Description of the defect as it stood, with its original line citations REMOVED
+rather than repaired: they pointed at `automl_package/enums.py:105-109` and
+`automl_package/models/flexible_width_network.py:92`, `:192`, `:204-205`, none of which describe the
+current file — the symbol they named no longer exists anywhere in the repo, so there is nothing left
+to cite. Per the repair-pass rule, this entry was re-verified against disk, not re-worded.)* The
+typed enum sat on the broken knob and the magic string on the working one: `WidthSelectionMethod.DISTILLED`
+was documented as "not yet landed" and raised `NotImplementedError` at construction, while the
+mechanism that *does* work was reached by the raw string `inference_mode="routed"`, validated by a
+hand-rolled membership check. Omitting that string after fitting a router silently gave the largest
+fixed width — no error, no warning, nothing recording that a router was fitted and unused.
+**As fixed:** `capacity_selection` is a `CapacitySelection` member passed at construction
+(`automl_package/models/flexible_width_network.py:79`); `predict`
+(`automl_package/models/flexible_width_network.py:264`) and `predict_uncertainty`
+(`automl_package/models/flexible_width_network.py:365`) carry no `inference_mode` parameter;
+`grep -rn "WidthSelectionMethod" automl_package/ tests/` returns nothing — the enum is gone from the
+repo entirely, so the closed-set violation cannot recur. → **WSEL-2, now DONE (§4).**
 
 **WD3 — NOT A DEFECT. Withdrawn 2026-07-20 after reading the verdict's own §2.1.**
 An audit flagged `NestedWidthNet`'s **FAILS** verdict as resting on non-converged runs
@@ -363,7 +372,37 @@ shape: execution · verify: `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest 
 green, THEN revert the WD1 fix, re-run, show the new test FAILING, restore, and show the file
 checksum unchanged.
 
-### WSEL-2 — the width selection API
+### WSEL-2 — the width selection API — ✅ **DONE, found already landed; verified at the root 2026-07-21, commit `e3cc52b`**
+
+**Found already landed when dispatched 2026-07-21; no code change was needed or made.** The API this
+task specifies was built by `flexnn-package.md` FP-3, which carried
+`automl_package/models/flexible_width_network.py` in its own write set — the second instance of the
+overlap this programme keeps paying for (cf. WSEL-1, DSEL-3, P1, FP-0/FP-7). `git diff --stat
+e3cc52b~1 e3cc52b` shows that commit rewriting both this class (+170/−52) and the one named call
+site.
+**Verify line EXECUTED at the root** (not taken from the worker's report):
+`grep -rn "WidthSelectionMethod" automl_package/ tests/` → empty (the enum is gone repo-wide, so
+`WidthSelectionMethod.DISTILLED`'s dead `NotImplementedError` path is retired by construction);
+`grep -n "inference_mode" automl_package/examples/moe_flexnn_comparison.py` → empty (call site
+migrated, `capacity_selection=CapacitySelection.PER_INPUT` + `fit_router()` + plain `predict()`);
+`AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_flexible_width_network.py -q` → 24 passed.
+**One verify clause is not literally satisfiable, and is read the way FP-3's equivalent already was.**
+`grep -rn "inference_mode" automl_package/models/flexible_width_network.py` returns TWO hits
+(`automl_package/models/flexible_width_network.py:84`, `:86`) — both inside the constructor's own
+`TypeError` message, which names the rejected kwarg back to the caller. No live call site passes it.
+This is the identical situation `flexnn-package.md`'s FP-3 completion note ruled on for its clause
+(a) (`docs/plans/capacity_programme/flexnn-package.md:652-655`): once a discoverable rejection
+message is required, a literal zero-substring grep is unsatisfiable, and deleting the word from the
+message to force the grep clean would degrade the error for callers with no behavioural gain.
+**Read the clause as "no live call site passes it."**
+**The selection-set fraction requirement is satisfied without a change:** `fit_router` takes
+caller-supplied `x_val`/`y_val` (`automl_package/models/flexible_width_network.py:307`), so no split
+fraction is baked into this class at all — there was no constant to make configurable.
+**`fit()` does not internally call `fit_router()`, and that is CORRECT, not a gap.** The two-call
+pattern is the cross-family contract: `automl_package/models/flexible_neural_network.py:478` and
+`automl_package/models/probabilistic_regression.py:906` expose the same separate `fit_router`, and
+their tests use the same two-call shape. A width-local auto-fit would be the "second implementation"
+this task's own doctrine section forbids.
 
 **Files (write set):** `automl_package/models/flexible_width_network.py` ·
 `tests/test_flexible_width_network.py` · call sites found by grep, not by memory
@@ -641,6 +680,34 @@ scale: static · shape: execution · verify: the skill's own cold-read gate (pro
 skill); then `grep -c "WSEL-[0-9]" docs/reports/width_selection/*.md` is nonzero (studies cited by
 task ID, not restated from memory); then for each §3.6 constant name,
 `grep -q "<constant name>" docs/reports/width_selection/*.md` exits 0.
+
+### WSEL-11 — does explicit regularisation move the selected width? — ✅ **DONE 2026-07-21. VERDICT: SELECTION DOES NOT MOVE. Battery NOT blocked.**
+
+**RESULT: `selection_moved: false`** — ledger `automl_package/examples/capacity_ladder_results/WSEL11/frozen.json`, six per-cell JSONs (λ ∈ {0, 1e-4, 1e-2} × seeds {0,1}) in the same directory.
+Selected width is **invariant across the whole weight-decay grid on both seeds**: seed 0 selects the
+same width at λ=0, 1e-4 and 1e-2; seed 1 likewise selects its own same width at all three. No cell
+moves beyond tolerance, so `moved_vs_baseline_by_seed_and_lambda` is `false` throughout.
+
+**Consequence (MASTER Decision 21):** the strand-local block does **not** fire. **WSEL-8 and WSEL-10
+proceed**, and **WSEL-10's report MUST cite this as the robustness note** Decision 21 requires — the
+"does not move" branch is not a silent pass, it is a citable result.
+
+**What this does and does NOT establish** *(root, 2026-07-21 — recorded so the report cannot
+over-claim it)*:
+- **Does:** width's cheapest-within-tolerance selection is not an artefact of the research loop being
+  unregularised. The Decision-21 worry — that small capacity wins because small OVERFITS LESS rather
+  than because small SUFFICES — is not operating here, on this toy, at this grid.
+- **Does NOT:** establish agreement ACROSS seeds. The two seeds select **different** widths (7 and 6),
+  which is a different question this task never asked and its grid cannot answer. Stability *under
+  penalty* ≠ stability *across seeds*; do not present one as the other.
+- **Does NOT:** generalise beyond the one toy the task specifies. This is a discriminating check by
+  design (§4 non-goals: "no sweep over toys or seeds beyond what's specified"), not a survey.
+
+**Depth inheritance is now MOOT for this cycle:** Decision 21 has depth inherit this treatment after
+its positive control passes — `DSEL-2c` failed all four arms the same day and the depth strand is
+⏸ PARKED, so no depth regularisation check is scheduled. ProbReg's `P8` is the remaining live half.
+
+*(Original task spec follows, retained verbatim as the pre-registration this run was judged against.)*
 
 ### WSEL-11 — does explicit regularisation move the selected width? (MASTER Decision 21)
 

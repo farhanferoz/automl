@@ -465,6 +465,92 @@ verify: `grep -n "train identically" docs/probreg_benchmark/benchmark_spec.md` r
 struck-through or explicitly-superseded text; `grep -n "SAME as M2/M3" docs/probreg_benchmark/benchmark_spec.md`
 returns nothing; and the M3 code block in §2.3 sets `NClassesSelectionMethod.NONE`.
 
+### PA — the k-selection API — ✅ **DONE 2026-07-21** (built by worker; enum + integration fix applied at the ROOT)
+
+**What PA actually had to build was NARROWER than this spec implies, and that was verified before
+work started, not assumed:** FP-3 had already landed the `inference_mode` clean break and
+`CapacitySelection.{FIXED, PER_INPUT}` on this model. PA's real gap was the two MECHANISMS —
+M1 (`fit_global_selector`) and M3 (`fit_sweep_selector`) — plus the configurable selection fraction
+and defect D6.
+
+**Built** (`automl_package/models/probabilistic_regression.py`,
+`automl_package/models/selection_strategies/n_classes_strategies.py`,
+`tests/test_phase3_dynamic_k.py`; 52 passed, 1 pre-existing skip):
+- **M1 = `fit_global_selector`**, built on `all_rung_log_likelihood`
+  (`automl_package/models/selection_strategies/n_classes_strategies.py:230`) — **never** on
+  `held_out_arbiter_advantage` (§1 ⚠️, D5). Selects via FP-9's already-landed shared primitive
+  `automl_package/utils/capacity_selection.py`; the bootstrap-SE/tolerance rule was IMPORTED, not
+  re-derived (the third-copy failure this programme exists to stop).
+- **M3 = `fit_sweep_selector`**: one ORDINARY (`NClassesSelectionMethod.NONE`) model per k, scored
+  on the held-out remainder, SAME selection rule.
+- **`selection_fraction` is a constructor parameter** (default 0.15), not a baked-in constant — the
+  parameter `PB` is about to measure.
+- **D6 CLOSED**: `all_rung_log_likelihood`'s docstring no longer falsely claims
+  `held_out_arbiter_advantage` consumes it (both function bodies re-read to confirm).
+
+**ROOT-APPLIED, because `automl_package/enums.py` is FP-3's/shared and outside every strand's write
+set:** `CapacitySelection.GLOBAL_CHEAP` and `GLOBAL_SWEEP` added in the same change that ships their
+mechanisms (the naming-key rule; NOT ahead of them — that is the retired
+`WidthSelectionMethod.DISTILLED` trap). The worker, unable to touch `enums.py`, had written
+`getattr(CapacitySelection, "GLOBAL_CHEAP", None)` dormant guards; the root **replaced them with
+direct enum references** once the members existed — comparing a live config value against `None` is
+a silent-failure shape, and the stale comment block explaining the guard was deleted rather than
+left to rot. `enums.py`'s class docstring now records that **the k family implements these two
+members and width/depth do NOT yet** (WSEL-3/4, DSEL-6/7) — a member is a promise about the enum's
+contract, not a claim every family implements it.
+
+**⚠️ INTEGRATION DEFECT — found by the ROOT's post-enum smoke test. SCOPE CORRECTED BY ITS OWN
+REMOVAL RUN — read the correction below before citing this.** With the members live, `fit()` under
+`GLOBAL_CHEAP` crashed *inside training*:
+`PyTorchModelBase._fit_residual_std` — the hook **FP-10 created earlier the same wave** — calls the
+caller-facing `self.predict()`, which `GLOBAL_CHEAP` correctly REFUSES mid-fit, because selection
+runs AFTER training returns (`_fit_global_cheap`: `super().fit(...)` THEN `fit_global_selector(...)`).
+**Neither worker could have caught it:** PA built the modes while `enums.py` still lacked their
+members, so this path was unreachable in its tests; FP-10 landed the hook with no knowledge that two
+selection modes were arriving. **Fixed at the root**, same shape as FP-10's own width fix: a single
+`_predict_unselected` internal path, with `_fit_residual_std` and `_predict_for_scoring` overrides on
+ProbReg routing to it (under `GLOBAL_SWEEP`, scoring goes through the fitted sub-model, which IS the
+model).
+
+**🔻 SCOPE CORRECTION — the root's own first write-up of this OVERSTATED it, and the removal run is
+what caught that.** The first two regression tests written for it (end-to-end `fit()` under each
+global mode) were re-run with the override DELETED and **both still PASSED** — so they were coverage,
+not evidence, and the "load-bearing integration defect" framing did not survive its own verification.
+**Why the defect is narrower than it first appeared:** `PyTorchModelBase._fit_single` calls the
+residual-std hook ONLY under `uncertainty_method=CONSTANT`
+(`automl_package/models/base_pytorch.py:217`), whereas `GLOBAL_CHEAP` legally requires `NESTED`,
+which itself requires `PROBABILISTIC` — **so in a VALID configuration the crash path is unreachable.**
+**What is genuinely fixed:** `CONSTANT` is ProbReg's DEFAULT `uncertainty_method`, so requesting
+`GLOBAL_CHEAP` without also setting `NESTED` — a plausible caller mistake — used to die mid-`fit()`
+with `No global k selected`, pointing at the wrong thing entirely; it now raises the precondition
+error that names the real mistake. That is an error-quality fix on an invalid configuration, **not a
+silent-wrong-answer fix on a valid one**, and it must not be cited as the latter.
+**The discriminating guard** (`tests/test_phase3_dynamic_k.py::TestGlobalSelectionEndToEndThroughFit::test_global_cheap_without_nested_raises_precondition_not_midfit_crash`)
+**was PROVED in both directions at the root**: with the override deleted it fails with
+`RuntimeError: No global k selected`; with it restored it passes.
+*Case law, in its surviving form: **a test written against a fix must be run with the fix removed
+before the fix is described — the removal run is what sizes the defect, not the author's reading of
+it.** The secondary lesson stands: an enum member landed by one task can activate paths in another
+task's file, so smoke-test every family that dispatches on a shared enum after adding a member.*
+
+**A worker finding that did NOT survive root verification — recorded so it is not re-filed.** PA
+reported that `get_params()` fails to round-trip six fields, making CV/HPO sub-models silently train
+without `target_transform="symlog"` — a D1/D2-shaped silent-wrong-answer bug on HEAD. **Checked at
+the root by constructing with non-defaults and reading `_clone()` back: FALSE for five of the six.**
+`target_transform`, `prob_reg_loss_type`, `use_anchored_heads`, `loss_type` and `beta` are all in
+`get_params()` and survive the clone (symlog round-trips). Only `calculate_feature_importance` is
+absent, and dropping a diagnostic switch from a clone is arguably correct — it also prevents every
+sweep sub-model running SHAP unasked. **No bug, nothing filed**; the two source comments asserting it
+were corrected in place (`automl_package/models/probabilistic_regression.py`, `fit_sweep_selector`
+docstring + call site).
+
+**Carried forward, NOT done here:** the `GLOBAL_CHEAP` path requires
+`n_classes_selection_method=NESTED` **and** `uncertainty_method=PROBABILISTIC` (both enforced with
+explicit constructor errors — correct: M1 reads a prefix-nested per-rung likelihood curve, which is
+undefined for constant/MC-dropout heads). P7 and PB consume this API and must construct accordingly.
+
+*(Original task spec follows, retained verbatim as the pre-registration this run was judged against.)*
+
 ### PA — the k-selection API — OPEN, DISPATCHABLE *(disambiguated 2026-07-21: the ✅ that stood in this header marked its two design DECISIONS settled 2026-07-20, not the task — an audit flagged the header as readable-as-done)*
 
 **Why this is a task and not an implementation detail.** The three models must be three *options on
@@ -630,6 +716,56 @@ truncating the loss to the drawn-rung-only form, showing it FAIL, restoring;
 `test -f automl_package/examples/capacity_ladder_results/P7/frozen.json` exits 0 and the file
 carries `schedule`, `middle_k_failures_old`, `middle_k_failures_new`; every per-cell JSON carries
 `held_out_trajectory` and `hit_cap: false`.
+
+### P8 — does explicit regularisation move the selected k? — ✅ **RAN 2026-07-21. VERDICT: MOVES → ⛔ STRAND-LOCAL BLOCK on P4/P6.**
+
+**RESULT: `selection_moved: true`** — ledger `automl_package/examples/capacity_ladder_results/P8/frozen.json`, thirteen per-cell JSONs in the same directory (λ ∈ {0, 1e-4, 1e-2} × seeds {100, 101}, plus the driver's own epoch-raise and ceiling-raise re-runs). Toy: heteroscedastic. Selection rule:
+`cheapest_within_tolerance` at twice a bootstrap SE (`automl_package/utils/capacity_selection.py`).
+
+**Consequence (MASTER Decision 21, block semantics 2026-07-21): P4 and P6 MAY NOT BE READ** until the
+confound is re-derived. Strand-local: `PB`/`PC`/`P3` are unaffected, the other strands continue, and
+this is **batched for end-of-run user review**, never resolved by the run.
+
+**⚠️ READ THE PATTERN BEFORE READING THE VERDICT — the two seeds behave completely differently, and
+the movement is almost certainly INSTRUMENT INSTABILITY, not a clean regularisation effect** *(root
+analysis, 2026-07-21)*:
+- **Seed 101 is rock stable:** selects the same k at every λ — 5, 5, 5. It does not move at all.
+- **Seed 100 moves, but NOT MONOTONICALLY in λ:** 10 → 8 → 12 as λ goes 0 → 1e-4 → 1e-2. More
+  regularisation selecting a LARGER k is backwards for the mechanism under test; a genuine
+  "regularisation lets you get away with less capacity" effect would push k DOWN, monotonically.
+- **The decisive evidence that it is the instrument: the same cell flips selection under a longer
+  EPOCH budget, with λ held fixed.** The driver's own convergence escalation (`epoch_raises` in
+  `frozen.json`) re-ran cells that hit the epoch cap and recorded: at λ=0 seed 100, selected k went
+  **8 → 10**; at λ=1e-4 seed 100, **12 → 8**. Weight decay was CONSTANT across each of those pairs.
+  **A selection that moves when only the training budget changes cannot be attributed to weight
+  decay.** Seed 101's selection survived every one of those same re-runs unchanged.
+
+⇒ **The honest statement of this result: on this toy, k-selection is UNSTABLE on one of two seeds —
+to the weight-decay grid, to the epoch budget, and non-monotonically — while the other seed is
+perfectly stable. Decision 21's question ("does regularisation move the selected capacity?") is NOT
+cleanly answered, because the instrument moves for reasons unrelated to the treatment.** This is
+closer to §3.5's HALT-2 shape (*"a study comes back incoherent rather than merely negative ... that
+is a broken instrument"*) than to a clean positive. The pre-authorized strand-local block is taken
+(it stops exactly what needs stopping — the battery reads), the run CONTINUES elsewhere, and the
+diagnosis goes to the user.
+
+**Do NOT, on the strength of this:** conclude that weight decay reduces the k a model needs; quote
+the seed-100 λ-series as a trend (it is non-monotone); or "fix" it by widening the tolerance until
+the movement disappears — that would hide the instability rather than resolve it.
+
+**Suggested (NOT scheduled, NOT run — the user decides):** the discriminating follow-up is seed
+count, not λ resolution — if k-selection varies this much across two seeds and across epoch budgets
+at fixed λ, the selection-set size (`PB`'s question) and seed variance are the live suspects, and
+`PB` is already the scheduled task that measures the first of them.
+
+**Protocol note — the driver did this right, unprompted:** it detected cells hitting the 100-epoch
+cap without early stopping and re-ran them at 400 epochs (MASTER Decision 9: never read a
+non-converged endpoint), and re-ran the one ceiling-bound cell at the raised k_max (§3.5's "ceiling
+binds" branch; λ=1e-2 seed 100 re-selected 12, so the raise did not change the answer).
+`any_hit_cap: false` across the final record. Those escalations are what surfaced the instability —
+had the driver read the capped endpoints, this would have been recorded as a clean "moves".
+
+*(Original task spec follows, retained verbatim as the pre-registration this run was judged against.)*
 
 ### P8 — does explicit regularisation move the selected k? (NEW 2026-07-21, MASTER Decision 21)
 

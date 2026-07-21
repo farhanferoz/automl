@@ -28,6 +28,8 @@ from automl_package.models.common.middle_class_penalty_mixin import MiddleClassP
 from automl_package.models.common.mixins import BoundaryLossMixin
 from automl_package.models.common.penalties import apply_additional_penalties
 from automl_package.models.selection_strategies.base_selection_strategy import DIRECT_REGRESSION_K_SENTINEL
+from automl_package.utils.capacity_selection import cheapest_within_tolerance
+from automl_package.utils.data_handler import create_train_val_split
 from automl_package.utils.distributions import MixtureOfGaussiansDistribution
 from automl_package.utils.losses import masked_cross_entropy_loss, mdn_nll
 from automl_package.utils.numerics import calculate_class_value_ranges, create_bins
@@ -104,6 +106,11 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         "ordering_constraint_margin": 0.0,
         "ordering_top_decile_fraction": 0.1,
         "capacity_selection": CapacitySelection.FIXED,
+        # Fraction of fit()'s (x, y) held out for CapacitySelection.GLOBAL_CHEAP/GLOBAL_SWEEP's
+        # internal k-selection step (capacity-programme FP-3.e: a constructor parameter, never a
+        # baked-in constant -- PA's task text, PB measures the right value across
+        # {5, 10, 15, 25, 40}%). Unused under FIXED/PER_INPUT.
+        "selection_fraction": 0.15,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -210,6 +217,72 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
         self.precomputed_class_boundaries = {}
         self.class_value_ranges_ = {}
+
+    def fit(self, x: np.ndarray | pd.DataFrame, y: np.ndarray | pd.DataFrame | pd.Series, timestamps: np.ndarray | None = None) -> None:
+        """Fits the model, honoring `self.capacity_selection` end-to-end (capacity-programme PA).
+
+        Under `CapacitySelection.FIXED`/`PER_INPUT` this is exactly `PyTorchModelBase.fit`
+        (PER_INPUT still needs an explicit follow-up `fit_router()` call, unchanged from FP-3).
+        Under `CapacitySelection.GLOBAL_CHEAP`/`GLOBAL_SWEEP`, a single `fit(x, y)` call also
+        performs the held-out global-k selection those modes need -- see `fit_global_selector`
+        (M1) / `fit_sweep_selector` (M3) for the mechanism and `_split_off_selection_set` for how
+        `self.selection_fraction` of `(x, y)` is carved out and held out from training for that
+        selection read.
+        """
+        if self.capacity_selection == CapacitySelection.GLOBAL_CHEAP:
+            self._fit_global_cheap(x, y)
+            return
+        if self.capacity_selection == CapacitySelection.GLOBAL_SWEEP:
+            self._fit_global_sweep(x, y)
+            return
+        super().fit(x, y, timestamps=timestamps)
+
+    def _split_off_selection_set(self, x: np.ndarray | pd.DataFrame, y: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Splits `(x, y)` into a fit portion and a held-out selection portion.
+
+        Returns `(x_fit, y_fit, x_sel, y_sel)`, sized `(1 - selection_fraction)` /
+        `selection_fraction`, for `CapacitySelection.GLOBAL_CHEAP`/`GLOBAL_SWEEP`'s internal
+        k-selection step. The selection portion is held out from everything downstream -- the fit
+        portion never sees it -- so the selection read is genuinely held-out, not merely
+        early-stopping validation (which draws from `self.validation_fraction`, a separate,
+        unrelated knob).
+
+        Uses `self.split_strategy`/`self.random_seed`, the same split machinery `fit()` itself
+        uses (`create_train_val_split`), with `validation_fraction=self.selection_fraction` and
+        `test_fraction=0`.
+        """
+        x_arr = x.values if hasattr(x, "values") else np.asarray(x)
+        y_arr = np.asarray(y)
+        train_indices, sel_indices, _ = create_train_val_split(
+            x=x_arr,
+            validation_fraction=self.selection_fraction,
+            test_fraction=0.0,
+            split_strategy=self.split_strategy,
+            timestamps=None,
+            random_state=self.random_seed,
+        )
+        return x_arr[train_indices], y_arr[train_indices], x_arr[sel_indices], y_arr[sel_indices]
+
+    def _fit_global_cheap(self, x: np.ndarray | pd.DataFrame, y: np.ndarray) -> None:
+        """`CapacitySelection.GLOBAL_CHEAP` (M1): trains, then selects one k off the held-out remainder.
+
+        Trains the NESTED net on `1 - self.selection_fraction` of the data, then picks ONE k for
+        the whole dataset from the held-out remainder via `fit_global_selector`.
+        """
+        x_fit, y_fit, x_sel, y_sel = self._split_off_selection_set(x, y)
+        super().fit(x_fit, y_fit)
+        self.fit_global_selector(x_sel, y_sel)
+
+    def _fit_global_sweep(self, x: np.ndarray | pd.DataFrame, y: np.ndarray) -> None:
+        """`CapacitySelection.GLOBAL_SWEEP` (M3): trains one ordinary model per k, keeps the winner.
+
+        Trains a SEPARATE ORDINARY model (`NClassesSelectionMethod.NONE`) per candidate k on
+        `1 - self.selection_fraction` of the data, scores each on the held-out remainder, and
+        keeps the winner -- see `fit_sweep_selector` for the selection rule (the SAME rule
+        `fit_global_selector` uses).
+        """
+        x_fit, y_fit, x_sel, y_sel = self._split_off_selection_set(x, y)
+        self.fit_sweep_selector(x_fit, y_fit, x_sel, y_sel)
 
     @property
     def name(self) -> str:
@@ -620,7 +693,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         Under `capacity_selection=CapacitySelection.FIXED` (default) uses the trained selection
         strategy/full forward pass. Under `CapacitySelection.PER_INPUT`, routes with a
         `DistilledCapacityRouter` fitted via `fit_router()` -- no caller flag needed
-        (capacity-programme Task FP-3; MASTER Decision 13).
+        (capacity-programme Task FP-3; MASTER Decision 13). Under `CapacitySelection.GLOBAL_CHEAP`
+        (M1), forces every input through the single dataset-wide k `fit()` selected via
+        `fit_global_selector`. Under `CapacitySelection.GLOBAL_SWEEP` (M3), delegates to the
+        winning per-k model `fit()` selected via `fit_sweep_selector`.
         """
         if self.capacity_selection == CapacitySelection.PER_INPUT:
             mean, log_var = self._forward_routed(x, filter_data=filter_data)
@@ -630,12 +706,62 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 return mean_orig
             return mean
 
+        if self.capacity_selection == CapacitySelection.GLOBAL_CHEAP:
+            mean, log_var = self._forward_global_k(x, filter_data=filter_data)
+            if self.target_transform == "symlog":
+                std_symlog = np.sqrt(np.exp(log_var))
+                mean_orig, _ = self._symlog_mc_moments(mean, std_symlog)
+                return mean_orig
+            return mean
+
+        if self.capacity_selection == CapacitySelection.GLOBAL_SWEEP:
+            return self._sweep_submodel().predict(x, filter_data=filter_data)
+
+        return self._predict_unselected(x, filter_data=filter_data)
+
+    def _predict_unselected(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
+        """The trained net's OWN forward, bypassing the capacity-selection gate entirely.
+
+        This is `CapacitySelection.FIXED`'s prediction path, factored out so that internal
+        bookkeeping can reach it *before* a global k has been selected -- see
+        `_fit_residual_std`/`_predict_for_scoring` below for why that matters.
+        """
         predictions = super().predict(x, filter_data=filter_data)
         if self.target_transform == "symlog":
             std_symlog = super().predict_uncertainty(x, filter_data=filter_data)
             mean_orig, _ = self._symlog_mc_moments(predictions, std_symlog)
             return mean_orig
         return predictions
+
+    def _fit_residual_std(self, x_train: np.ndarray, y_train: np.ndarray) -> None:
+        """Computes the CONSTANT-uncertainty residual std WITHOUT routing through the selection gate.
+
+        Overrides `PyTorchModelBase._fit_residual_std` (capacity-programme FP-10) for the same
+        reason `FlexibleWidthNN` does, but for a different gate. The base implementation calls the
+        caller-facing `self.predict()`; under `GLOBAL_CHEAP` that raises, because this hook runs at
+        the END of training and the global k is selected only AFTER training returns
+        (`_fit_global_cheap`: `super().fit(...)` THEN `fit_global_selector(...)`). The model is
+        therefore mid-fit with no `selected_k_` yet, and the caller-facing path is correct to refuse.
+        Bookkeeping uses the un-selected forward instead.
+        *(Integration defect caught by the root's post-enum smoke test, 2026-07-21: PA built the two
+        global modes while `enums.py` still lacked their members, so this path could not be exercised
+        end-to-end by PA; FP-10 landed the base hook without knowing the modes were coming. Neither
+        task could have found it alone.)*
+        """
+        y_pred_train = self._predict_unselected(x_train, filter_data=False)
+        self._train_residual_std = np.std(y_train - y_pred_train)
+
+    def _predict_for_scoring(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
+        """Internal scoring path for CV folds, the HPO objective and `evaluate()` (FP-10).
+
+        Same rationale as `_fit_residual_std`: `BaseModel`'s generic machinery predicts
+        polymorphically with no knowledge of capacity selection. Under `GLOBAL_SWEEP` the fitted
+        sub-model IS the model, so scoring must go through it; otherwise the un-selected forward is
+        the honest internal answer (under `GLOBAL_CHEAP` a global k may not exist yet).
+        """
+        if self.capacity_selection == CapacitySelection.GLOBAL_SWEEP and getattr(self, "_sweep_submodel_", None) is not None:
+            return self._sweep_submodel().predict(x, filter_data=filter_data)
+        return self._predict_unselected(x, filter_data=filter_data)
 
     def predict_distribution(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> MixtureOfGaussiansDistribution:
         """Returns the full per-input mixture-of-Gaussians predictive distribution.
@@ -724,6 +850,17 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 return std_orig
             return std
 
+        if self.capacity_selection == CapacitySelection.GLOBAL_CHEAP:
+            mean, log_var = self._forward_global_k(x, filter_data=filter_data)
+            std = np.sqrt(np.exp(log_var))
+            if self.target_transform == "symlog":
+                _, std_orig = self._symlog_mc_moments(mean, std)
+                return std_orig
+            return std
+
+        if self.capacity_selection == CapacitySelection.GLOBAL_SWEEP:
+            return self._sweep_submodel().predict_uncertainty(x, filter_data=filter_data)
+
         std = super().predict_uncertainty(x, filter_data=filter_data)
         if self.target_transform == "symlog":
             mean_symlog = super().predict(x, filter_data=filter_data)
@@ -759,6 +896,40 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         mean = out[:, 0].cpu().numpy()
         log_var = out[:, 1].cpu().numpy()
         return mean, log_var
+
+    def _forward_global_k(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> tuple[np.ndarray, np.ndarray]:
+        """Forces EVERY input through the single global k `fit_global_selector` picked.
+
+        Returns `(mean, log_var)` at `self.selected_k_` -- `CapacitySelection.GLOBAL_CHEAP`'s
+        (M1) forward path. Values are in whatever space the model was fit in (symlog-transformed if
+        `target_transform="symlog"`); callers apply the same MC push-through
+        `predict`/`predict_uncertainty` already use for the non-routed path.
+        """
+        if self.model is None:
+            raise RuntimeError("Model has not been fitted yet.")
+        if getattr(self, "selected_k_", None) is None:
+            raise RuntimeError("No global k selected; call fit_global_selector() before predict() under CapacitySelection.GLOBAL_CHEAP.")
+        if filter_data:
+            x = self._filter_predict_data(x)
+        x_array = x.values if hasattr(x, "values") else x
+        x_tensor = torch.tensor(x_array, dtype=torch.float32).to(self.device)
+        self.model.eval()
+        with torch.no_grad():
+            out = self.model.forward_at_k(x_tensor, self.selected_k_)
+        mean = out[:, 0].cpu().numpy()
+        log_var = out[:, 1].cpu().numpy()
+        return mean, log_var
+
+    def _sweep_submodel(self) -> "ProbabilisticRegressionModel":
+        """Returns the winning per-k model `fit_sweep_selector` trained.
+
+        `CapacitySelection.GLOBAL_SWEEP`'s (M3) forward path -- `predict`/`predict_uncertainty`
+        delegate to it directly.
+        """
+        submodel = getattr(self, "_sweep_submodel_", None)
+        if submodel is None:
+            raise RuntimeError("No sweep selector fitted; call fit_sweep_selector() before predict() under CapacitySelection.GLOBAL_SWEEP.")
+        return submodel
 
     def fit_router(
         self,
@@ -840,6 +1011,188 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         router.fit(eval_fn=eval_fn, x_val=x_val, y_val=y_val, capacity_grid=capacity_grid, tolerance=tolerance, cost_fn=cost_fn)
         self.capacity_router_ = router
         return router
+
+    def fit_global_selector(
+        self,
+        x_val: np.ndarray,
+        y_val: np.ndarray,
+        capacity_grid: list[int] | None = None,
+        n_bootstrap: int = 1000,
+    ) -> int:
+        """`CapacitySelection.GLOBAL_CHEAP` (M1): picks ONE k for the whole dataset.
+
+        Reads a held-out `(x_val, y_val)` set (capacity-programme Task PA). Built on
+        `NestedStrategy.all_rung_log_likelihood`
+        (`automl_package/models/selection_strategies/n_classes_strategies.py:230`) -- the per-rung
+        `(batch, n_classes)` held-out log-likelihood table -- NEVER on
+        `held_out_arbiter_advantage`, a different, per-input readout that cannot answer a global
+        "which k" question (`docs/plans/capacity_programme/probreg.md` §1 ⚠️, D5).
+
+        Selection rule: the smallest (cheapest) k whose held-out score is not meaningfully worse
+        than the best, "meaningfully" = exceeds twice a bootstrap-estimated standard error of the
+        paired difference -- `automl_package.utils.capacity_selection.cheapest_within_tolerance`
+        (capacity-programme FP-9.a; rule of record
+        `docs/reports/probreg_kselection/probreg_kselection.md` §3.2). `fit_sweep_selector` (M3)
+        applies the SAME rule and the SAME primitive to its own curve, so the two are selected
+        consistently (though not on directly comparable units -- see that method's docstring).
+
+        Args:
+            x_val: held-out inputs, disjoint from whatever `fit()` trained on.
+            y_val: held-out targets, in the SAME space as `fit()`'s `y_train`/`y_val` -- i.e.
+                raw/original target units. Auto-transformed internally when
+                `target_transform="symlog"` (D2's units-mismatch pattern, applied here exactly as
+                `fit_router`/`_per_sample_log_likelihood_at_k` apply it -- `all_rung_log_likelihood`
+                itself does NOT transform `y_target`, see its docstring) -- do NOT pre-transform it
+                yourself.
+            capacity_grid: candidate k values, cheapest first. Defaults to every rung
+                `1..max_n_classes_for_probabilistic_path`.
+            n_bootstrap: bootstrap resamples for the selection rule's standard-error estimate.
+
+        Returns:
+            The selected k (also stored as `self.selected_k_`, and the full curve as
+            `self.global_selector_curve_`).
+
+        Raises:
+            RuntimeError: the model has not been fitted, or was not trained with
+                `n_classes_selection_method=NESTED`.
+        """
+        if self.model is None:
+            raise RuntimeError("Model has not been fitted yet.")
+        if self.n_classes_selection_method != NClassesSelectionMethod.NESTED:
+            raise RuntimeError(
+                "fit_global_selector requires n_classes_selection_method=NESTED (the certified "
+                f"prefix-nesting property; got {self.n_classes_selection_method.value}). See docstring."
+            )
+        if capacity_grid is None:
+            capacity_grid = list(range(1, self.max_n_classes_for_probabilistic_path + 1))
+
+        y_arr = np.asarray(y_val, dtype=np.float64)
+        if self.target_transform == "symlog":
+            # all_rung_log_likelihood does not transform y_target itself (see its docstring,
+            # D2/D6) -- the caller must, exactly like fit_router/_per_sample_log_likelihood_at_k.
+            y_arr = symlog(torch.tensor(y_arr, dtype=torch.float32)).numpy().astype(np.float64)
+
+        x_arr = x_val.values if hasattr(x_val, "values") else np.asarray(x_val)
+        x_tensor = torch.tensor(x_arr, dtype=torch.float32, device=self.device)
+        y_tensor = torch.tensor(y_arr, dtype=torch.float32, device=self.device)
+        self.model.eval()
+        with torch.no_grad():
+            ll_table = self.model.n_classes_strategy.all_rung_log_likelihood(x_tensor, y_tensor).cpu().numpy()
+
+        ll_selected = ll_table[:, [k - 1 for k in capacity_grid]]  # (N, len(capacity_grid))
+        error_table = -ll_selected  # cheapest_within_tolerance wants error (lower is better)
+        idx = cheapest_within_tolerance(error_table, n_boot=n_bootstrap, seed=self.random_seed or 0)
+        selected_k = capacity_grid[idx]
+
+        self.selected_k_ = selected_k
+        self.global_selector_curve_ = {
+            "capacity_grid": list(capacity_grid),
+            "mean_log_likelihood": ll_selected.mean(axis=0).tolist(),
+            "n_selection": len(y_arr),
+            "selected_k": selected_k,
+        }
+        return selected_k
+
+    def fit_sweep_selector(
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray,
+        y_val: np.ndarray,
+        capacity_grid: list[int] | None = None,
+        n_bootstrap: int = 1000,
+    ) -> int:
+        """`CapacitySelection.GLOBAL_SWEEP` (M3): trains one ORDINARY model per candidate k.
+
+        Each is `NClassesSelectionMethod.NONE`, scored on held-out `(x_val, y_val)`; the winner
+        is kept (capacity-programme Task PA). Generalises `report_a_benchmark.select_k_for_toy`
+        (`automl_package/examples/report_a_benchmark.py:331`) into a package method: unlike that
+        script's argmin-val-NLL rule, this applies the strand's own cheapest-within-tolerance rule
+        (`docs/plans/capacity_programme/probreg.md` §1) via
+        `automl_package.utils.capacity_selection.cheapest_within_tolerance` -- the SAME primitive
+        `fit_global_selector` (M1) uses, so the two are selected consistently.
+
+        Each sub-model is trained ORDINARILY at its own fixed k
+        (`n_classes_selection_method=NONE`) -- never with k-dropout -- matching §1's ruling that a
+        per-k model trained with dropout across the whole ladder "is not dedicated to anything...
+        and cannot serve as an independent reference". Every sub-model is built from
+        `self.get_params()` with `n_classes`/`n_classes_selection_method`/`capacity_selection`
+        overridden, plus a short list of fields re-stated explicitly at the call site below.
+        **Correction, root-verified 2026-07-21:** an earlier version of this docstring claimed
+        `get_params()` "does not round-trip" six fields and that this was a pre-existing
+        silent-wrong-answer bug. That was checked and is **FALSE for five of the six** --
+        `target_transform`, `prob_reg_loss_type`, `use_anchored_heads`, `loss_type` and `beta` are
+        all present in `get_params()` and survive `_clone()` intact. Only
+        `calculate_feature_importance` is genuinely absent, and dropping it from a clone is
+        arguably right (it is a diagnostic switch, not a model hyper-parameter). No CV/HPO bug
+        follows, and none is filed.
+        Each is trained on the FULL
+        `(x_train, y_train)` this method receives -- expensive by design (`probreg.md` §1: M3 is
+        the reference the cheap arms are measured against, exempt from the matched-cost budget).
+
+        Scored via per-sample RAW-space Gaussian NLL, computed from each sub-model's own
+        `predict`/`predict_uncertainty` (which already invert `target_transform`). UNLIKE M1's
+        curve (which is always in whatever space the model was fit in), this one is therefore
+        always in raw target units -- the two curves are not numerically comparable rung-for-rung,
+        only each model's own selected k is reported.
+
+        Args:
+            x_train: data every per-k sub-model is trained on.
+            y_train: targets every per-k sub-model is trained on.
+            x_val: held-out inputs the per-k curve is scored on.
+            y_val: held-out targets the per-k curve is scored on.
+            capacity_grid: candidate k values, cheapest first. Defaults to every rung
+                `1..max_n_classes_for_probabilistic_path` (the SAME default `fit_global_selector`
+                uses, so M1 and M3 answer "which k" over the same grid -- §1's "(b) same choice"
+                claim needs that).
+            n_bootstrap: bootstrap resamples for the selection rule's standard-error estimate.
+
+        Returns:
+            The selected k (also stored as `self.selected_k_`; the winning sub-model is stored as
+            `self._sweep_submodel_` and is what `predict`/`predict_uncertainty` delegate to under
+            `CapacitySelection.GLOBAL_SWEEP`).
+        """
+        if capacity_grid is None:
+            capacity_grid = list(range(1, self.max_n_classes_for_probabilistic_path + 1))
+
+        base_params = self.get_params()
+        # Explicit, not compensatory. VERIFIED AT THE ROOT 2026-07-21: `get_params()` DOES
+        # round-trip `target_transform`, `prob_reg_loss_type`, `use_anchored_heads`, `loss_type`
+        # and `beta` (checked by constructing with non-defaults and reading `_clone()` back --
+        # e.g. symlog survives the clone). Only `calculate_feature_importance` is genuinely
+        # absent, and that one matters here beyond correctness: left at `BaseModel`'s `True`
+        # default, every per-k sub-model would run SHAP unasked, multiplying an
+        # already-expensive-by-design sweep. Re-stating the other five is harmless and keeps this
+        # sweep's contract explicit at the call site.
+        for field in ("target_transform", "prob_reg_loss_type", "use_anchored_heads", "loss_type", "beta", "calculate_feature_importance"):
+            base_params[field] = getattr(self, field)
+
+        y_val_arr = np.asarray(y_val, dtype=np.float64).ravel()
+        error_table = np.empty((len(y_val_arr), len(capacity_grid)), dtype=np.float64)
+        submodels: list[ProbabilisticRegressionModel] = []
+        for col, k in enumerate(capacity_grid):
+            params = dict(base_params)
+            params.update(n_classes=k, n_classes_selection_method=NClassesSelectionMethod.NONE, capacity_selection=CapacitySelection.FIXED)
+            sub_model = ProbabilisticRegressionModel(**params)
+            sub_model.fit(x_train, y_train)
+            y_pred = np.asarray(sub_model.predict(x_val), dtype=np.float64).ravel()
+            y_std = np.asarray(sub_model.predict_uncertainty(x_val), dtype=np.float64).ravel()
+            variance = np.maximum(y_std**2, 1e-9)
+            error_table[:, col] = 0.5 * (np.log(2.0 * np.pi * variance) + (y_val_arr - y_pred) ** 2 / variance)
+            submodels.append(sub_model)
+
+        idx = cheapest_within_tolerance(error_table, n_boot=n_bootstrap, seed=self.random_seed or 0)
+        selected_k = capacity_grid[idx]
+
+        self.selected_k_ = selected_k
+        self._sweep_submodel_ = submodels[idx]
+        self.global_selector_curve_ = {
+            "capacity_grid": list(capacity_grid),
+            "mean_nll": error_table.mean(axis=0).tolist(),
+            "n_selection": len(y_val_arr),
+            "selected_k": selected_k,
+        }
+        return selected_k
 
     def _per_sample_log_likelihood_at_k(self, x: np.ndarray, y: np.ndarray, k: int) -> np.ndarray:
         """Per-sample Gaussian log-likelihood of rung `k`'s forced readout (bypasses selection).

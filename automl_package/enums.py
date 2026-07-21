@@ -107,15 +107,27 @@ class CapacitySelection(Enum):
 
     Capacity-programme Task FP-3, `docs/plans/capacity_programme/flexnn-package.md`.
     Ships only the members whose mechanism exists today -- an enum member is a promise that it
-    works, not a placeholder. `GLOBAL_CHEAP` (a cheap held-out global read) and `GLOBAL_SWEEP` (an
-    expensive per-value sweep) are each added later, by the task that builds its mechanism; do not
-    add them here.
+    works, not a placeholder. A member is added by the task that builds its mechanism, never ahead
+    of it (the rule that retires the old `WidthSelectionMethod.DISTILLED` trap: an enum member whose
+    implementation raises `NotImplementedError`).
+
+    `GLOBAL_CHEAP` and `GLOBAL_SWEEP` were added 2026-07-21 by `probreg.md` PA, which built both
+    mechanisms for ProbReg. **The k family implements them; width and depth do NOT yet** -- those
+    arrive with `width.md` WSEL-3/WSEL-4 and `depth-selection.md` DSEL-6/DSEL-7. A member existing
+    here is a promise about THIS enum's contract, not a claim that every family implements it.
     """
 
     FIXED = "fixed"  # no distilled-router selection; the model's own default single-pass behavior
     # (an explicit width/depth/k, or its trained in-training selection strategy) is used unchanged.
     PER_INPUT = "per_input"  # a `DistilledCapacityRouter` fitted via `fit_router()` chooses the
     # capacity per sample; `predict()`/`predict_uncertainty()` route with no caller flag.
+    GLOBAL_CHEAP = "global_cheap"  # ONE capacity for the whole dataset, read cheaply off an
+    # already-trained model's held-out per-rung curve (cheapest-within-tolerance at twice a
+    # bootstrap SE) -- e.g. ProbReg M1, `ProbabilisticRegressionModel.fit_global_selector`.
+    GLOBAL_SWEEP = "global_sweep"  # ONE capacity for the whole dataset, found by training a
+    # SEPARATE ordinary model per candidate value and applying the SAME selection rule -- the
+    # expensive reference the cheap arms are measured against -- e.g. ProbReg M3,
+    # `ProbabilisticRegressionModel.fit_sweep_selector`.
 
 
 class NClassesRegularization(Enum):

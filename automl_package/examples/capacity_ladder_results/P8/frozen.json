@@ -1,0 +1,86 @@
+{
+  "task": "P8",
+  "toy": "heteroscedastic",
+  "lambda_grid": [
+    0.0,
+    0.0001,
+    0.01
+  ],
+  "seeds": [
+    100,
+    101
+  ],
+  "k_grid": [
+    5,
+    8,
+    10,
+    12
+  ],
+  "selection_rule": "cheapest_within_tolerance (automl_package/utils/capacity_selection.py), 2x bootstrap SE, n_boot=1000",
+  "selected_k_by_lambda_seed": {
+    "0.0": {
+      "100": 10,
+      "101": 5
+    },
+    "0.0001": {
+      "100": 8,
+      "101": 5
+    },
+    "0.01": {
+      "100": 12,
+      "101": 5
+    }
+  },
+  "moved_per_seed": {
+    "100": true,
+    "101": false
+  },
+  "selection_moved": true,
+  "any_hit_cap": false,
+  "epoch_raises": [
+    {
+      "lambda": 0.0,
+      "seed": 100,
+      "original_selected_k": 8,
+      "raised_selected_k": 10,
+      "raised_hit_cap": false
+    },
+    {
+      "lambda": 0.0,
+      "seed": 101,
+      "original_selected_k": 5,
+      "raised_selected_k": 5,
+      "raised_hit_cap": false
+    },
+    {
+      "lambda": 0.0001,
+      "seed": 100,
+      "original_selected_k": 12,
+      "raised_selected_k": 8,
+      "raised_hit_cap": false
+    },
+    {
+      "lambda": 0.0001,
+      "seed": 101,
+      "original_selected_k": 5,
+      "raised_selected_k": 5,
+      "raised_hit_cap": false
+    },
+    {
+      "lambda": 0.01,
+      "seed": 101,
+      "original_selected_k": 5,
+      "raised_selected_k": 5,
+      "raised_hit_cap": false
+    }
+  ],
+  "ceiling_raises": [
+    {
+      "lambda": 0.01,
+      "seed": 100,
+      "original_selected_k": 12,
+      "raised_selected_k": 12
+    }
+  ],
+  "outcome": "MOVES \u2014 strand-local BLOCK on ProbReg's battery reads (P4/P6); log prominently; do not proceed to P4/P6 until re-derived (MASTER Decision 21, block semantics 2026-07-21)."
+}

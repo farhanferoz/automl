@@ -1,0 +1,100 @@
+{
+  "cited_full_all_rungs_control": {
+    "0": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/DSEL2/control_rung4_data75_seed0.json",
+    "1": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/DSEL2/control_rung4_data75_seed1.json",
+    "note": "existing (FULL, ALL_RUNGS) DSEL-2 stage-1 rung4_data75 cells -- cited by path, NOT re-run here"
+  },
+  "arms": {
+    "full_sampled": {
+      "targets": "full",
+      "schedule": "sampled",
+      "test_acc": {
+        "0": 0.646484375,
+        "1": 0.412109375
+      },
+      "val_acc": {
+        "0": 0.662109375,
+        "1": 0.46875
+      },
+      "train_acc": {
+        "0": 0.9889323115348816,
+        "1": 0.9869791865348816
+      },
+      "trustworthy": {
+        "0": true,
+        "1": false
+      },
+      "trustworthy_acc": {
+        "0": true,
+        "1": true
+      },
+      "clears_bar_both_seeds": false,
+      "paths": {
+        "0": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/DSEL2c/dsel2c_full_sampled_seed0.json",
+        "1": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/DSEL2c/dsel2c_full_sampled_seed1.json"
+      }
+    },
+    "prefix_all_rungs": {
+      "targets": "prefix",
+      "schedule": "all_rungs",
+      "test_acc": {
+        "0": 0.41015625,
+        "1": 0.427734375
+      },
+      "val_acc": {
+        "0": 0.41796875,
+        "1": 0.462890625
+      },
+      "train_acc": {
+        "0": 0.9264323115348816,
+        "1": 0.9973958134651184
+      },
+      "trustworthy": {
+        "0": false,
+        "1": false
+      },
+      "trustworthy_acc": {
+        "0": true,
+        "1": true
+      },
+      "clears_bar_both_seeds": false,
+      "paths": {
+        "0": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/DSEL2c/dsel2c_prefix_all_rungs_seed0.json",
+        "1": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/DSEL2c/dsel2c_prefix_all_rungs_seed1.json"
+      }
+    },
+    "prefix_sampled": {
+      "targets": "prefix",
+      "schedule": "sampled",
+      "test_acc": {
+        "0": 0.4296875,
+        "1": 0.599609375
+      },
+      "val_acc": {
+        "0": 0.47265625,
+        "1": 0.60546875
+      },
+      "train_acc": {
+        "0": 0.9716796875,
+        "1": 0.9820963740348816
+      },
+      "trustworthy": {
+        "0": false,
+        "1": false
+      },
+      "trustworthy_acc": {
+        "0": true,
+        "1": true
+      },
+      "clears_bar_both_seeds": false,
+      "paths": {
+        "0": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/DSEL2c/dsel2c_prefix_sampled_seed0.json",
+        "1": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/DSEL2c/dsel2c_prefix_sampled_seed1.json"
+      }
+    }
+  },
+  "cleared_arms": [],
+  "unhalt_scheme": null,
+  "all_four_failed": true,
+  "finding": "All four (targets, schedule) arms fail the positive-control bar (test_acc>=0.90 and trustworthy on both gates, both seeds). Per DSEL-2c's pre-authorized branch: recorded as option (a) -- this substrate does not carry a feed-forward depth signal -- an evidence-backed finding, never a default. DSEL-2/2b and the downstream feed-forward selection studies are PARKED pending user review; other strands continue."
+}

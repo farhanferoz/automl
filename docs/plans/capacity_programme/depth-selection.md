@@ -595,6 +595,49 @@ as its having been abandoned; it is absent from DSEL-2c only because DSEL-2c's j
 target scheme, not the readout comparison, which stays owned by this task per the two-arm comparison
 already specified above and runs once a target scheme clears the bar.
 
+### DSEL-2c — re-run the positive control at specification — ✅ **RAN 2026-07-21. ⛔ ALL FOUR ARMS FAIL. STRAND PARKED (pre-authorized, strand-local).**
+
+**RESULT: no arm clears the bar on either seed** — ledger `automl_package/examples/capacity_ladder_results/DSEL2c/frozen.json` (`cleared_arms: []`, `all_four_failed: true`, `unhalt_scheme: null`), six per-cell JSONs in the same
+directory. Bar was full-depth **test** accuracy ≥ 0.90 with `trustworthy` on both gates, both seeds.
+Per-cell test accuracies span **0.41–0.65** — not marginal, and not rescued by either corrected
+switch (prefix targets, sampled schedule) alone or together.
+
+**THE FAILURE MODE IS GENERALISATION, NOT OPTIMISATION — this is what makes the finding load-bearing.**
+Train accuracy is **0.93–1.00 in every one of the six cells** while test sits near 0.5. MASTER
+Decision 16 makes an arm low on *both* train and val an under-fitting/optimisation finding; this is
+the exact opposite, so the escalation ladder (LR → clipping → warmup → init → normalisation) is
+**already exonerated by the training curve** and running it would be wasted compute. The models
+memorise their 3,072 enumerated training words and do not generalise to held-out ones.
+
+**Two caveats recorded against over-reading this** *(root, 2026-07-21 — neither is resolvable from
+the cells in hand)*:
+1. **The re-run made the bar strictly harder in TWO ways at once**, both deliberate repairs: the
+   reported number moved from the val set (which had been doing triple duty — stop, restore, report)
+   to a genuine held-out **test** split, AND the three-way split leaves less training data. Some of
+   the gap to the as-run control is those corrections landing. **The cells cannot separate "the
+   substrate was always this weak" from "the honest split revealed it"** — a discriminating contrast
+   would be needed, and none is scheduled.
+2. **The two convergence gates DISAGREE** on several cells (`trustworthy_ce: false`,
+   `trustworthy_acc: true`). Read per MASTER Decision 17 — the gate is taken on the metric the bar
+   reads, i.e. **accuracy** — so these are treated as trustworthy. The disagreement is preserved in
+   every per-cell JSON rather than resolved silently.
+
+**Branch taken (pre-authorized by this task's own spec + the MASTER autonomous-run authorization; NOT
+a run-level decision):** option (a) recorded as an **evidence-backed finding**; `DSEL-2`, `DSEL-2b`
+and the downstream feed-forward selection studies (`DSEL-4`, `DSEL-6`…`DSEL-12`) are **⏸ PARKED**
+pending user review; the other three strands **continue uninterrupted**; batched for end-of-run
+review. **Choosing among options (a)/(b)/(c) is explicitly NOT the run's to take** — it goes to the
+user as evidence, per this task's non-goals.
+
+**Driver defect found and fixed at the ROOT while landing this** *(2026-07-21)*: `freeze_dsel2c`
+read `seeds[s]["_path"]`, a key the per-cell writer never stores, so the aggregation raised
+`KeyError: '_path'` **after every cell's compute had already succeeded** — the verdict was
+unlandable despite the run being complete. Path is now DERIVED from the file-naming contract
+(`automl_package/examples/depth_dsel2.py:855`), and the frozen record additionally carries
+`val_acc`, `train_acc` and `trustworthy_acc` per seed, since the train/test gap is the whole finding.
+
+*(Original task spec follows, retained verbatim as the pre-registration this run was judged against.)*
+
 ### DSEL-2c — re-run the positive control at specification (USER RULING 2026-07-21)
 
 **Files (write set):** `automl_package/examples/depth_dsel2.py` (extended, not rewritten) ·

@@ -350,7 +350,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                 x_train_fold, x_val_fold = x[train_idx], x[val_idx]
                 y_train_fold, y_val_fold = y[train_idx], y[val_idx]
                 best_iter, loss_history = model_instance._fit_single(x_train_fold, y_train_fold, x_val=x_val_fold, y_val=y_val_fold)
-                preds = model_instance.predict(x_val_fold)
+                preds = model_instance._predict_for_scoring(x_val_fold)
                 y_pred_std = model_instance.predict_uncertainty(x_val_fold)
                 score = self._evaluate_trial(y_val_fold, preds, y_pred_std=y_pred_std)
                 fold_results.append({"best_iter": best_iter, "loss_history": loss_history, "score": score})
@@ -369,7 +369,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             x_train, y_train = x[train_indices], y[train_indices]
             x_val, y_val = x[val_indices], y[val_indices]
             optimal_iterations, _ = model_instance._fit_single(x_train, y_train, x_val=x_val, y_val=y_val)
-            preds = model_instance.predict(x_val)
+            preds = model_instance._predict_for_scoring(x_val)
             y_pred_std = model_instance.predict_uncertainty(x_val)
             final_score = self._evaluate_trial(y_val, preds, y_pred_std=y_pred_std)
         return final_score, optimal_iterations
@@ -441,7 +441,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             y_train_fold, y_val_fold = y[train_idx], y[val_idx]
             model_instance = self._clone()
             best_iter, loss_history = model_instance._fit_single(x_train_fold, y_train_fold, x_val=x_val_fold, y_val=y_val_fold)
-            preds = model_instance.predict(x_val_fold)
+            preds = model_instance._predict_for_scoring(x_val_fold)
             y_pred_std = model_instance.predict_uncertainty(x_val_fold)
             score = self._evaluate_trial(y_val_fold, preds, y_pred_std=y_pred_std)
             fold_results.append({"best_iter": best_iter, "loss_history": loss_history, "score": score})
@@ -466,6 +466,20 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
     def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
         """Makes predictions on new data."""
         raise NotImplementedError
+
+    def _predict_for_scoring(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
+        """Internal, non-caller-facing prediction path for CV/HPO/evaluation bookkeeping (capacity-programme FP-10).
+
+        Generic bookkeeping call sites -- CV folds and the HPO objective in this class, `evaluate()`
+        below, `utils/data_handler.py`'s `fit_smearing_correction` -- call polymorphic predictions
+        with no extra caller state, on the assumption that some concrete prediction is always
+        obtainable. That assumption breaks for a family whose public `predict()` contract requires
+        caller-supplied state beyond `x` (e.g. `FlexibleWidthNN`, which requires an explicit
+        `width` under `CapacitySelection.FIXED` -- FP-3.b.4, and correctly raises without one).
+        Defaults to the public `predict()`; override where that contract cannot be satisfied
+        without state the bookkeeping caller doesn't have.
+        """
+        return self.predict(x, filter_data=filter_data)
 
     def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates the uncertainty of predictions."""
@@ -510,7 +524,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         """Evaluates the model on a given dataset and saves the metrics."""
         x_eval = x.values if isinstance(x, pd.DataFrame) else x
 
-        y_pred_scaled = self.predict(x_eval)
+        y_pred_scaled = self._predict_for_scoring(x_eval)
         y_std_scaled = self.predict_uncertainty(x_eval) if self.is_regression_model else None
 
         # Inverse transform predictions and uncertainty if a scaler is provided
