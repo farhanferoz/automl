@@ -1144,6 +1144,63 @@ the loss helper after FP-2's move)
 - [ ] **Step 4 — root re-runs one canonical cell** (`--arch shared_trunk --loss mse`, seeds 0/1/2,
   defaults otherwise) and diffs against the ledger.
 **Bit-for-bit equivalence is the bar, not "close enough".**
+
+#### ✅ DONE 2026-07-21 — and the bar above needed correcting. Precision note: what "bit-for-bit" turned out to mean.
+
+**The `1e-10` gradient bar is NOT achievable at float32 by ANY correct implementation**, so it is
+verified in float64 (`tests/test_nested_width_single_trunk.py` casts to `.double()`). Computing the
+trunk once and reusing one autograd node across the sampled widths changes the reduction order of the
+backward matmul relative to recomputing it per width, and IEEE-754 addition is not associative.
+Float32 machine epsilon is ~`1.2e-7`, so a `1e-10` gradient bar sits ~1000x below float32's own
+resolution. Measured gradient discrepancy: `0.7-1.9e-7` relative — the rounding floor, no systematic
+sign. *(The spec also mis-specified its own falsifier: the suggested "reverse `widths`" mutant does
+NOT fail the test, because the accumulation sums the same set. A genuine mis-indexing mutant was
+substituted, and the test kills dropped-width, mis-paired-head and off-by-one-mask mutants.)*
+
+**⇒ WHAT IS CLAIMED IS ALGORITHMIC IDENTITY, NOT NUMERICAL IDENTITY: the fix computes the same
+mathematical gradient by a different summation order.** Evidence: (a) the FORWARD loss is
+**bit-identical — difference exactly `0.0`** — at float32 across three width architectures x both
+losses x multiple seeds at the canonical shape (`w_max=12`, `n_train=1500`), asserted in the committed
+test; (b) gradients agree to `<=4.4e-16` at float64; (c) `IndependentWidthNet`, which keeps the old
+per-width loop, agrees to exactly `0.0` everywhere. For calibration, a genuine semantic fault shifts
+the step-one loss by **0.9%-4.2%** at this shape — four to five orders above any drift observed here.
+
+**RESULT: measured effect on the canonical cell** — ledger `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse.json`
+(`--arch shared_trunk --loss mse --max-epochs 300000`, seeds 0/1/2; the pre-fix file is recoverable via
+`git show cd9d0e9:<that path>` — the driver overwrites this filename in place):
+
+| | seed 0 | seed 1 | seed 2 |
+|---|---:|---:|---:|
+| `fit_bar.ratio_to_floor` | 1.089283878749 → 1.089289780095 | 1.060856868245 → 1.060847129485 | 1.077473572713 → 1.077476009439 | <!-- numcheck-ignore: a deliberate BEFORE→AFTER pair spanning two cells — the pre-fix values live in `…_prewsel12.json`, the post-fix values in the canonical `…_shared_trunk_mse.json`; both are cited by path in this block. No single cell contains both, by construction. -->
+| relative movement | 5.42e-06 (up) | 9.18e-06 (**down**) | 2.26e-06 (up) |
+| per-width `final_epoch` (12 widths) | identical | identical | identical |
+| `pass` / `strong_pass` | unchanged | unchanged | unchanged |
+
+`untrustworthy_seeds` empty before and after. Movement is **bidirectional** and no discrete quantity
+moved. **The non-goal "this must not move a single number" is SUPERSEDED**: the fix moves no verdict,
+no flag and no discrete quantity, and moves continuous quantities only in the sixth significant figure.
+
+**What a future reader must NOT do with pre-fix and post-fix numbers side by side:**
+- **Do not treat a difference at or below ~`1e-5` relative across this boundary as a finding.** It is
+  float32 reduction-order noise. Anything quoted to five or more significant figures across it is
+  comparing rounding.
+- **Do not pool pre-fix and post-fix runs into one sample** and quote a spread or standard error — the
+  spread would be dominated by this artifact, not by seed variance.
+- **Do not cite a pre-fix number as the reproduction target for a post-fix run.** Reproduction across
+  this boundary means identical convergence epochs, identical bar verdicts, and continuous agreement
+  to ~`1e-5` — not equality.
+- **Do not read the direction of movement as a signal** — it is bidirectional by construction.
+- **Conversely, do NOT dismiss a *discrete* change** — a flipped `pass`, a moved `final_epoch`. None
+  moved here, and rounding is not an available explanation if one moves later.
+- **⚠️ Do not cite this task as measuring an efficiency win.** `trunk_evals_per_step` correctly drops
+  `4 → 1` and `train_wall_clock_s` is 53.9 / 36.2 / 70.3 s per seed, but at smoke scale the fixed loop
+  is marginally *slower* — the trunk here is `Linear(1 -> w_max)`, so the masking bookkeeping costs
+  more than the recompute it removes. **MASTER Decision 20's premise is corrected in principle, not
+  demonstrated in wall-clock on this toy.** WSEL-14 must not present timings measured here as evidence
+  that the trunk-once argument pays.
+
+**Known gap, accepted, NOT scheduled:** the efficiency crossover point was never measured — no run
+exists at a scale where the trunk dominates. Any claim that this fix pays must measure it there.
 **Non-goals:** no change to the schedule, the architecture, the loss, or any bar. This is a pure
 efficiency fix and must not move a single number. Do NOT add the new schedules here — that is WSEL-14.
 *Orchestration:* parallel: yes (disjoint from the studies; **NOT from WSEL-14**, shared write set) ·

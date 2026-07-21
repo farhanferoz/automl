@@ -1312,7 +1312,18 @@ must print `CODE-CLEAN`.
 - **(4) the long reproduction, root-run backgrounded** with `OMP_NUM_THREADS=4` pinned, canonical
   cell (`hetero`, `n_train=1500`, `sigma=0.05`, `shared_trunk`, mse). `fit_bar.ratio_to_floor`
   against `…/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse.json`:
-  REFERENCE, seeds 0/1/2: `1.089284` · `1.060857` · `1.077474` <!-- source: `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse.json` -->
+  REFERENCE, seeds 0/1/2: `1.089284` · `1.060857` · `1.077474` <!-- source: `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse_prewsel12.json` -->
+  ⚠️ **Re-pointed 2026-07-21.** These three numbers were cited against
+  `…/w_kdropout_converged_summary_shared_trunk_mse.json`, which **`width.md` WSEL-12 has since
+  overwritten in place** — that driver always writes this canonical filename, so a later re-run
+  silently replaces the cell an earlier task's evidence rests on. The pre-fix cell is preserved
+  verbatim (byte-identical, verified against `git show cd9d0e9:<the canonical path>`) as
+  `…_prewsel12.json`, and the citation now points there, so **FP-11's completion evidence stays
+  verifiable**. The numbers gate caught this within the minute of the overwrite; without the preserved
+  copy, FP-11's proof would have quietly become unreproducible.
+  *(Generalises: any task whose evidence cites a ledger file a LATER task re-runs must either pin a
+  preserved copy or expect its evidence to evaporate. Canonical filenames are overwritten, not
+  versioned.)*
   REPRODUCED through the moved classes: `1.089284` · `1.060850` · `1.077475` <!-- source: `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse_n1500_s0.05_fp11repro.json` -->
   Relative error 0.0000% / 0.0006% / 0.0001% — **all three PASS the ≤2% bar with effectively zero <!-- numcheck-ignore: relative errors derived from the two cells cited on the lines above -->
   drift.** Both cells are `per_case[i].fit_bar.ratio_to_floor`.

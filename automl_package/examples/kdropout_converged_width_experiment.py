@@ -48,6 +48,7 @@ import json
 import math
 import os
 import sys
+import time
 
 import numpy as np
 import torch
@@ -113,6 +114,73 @@ def _width_loss(
     if loss is LossType.MSE:
         return nwn._width_mse(net, k, x_t, y_t)
     raise ValueError(f"unknown loss: {loss!r}")
+
+
+def _loss_from_readout(loss: LossType, mean: torch.Tensor, log_var: torch.Tensor, y_t: torch.Tensor) -> torch.Tensor:
+    """Applies `_width_loss`'s NLL/MSE formula to an ALREADY-computed `(mean, log_var)` readout.
+
+    `_width_loss` computes the readout itself via `net.forward_width(x_t, k)`, which is exactly the
+    per-width trunk recompute WSEL-12 removes for shared-trunk architectures. `_sampled_widths_total_loss`
+    calls this once per sampled width off a SINGLE `net.sampled_widths_forward(x_t, widths)` call instead.
+    Same formulas as `cwe._width_nll` (NLL) / `nwn._width_mse` (MSE) -- those two functions cannot be
+    reused directly here because they take `(net, k)` and always redo the forward internally; neither
+    lives in this task's write set to refactor their signature (`converged_width_experiment.py` is out
+    of scope entirely, and `nested_width_net.py`'s `_width_mse` is called from other sites unchanged).
+    """
+    if loss is LossType.NLL:
+        ll = nwn.gaussian_log_likelihood(mean.squeeze(1), log_var.squeeze(1), y_t)
+        return -ll.mean()
+    if loss is LossType.MSE:
+        return ((mean.squeeze(1) - y_t) ** 2).mean()
+    raise ValueError(f"unknown loss: {loss!r}")
+
+
+def _sampled_widths_total_loss(
+    loss: LossType,
+    net: nwn.NestedWidthNet | nwn.IndependentWidthNet | nwn.SharedTrunkPerWidthHeadNet | nwn.SharedReadoutPerWidthAffineNet,
+    widths: list[int],
+    x_t: torch.Tensor,
+    y_t: torch.Tensor,
+) -> torch.Tensor:
+    """Sum of `_width_loss(loss, net, k, x_t, y_t)` over `widths`.
+
+    Bit-for-bit equivalent to the old `for k in widths: total += _width_loss(...)` accumulation
+    (`tests/test_nested_width_single_trunk.py`). WSEL-12: for shared-trunk architectures (`NestedWidthNet`, `SharedTrunkPerWidthHeadNet`,
+    `SharedReadoutPerWidthAffineNet`, all of which expose `sampled_widths_forward`) this evaluates the
+    trunk ONCE regardless of `len(widths)`, instead of once per width as the naive per-k loop does.
+    `IndependentWidthNet` has no shared trunk (`sampled_widths_forward` absent) -- there is nothing to
+    reuse there, so it keeps the unchanged per-k loop.
+    """
+    if hasattr(net, "sampled_widths_forward"):
+        mean_all, logvar_all = net.sampled_widths_forward(x_t, widths)
+        total = torch.zeros((), device=x_t.device)
+        for i in range(len(widths)):
+            total = total + _loss_from_readout(loss, mean_all[:, i : i + 1], logvar_all[:, i : i + 1], y_t)
+        return total
+    total = torch.zeros((), device=x_t.device)
+    for k in widths:
+        total = total + _width_loss(loss, net, k, x_t, y_t)
+    return total
+
+
+def _trunk_evals_per_step(
+    net: nwn.NestedWidthNet | nwn.IndependentWidthNet | nwn.SharedTrunkPerWidthHeadNet | nwn.SharedReadoutPerWidthAffineNet,
+    schedule: nwn.WidthSchedule,
+    w_max: int,
+) -> int:
+    """WSEL-12 cost instrumentation: how many shared-trunk forward evaluations one training step pays.
+
+    Shared-trunk architectures (`net.sampled_widths_forward` present) pay ONE trunk eval per step
+    regardless of how many widths SANDWICH/UNIFORM samples -- that is the fix. `IndependentWidthNet`
+    has no shared trunk to amortize, so it still pays one eval per sampled width, same as before this
+    task (its per-width sub-nets are disjoint; there is nothing to reuse).
+    """
+    if hasattr(net, "sampled_widths_forward"):
+        return 1
+    if schedule is nwn.WidthSchedule.UNIFORM:
+        return _UNIFORM_SCHEDULE_DRAW_N
+    mid_candidates = list(range(2, w_max))  # {2..w_max-1}, mirrors _train_kdropout_to_convergence's sandwich draw
+    return 2 + min(2, len(mid_candidates))
 
 
 def _train_kdropout_to_convergence(
@@ -196,9 +264,7 @@ def _train_kdropout_to_convergence(
             if n_mid_draw:
                 perm = torch.randperm(len(mid_candidates), generator=gen)[:n_mid_draw]
                 widths += [mid_candidates[i] for i in perm.tolist()]
-        total_loss = torch.zeros(())
-        for k in widths:
-            total_loss = total_loss + _width_loss(loss, net, k, x_tr, y_tr)
+        total_loss = _sampled_widths_total_loss(loss, net, widths, x_tr, y_tr)
         total_loss.backward()
         opt.step()
 
@@ -293,6 +359,10 @@ def run_case(
         net = nwn.SharedTrunkPerWidthHeadNet(w_max=w_max)
     else:
         net = nwn.SharedReadoutPerWidthAffineNet(w_max=w_max)
+    # WSEL-12 cost instrumentation (Step 3): wall-clock wraps ONLY the training call itself, unchanged
+    # otherwise -- `_train_kdropout_to_convergence`'s own signature/return contract is untouched, since
+    # other in-flight work on this branch imports it.
+    _train_t0 = time.perf_counter()
     conv, best_mean_val_epoch = _train_kdropout_to_convergence(
         net,
         x_tr_t,
@@ -308,6 +378,7 @@ def run_case(
         seed=seed,
         schedule=schedule,
     )
+    train_wall_clock_s = time.perf_counter() - _train_t0
     # W6: the deploy router's hidden sizes, scaled off the ck6 default (mult 1.0 reproduces it exactly).
     router_hidden = tuple(max(1, round(h * router_hidden_mult)) for h in sw.ck6.HIDDEN)
     n_trustworthy = sum(1 for r in conv.values() if r.trustworthy)
@@ -319,6 +390,11 @@ def run_case(
         "n_widths_trustworthy": n_trustworthy,
         "all_widths_trustworthy": n_trustworthy == w_max,
         "best_mean_val_epoch": best_mean_val_epoch,
+        # WSEL-12 cost instrumentation (Step 3, additive only): per-seed training wall clock and the
+        # (arch, schedule)-determined trunk-eval count per step, aggregated into summary["config"] by
+        # `main()` (`docs/plans/capacity_programme/width.md` lines 1071-1074).
+        "train_wall_clock_s": train_wall_clock_s,
+        "trunk_evals_per_step": _trunk_evals_per_step(net, schedule, w_max),
     }
 
     if loss is LossType.NLL:
@@ -640,6 +716,11 @@ def main() -> None:
                 "check_every": args.check_every,
                 "patience": args.patience,
                 "min_delta": args.min_delta,
+                # WSEL-12 cost instrumentation (Step 3, additive only -- no key above this line changed):
+                # per-seed training wall clock, index-aligned with "seeds" above, and the trunk-eval count
+                # one training STEP pays (constant across seeds for one config: same arch/schedule/w_max).
+                "train_wall_clock_s": [c["train_wall_clock_s"] for c in per_case],
+                "trunk_evals_per_step": per_case[0]["trunk_evals_per_step"] if per_case else None,
             },
             "per_case": per_case,
             "untrustworthy_seeds": any_untrustworthy,

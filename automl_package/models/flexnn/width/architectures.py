@@ -28,6 +28,8 @@ the pre-move file.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import torch
 import torch.nn as nn
 
@@ -93,6 +95,30 @@ class NestedWidthNet(nn.Module):
         mean_all = torch.cumsum(mean_contrib, dim=1) + self.mean_head.bias
         logvar_all = torch.cumsum(logvar_contrib, dim=1) + self.logvar_head.bias
         return mean_all, logvar_all
+
+    def sampled_widths_forward(self, x: torch.Tensor, widths: Sequence[int]) -> tuple[torch.Tensor, torch.Tensor]:
+        """`(mean, log_var)` for exactly `widths` (order preserved, repeats allowed), each `(N, len(widths))`.
+
+        `capacity_programme` WSEL-12: a k-dropout training step samples a SUBSET of widths, not every
+        `1..w_max` one — the caller that used to loop `forward_width` once per sampled width (recomputing
+        `hidden(x)` every time even though every width shares the same trunk) now calls this instead.
+        Uses the SAME explicit-masking formula as `forward_width` (not the `all_widths_forward` cumsum
+        shortcut, which is only algebraically -- not bit-for-bit -- equivalent, per selftest (c)'s
+        `_CONSISTENCY_TOL=1e-5` tolerance): the training-loop equivalence bar this method exists for is
+        bit-for-bit, so it must reuse the identical arithmetic, just with `h` computed once instead of
+        once per sampled width.
+        """
+        h = self.hidden(x)
+        means, logvars = [], []
+        for k in widths:
+            if not (1 <= k <= self.w_max):
+                raise ValueError(f"k={k} out of range [1, {self.w_max}]")
+            mask = torch.zeros_like(h)
+            mask[:, :k] = 1.0
+            h_masked = h * mask
+            means.append(self.mean_head(h_masked))
+            logvars.append(self.logvar_head(h_masked))
+        return torch.cat(means, dim=1), torch.cat(logvars, dim=1)
 
     def forward(self, x: torch.Tensor, k: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Per-sample width draw: `k` is an `(N,)` int tensor in `[1, w_max]`.
@@ -229,6 +255,30 @@ class SharedTrunkPerWidthHeadNet(nn.Module):
             logvars.append(logvar_k)
         return torch.cat(means, dim=1), torch.cat(logvars, dim=1)
 
+    def sampled_widths_forward(self, x: torch.Tensor, widths: Sequence[int]) -> tuple[torch.Tensor, torch.Tensor]:
+        """`(mean, log_var)` for exactly `widths` (order preserved, repeats allowed), trunk evaluated ONCE.
+
+        `capacity_programme` WSEL-12. Unlike `NestedWidthNet`/`SharedReadoutPerWidthAffineNet`, this
+        class's `all_widths_forward` has NO cumsum shortcut (each width reads its OWN head, not a linear
+        function of one shared readout) -- it loops `forward_width` over every `k` in `1..w_max`, and
+        `forward_width` itself calls `self.hidden(x)` fresh each call, so `all_widths_forward` here still
+        recomputes the trunk `w_max` TIMES, not once. Gathering columns out of it would not fix the
+        k-dropout training-loop defect this task targets (for a sampled subset smaller than `w_max` it
+        would recompute the trunk MORE times than the old per-sampled-width loop, not fewer). This method
+        computes `h` ONCE and applies only the SAMPLED widths' own heads to it -- the actual fix.
+        """
+        h = self.hidden(x)
+        means, logvars = [], []
+        for k in widths:
+            if not (1 <= k <= self.w_max):
+                raise ValueError(f"k={k} out of range [1, {self.w_max}]")
+            mask = torch.zeros_like(h)
+            mask[:, :k] = 1.0
+            mean = self.mean_heads[k - 1](h * mask)
+            means.append(mean)
+            logvars.append(torch.zeros_like(mean))
+        return torch.cat(means, dim=1), torch.cat(logvars, dim=1)
+
 
 class SharedReadoutPerWidthAffineNet(nn.Module):
     """Minimum-seam arm: NestedWidthNet's SHARED readout plus a 2-parameter per-width affine.
@@ -274,6 +324,25 @@ class SharedReadoutPerWidthAffineNet(nn.Module):
         contrib = h * self.mean_head.weight.squeeze(0)
         mean_all = torch.cumsum(contrib, dim=1) + self.mean_head.bias
         mean_all = mean_all * self.affine_scale + self.affine_bias
+        return mean_all, torch.zeros_like(mean_all)
+
+    def sampled_widths_forward(self, x: torch.Tensor, widths: Sequence[int]) -> tuple[torch.Tensor, torch.Tensor]:
+        """`(mean, log_var)` for exactly `widths`, trunk evaluated ONCE.
+
+        `capacity_programme` WSEL-12: see `NestedWidthNet.sampled_widths_forward` -- uses the SAME
+        explicit-masking formula as `forward_width`, not the `all_widths_forward` cumsum shortcut (only
+        algebraically, not bit-for-bit, equivalent to it), so the k-dropout training loop's bit-for-bit
+        equivalence bar holds for this class too.
+        """
+        h = self.hidden(x)
+        means = []
+        for k in widths:
+            if not (1 <= k <= self.w_max):
+                raise ValueError(f"k={k} out of range [1, {self.w_max}]")
+            mask = torch.zeros_like(h)
+            mask[:, :k] = 1.0
+            means.append(self.affine_scale[k - 1] * self.mean_head(h * mask) + self.affine_bias[k - 1])
+        mean_all = torch.cat(means, dim=1)
         return mean_all, torch.zeros_like(mean_all)
 
 
