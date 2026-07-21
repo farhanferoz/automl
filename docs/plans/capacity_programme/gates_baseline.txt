@@ -94,3 +94,6 @@ automl_package/models/flexnn/strategies/independent_weights.py       # FP-11
 automl_package/models/flexnn/routing.py                              # FP-11
 automl_package/models/flexnn/__init__.py                             # FP-11 Step 4
 shared/wsel17-cleanup-manifest.tsv                                   # WSEL-17 Step 6 (verify 6)
+docs/plans/capacity_programme/shared/p9-cleanup-manifest.tsv         # probreg.md P9 Step 6 (verify 1)
+shared/p9-cleanup-manifest.tsv                                       # probreg.md P9 Step 6 (relative spelling)
+automl_package/models/flexnn/strategies/n_classes.py                 # FP-11 (widened 2026-07-21)

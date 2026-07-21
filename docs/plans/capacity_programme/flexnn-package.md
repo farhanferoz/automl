@@ -1327,12 +1327,16 @@ already says FlexNN is the umbrella for all per-input capacity work; the directo
 | `automl_package/models/flexnn/strategies/layer.py` | `automl_package/models/selection_strategies/layer_selection_strategies.py` |
 | `automl_package/models/flexnn/strategies/independent_weights.py` | `automl_package/models/selection_strategies/independent_weights_strategies.py` |
 | `automl_package/models/flexnn/routing.py` | `automl_package/models/common/distilled_router.py` |
+| `automl_package/models/flexnn/strategies/n_classes.py` | `automl_package/models/selection_strategies/n_classes_strategies.py` — **added 2026-07-21 (user: same standard for ProbReg).** Every capacity-selection strategy sits together. **`probreg.md` P7 therefore deps on FP-11**, since it rewrites this file: one move, not two. |
 
 **EXPLICITLY OUT OF SCOPE, and why — do not move these:**
-- `automl_package/models/selection_strategies/n_classes_strategies.py` and
-  `automl_package/models/architectures/probabilistic_regression_net.py`
-  — **ProbReg is a LIVE strand** (`probreg.md` P7 writes `n_classes_strategies.py`). Moving them is a
-  write-set collision with live work. Named as a follow-up, not smuggled in here.
+- `automl_package/models/architectures/probabilistic_regression_net.py` and
+  `automl_package/models/probabilistic_regression.py` — **ProbReg is a MODEL that USES a capacity
+  dial, not a capacity mechanism.** It belongs beside its sibling `classifier_regression.py`. FlexNN is
+  the umbrella for the MECHANISMS, not for every model consuming one. *(Its selection strategy DOES
+  move — see the table row above. The earlier draft excluded that too, on write-set grounds; the user
+  asked for the same standard across ProbReg, and the collision is resolved by ordering P7 after
+  FP-11 rather than by leaving the file behind.)*
 - `automl_package/utils/capacity_accounting.py`, `automl_package/utils/capacity_selection.py` — generic
   accounting/selection primitives, correctly in `utils/`, consumed by more than FlexNN.
 - Everything under `automl_package/examples/` — experiment drivers, boundary rule (MASTER Decision 19).

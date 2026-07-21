@@ -12,6 +12,105 @@ the fix; the rule that keeps it fixed is the first line of this file.
 
 ---
 
+## 0.5 CODE ORGANISATION AND CLEANUP — the SAME standard as `width.md` §3.9 (user, 2026-07-21)
+
+**User instruction:** the classifier work gets the same organisation and cleanup standard as width.
+**It does not have it today, and this strand is messier than width was.** Inventory read off disk
+2026-07-21, not recalled:
+
+- **24 driver scripts under `automl_package/examples/` matching `probreg*`/`classifier*`**, with
+  heavily overlapping names: `probreg_k_sweep.py`, `probreg_k10_sweep.py`, `probreg_k20_sweep.py`,
+  `probreg_kselection_comparison.py`, `probreg_kselection_diagnostic.py`,
+  `probreg_kselection_experiments.py`, `probreg_kselection_prior_ablation.py`,
+  `probreg_elbo_prior_check.py`, `probreg_ordering_ablation.py`, `probreg_ablation.py`,
+  `probreg_identifiability_sweep.py`, `probreg_snr_sweep.py`, `probreg_mixture_eval.py`,
+  `probreg_variational_em_step1.py` / `_step2_perinput_arbiter.py` / `_step3_perinput_model.py`,
+  `probreg_variational_em_toy_e_hump.py`, `probreg_p8.py`, `_kselection_metrics.py`. **Nobody can say
+  from the names which of these is current.**
+- **~10 results directories in the WRONG PLACE**, as `automl_package/examples/<name>_results/`
+  siblings of the drivers (`probreg_k_sweep_results`, `probreg_k10_sweep_results`,
+  `probreg_k20_sweep_results`, `probreg_ablation_results`, `probreg_snr_sweep_results`,
+  `probreg_ordering_ablation_results`, `probreg_identifiability_results`,
+  `probreg_kselection_diagnostic_results`, `probreg_kselection_experiments_results`,
+  `probreg_elbo_prior_check_results`, `classifier_symmetry_results`). **MASTER's artifact-naming rule
+  says results live under `automl_package/examples/capacity_ladder_results/<TASKID>/`.** These predate
+  the rule; they are not exempt from it.
+- **Two shell launchers hardcode absolute `/home/ff235/...` paths** on a public repo:
+  `automl_package/examples/run_probreg_k_sweep_safe.sh`,
+  `automl_package/examples/run_probreg_k10_sweep_safe.sh`.
+- **Package files split across three locations**: `automl_package/models/probabilistic_regression.py`,
+  `automl_package/models/architectures/probabilistic_regression_net.py`,
+  `automl_package/models/selection_strategies/n_classes_strategies.py`.
+
+### What moves, and what deliberately does NOT (settled 2026-07-21)
+
+**Only the capacity MECHANISM joins the FlexNN home.** `flexnn-package.md` FP-11 (TASK ZERO) moves
+`n_classes_strategies.py` to `automl_package/models/flexnn/strategies/n_classes.py`, so that every
+capacity-selection strategy — width, depth, k — sits together. **`probabilistic_regression.py` and
+`probabilistic_regression_net.py` STAY where they are**, because ProbReg is a MODEL that *uses* a
+capacity dial, not a capacity mechanism; it belongs beside `classifier_regression.py`, its sibling.
+FlexNN is the umbrella for the mechanisms, not for every model that consumes one. **P7 therefore deps
+on FP-11** (it writes the file FP-11 moves) — one move, not two, which is the same argument that made
+FP-11 task zero.
+
+### The rules (identical to `width.md` §3.9 / WSEL-17 — stated here so this strand is self-contained)
+
+- **REUSE FIRST.** Before writing any driver, class or training loop, check what exists. A near-copy
+  is a defect. A task writing something new states what it checked.
+- **ONE home per lifecycle stage.** Certified mechanisms in the package; candidates under test in ONE
+  module; drivers in `examples/`; **results ONLY under
+  `automl_package/examples/capacity_ladder_results/<TASKID>/`**, hyphen-free task id.
+- **Promotion is a task, never a side effect** — a candidate reaches the package only via a task whose
+  verify reproduces reference numbers.
+- **Deletion eligibility is FOUR MECHANICAL CHECKS, never a judgement** — see P9.
+
+### P9 — THE CLASSIFIER CLEANUP: consolidate the drivers, relocate the results, delete what is superseded
+
+**Files (write set):** `automl_package/examples/probreg_*.py` · `automl_package/examples/*_results/` ·
+`automl_package/examples/run_probreg_*.sh` ·
+`docs/plans/capacity_programme/shared/p9-cleanup-manifest.tsv` (Create)
+
+**Spec (execution-level).**
+- [ ] **Step 1 — one row per artifact.** Every `probreg*`/`classifier*` driver, every `*_results/`
+  directory, both shell launchers. Columns: path · verdict (KEEP / RELOCATE / SHIM / DELETE) · reason ·
+  replacement path · the four checks' outcomes.
+- [ ] **Step 2 — DELETE-ELIGIBLE only if ALL FOUR hold**, each checked by a recorded command:
+  (1) not in `docs/plans/capacity_programme/shared/PROTECTED.tsv`; (2) no live plan line cites it
+  (`grep` the plan dir at execution time); (3) nothing under `tests/` and no surviving module imports
+  it; (4) superseded by a NAMED replacement that EXISTS on disk, path written in the row.
+  **"Looks old" is not a reason.** Everything else is KEEP, RELOCATE or SHIM.
+- [ ] **Step 3 — gate evidence is KEEP BY RULE.** Any JSON backing a delivered report
+  (`docs/reports/probreg_toys/report_a_probreg_toys.md`) or cited by a ledger marker stays. Deleting
+  it would break the paper trail that makes the claim citable.
+- [ ] **Step 4 — RELOCATE the misplaced results dirs** under
+  `automl_package/examples/capacity_ladder_results/<TASKID>/`, one task id per study, and update every
+  driver's output path. A relocation is a `git mv` plus a path constant — never a copy.
+- [ ] **Step 5 — genericize the two shell launchers**: replace the hardcoded `/home/ff235/...` with a
+  repo-root-relative path derived at run time. This is a public repo.
+- [ ] **Step 6 — write the manifest and STOP.** `shared/p9-cleanup-manifest.tsv` goes to the USER.
+- [ ] **Step 7 — attended deletion** after sign-off: ONE commit whose body is the manifest. `git`
+  history retains every file, so it is recoverable; say so in the commit body.
+
+**Non-goals:** no deletion of anything failing any one check; no deletion of report evidence, ever; no
+behaviour change to any driver that a live task will run; no merging of drivers that are not proven
+equivalent; **no touching `n_classes_strategies.py`** (FP-11 moves it, P7 rewrites it).
+*Orchestration:* parallel: no · deps: **FP-11** and **P7 merged** (P7 rewrites the training schedule,
+which is what supersedes several of these drivers) · tier: sonnet high for Steps 1-6, **root +
+ATTENDED for Step 7** · scale: static · shape: execution ·
+verify: (1) `shared/p9-cleanup-manifest.tsv` exists and every DELETE row records all four checks;
+(2) every relocated study's JSONs resolve at their new path and no driver writes outside
+`capacity_ladder_results/`; (3) neither shell launcher contains the string `/home/`;
+(4) `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/ -q` matches the pre-cleanup result
+exactly — no new failures, no newly-passing tests; (5) no `PROTECTED.tsv` path deleted or renamed.
+
+**⚠️ NOT WRITTEN, and deliberately not invented: this strand has no canonical TOY SUITE.** `width.md`
+§3.8 fixes three named tiers with exact generators, sizes, noise and seeds, and assigns each task its
+tiers, so arms are like-for-like. **The classifier strand has no equivalent**, and the drivers above
+plainly ran on assorted toys. Writing one requires decisions about which toys are the reference,
+which is the negative control, and which is the ladder — **the user's ProbReg architecture discussion
+is pending, so this is flagged, not guessed.** No comparison table across this strand's arms is
+trustworthy until it exists.
+
 ## 1. Model definitions — SETTLED 2026-07-20 (user, live). Supersedes every other statement.
 
 The comparison is between three ways of choosing **k**, the number of classes the model resolves
@@ -707,8 +806,10 @@ forcing facts. This run is simultaneously P5's discriminating experiment — see
 clause.
 **Non-goals:** no change to the selection mechanisms (arbiter/distillation/sweep — PA's ground); no
 change to M3 (it never used the draw); no real data.
-*Orchestration:* parallel: no (shares `n_classes_strategies.py` and the test file with PA's ground)
-· deps: PA · tier: sonnet high · scale: static · shape: execution →
+*Orchestration:* parallel: no (shares the k-strategy module and the test file with PA's ground)
+· deps: PA, **`flexnn-package.md` FP-11** *(added 2026-07-21 — FP-11 moves the k-strategy module to
+`automl_package/models/flexnn/strategies/n_classes.py`; running P7 first would mean moving it twice)* ·
+tier: sonnet high · scale: static · shape: execution →
 verify: `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_phase3_dynamic_k.py -q`
 green, including a NEW test asserting the `ALL_RUNGS` loss equals the mean of the per-rung NLLs
 computed independently (every rung receives gradient every step); demonstrate the test is real by
