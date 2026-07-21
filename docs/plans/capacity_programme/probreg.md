@@ -42,6 +42,28 @@ the fix; the rule that keeps it fixed is the first line of this file.
   `automl_package/models/architectures/probabilistic_regression_net.py`,
   `automl_package/models/selection_strategies/n_classes_strategies.py`.
 
+⚠️ **INVENTORY RE-DERIVED OFF DISK 2026-07-21 (root, user-instructed). The counts above are
+UNDERSTATED — P9 must be scoped from these numbers, not those.** Every figure below was produced with
+the same pattern the bullet above claims to use, so the difference is real, not a definitional
+artefact:
+
+| item | plan says | actually on disk | note |
+|---|---|---|---|
+| drivers matching `probreg*`/`classifier*` | 24 | **31** | the named list is a sample, not the set |
+| misplaced `*_results` dirs under `examples/` | "~10" | **35** (excluding the sanctioned `capacity_ladder_results/`) | of which **15** are ProbReg-owned (`probreg*`, `classifier*`, `classreg*`, `head_*`); the remaining 20 belong to other strands or are legacy, and P9 **does not** own them |
+| shell launchers hardcoding `/home/ff235` | 2 | **4** | the two named, plus `run_phase2_followups_safe.sh` and `_phase2_followups_chain.sh` |
+| package locations | 3 | **2** | ✅ improved by FP-11: `n_classes_strategies.py` moved to `automl_package/models/flexnn/strategies/n_classes.py`, so only the two ProbReg-proper files remain — and they stay, by the ruling below |
+
+**Consequences for P9, all binding:**
+1. **P9's write set must be re-derived at execution time, not copied from the bullet list above.** A
+   task scoped to "~10" directories that meets 15 will either stop early or improvise — both bad.
+2. **P9 owns the 15 ProbReg-owned directories ONLY.** The other 20 are out of scope; moving another
+   strand's artifacts is a write-set violation, and several belong to parked or legacy programmes.
+3. **The hardcoded-path fix covers all 4 scripts**, not 2. *(This is a public repo; the paths are a
+   portability defect, not a tidiness one.)*
+4. **The "three locations" bullet is now stale in the good direction** — do not "fix" it by moving
+   the two remaining files. §0.5's ruling below is explicit that ProbReg's model files STAY.
+
 ### What moves, and what deliberately does NOT (settled 2026-07-21)
 
 **Only the capacity MECHANISM joins the FlexNN home.** `flexnn-package.md` FP-11 (TASK ZERO) moves
@@ -1399,6 +1421,27 @@ the question. Do not re-defer it.
    and must not be absorbed as a routine result.
 3. **The control loses at matched capacity** → the intended outcome: first direct positive evidence
    the components carry the work. Record it as such; it becomes report content.
+
+**♻️ PRIOR ART — what was checked before writing this task (§0.5's REUSE-FIRST rule requires this
+block; an earlier draft of P11 omitted it and was non-compliant).** Searched
+`automl_package/examples/` for existing head-structure work. **Two drivers exist and neither answers
+this question, but both are reusable:**
+- `automl_package/examples/head_structure_diagnostic.py` — *"I2: run head-structure diagnostics
+  across a grid of ProbReg configs"*, with results at
+  `automl_package/examples/head_structure_results/head_structure.csv` (32 rows). **Why it does not
+  answer P11:** it compares only TWO layouts (`separate_heads`, `single_head_n_outputs` — the
+  no-component layout is absent, so the mechanism control was never run); it runs on the **legacy**
+  `heteroscedastic`/`bimodal` toys, which §0.5 rules are not a tier and on which **no new cell may be
+  produced**; it uses fixed k with no ladder; and it scores MSE under an `nll`/`beta_nll` training
+  loss — a learned-variance objective. **Its results are citable as history, labelled legacy; they
+  are not a baseline for P11.**
+- `automl_package/examples/head_degeneracy_diagnostic.py` — same two layouts plus a monotonic
+  variant; same legacy-toy limitation.
+- **REUSE, do not reimplement:** `automl_package/utils/head_diagnostics.py::analyse_head_structure`
+  computes the per-head structural checks (mirror/middle-flat/mean-separation/dead-head). **P11 must
+  call it** and report those flags per arm, because they turn "layout A beat layout B" into *why* —
+  a dead or degenerate head is a mechanism, not a score. This is the difference between a result and
+  a finding.
 
 **⚠️ METRIC AND VARIANCE STATUS — stated explicitly, per the §0.5 correction.** Score every rung on
 the **fixed-σ mixture log-likelihood**; report RMSE alongside as a point-accuracy column only.
