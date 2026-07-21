@@ -892,7 +892,15 @@ exits non-zero (the prove-it-fails rule) — restore the artifact and re-run; th
 shows the per-dataset CSV and per-model JSON outputs, each JSON containing a `constants` key naming
 the study artifact it traces to.
 
-### WSEL-10 — report
+### WSEL-10 — report — ⏸ **PARKED (user, 2026-07-21). Gated behind a joint results review.**
+
+⛔ **NO REPORT WORK STARTS UNTIL THE USER AND THE ROOT HAVE REVIEWED THE RESULTS TOGETHER.** The
+user's instruction: when all the work in BOTH live strands (width and ProbReg) is done, they will walk
+the results with the root to confirm the numbers make sense and that nothing has been missed — **and
+only then is the report written.** The purpose is explicit: a comprehensive report is expensive, and
+writing one on results that turn out to be wrong or incomplete wastes that effort. **The same gate
+binds `probreg.md` P6**; the review covers both strands in one pass, because they share machinery and
+a miss in one is likely a miss in the other. See MASTER Decision 23.
 
 **Files (write set):** `docs/reports/width_selection/`
 **Spec:** Author via the `research-report` skill, as the user, no AI/tool provenance

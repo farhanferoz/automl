@@ -343,6 +343,24 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
       exiting in transformer stacks is a crowded area, and **no depth result may be positioned as
       novel until an equivalent survey exists.**
 
+23. **Reports are PARKED behind a joint results review (user, 2026-07-21).** Both live strands need a
+    comprehensive report — `width.md` **WSEL-10** and `probreg.md` **P6**, both authored via the
+    `research-report` skill, as the user, zero AI provenance (Decision 10). **Neither may start.**
+    The sequence is binding:
+    1. All execution work in **both** live strands completes (width battery + ProbReg battery).
+    2. **The user and the root review the results together** — do the numbers make sense, has
+       anything been missed, does any arm need re-running.
+    3. **Only then** is a report written.
+    - **Why the gate exists, in the user's own terms:** a comprehensive report is expensive, and
+      producing one on results that turn out to be wrong or incomplete wastes that effort. The review
+      is a cheap check in front of an expensive irreversible step.
+    - **One review, both strands, in one pass** — they share machinery (the selection primitives, the
+      router, the accounting), so a defect in one is likely a defect in the other; reviewing them
+      separately would miss exactly the cross-strand misses this gate is for.
+    - **Consequence for planning:** no task may list "write the report" as its completion criterion,
+      and no battery may be scheduled *because* the report needs it. Report content is an OUTPUT of
+      the review, not an input to it.
+
 ## Rules (cache discipline)
 
 ⚠️ **THE NUMBERS GATE IS PARTIAL — strengthen it before the next planning round.**

@@ -1285,7 +1285,108 @@ shape: research · verify:
 `grep -oE "automl_package/examples/capacity_ladder_results/P5/[A-Za-z0-9_./-]+\.json" docs/plans/capacity_programme/shared/p5_middle_k_coherence.md`
 returns at least one path, and each returned path resolves with `test -f`.
 
-### P6 — report
+### P11 — the head-structure comparison (NEW 2026-07-21, user-instructed)
+
+**The question.** All three head layouts admit a k-ladder. Two produce per-class components; the
+third does not (§1's table). Does the component structure actually buy anything — in selection
+quality or in fit — once capacity is held equal?
+
+**⚠️ THE THIRD ARM IS A MECHANISM CONTROL, NOT A COMPETITOR.** `SINGLE_HEAD_FINAL_OUTPUT` is in this
+battery because it is the one configuration where the prefix guarantee is **vacuous** — there are no
+components for "the first c rungs are a genuine c-component model" to be about. It is the negative
+control for this strand's central mechanism claim, and it must be labelled that way in every table.
+**If it ties or wins at matched capacity, that is not a layout preference — it is evidence the
+component story is not what is doing the work, and it HALTS the battery** (see halt conditions).
+
+**What varies, and what is held constant.** Exactly ONE thing varies: the head layout. Same trained
+network per cell, same schedule (the all-rungs schedule — **deps P7**, see below), same masked-softmax
+prefix mechanism, same toys, same seeds, same convergence gate, same selection rules.
+
+**The two selection modes are FREE and both are reported.** Global-k and per-input-k are two
+post-hoc READS of the same trained network (§1: M1 and M2 are read off the SAME network). They cost
+no extra training. ⇒ **This battery is 3 trained networks per cell, each read twice — NOT a 3×2 grid
+of models.** Any plan to train separately per selection mode is a misreading of §1.
+
+**🚫 THE SWEEP REFERENCE IS OUT OF SCOPE.** M3's job is to establish the ceiling for the *pinned*
+model; the layout question is answerable entirely from the cheap arms. Running a dedicated per-k
+reference per layout is where cost would actually explode, for no added information. It also inherits
+§1's unresolved M3 candidate-set question, which this battery must not be blocked behind.
+
+**⚠️ PARAMETER-MATCHING IS MANDATORY — the arms are NOT matched as configured, and the gap GROWS with
+k.** Measured at the root 2026-07-21 by instantiating the modules at the standard head config
+(`hidden_layers=1, hidden_size=32`, probabilistic heads):
+
+| k | `SEPARATE_HEADS` | `SINGLE_HEAD_N_OUTPUTS` | `SINGLE_HEAD_FINAL_OUTPUT` | <!-- numcheck-ignore: parameter counts computed from the module definitions, not a run ledger; reproduce with the snippet in this task's verify -->
+|---:|---:|---:|---:|
+| 2 | 260 | 228 (0.88×) | 162 (0.62×) |
+| 5 | 650 | 522 (0.80×) | 258 (0.40×) |
+| 10 | 1300 | 1012 (0.78×) | 418 (0.32×) |
+| 12 | 1560 | 1208 (0.77×) | 482 (0.31×) |
+
+Separate heads grow linearly in k (one head per class); the third layout grows only through its input
+dimension, so at the top of the ladder it runs on **roughly a third of the parameters**. **Unmatched,
+the control is WASTED**: "no components" and "a third of the capacity" both predict losing, and the
+run cannot distinguish them. ⇒ Raise the single-head layouts' `hidden_size` until parameter counts are
+comparable **at each k**, and **report the realised counts in every results table** so the match is
+checkable rather than asserted. *(Doctrine reuse, not a new rule: the depth strand already requires its
+two readout arms be decided empirically and parameter-matched — MASTER Decision on the readout ruling.)*
+
+**Cells — the mechanical tier rule, applied.** This battery reports a chosen k as correct AND makes
+per-input claims, so §0.5's rule gives **tiers 1 + 2 + 3** (tier 4 is reserved for the headline
+comparison and the report). That is **7 toys × 3 seeds × 3 layouts = 63 training runs**, each read
+both ways → 126 selection results, no extra training.
+
+**⭐ The decisive cell is in TIER 2, not tier 3.** `make_broad_unimodal` is a single Gaussian matched
+in mean AND variance to the bimodal toy, and its role is quoted in §0.5 as: a moment-matching model
+"cannot tell them apart; the genuine mixture objective can." The no-component layout has no per-class
+parameters to express mixture structure with, so moments are essentially all it can read. **If
+component nesting does real work, this matched pair is where it must show up.** An earlier draft of
+this battery deferred tier 2 to a second stage — that would have deferred the one cell that answers
+the question. Do not re-defer it.
+
+**Halt conditions — decided BEFORE the run, in the shape `width.md` WSEL-16 already ratified:**
+1. **The two component-producing layouts are indistinguishable** (difference within twice a bootstrap
+   SE, on the point-prediction metric) → the §1 pin stands, drop the middle layout from the programme,
+   **stop**. Do not proceed to any further layout work.
+2. **The no-component control ties or wins at MATCHED capacity** → **HALT and escalate to the user.**
+   Write up what was measured; propose nothing. This contradicts the mechanism the strand is built on
+   and must not be absorbed as a routine result.
+3. **The control loses at matched capacity** → the intended outcome: first direct positive evidence
+   the components carry the work. Record it as such; it becomes report content.
+
+**Files (write set):** `automl_package/examples/probreg_p11.py` (Create) ·
+`automl_package/examples/capacity_ladder_results/P11/`
+**Non-goals:** no new architecture; no change to any head module (this battery CONFIGURES them, it
+does not edit them); no sweep reference; no tier 4; no deletion; no edit to `probabilistic_regression.py`
+(P7 and P10 own that file).
+
+*Orchestration:* parallel: **the 63 cells are independent COMPUTE — fan out on cells, but the ROOT
+runs the grid backgrounded and the worker only AUTHORS the driver** (per-cell CLI with
+`--layout/--toy/--seed`, one JSON per cell, `--summarize`, `--selftest`; explicit non-goal: do not run
+the full grid) · **deps: P7** (the schedule migration — running this on the retired per-sample draw
+would make every number citable only as old-schedule) **and P10** (the layout gate must exist before a
+battery configures layouts) · tier: sonnet high for the driver · scale: static (63 cells) ·
+shape: execution ·
+**verify:**
+```bash
+cd /home/ff235/dev/MLResearch/automl
+# (a) the parameter-match is REAL, not asserted -- reproduce the table above, then the matched config
+AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python -m automl_package.examples.probreg_p11 --selftest
+# (b) every cell landed: 7 toys x 3 seeds x 3 layouts
+[ "$(ls automl_package/examples/capacity_ladder_results/P11/*.json | wc -l)" = "63" ] && echo CELLS-OK
+# (c) every result row carries its realised parameter count and its selection mode
+# (d) no cell hit the convergence cap (hit_cap must be false everywhere)
+AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python -m automl_package.examples.probreg_p11 --summarize
+```
+
+### P6 — report — ⏸ **PARKED (user, 2026-07-21). Gated behind a joint results review.**
+
+⛔ **NO REPORT WORK STARTS UNTIL THE USER AND THE ROOT HAVE REVIEWED THE RESULTS TOGETHER.** The user's
+instruction: when all the work in BOTH live strands is done, they will walk the results with the root
+to confirm the numbers make sense and that nothing has been missed — **and only then is the report
+written.** The purpose is explicit: a comprehensive report is expensive, and writing one on results
+that turn out to be wrong or incomplete wastes that effort. **This gate applies equally to `width.md`
+WSEL-10.** See MASTER Decision 23.
 
 **Files (write set):** `docs/reports/probreg_kselection/`
 **Spec:** Extend the existing report to the three-model framing and the real-data results, via the

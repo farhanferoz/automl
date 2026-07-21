@@ -87,3 +87,7 @@ automl_package/examples/capacity_ladder_results/WSEL16/frozen.json   # WSEL-16 S
 shared/wsel17-cleanup-manifest.tsv                                   # WSEL-17 Step 6 (verify 6)
 docs/plans/capacity_programme/shared/p9-cleanup-manifest.tsv         # probreg.md P9 Step 6 (verify 1)
 shared/p9-cleanup-manifest.tsv                                       # probreg.md P9 Step 6 (relative spelling)
+
+# --- probreg.md P11 Create target (parked 2026-07-21, root) -------------------------------------
+# Head-structure comparison driver. Created by P11; deps P7 + P10, so not yet written.
+automl_package/examples/probreg_p11.py                                # P11
