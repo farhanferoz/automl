@@ -188,7 +188,10 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     (`automl_package/examples/sinc_width_experiment.py::_fit_selector_mse`). In-sample /
     in-training selection is never the primary (failed for width; FlexNN ELBO depth-select
     refuted, M0); it may appear only as a labeled comparison arm after the distilled primary
-    passes.
+    passes. **⚠️ AMENDED 2026-07-21 by Decision 29 (user): under the nested ladder the in-training
+    strategies are now UNREACHABLE by default, not merely demoted — hard error, and out of the
+    hyperparameter search space. The comparison-arm provision survives only behind an explicit
+    opt-out flag. Read Decision 29 before citing this one.**
 14. **Positive-control gate (2026-07-20).** Any battery containing a known-good arm runs that arm
     **FIRST, alone**, and it must reproduce its certified result at the same bar on **every** seed
     before further compute is spent. A failed positive control **HALTS** the battery: the protocol
@@ -441,6 +444,81 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     comparison is about to test the ordering/cascade assumptions any depth task would be designed on,
     and Decision 22 already names depth as the better transformer-port target. Unparking earlier
     means designing depth's tasks on premises that are mid-test.
+
+29. **Under the nested ladder, nothing may choose or shape k DURING TRAINING (user, 2026-07-21).
+    Amends Decision 13 from "demoted to a labelled comparison arm" to "unreachable by default".**
+
+    **⚠️ PROGRAMME-WIDE — this binds ProbReg AND FlexNN (width/depth), user 2026-07-21.** It is one
+    principle about *when* capacity is chosen, not a fact about one dial. Inventory verified on disk
+    before writing:
+
+    | dial | in-training machinery this retires | where |
+    |---|---|---|
+    | **ProbReg (k)** | `SOFT_GATING`, `GUMBEL_SOFTMAX`, `STE`, `REINFORCE` · `NClassesRegularization`'s `K_PENALTY` and `ELBO` (the enum's own docstring: *"only meaningful with an in-training selection method"*) · the cross-entropy training modes `COMPOSITE_LOSS` / `GRADIENT_STOP` / `CE_STOP_GRAD` | `automl_package/enums.py` · `automl_package/models/flexnn/strategies/n_classes.py` |
+    | **FlexNN depth** | `GumbelSoftmaxStrategy`, `SoftGatingStrategy`, `SteStrategy`, `ReinforceStrategy` · `DepthRegularization`'s `DEPTH_PENALTY`, `ELBO`, `COST_AWARE_ELBO` | `automl_package/models/flexnn/strategies/layer.py:52,98,144,278` · `automl_package/enums.py:96` |
+    | **FlexNN width** | **nothing left to retire** — `WidthSelectionMethod` was removed entirely by FP-3 and width already selects only through the distilled router. Recorded so nobody hunts for a width equivalent that does not exist. | — |
+
+    **Survivors in every family: `NONE` (fixed capacity) and `NESTED` (the ladder).** Depth's evidence
+    points the same way as ProbReg's — the FlexNN ELBO depth-selection claim was **refuted** (M0,
+    post-fix ELBO collapsed to depth=1 on all five seeds), which is the depth-side instance of exactly
+    the failure Decision 13 recorded for width.
+
+    **Why one rule and not three patches.** Three separate problems were found in one session — the
+    head layout with no components, cross-entropy against per-k rebinned targets, and in-training
+    k-selection — and **all three share a shape: the plan assumed a configuration, nothing enforced
+    it, and `get_hyperparameter_search_space` could select the unsafe one.** A tuning run could reach
+    every one of them. One enforcement point closes all three.
+
+    **Two distinct justifications, recorded separately so neither carries the other's weight:**
+    - *In-training selection* is retired because **it does not work** — Decision 13's finding
+      (failed for width; the FlexNN ELBO depth-selection claim refuted), which is why the arbiter and
+      the distilled router exist at all.
+    - *Cross-entropy* is retired on a **different and independent** argument: it trains the classifier
+      toward a **predetermined percentile carve-up of y**, which contradicts the premise that k is an
+      adaptive resolution dial driven by difficulty and signal-to-noise. **It is NOT part of the
+      in-training-selection programme** — it applies equally to a fixed-k model — so "it's legacy"
+      would have been the wrong reason.
+
+    **Consequence:** `NClassesSelectionMethod` has two live members under the ladder — `NONE` and
+    `NESTED`. The design's actual API.
+
+    **The escape hatch — ROOT-APPLIED DEFAULT, flagged for the user to strike.** The user approved the
+    rule; the root chose the reversible option on the open sub-question. An **explicit opt-out flag**
+    re-enables the retired members **for the labelled-comparison-arm purpose only** (publishing "here
+    is what in-training selection does, and here is why we moved to distillation"). Without it,
+    Decision 13's comparison-arm provision would be silently overridden and the comparison would be
+    **awkward to retrofit later** — the reason the root defaulted to keeping it. The flag is never set
+    by a search space, never a default, and any run using it is labelled in its results JSON.
+
+    **RETIREMENT IS NOT DELETION — *yet*.** The code stays for now. Deletion remains user-gated behind
+    the four mechanical eligibility checks, attended, via `probreg.md` P9's manifest — several of these
+    paths produced results that are still cited.
+
+    **🗑️ CONDITIONAL DELETION TRIGGER (user, 2026-07-21).** *"If we reach a conclusion that the
+    arbiter/distillation setup works, we delete all machinery we have for in-sample k selection."*
+    - **The condition is the strand's own headline**, not a judgement call: the arbiter matches the
+      expensive sweep, and the distilled router works per input — i.e. **P3 and P4 pass** on the
+      widened grid (Decision 25) at the fixed-σ readout (Decision 24).
+    - **Applies to FlexNN's machinery on the same trigger** (user: *"this applies to both"*). Depth's
+      in-training strategies and `DepthRegularization` become deletion-eligible on the same
+      conclusion — **with one asymmetry that must not be glossed:** depth is PARKED, so its own
+      arbiter/router evidence does not exist yet. **Deleting depth's machinery on ProbReg's evidence
+      is an inference across dials, not a measurement.** The M0 refutation makes it a *reasonable*
+      inference — but it is one, and the manifest must say so rather than presenting depth's deletion
+      as equally evidenced. If depth is ever unparked, that machinery is what its comparison arm
+      would have needed.
+    - **The trigger point is the joint results review** (Decision 23), where both strands' results are
+      walked together. If the condition holds there, the in-sample machinery becomes
+      **deletion-ELIGIBLE**, and P9 brings the manifest. Eligibility still runs the four mechanical
+      checks; the user's ruling supplies the *intent*, not a bypass.
+    - **⚠️ ORDER MATTERS — the trigger and the escape hatch collide, and the collision is one-way.**
+      The opt-out flag exists so the comparison *"here is what in-training selection does, and why we
+      moved to distillation"* can be run and published. **Deleting the machinery makes that comparison
+      permanently unrunnable.** ⇒ **If that comparison is wanted in the report, it must be RUN BEFORE
+      the deletion, not after.** Deciding at the review is too late if the run has not happened.
+      **Root's recommendation: decide at the review whether the comparison earns a place in the
+      report; if yes, run it there and then, and delete afterwards.** Recorded here because this is
+      exactly the kind of ordering that is obvious in advance and invisible in the moment.
 
 ## Rules (cache discipline)
 

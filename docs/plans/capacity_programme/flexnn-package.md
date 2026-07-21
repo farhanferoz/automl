@@ -1455,6 +1455,29 @@ the new expected result as the baseline in this task's completion note, and trea
 *beyond* that as the regression signal. **Do not drive the old numbers to green** — that would mean
 suppressing the change's real effect.
 
+**⚠️ SCOPE ALSO INCLUDES THE DECISION-29 GUARD (user, 2026-07-21) — one enforcement point, three
+traps.** Under `NESTED`, anything that chooses or shapes capacity *during training* must be
+**unreachable**: hard error at construction, and **removed from `get_hyperparameter_search_space`**.
+That covers, in ONE guard:
+- **ProbReg:** `SOFT_GATING` / `GUMBEL_SOFTMAX` / `STE` / `REINFORCE` · `NClassesRegularization`'s
+  `K_PENALTY` and `ELBO` · the cross-entropy modes `COMPOSITE_LOSS` / `GRADIENT_STOP` / `CE_STOP_GRAD`.
+- **FlexNN depth** (`automl_package/models/flexnn/strategies/layer.py`): `GumbelSoftmaxStrategy`,
+  `SoftGatingStrategy`, `SteStrategy`, `ReinforceStrategy` · `DepthRegularization`'s `DEPTH_PENALTY`,
+  `ELBO`, `COST_AWARE_ELBO`. *(Depth is PARKED, so this is a guard against future misuse, not a
+  change to live work — implement it, do not run depth.)*
+- **Width:** nothing to do — `WidthSelectionMethod` was already removed by FP-3.
+
+**Why this belongs HERE and not in three tasks.** All three traps are reachable today by a single
+tuning run, because the search space offers every enum member. **This is the same defect shape found
+three times in one session** (head layout, cross-entropy, in-training selection): the plan assumed a
+configuration and nothing enforced it. One guard, one place.
+
+**The escape hatch is REQUIRED, not optional** (MASTER Decision 29): an explicit opt-out flag
+re-enables the retired members **for the labelled-comparison-arm purpose only**. It is never set by a
+search space, never a default, and **any run using it writes that fact into its results JSON**. Build
+it in the same change — Decision 29 records that retrofitting it later is the awkward path, and that
+deleting the machinery (the conditional trigger) makes the comparison permanently unrunnable.
+
 **⚠️ SEQUENCING — FP-12 and `probreg.md` P7 now overlap.** P7 rewrites the training objective for the
 schedule migration; FP-12 now rewrites it for the σ change. **Both touch the same loss.** Sequence
 them deliberately or merge them into one change; **do not dispatch both.** They already share

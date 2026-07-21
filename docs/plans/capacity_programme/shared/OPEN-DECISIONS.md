@@ -10,8 +10,8 @@ When a row is settled, the root records it in `MASTER.md`'s decision register (t
 strikes the row here. **This file is a queue, never a source of truth** — a decision that lives only
 here has not landed.
 
-**Status: 6 of 7 settled 2026-07-21. Only D-4 remains open** — the user asked for a clearer
-explanation before ruling it. Settled rows are retained with their reasoning rather than deleted, so
+**Status: ALL 7 SETTLED 2026-07-21.** D-4 was widened by the user into a programme-wide
+retirement (Decision 29) covering both ProbReg and FlexNN. Settled rows are retained with their reasoning rather than deleted, so
 the rejected alternative stays auditable.
 
 **Status legend:** 🔴 blocks dispatchable work now · 🟡 blocks work that is itself blocked · ⚪ no
@@ -100,7 +100,30 @@ it costs one arm in a battery that is already running, and it distinguishes "com
 
 ---
 
-## 🔴 D-4 — STILL OPEN — the user asked for a clearer explanation before ruling. The cross-k class-identity defect: fix, or continue to avoid?
+## ✅ D-4 — SETTLED (user, 2026-07-21), and WIDENED well past the original question. → MASTER Decision 29
+
+**What was asked:** fix the cross-k class-identity defect, or keep avoiding it?
+**What was decided:** neither, exactly. On being shown that cross-entropy exists to give the
+*classifier* a direct signal, the user identified it as belonging to the retired in-sample
+k-selection programme and ruled the whole cluster out — **across ProbReg AND FlexNN**.
+
+**The ruling:** under the nested ladder, **nothing may choose or shape capacity during training** —
+hard error, and out of the hyperparameter search space. Retires the in-training selection strategies,
+their capacity regularisers, and the cross-entropy training modes, in both families. Amends
+Decision 13 from "demoted to a labelled comparison arm" to "unreachable by default".
+
+**Root-applied default on the open sub-question (strike if unintended):** the comparison-arm escape
+hatch IS built — an explicit opt-out flag, never a default, never search-space reachable, recorded in
+any results JSON that uses it.
+
+**Conditional deletion trigger:** if the arbiter/distillation conclusion holds at the joint results
+review, the machinery becomes deletion-eligible in both families. **Ordering hazard recorded:**
+deleting makes the in-training comparison permanently unrunnable, so if it is wanted in the report it
+must be run *before* deletion, decided at that same review.
+
+**Original framing retained below.**
+
+## ~~D-4 — the cross-k class-identity defect: fix, or continue to avoid?~~
 
 **Blocks:** nothing in the current battery (which runs `REGRESSION_ONLY` throughout, where the defect
 cannot fire). Recorded so it is not re-discovered a fourth time.
