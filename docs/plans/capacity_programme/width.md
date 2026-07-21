@@ -451,11 +451,41 @@ Constants: `automl_package/examples/converged_width_experiment.py:45-49`.
 | Task | Tier 1 | Tier 2 | Tier 3 | Runs |
 |---|---|---|---|---|
 | **WSEL-11** (re-run) | ✅ | ❌ | ❌ | 3 per λ × 3 λ = **9** |
-| **WSEL-13** ordering | ✅ | ✅ | ❌ | **6** |
+| **WSEL-13** ordering | ✅ | ⛔ **DEFERRED — needs WSEL-15** | ❌ | **3 now, 6 total** |
 | **WSEL-14** schedule × bunch | ✅ | ❌ | ❌ | 3 per arm × 5 arms = **15** |
 | **WSEL-15** normalisation | ✅ | ✅ | ❌ | 3 per arm × 3 arms × 2 tiers = **18** |
 | **WSEL-16** architectures, stage 1 | ✅ | ✅ | ❌ | 3 per arm × 5 arms × 2 tiers = **30** |
 | **WSEL-16** architectures, stage 3 | — | — | ✅ | 36 × **the 2 finalist arms only** = **72** |
+
+> ### ⛔ DEFECT IN THIS TABLE, FOUND AND FIXED 2026-07-21 (root, from WSEL-13's task review)
+>
+> **This table assigns tiers without checking that each tier's sanctioned OBJECTIVE exists in code.
+> It does not for tier 2.** §3.7 (lines 361-363) requires tiers 2 and 3 to train on the fixed-sigma
+> **weighted** squared error `(pred - y)^2 / sigma_true(x)^2`, implemented ONCE in
+> `automl_package/examples/width_candidates.py` and imported, never re-derived per driver (§3.9).
+> **That module does not exist yet — WSEL-15 creates it** (line 1248 below). The only loss variants
+> a width driver can select today are `NLL` and `MSE`
+> (`automl_package/examples/kdropout_converged_width_experiment.py:96-100`); there is no third member.
+>
+> **⇒ Every tier-2 and tier-3 assignment in this table carries an unstated dependency on WSEL-15.**
+> WSEL-13 is the first task to hit it. Resolution, applied 2026-07-21:
+> - **WSEL-13 runs TIER 1 ONLY for now (3 cells).** Its pre-registered bars are read on tier 1 in any
+>   case, so `ordering_holds` is fully determined without tier 2 — the deferral costs corroboration,
+>   not the verdict.
+> - **Tier 2 is DEFERRED, not cancelled**, and unblocks the moment WSEL-15 lands `width_candidates.py`.
+> - **The driver REFUSES tier 2 mechanically** rather than defaulting to plain MSE
+>   (`automl_package/examples/width_wsel13.py`, `_assert_tier_objective_available`). A prose warning
+>   would not have survived a later re-run.
+>
+> **Why this needed a mechanical guard and not a note.** Running tier 2 under plain MSE throws no
+> error and produces a plausible number, measured on an objective this file itself calls NOT
+> comparable to what the noisy-easy control exists to measure (lines 377-379). **That is precisely
+> the failure that voided WSEL-11's first run** — same shape, different task, found this time by
+> review rather than by an audit weeks later. The rule below ("a task deviating on any constant
+> carries a written justification IN THE TASK") is what this block is discharging.
+>
+> **Do NOT read this as licence to skip tier 2 elsewhere.** Every other tier-2/tier-3 row above is
+> still owed, and each is blocked behind WSEL-15 by the same argument.
 
 **Rules — mechanical, nothing left to interpret:**
 - **Tier 3 runs for exactly two arms**: the certified per-width-head design, and whichever candidate
@@ -931,7 +961,46 @@ skill); then `grep -c "WSEL-[0-9]" docs/reports/width_selection/*.md` is nonzero
 task ID, not restated from memory); then for each §3.6 constant name,
 `grep -q "<constant name>" docs/reports/width_selection/*.md` exits 0.
 
-### WSEL-11 — does explicit regularisation move the selected width? — ⛔ **REOPENED 2026-07-21. RESULTS DISCARDED — RUN ON A FORBIDDEN OBJECTIVE (variance fitting). The verdict below is VOID.**
+### WSEL-11 — does explicit regularisation move the selected width? — ✅ **RE-RUN COMPLETE 2026-07-21 AT THE CORRECTED OBJECTIVE. VERDICT: SELECTION DOES NOT MOVE. Battery NOT blocked.** *(The original run remains ⛔ VOID — see the discard notice below, retained as case law.)*
+
+#### ✅ THE RE-RUN'S VERDICT (2026-07-21, fixed-sigma objective, 9/9 cells)
+
+**RESULT: `selection_moved: false`** — ledger `automl_package/examples/capacity_ladder_results/WSEL11/rerun/frozen.json`
+plus nine per-cell JSONs (λ ∈ {0, 1e-4, 1e-2} × seeds {0, 1, 2}) in that same directory.
+
+Every cell verified by the root before the verdict was written: `hit_cap: false` on all nine,
+`objective == "mse"` on all nine, all 12 widths trustworthy on all nine,
+`sigma_treatment == "fixed_at_generator_true_sigma_via_mse_equivalence"`. Within each seed the
+selected width is **identical across the whole weight-decay grid** — seeds 0 and 1 select 6 at every
+λ, seed 2 selects 7 at every λ. No cell moves beyond tolerance.
+
+**Consequence (MASTER Decision 21):** the strand-local block does **not** fire. **WSEL-8 and WSEL-10
+are unblocked on this axis**, and **WSEL-10's report MUST cite this as the robustness note** Decision
+21 requires — "does not move" is a citable result, never a silent pass.
+
+**What this does and does NOT establish** *(binding on the report; do not over-claim it)*:
+- **Does:** width's cheapest-within-tolerance selection is not an artefact of the research loop being
+  unregularised. Decision 21's worry — that small capacity wins because small OVERFITS LESS rather
+  than because small SUFFICES — is not operating on this toy, at this grid, under this objective.
+- **Does NOT:** establish agreement ACROSS seeds. The three seeds select 6, 6 and 7 — a different
+  question this task never asked and its grid cannot answer. **Stability under penalty is not
+  stability across seeds; presenting one as the other is the misread to avoid.** *(The voided run hit
+  the same spread, 7 and 6 on its two seeds, so this is a property of the toy, not of the objective
+  change.)*
+- **Does NOT:** generalise beyond the one toy specified. This is a discriminating check by design,
+  not a survey.
+
+**Why the re-run is comparable to its own pre-registration:** exactly two things differ from the
+voided run — the objective (now fixed-sigma, the entire point) and the seed count (2 → 3, licensed by
+§3.8 line 476). The λ grid, toy, w_max, learning rate, convergence gates, selection rule and reported
+split are byte-identical, verified line by line at review.
+
+**Depth inheritance remains MOOT for this cycle** (depth is ⏸ PARKED). ProbReg's `P8` is the
+remaining live half of Decision 21.
+
+---
+
+### WSEL-11 — the DISCARDED first run — ⛔ **RESULTS DISCARDED — RUN ON A FORBIDDEN OBJECTIVE (variance fitting). The verdict below is VOID.**
 
 **Why it is void.** The run trained on the **Gaussian negative log-likelihood** —
 `automl_package/examples/width_wsel11.py:98-101` calls
@@ -1104,7 +1173,11 @@ is minutes, so this is cheap, but it is not free and the task must say so.
 **Files (write set):** `automl_package/examples/width_wsel13.py` (Create) ·
 `automl_package/examples/capacity_ladder_results/WSEL13/` (Create by runs)
 **Reads (never writes):** `automl_package/examples/kdropout_converged_width_experiment.py` (imports
-`_train_kdropout_to_convergence`, `:118`) · `automl_package/models/architectures/nested_width_net.py`
+`_train_kdropout_to_convergence`, `:118`) · `automl_package/models/flexnn/width/architectures.py`
+*(corrected 2026-07-21: this line previously named `automl_package/models/architectures/nested_width_net.py`,
+which FP-11 turned into a re-export shim. The architectures themselves now live at the flexnn path.
+The citation gate passed either way — the shim still exists — which is exactly why a stale citation
+survives it. Drivers may keep importing through the shim; the plan must name the real home.)*
 
 **Spec (execution-level).**
 - [ ] **Step 1 — train the canonical cell, 3 seeds.** `SharedTrunkPerWidthHeadNet`, `w_max=12`,

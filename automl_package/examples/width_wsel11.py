@@ -4,12 +4,24 @@
 training is otherwise entirely unregularised (no weight decay, dropout, norm layers, or
 mini-batching), so the strand's own cheapest-within-tolerance selection rule
 (`automl_package/utils/capacity_selection.py`) might partly select SMALL widths because small
-widths overfit less under that regime, not because small suffices — a bias identical across every
+widths overfit less under that regime, not because small suffices -- a bias identical across every
 width and invisible to any within-strand check. This driver trains the SAME per-width sweep the
 strand already uses as its reference (`converged_width_experiment.py`'s `IndependentWidthNet`, the
 `nested_width_net.make_hetero` toy, per-width convergence gating) at three AdamW weight_decay
 values, applies width.md §1's selection rule to each resulting held-out curve, and reports whether
 the chosen width moves.
+
+**RE-RUN, 2026-07-21 (width.md lines 934-1015).** The first run of this check trained through
+`nested_width_net.gaussian_log_likelihood` on `IndependentWidthNet`, whose variance heads are real,
+so it fitted mean AND variance -- forbidden by §3.7 ("variance is fixed at the true value, never
+learned"). That run's verdict is VOID and its six per-cell JSONs / `frozen.json` stay on disk,
+un-touched, as the record of what was run; they may not be cited. This version fixes the ONE thing
+that changes on the re-run (width.md line 954): sigma FIXED at the generator's true value, which on
+tier 1 is exactly `--loss mse` (§3.7 line 359 -- MSE and the fixed-sigma NLL share an optimum up to
+one positive constant scale on this toy, whose noise is common-mode). Everything else -- the toy,
+the lambda grid, the convergence gates, the selection rule -- is byte-identical to the original
+pre-registration below. The ONE licensed deviation is §3.8 line 476: the re-run moves from 2 seeds
+to 3 (seeds 0, 1, 2).
 
 **Local implementation note (MASTER Decision 19 -- the package/experiment boundary).**
 `converged_width_experiment._train_widths_to_convergence` hardcodes a plain `torch.optim.Adam` with
@@ -21,19 +33,35 @@ UNCHANGED) that every other width driver uses. Everything else (the toy, the net
 convergence gate, the scoring function, the selection rule) is imported and reused verbatim; nothing
 here reimplements those.
 
+**Fixed-sigma objective (width.md §3.7, §3.8 line 428).** Training and scoring both go through the
+mean-only MSE twins already shared across this strand's drivers --
+`nested_width_net._width_mse` (training/validation; used the same way by
+`kdropout_converged_width_experiment.py`'s `LossType.MSE` arm) and
+`sinc_width_experiment._score_all_widths_mse` (held-out scoring) -- reused verbatim, not
+reimplemented. Neither reads `IndependentWidthNet`'s `logvar_head`, so sigma never enters either
+graph; `_assert_sigma_fixed` below fails fast if a future edit swaps either back to the
+Gaussian-NLL pair (the exact way the voided run failed, width.md lines 399-410, "WD7").
+
 **Split discipline (the task's own verify line: "reported numbers come from a split not used for
 stopping or selection").** Two disjoint `make_hetero` draws are used, exactly as
 `converged_width_experiment.py` draws them: `p1` (further split into train/val by `VAL_EVERY`) is
 used ONLY for the per-width convergence STOPPING decision. The held-out TEST draw (`x_te, y_te`, a
-separate `make_hetero(..., seed + 500)` call) is used ONLY to build the per-width held-out NLL curve
+separate `make_hetero(..., seed + 500)` call) is used ONLY to build the per-width held-out MSE curve
 that is fed to `cheapest_within_tolerance` and reported as `selected_width` / `held_out_trajectory`.
 No sample plays both roles. (This driver has no router-fitting stage/`p2` split at all -- global
 cheapest-within-tolerance reads a curve directly, it does not fit a per-input router -- so the two
 disjoint draws already satisfy the constraint.)
 
-**Non-goals (binding, width.md WSEL-11 spec):** no sweep over toys or seeds beyond what is
-specified here; no change to width.md §1's selection rule; no re-run of WSEL-4's or WSEL-8's numbers
-from this driver.
+**Non-goals (binding, width.md WSEL-11 spec, tier 1 only per §3.8's task table):** no sweep over
+toys, tiers or seeds beyond what is specified here; no change to width.md §1's selection rule; no
+re-run of WSEL-4's or WSEL-8's numbers from this driver; no interpretation of the discarded run's
+numbers.
+
+**Write set (this re-run only writes NEW files):** `automl_package/examples/width_wsel11.py`
+(this file) and new per-cell JSONs under
+`automl_package/examples/capacity_ladder_results/WSEL11/rerun/` -- a fresh subdirectory so the
+re-run's cells and its `frozen.json` can never be confused with (or clobber) the six voided JSONs
+and the voided `frozen.json` that stay directly under `.../WSEL11/`.
 
 Usage:
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/width_wsel11.py --selftest
@@ -61,11 +89,12 @@ import sinc_width_experiment as sw  # noqa: E402
 
 from automl_package.utils.capacity_selection import cheapest_within_tolerance  # noqa: E402
 from automl_package.utils.pytorch_utils import get_device  # noqa: E402
+from automl_package.utils.run_provenance import run_provenance  # noqa: E402
 
-RESULTS_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "WSEL11")
+RESULTS_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "WSEL11", "rerun")
 
-LAMBDAS = (0.0, 1e-4, 1e-2)  # width.md WSEL-11 spec, verbatim
-SEEDS = (0, 1)  # width.md WSEL-11 spec: "2 seeds"
+LAMBDAS = (0.0, 1e-4, 1e-2)  # width.md WSEL-11 spec, verbatim -- unchanged by the re-run
+SEEDS = (0, 1, 2)  # width.md §3.8 line 476: re-run supersedes the original "2 seeds" with 3 (0, 1, 2)
 BASELINE_LAMBDA = 0.0
 
 W_MAX = 12  # same ladder as converged_width_experiment.py -- "one toy", the strand's own reference
@@ -84,6 +113,28 @@ VAL_EVERY = 5
 INITIAL_MAX_EPOCHS = cvg.DEFAULT_MAX_EPOCHS  # 60000
 ESCALATION_FACTOR = 4
 
+# --- Fixed-sigma objective (width.md §3.7, §3.8 line 428: tier 1 is `--loss mse`, explicit) --------
+# Both pinned to the mean-only MSE twins `kdropout_converged_width_experiment.py`'s `LossType.MSE`
+# arm already uses. Neither touches `IndependentWidthNet.logvar_head`; sigma is never read, so it is
+# equivalent to fixing it at the generator's true value without a free parameter to accidentally fit.
+OBJECTIVE_NAME = "mse"
+SIGMA_TREATMENT = "fixed_at_generator_true_sigma_via_mse_equivalence"  # HETERO_NOISE_SIGMA=0.05, never learned
+TRAIN_LOSS_FN = nwn._width_mse
+SCORE_FN = sw._score_all_widths_mse
+
+
+def _assert_sigma_fixed() -> None:
+    """Fails fast (WD7 precedent, width.md lines 399-410) if the train/score path reads variance.
+
+    The voided run failed exactly this way: its driver called `gaussian_log_likelihood` with no
+    assertion anywhere forcing the fixed-sigma objective. Both `TRAIN_LOSS_FN` and `SCORE_FN` here
+    are pinned to the mean-only MSE twins; this trips before any cell runs if a future edit swaps
+    either back to the Gaussian-NLL pair.
+    """
+    assert TRAIN_LOSS_FN is nwn._width_mse, f"training loss must be the fixed-sigma MSE twin, got {TRAIN_LOSS_FN!r}"
+    assert SCORE_FN is sw._score_all_widths_mse, f"scoring must read only the mean head, got {SCORE_FN!r}"
+    assert OBJECTIVE_NAME == "mse", f"tier-1 objective must be 'mse' (width.md sec 3.7), got {OBJECTIVE_NAME!r}"
+
 
 def _standardize_fit(x: np.ndarray, y: np.ndarray) -> dict:
     return {"mx": float(x.mean()), "sx": float(x.std()), "my": float(y.mean()), "sy": float(y.std())}
@@ -95,9 +146,15 @@ def _to_std_tensors(x: np.ndarray, y: np.ndarray, norm: dict) -> tuple[torch.Ten
     return x_t, y_t
 
 
-def _width_nll(net: nwn.IndependentWidthNet, k: int, x_t: torch.Tensor, y_t: torch.Tensor) -> torch.Tensor:
-    mean, log_var = net.forward_width(x_t, k)
-    return -nwn.gaussian_log_likelihood(mean.squeeze(1), log_var.squeeze(1), y_t).mean()
+def _width_loss(net: nwn.IndependentWidthNet, k: int, x_t: torch.Tensor, y_t: torch.Tensor) -> torch.Tensor:
+    """Tier-1 fixed-sigma training/validation loss -- `TRAIN_LOSS_FN` (the mean-only MSE twin).
+
+    The variance head is never read here, so sigma cannot be learned (width.md §3.7); on this toy's
+    constant, common-mode noise, MSE is exactly the fixed-sigma Gaussian NLL up to one positive
+    scale factor, so the optimum and the ordering of arms are unchanged from the discarded run's
+    intent -- only the forbidden variance-fitting is removed.
+    """
+    return TRAIN_LOSS_FN(net, k, x_t, y_t)
 
 
 def _train_one_width(sub: torch.nn.Module, net: nwn.IndependentWidthNet, k: int, x_tr: torch.Tensor, y_tr: torch.Tensor,
@@ -106,13 +163,13 @@ def _train_one_width(sub: torch.nn.Module, net: nwn.IndependentWidthNet, k: int,
 
     def step() -> None:
         opt.zero_grad()
-        loss = _width_nll(net, k, x_tr, y_tr)
+        loss = _width_loss(net, k, x_tr, y_tr)
         loss.backward()
         opt.step()
 
     def val() -> float:
         with torch.no_grad():
-            return float(_width_nll(net, k, x_val, y_val).item())
+            return float(_width_loss(net, k, x_val, y_val).item())
 
     return cvg.fit_to_convergence(sub, step, val, max_epochs=max_epochs)
 
@@ -140,6 +197,7 @@ def _train_widths_to_convergence_wd(
 
 def run_combo(lam: float, seed: int, device: str, w_max: int = W_MAX, n_train: int = N_TRAIN, n_test: int = N_TEST) -> dict:
     """Trains the per-width sweep at one (lambda, seed), then applies the strand's selection rule."""
+    _assert_sigma_fixed()
     x_tr, y_tr, _reg_tr = nwn.make_hetero(n_train, seed)
     x_te, y_te, _region_te = nwn.make_hetero(n_test, seed + 500)  # disjoint draw -- STOPPING never touches this
 
@@ -156,8 +214,7 @@ def run_combo(lam: float, seed: int, device: str, w_max: int = W_MAX, n_train: i
     conv = _train_widths_to_convergence_wd(net, x_tr_t, y_tr_t, x_val_t, y_val_t, lam)
 
     # Held-out TEST curve -- the ONLY split fed to selection, per the split-discipline note above.
-    score_te = sw._score_all_widths(net, norm, x_te, y_te, device)  # (n_test, w_max) log-likelihood, higher=better
-    error_table = -score_te  # per-sample NLL, lower=better; column k-1 = width k, cheapest-first (matches capacity_selection's convention)
+    error_table = SCORE_FN(net, norm, x_te, y_te, device)  # (n_test, w_max) squared error, lower=better, mean head only
     selected_width = int(cheapest_within_tolerance(error_table)) + 1  # 0-based column -> 1-based width
 
     any_hit_cap = any(v["result"].hit_cap for v in conv.values())
@@ -169,17 +226,20 @@ def run_combo(lam: float, seed: int, device: str, w_max: int = W_MAX, n_train: i
         "lam": lam,
         "seed": seed,
         "w_max": w_max,
+        "objective": OBJECTIVE_NAME,
+        "sigma_treatment": SIGMA_TREATMENT,
         "selected_width": selected_width,
-        "held_out_trajectory": held_out_curve,  # held-out NLL by width -- the curve the selection rule read
+        "held_out_trajectory": held_out_curve,  # held-out MSE by width -- the curve the selection rule read
         "hit_cap": any_hit_cap,
         "any_width_escalated": any_escalated,
         "n_widths_trustworthy": n_trustworthy,
         "convergence": {k: {"escalated": v["escalated"], **v["result"].summary()} for k, v in conv.items()},
+        "run_provenance": run_provenance(),
     }
 
 
 def _result_path(lam: float, seed: int) -> str:
-    return os.path.join(RESULTS_DIR, f"wsel11_lam{lam}_seed{seed}.json")
+    return os.path.join(RESULTS_DIR, f"wsel11_mse_lam{lam}_seed{seed}.json")
 
 
 _SELFTEST_W_MAX = 3  # tiny wiring-check ladder, unrelated to the real W_MAX
@@ -187,6 +247,7 @@ _SELFTEST_W_MAX = 3  # tiny wiring-check ladder, unrelated to the real W_MAX
 
 def run_selftest() -> bool:
     """Wiring check: tiny net, tiny cap, both non-zero and zero weight_decay, produces the expected keys."""
+    _assert_sigma_fixed()
     device = "cpu"
     ok = True
     for lam in (0.0, 1e-2):
@@ -206,8 +267,7 @@ def run_selftest() -> bool:
             sub = net.subnets[k - 1]
             conv[k] = {"result": _train_one_width(sub, net, k, x_tr_t, y_tr_t, x_val_t, y_val_t, 1500, lam), "escalated": False}
 
-        score_te = sw._score_all_widths(net, norm, x_te, y_te, device)
-        error_table = -score_te
+        error_table = SCORE_FN(net, norm, x_te, y_te, device)
         selected_width = int(cheapest_within_tolerance(error_table)) + 1
         ok_traj = all(len(conv[k]["result"].trajectory) >= 1 for k in range(1, _SELFTEST_W_MAX + 1))
         ok_width = 1 <= selected_width <= _SELFTEST_W_MAX
@@ -229,6 +289,7 @@ def summarize() -> dict:
                 continue
             with open(path) as f:
                 r = json.load(f)
+            assert r.get("objective") == OBJECTIVE_NAME, f"{path} was not run under the fixed-sigma objective: {r.get('objective')!r}"
             per_seed_widths[seed][lam] = r["selected_width"]
     if missing:
         raise FileNotFoundError(f"summarize() called with {len(missing)} result(s) not yet landed: {missing}")
@@ -240,6 +301,8 @@ def summarize() -> dict:
     selection_moved = any(any(m.values()) for m in moved_per_seed.values())
 
     frozen = {
+        "objective": OBJECTIVE_NAME,
+        "sigma_treatment": SIGMA_TREATMENT,
         "lambdas": list(LAMBDAS),
         "seeds": list(SEEDS),
         "baseline_lambda": BASELINE_LAMBDA,
@@ -259,6 +322,7 @@ def summarize() -> dict:
 
 def main() -> None:
     """Runs one (lambda, seed) combo, `--selftest`, or `--summarize`."""
+    _assert_sigma_fixed()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selftest", action="store_true", help="Tiny wiring check, then exit.")
     parser.add_argument("--summarize", action="store_true", help="Read landed per-combo results, write frozen.json.")
@@ -280,7 +344,7 @@ def main() -> None:
         parser.error(f"--seed must be one of {SEEDS}, got {args.seed}")
 
     device = str(get_device())
-    print(f"[wsel11] device={device} lam={args.lam} seed={args.seed} w_max={W_MAX} initial_max_epochs={INITIAL_MAX_EPOCHS}", flush=True)
+    print(f"[wsel11] device={device} objective={OBJECTIVE_NAME} lam={args.lam} seed={args.seed} w_max={W_MAX} initial_max_epochs={INITIAL_MAX_EPOCHS}", flush=True)
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
     result = run_combo(args.lam, args.seed, device)
