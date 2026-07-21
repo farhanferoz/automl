@@ -1212,7 +1212,61 @@ for every width against
 (3) the before/after wall-clock is reported, with `OMP_NUM_THREADS=4` pinned on both sides (thread
 count moves this metric by up to ~5% — `shared/fp5-stale-reference-finding.md`).
 
-### WSEL-13 — is the induced importance ordering real? (the one unmeasured property the design rests on)
+### WSEL-13 — is the induced importance ordering real? — ⛔ **ANSWERED 2026-07-21: NO. `ordering_holds: false`, 0 of 3 seeds, and the correlation runs the OPPOSITE way. A FAIL is a finding, not a bug.**
+
+**RESULT: `ordering_holds: false`** — ledger `automl_package/examples/capacity_ladder_results/WSEL13/frozen.json` (tier 1, seeds 0/1/2; per-cell JSONs and `state_tier1_seed<S>.pt` in the same directory).
+
+| seed | Spearman(index, importance) | primary (`<= -0.5`) | prefix-vs-greedy gap | secondary (`<= 0.10`) | unit 1 vs unit 12 importance |
+|---|---:|---|---:|---|---|
+| 0 | **+0.524** | FAIL | 0.496 | FAIL | 0.084 vs 6.698 | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL13/wsel13_tier1_seed0.json` -->
+| 1 | **+0.881** | FAIL | 0.379 | FAIL | 0.133 vs 6.830 | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL13/wsel13_tier1_seed1.json` -->
+| 2 | **+0.580** | FAIL | 0.055 | pass | 0.292 vs 0.384 | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL13/wsel13_tier1_seed2.json` -->
+
+Primary bar: **0 of 3 seeds pass**, and every seed's correlation is **positive** — importance
+*increases* with unit index. Secondary bar: mean gap **0.310** against a `0.10` bar. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL13/frozen.json` --> All three cells
+`all_widths_trustworthy: true`.
+
+**What this refutes.** The design's mechanistic account — unit `j` receives gradient only from widths
+`k >= j`, therefore the summed loss induces a *decreasing* importance ordering — is **wrong on this
+toy**, not merely unsupported. Greedy forward selection finds materially better same-size subsets than
+the prefix on 2 of 3 seeds, and its picks are **spread across the vector** (seed 0: units 1, 6, 12
+first), not prefix-concentrated. §2 and §4 of `shared/width_transformer_port.md` have been corrected
+in the same turn, per this task's own rule.
+
+**What it does NOT refute.** G-WIDTH's certification of the architecture is untouched — that gate is
+about the dial's behaviour, not about learned feature ordering. Every width still comes off one hidden
+evaluation. **"Nested prefix" is, on this evidence, a statement about COMPUTATION SHARING, not about
+learned feature ordering.**
+
+**Two caveats that must travel with this result:**
+- **A candidate mechanism, NOT established.** The ablation reads the widest head. Narrow heads force
+  early units to be independently sufficient (coarse structure), while late units are read by the
+  widest head alone and may carry the fine detail only it supplies — which would make
+  importance-through-the-widest-head genuinely anti-correlated with index. **No discriminating
+  experiment was run. Do not cite this as the explanation.**
+- **A known confound in the primary metric.** Single-unit ablation conflates functional importance
+  with outgoing-weight magnitude. This does not rescue the design — the prefix-vs-greedy bar is
+  scale-free and fails on its own — but the primary bar alone would not separate the two.
+
+**Scope: tier 1 only** (3 cells, not the 6 in §3.8's row). Tier 2 is deferred behind WSEL-15 — see
+§3.8's defect block. The refutation therefore rests on the reference cell alone: enough to strike a
+claim that was asserted unconditionally, not enough to characterise the ordering in general.
+
+**Not blocked, not re-run.** Per the pre-registration: no re-run on failure, no bar edits after seeing
+numbers, and this does not block the strand's battery.
+
+**⚠️ The saved state dicts are LOCAL-ONLY — the spec's "re-runnable without retraining ever again" is
+NOT satisfied on a fresh clone.** `WSEL13/state_tier1_seed{0,1,2}.pt` exist on this machine but are
+excluded by the repo-wide `*.pt` rule (`.gitignore:29`), so they are not committed. **Left ignored
+deliberately rather than force-added** — overriding a repo-wide convention is not a task-level call,
+and the cost of the alternative is small (≈1 min/seed to retrain, and the driver is deterministic
+under its seeds). Consequence to know rather than rediscover: **a fresh clone must re-run the three
+cells before the diagnostic can be re-read.** *(Flagged for the user: force-adding the three files
+would cost ~25 KB total and would make the result re-analysable without any retraining.)*
+
+---
+
+### WSEL-13 — the task spec (retained as the pre-registration this run was judged against)
 
 **Why.** The certified design's account (`shared/width_transformer_port.md` §1–§2) rests on a property
 nobody has measured: because hidden unit `j` receives gradient only from widths `k >= j`, the summed

@@ -69,7 +69,6 @@ automl_package/examples/capacity_ladder_results/P7/frozen.json      # P7 (verify
 # --- width.md WSEL-12/13/14 Create targets (parked 2026-07-21, root) ----------------------------
 # Efficiency/mechanism track added after the 2026-07-21 width discussion. Each is named in its
 # task's Files (write set) AND asserted by that task's own verify line (pytest / test -f).
-automl_package/examples/capacity_ladder_results/WSEL13/frozen.json   # WSEL-13 Step 4 (verify)
 tests/test_width_schedule_bunching.py                                # WSEL-14 Step 2 (verify 2, pytest)
 automl_package/examples/capacity_ladder_results/WSEL14/frozen.json   # WSEL-14 verify (4)
 tests/test_prefix_norm_equivalence.py                                # WSEL-15 Step 1 (verify 1, pytest)

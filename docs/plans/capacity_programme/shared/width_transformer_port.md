@@ -52,13 +52,58 @@ Two conditions, and everything in §4–§5 follows from them:
    loop-free for the shared-readout class).
 2. **Each width needs its own readout parameters** (§1).
 
-**The one load-bearing property still UNMEASURED: importance ordering.** Hidden unit `j` receives
+### ⛔ MEASURED 2026-07-21 — THE IMPORTANCE-ORDERING CLAIM IS **REFUTED**. This section's third condition is struck.
+
+**RESULT: `ordering_holds: false`** — ledger `automl_package/examples/capacity_ladder_results/WSEL13/frozen.json` (WSEL-13, tier 1, seeds 0/1/2, certified architecture).
+
+~~**The one load-bearing property still UNMEASURED: importance ordering.** Hidden unit `j` receives
 gradient only from widths `k >= j`, so unit 1 appears in every width's loss term and the last unit in
-exactly one. The summed loss therefore *induces* a decreasing importance ordering — but nobody has
-measured that it holds (is unit 1 the best single feature, unit 2 the best addition, stable across
-seeds?). This is the gap the research record specifically warns not to repeat, it needs no retraining,
-and it matters MORE at transformer scale, not less: with many rungs the gradient pressure on late
-units thins out, which is exactly where ordering could fail silently. → `width.md` **WSEL-13**.
+exactly one. The summed loss therefore *induces* a decreasing importance ordering.~~ **This was an
+argument, it was labelled as unmeasured, it has now been measured, and it is WRONG — not merely
+unsupported. The induced ordering is not weak; on this toy it runs the OTHER WAY.**
+
+- **Primary bar: 0 of 3 seeds pass** (bar: Spearman(index, importance) `<= -0.5` on `>= 2` of 3).
+  Observed rho is **POSITIVE on every seed**: `+0.524`, `+0.881`, `+0.580`. Importance *increases* <!-- source: `automl_package/examples/capacity_ladder_results/WSEL13/frozen.json` -->
+  with index.
+- **Effect size, seeds 0 and 1: ~50x in the wrong direction.** Single-unit ablation MSE increase,
+  unit 1 vs unit 12 —
+  seed 0: `0.084` vs `6.698`; <!-- source: `automl_package/examples/capacity_ladder_results/WSEL13/wsel13_tier1_seed0.json` -->
+  seed 1: `0.133` vs `6.830`; <!-- source: `automl_package/examples/capacity_ladder_results/WSEL13/wsel13_tier1_seed1.json` -->
+  seed 2 is far flatter, `0.292` vs `0.384`, <!-- source: `automl_package/examples/capacity_ladder_results/WSEL13/wsel13_tier1_seed2.json` -->
+  so the magnitude is seed-dependent even though the sign is not.
+- **Secondary bar: FAILS**, mean relative prefix-vs-greedy gap `0.310` against a `0.10` bar <!-- source: `automl_package/examples/capacity_ladder_results/WSEL13/frozen.json` -->
+  (per seed: `0.496`, `0.379`, `0.055`). The prefix is not a good subset ordering: greedy forward <!-- source: `automl_package/examples/capacity_ladder_results/WSEL13/frozen.json` -->
+  selection finds materially better subsets at the same size, and its picks are **spread across the
+  vector, not prefix-concentrated** (seed 0 picks units 1, 6, 12 first).
+
+**What is refuted, precisely — and what survives.**
+- ❌ **REFUTED: that gradient exposure induces a decreasing importance ordering.** The mechanism story
+  in §1–§2 that "the prefix is where the network concentrates what matters" does not hold, and §4's
+  port argument may **no longer rest on it**. This section's conditions 1 and 2 (linear readout,
+  per-width readout parameters) are **untouched** — they are structural facts about the architecture,
+  not claims about learned solutions.
+- ✅ **SURVIVES: the architecture works.** G-WIDTH certified that the dial behaves; nothing here
+  reopens it. The nested design still delivers every width off one hidden evaluation. **What it does
+  not do is arrange its units in importance order** — so "nested prefix" is, on this evidence, a
+  statement about *computation sharing*, not about *learned feature ordering*.
+- ⚠️ **A CANDIDATE MECHANISM, EXPLICITLY NOT ESTABLISHED.** The ablation reads the WIDEST head, whose
+  mask is all-ones. Narrow heads force the early units to be independently sufficient, so they may
+  carry coarse structure, while the last units are read by the widest head alone and may carry the
+  fine detail only it supplies — which would make importance-through-the-widest-head genuinely
+  anti-correlated with index. **This is a hypothesis with no discriminating experiment behind it. Do
+  not cite it as the explanation.** It is recorded so the next reader starts from it rather than
+  re-deriving it.
+- ⚠️ **KNOWN CONFOUND in the primary metric, stated so it is not over-read:** single-unit ablation
+  conflates functional importance with outgoing-weight magnitude. This does not rescue the design —
+  the prefix-vs-greedy result is scale-free and fails independently — but the *primary* bar alone
+  would not have separated the two.
+
+**Scope.** One toy (tier 1), one architecture, `w_max=12`, 3 seeds. Tier 2 was **not** run — it is
+blocked behind WSEL-15 (see `width.md` §3.8's defect block), so this refutation rests on the reference
+cell only. That is enough to strike a claim that was asserted unconditionally, and not enough to
+characterise how the ordering behaves in general.
+
+→ `width.md` **WSEL-13** for the full task record.
 
 ---
 
@@ -104,6 +149,25 @@ wherever the readout is linear and no normalisation intervenes*. In a transforme
 feed-forward hidden width and the head count — which is where most of the parameters and most of the
 compute already sit. What does NOT generalise is any claim that a narrow forward is a free by-product
 of a wide one across a normalisation layer.
+
+> **⛔ NARROWED 2026-07-21 by WSEL-13's refutation (§2).** This table and the claim above are about
+> **where truncation COMMUTES with the readout** — a structural property of the architecture. That is
+> untouched by WSEL-13 and still stands.
+>
+> **What no longer stands is the accompanying assumption that the prefix is where the network puts
+> what matters.** Measured on the certified architecture, importance runs the *other* way
+> (`ordering_holds: false`, ledger `automl_package/examples/capacity_ladder_results/WSEL13/frozen.json`).
+> Consequences for anyone porting this:
+> - **A narrow rung is a valid sub-COMPUTATION; it is not thereby the BEST sub-network of that size.**
+>   Greedy selection found materially better same-size subsets on 2 of 3 seeds. Do not present rung `k`
+>   as "the best `k` units".
+> - **The claim that this matters MORE at transformer scale now cuts the other way.** §2 originally
+>   argued that with many rungs the gradient pressure on late units thins out, "which is exactly where
+>   ordering could fail silently". It did fail — at `w_max=12`, on the toy this strand was built
+>   around. A transformer has far more rungs, not fewer.
+> - **Nothing here blocks the port.** The compute-sharing argument is the one that carries §4, and it
+>   survives. **But a port proposal may not cite importance ordering as a reason to expect the narrow
+>   rungs to be good** — that reason has been measured and found false.
 
 ---
 
