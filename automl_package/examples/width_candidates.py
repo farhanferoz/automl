@@ -111,17 +111,26 @@ class PrefixNormWidthNet(nn.Module):
     def _normalized_masked(self, h: torch.Tensor, k: int, r_k: torch.Tensor) -> torch.Tensor:
         """`h_j / r_k` for `j <= k`, `0` beyond -- plus arm C's per-width scalar affine, if `mode=AFFINE`.
 
-        `(h / r_k) * mask` rather than `(h * mask) / r_k`: division and the 0/1 mask commute (`0 / r_k
-        == 0`), so the two are algebraically identical; this order avoids a spurious `0/r_k` NaN risk if
-        `r_k` were ever exactly zero for a masked-out column (it never is here, since `_running_totals_r`
-        and `_naive_r_k` both add `PREFIX_NORM_EPS` under the sqrt, but the safer order costs nothing).
+        The affine is applied BEFORE the mask, and the mask is applied LAST, unconditionally -- this
+        order is load-bearing, not stylistic. `gamma_k * 0 == 0` so the scale alone would be harmless
+        either way, but `+ beta_k` is not: applying the affine after masking would ADD `beta_k` into
+        every column `>= k`, un-zeroing exactly the columns `width.md:532` requires to "provably cannot
+        influence the output" -- reviving `mean_heads[k-1]`'s weights there the instant `beta` moves off
+        its zero init. `tests/test_prefix_norm_equivalence.py::
+        test_affine_beyond_k_columns_stay_zero_with_nonzero_beta` pins this with a non-zero beta (a
+        zero-init beta would pass trivially either way).
+
+        Division still happens on the UNMASKED `h` (`h / r_k`, not `(h * mask) / r_k`): `_running_totals_
+        r`/`_naive_r_k` both add `PREFIX_NORM_EPS` under the sqrt, so `r_k` is never zero and there is no
+        `0 / r_k` NaN risk to guard against by masking first -- masking first only reads as "safer" until
+        you add an affine after it, at which point it is the bug above.
         """
-        mask = torch.zeros_like(h)
-        mask[:, :k] = 1.0
-        h_norm = (h / r_k) * mask
+        h_norm = h / r_k
         if self.mode is PrefixNormMode.AFFINE:
             h_norm = self.gamma[k - 1] * h_norm + self.beta[k - 1]
-        return h_norm
+        mask = torch.zeros_like(h)
+        mask[:, :k] = 1.0
+        return h_norm * mask
 
     def forward_width(self, x: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
         """`(mean, log_var)` at one FIXED width `k` (1..w_max) via width-k's own (wrapped) mean head.

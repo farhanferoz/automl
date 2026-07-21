@@ -23,6 +23,14 @@ prevent -- and shows it disagrees with the naive oracle (arm D) at every width `
 w_max` the two coincide: the full-vector mean IS the width-`w_max` prefix). If this test does NOT fail,
 arm D is not a discriminating oracle and Step 1's pass above would be meaningless.
 
+`test_affine_beyond_k_columns_stay_zero_with_nonzero_beta` pins a SECOND, independent bug caught in
+review: arm C's affine must be applied BEFORE the mask (`width_candidates.py`'s
+`_normalized_masked`), never after -- `gamma_k * 0 == 0` so the scale alone is harmless in either
+order, but `+ beta_k` applied AFTER masking ADDS `beta_k` into every column `>= k`, un-zeroing exactly
+the columns `docs/plans/capacity_programme/width.md:532` requires to "provably cannot influence the
+output" the instant `beta` moves off its zero init -- which is why this test sets `beta` to distinct
+NON-ZERO values explicitly; a zero-init beta cannot discriminate the two orderings at all.
+
 Usage:
     AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python -m pytest tests/test_prefix_norm_equivalence.py -q
 """
@@ -78,4 +86,49 @@ def test_full_vector_totals_disagrees_with_prefix() -> None:
         "a full-vector (divide-by-w_max) normaliser must disagree with the true prefix RMS (arm D) at "
         "some width k < w_max -- it did not, so this oracle would not catch the /w_max bug the spec "
         "exists to prevent"
+    )
+
+
+def test_affine_beyond_k_columns_stay_zero_with_nonzero_beta() -> None:
+    """Arm C's beyond-k columns must stay exactly 0 even with a NON-ZERO beta.
+
+    A zero-init `beta` passes trivially under EITHER ordering (mask-then-affine or affine-then-mask),
+    so it cannot discriminate the review-caught bug where applying the affine AFTER the mask let
+    `+ beta_k` un-zero columns `>= k` -- this test sets `beta` to distinct, large, non-zero values so
+    the two orderings actually disagree. Checks both the intermediate normalised vector directly
+    (white-box, via `_normalized_masked`) and, as black-box corroboration, that perturbing
+    `mean_heads[k-1]`'s beyond-k weights leaves `forward_width(x, k)`'s output unchanged -- the same
+    prefix-invariance property `nested_width_net.py`'s `_assert_prefix_invariance` checks for the
+    unnormalised arm A.
+    """
+    torch.manual_seed(0)
+    net = wc.PrefixNormWidthNet(w_max=_W_MAX, mode=wc.PrefixNormMode.AFFINE)
+    with torch.no_grad():
+        net.beta.copy_(torch.arange(10.0, 10.0 + _W_MAX))  # distinct, large, NON-ZERO -- a zero beta can't catch this bug.
+    net.eval()
+    x = torch.randn(_N, 1)
+
+    with torch.no_grad():
+        h = net.hidden(x)
+        for k in range(1, _W_MAX):  # k = w_max has no "beyond" columns to check.
+            r_k = net._running_totals_r(h)[:, k - 1 : k]
+            h_norm = net._normalized_masked(h, k, r_k)
+            beyond_k = h_norm[:, k:]
+            assert torch.allclose(beyond_k, torch.zeros_like(beyond_k), atol=0.0, rtol=0.0), (
+                f"arm C's normalised vector has non-zero values beyond width k={k} with a non-zero beta: "
+                f"max_abs={beyond_k.abs().max().item():.3e} (expected exactly 0.0)"
+            )
+
+    # Black-box corroboration: columns >= k must not influence forward_width(x, k) at all.
+    k = _W_MAX // 2
+    with torch.no_grad():
+        mean_before, _ = net.forward_width(x, k)
+        head = net.base.mean_heads[k - 1]
+        orig_weight = head.weight.detach().clone()
+        head.weight[:, k:] += torch.randn_like(head.weight[:, k:]) * 5.0
+        mean_after, _ = net.forward_width(x, k)
+        head.weight.copy_(orig_weight)
+    assert torch.allclose(mean_before, mean_after, atol=1e-6, rtol=0), (
+        f"perturbing mean_heads[{k - 1}]'s beyond-k weights changed forward_width(x, {k})'s output -- "
+        "columns >= k are influencing the result, breaking the certified prefix property"
     )
