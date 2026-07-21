@@ -361,6 +361,29 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
       and no battery may be scheduled *because* the report needs it. Report content is an OUTPUT of
       the review, not an input to it.
 
+24. **The capacity readout is a likelihood at FIXED σ — never squared error, never a learned variance
+    (root, 2026-07-21, promoted to MASTER after the strand file was found contradicting it).**
+    Promoted here *because* it was ratified only in `docs/probreg_benchmark/benchmark_spec.md` §4.2/§4.3
+    and `probreg.md` §0.5 had drifted to the exact opposite. A rule that lives in one document does not
+    bind the plan; this register is where it binds.
+    - **The readout for choosing capacity is the per-sample fixed-σ mixture log-likelihood.**
+      σ is ONE SHARED CONSTANT, so nothing is fitted and this is not a variance metric.
+    - **Squared error / RMSE is a reporting column, NEVER the readout.** Spec §4.3: selecting on it
+      *"would be selecting on a quantity that is structurally blind to k for symmetric targets… the
+      selection curve would be flat, the cheapest-within-tolerance rule would return k=1 everywhere,
+      and the result would look like a clean finding."* A metric that cannot see the dial returns a
+      confident answer about the dial — the worst available failure mode.
+    - **A likelihood read at a LEARNED `log_var` is FORBIDDEN.** This is the violation that voided P8.
+      **The test is not "is it a likelihood?" but "is σ learned?"** — Decision 21's amendment (a check
+      runs on its own strand's sanctioned objective) is what this makes operational.
+    - **Both errors are live and were found by audit, not by a failing run** — which is the point:
+      neither would have thrown. The strand file mandated squared-error selection, and the reference
+      arm's own selector still scores on a fitted variance at a code site the spec's migration list
+      omits. **Every task that selects, scores, or reports a chosen capacity states its metric
+      explicitly, and "as the strand does" is not a statement.**
+    - **Width parity:** Decision 2 (amended) already fixes σ at the generator's true value for width.
+      Same principle, two dials — neither strand learns a variance it then selects on.
+
 ## Rules (cache discipline)
 
 ⚠️ **THE NUMBERS GATE IS PARTIAL — strengthen it before the next planning round.**

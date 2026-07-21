@@ -117,8 +117,41 @@ single-mode twin matched in mean and variance — so a selector that keys on spr
 mixture structure is caught by construction. Width has no equivalent.
 
 **Fixed on every cell of every tier:** seeds **0, 1, 2** · the strand's convergence gate with
-`hit_cap: false` required · `OMP_NUM_THREADS=4` pinned · selection on the **point-prediction metric**
-(squared error), never Gaussian NLL — see P8's reopening.
+`hit_cap: false` required · `OMP_NUM_THREADS=4` pinned · **selection on the per-sample fixed-σ
+mixture log-likelihood** on the selection split, with **RMSE reported alongside as a point-accuracy
+column, NEVER as the k readout**.
+
+⚠️ **CORRECTED 2026-07-21 (root, at the user's instruction to audit this strand for variance and
+regularisation problems). The previous text said "selection on the point-prediction metric (squared
+error), never Gaussian NLL" — that was WRONG in both halves and it is the most dangerous kind of
+wrong, because a battery driven to green on it would have produced a clean-looking false finding.**
+
+- **The squared-error half inverted the ratified rule.** `docs/probreg_benchmark/benchmark_spec.md`
+  §4.3 requires all three arms to score rungs on the fixed-σ mixture log-likelihood, and §4.2 keeps
+  RMSE as a reporting column *"never the k readout"*. §4.3 states the consequence of getting this
+  wrong in terms this strand cannot afford to ignore: *"Selecting k on squared error would be
+  selecting on a quantity that is structurally blind to k for symmetric targets: the mixture mean is
+  the same whether the model resolves one component or five. The selection curve would be flat, the
+  cheapest-within-tolerance rule would return k=1 everywhere, and the result would look like a clean
+  finding."* **⇒ Squared-error selection does not merely weaken this strand — it manufactures its
+  headline conclusion out of a metric artefact.**
+- **The "never Gaussian NLL" half over-banned, by conflating two different things.** What P8's
+  reopening actually forbids is a likelihood read at a **LEARNED** `log_var` — that is variance
+  fitting, and it is what the σ-scope decision removed. A likelihood at **FIXED** σ fits nothing: σ
+  is one shared constant, so the metric is not a variance metric at all. **The test is not "is it a
+  likelihood?" but "is σ learned?"**
+
+**The rule, stated so it cannot be misread again:**
+
+| | selection / k readout | reported alongside | status |
+|---|---|---|---|
+| fixed-σ mixture log-likelihood | ✅ **the readout, everywhere** | — | σ is a constant; nothing is fitted |
+| RMSE / squared error | 🚫 **never** — structurally blind to k | ✅ honest point-accuracy column | a disagreement between the two is itself a finding |
+| likelihood at a **learned** `log_var` | 🚫 **forbidden** | 🚫 | this is the violation that voided P8 |
+
+**Tolerance rule is unaffected:** the curve stays in nats, so cheapest-within-tolerance at twice a
+bootstrap standard error transfers **unchanged**, with its published figures still comparable
+(spec §4.3).
 
 - **TIER 1 — the reference cell.** `make_toy_b` (`automl_package/examples/_toy_datasets.py:49`) with
   `baseline="zero"`: "conditional Gaussian mixture with **KNOWN intrinsic k**", the mixture sitting
@@ -260,6 +293,18 @@ included)") and implemented as rung 1 = the direct-regression head. **M3's grid 
 `K_GRID = (5, 8, 10, 12)`, "P1's pre-registered small grid"
 (`automl_package/examples/report_a_benchmark.py:102`), consumed by `select_k_for_toy` (`:331-350`),
 which fits a dedicated fixed-k model per grid point and takes the argmin validation NLL.
+
+⚠️ **SECOND DEFECT AT THE SAME SITE — M3's selector scores on a LEARNED variance (found 2026-07-21,
+root, during the user-instructed variance audit; independent of the grid question above).**
+`select_k_for_toy` selects by `calculate_nll(y_val, y_pred, y_std)` where
+`y_std = model.predict_uncertainty(x_val)` (`automl_package/examples/report_a_benchmark.py:341-345`)
+— i.e. the model's **fitted** variance. That is exactly the violation that voided P8 and that the
+σ-scope decision removed. **The benchmark spec's §4.3 lists three code sites that must substitute the
+shared constant** (the router's error table, the arbiter's per-rung readout, and the reported
+metric); **this driver is a FOURTH site and is not on that list**, so a reader following §4.3 to
+completion would still leave M3 selecting on a learned σ. **⇒ M3's selector must be migrated to the
+fixed-σ mixture log-likelihood in the same task that generalises it, and §4.3's site list must gain
+this entry.** Until then, no M3 number is compliant with §0.5's fixed protocol.
 
 **Why this is not bookkeeping.** The cheap arms can select *"do not discretize at all"*; the
 reference structurally **cannot** select anything below k=5. On any cell where the honest answer is
@@ -1346,13 +1391,30 @@ the question. Do not re-defer it.
 
 **Halt conditions — decided BEFORE the run, in the shape `width.md` WSEL-16 already ratified:**
 1. **The two component-producing layouts are indistinguishable** (difference within twice a bootstrap
-   SE, on the point-prediction metric) → the §1 pin stands, drop the middle layout from the programme,
-   **stop**. Do not proceed to any further layout work.
+   SE **on the fixed-σ mixture log-likelihood** — §0.5's readout, NOT squared error) → the §1 pin
+   stands, drop the middle layout from the programme, **stop**. Do not proceed to any further layout
+   work.
 2. **The no-component control ties or wins at MATCHED capacity** → **HALT and escalate to the user.**
    Write up what was measured; propose nothing. This contradicts the mechanism the strand is built on
    and must not be absorbed as a routine result.
 3. **The control loses at matched capacity** → the intended outcome: first direct positive evidence
    the components carry the work. Record it as such; it becomes report content.
+
+**⚠️ METRIC AND VARIANCE STATUS — stated explicitly, per the §0.5 correction.** Score every rung on
+the **fixed-σ mixture log-likelihood**; report RMSE alongside as a point-accuracy column only.
+**Never score on squared error** (structurally blind to k — it would flatten the curve and hand every
+layout the same answer, which on THIS battery would read as "head structure does not matter" when the
+metric simply cannot see it). **Never score on a learned `log_var`** — and note this battery makes
+that trap unusually easy to fall into, because the three layouts *differ in how they produce σ*
+(components combined by law of total variance, versus a single head emitting `log_var` directly).
+**Scoring at fixed σ is precisely what neutralises that as a confound**: the learned variance never
+enters the score, so the arms are compared on structure, not on their variance machinery.
+
+**⚠️ REGULARISATION STATUS — declared, per MASTER Decision 21.** This battery trains **unregularised**
+(no weight decay, dropout, norm layers, or mini-batching), identical to the rest of the strand's
+research training. **It therefore inherits P8's block:** if the reopened P8 finds that regularisation
+moves the selected k, this battery's selection comparison is confounded in the same way and must be
+re-derived. ⇒ **deps include P8** (see orchestration line).
 
 **Files (write set):** `automl_package/examples/probreg_p11.py` (Create) ·
 `automl_package/examples/capacity_ladder_results/P11/`
@@ -1364,8 +1426,9 @@ does not edit them); no sweep reference; no tier 4; no deletion; no edit to `pro
 runs the grid backgrounded and the worker only AUTHORS the driver** (per-cell CLI with
 `--layout/--toy/--seed`, one JSON per cell, `--summarize`, `--selftest`; explicit non-goal: do not run
 the full grid) · **deps: P7** (the schedule migration — running this on the retired per-sample draw
-would make every number citable only as old-schedule) **and P10** (the layout gate must exist before a
-battery configures layouts) · tier: sonnet high for the driver · scale: static (63 cells) ·
+would make every number citable only as old-schedule) **· P10** (the layout gate must exist before a
+battery configures layouts) **· P8** (its block, if it triggers, confounds this battery's selection
+comparison identically) · tier: sonnet high for the driver · scale: static (63 cells) ·
 shape: execution ·
 **verify:**
 ```bash
