@@ -1429,31 +1429,39 @@ including the two known-failing heteroscedastic tests — **no new failures and 
 with `OMP_NUM_THREADS=4` pinned; (5) every NEW path in the target tree above exists on disk and every
 OLD path still exists as a shim.
 
-### FP-12 — fixed σ everywhere in ProbReg: the scorer AND the training objective ⭐ — **WAVE ZERO; nothing that trains or selects may run before it**
+### FP-12 — the READ side: the fixed-σ scorer + every `NESTED`-time guard ⭐ — **WAVE ZERO; nothing that trains or selects may run before it**
 
-⚠️ **SCOPE WIDENED 2026-07-21 BY USER RULING (MASTER Decision 26): σ is fixed in TRAINING too, not
-only in selection.** This task was written as a scoring change; it is now a scoring **and
-model-definition** change. Read this block before the original spec below, which it supersedes on
-scope while leaving every scoring requirement intact.
+⚠️ **SCOPE SETTLED 2026-07-21 (root), after the day's rulings grew this task to four changes spanning
+two different concerns. Split on a clean seam:**
 
-**The training half.**
-- With σ a shared constant, each rung's NLL reduces to squared error up to a constant ⇒ **training
-  becomes MSE on the mixture mean.**
-- **The per-class heads predict MEANS ONLY.** *(Root-applied implementation ruling, derived from the
-  user's decision and flagged in MASTER Decision 26 for overturn if unintended.)* The rejected
-  alternative — keep a `log_var` output that the loss no longer trains — would leave an **untrained
-  head that `predict_uncertainty` still exposes**, a worse trap than the one being removed.
-- **The within-component term of the law-of-total-variance combination becomes the constant**, so
-  predictive spread = between-component spread + σ². Spread stays meaningful and is never fitted.
-- **The variance machinery is NOT deleted** (Decision 2's carry-over): it is never *fitted* and never
-  *selected on*. Deleting it is out of scope and user-gated.
+> **FP-12 owns the READ side and every guard. `probreg.md` P7 owns the WRITE side — the training
+> objective.**
 
-**⚠️ RE-BASELINE THE SUITE BEFORE LANDING — the standing bar does NOT carry across this change.** The
-two accepted heteroscedastic failures test variance behaviour directly, and this alters what a
-component can express. **Verify clause (d) below is therefore AMENDED:** run the suite first, record
-the new expected result as the baseline in this task's completion note, and treat any movement
-*beyond* that as the regression signal. **Do not drive the old numbers to green** — that would mean
-suppressing the change's real effect.
+**FP-12 covers — all of it is scoring, or refusing an illegal configuration; none of it changes what
+the model learns:**
+1. the fixed-σ mixture scorer, built once (original spec below, unchanged);
+2. migrating the five scoring call sites onto it (below);
+3. the **Decision-29 guard** (next block) — nothing may choose or shape capacity during training;
+4. the **comparison-arm escape hatch** (Decision 29);
+5. **⬅️ `probreg.md` P10 is MERGED INTO THIS TASK.**
+
+**Why P10 is absorbed rather than sequenced.** P10 gated the head layout under `NESTED` with a
+constructor error plus a search-space repair, in `automl_package/models/probabilistic_regression.py`,
+tested in `tests/test_phase3_dynamic_k.py`. **The Decision-29 guard is the same shape, the same
+mechanism, the same file, and the same test target.** Landing them separately means two workers
+editing one constructor's validation block in sequence, under a session-scoped write guard, for what
+is one logical rule. **⇒ ONE guard that lists every illegal-under-`NESTED` configuration in one
+place** — which is also the only way a reader sees the whole rule at once instead of reconstructing
+it from two tasks. *(Orchestration effect: the serial chain on that file drops from three tasks to
+two — FP-12, then P7.)*
+
+**🚫 NOT IN FP-12 — the training-objective change moved to P7.** MASTER Decision 26 (σ fixed in
+training; heads predict means only) rewrites the loss. **So does P7**, for the all-rungs schedule.
+Two rewrites of one loss, each demanding its own re-validation, wastes a re-validation *and* creates
+a confound — landing separately entangles the schedule change with the σ change in whatever the
+second run measures. **⇒ P7 absorbs Decision 26 and re-validates ONCE**, carrying the suite
+re-baseline that decision requires. **FP-12 lands first**, because P7's re-validation needs a
+compliant metric to select on.
 
 **⚠️ SCOPE ALSO INCLUDES THE DECISION-29 GUARD (user, 2026-07-21) — one enforcement point, three
 traps.** Under `NESTED`, anything that chooses or shapes capacity *during training* must be
@@ -1478,11 +1486,12 @@ search space, never a default, and **any run using it writes that fact into its 
 it in the same change — Decision 29 records that retrofitting it later is the awkward path, and that
 deleting the machinery (the conditional trigger) makes the comparison permanently unrunnable.
 
-**⚠️ SEQUENCING — FP-12 and `probreg.md` P7 now overlap.** P7 rewrites the training objective for the
-schedule migration; FP-12 now rewrites it for the σ change. **Both touch the same loss.** Sequence
-them deliberately or merge them into one change; **do not dispatch both.** They already share
-`automl_package/models/probabilistic_regression.py` with P10, so the three were a strict serial chain
-before this ruling — this makes the FP-12/P7 pair a *merge candidate* rather than merely serial.
+**⚠️ SEQUENCING, SETTLED.** `automl_package/models/probabilistic_regression.py` is written by **FP-12
+then P7**, in that order, and by nothing else in between. P10 is merged into FP-12 (above); Decision
+26's training change is merged into P7. **The session-scoped write guard means these two cannot be
+worker-written in the same session even sequentially** — separate sessions, or the second is
+root-applied from the worker's draft. Decide that at dispatch; do not discover it when the second
+worker is blocked.
 
 ---
 
@@ -1557,7 +1566,7 @@ no deletion; no touching width's or depth's scorers; **do not "simplify" the fou
 reimplementations** — consolidating those is P9's cleanup, and several of those files are protected.
 
 *Orchestration:* parallel: **no — it writes `probabilistic_regression.py`, which `probreg.md` P7 and
-P10 also write; those three are a STRICT SERIAL CHAIN and cannot share a session under the
+P7 also writes; those two are a STRICT SERIAL CHAIN and cannot share a session under the
 session-scoped write-set guard** · deps: **FP-11** (done) · tier: sonnet high · scale: static ·
 shape: execution ·
 **verify:**

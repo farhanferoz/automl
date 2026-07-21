@@ -290,7 +290,7 @@ SINGLE_HEAD_FINAL_OUTPUT; no per-class (mu, sigma) is produced"*
 (`automl_package/models/probabilistic_regression.py:792-794`). Two code paths, one underlying fact,
 opposite responses — the nested ladder accepts what `predict_distribution` refuses. **That
 inconsistency, not the structural argument above, is the primary evidence the gate is missing rather
-than deliberately omitted.** Closing it is task **P10**.
+than deliberately omitted.** Closing it is **`flexnn-package.md` FP-12** *(originally task P10, merged into FP-12 on 2026-07-21 — one guard for every illegal-under-`NESTED` configuration)*.
 
 **Exposure today is theoretical, and that is the reason to gate now rather than later:** no
 programme driver selects a non-sanctioned layout, but `get_hyperparameter_search_space` offers all
@@ -661,8 +661,8 @@ take.
 
 ## 4. Tasks
 
-Order is **`flexnn-package.md` FP-12 → P0 → P0b → P0-b1 → P1 → P2 → PA → P7 → P10 → PB ∥ PC ∥ P8 →
-P11 → P3 → P4 → P5 → P9 → P6** *(amended
+Order is **`flexnn-package.md` FP-12 → P0 → P0b → P0-b1 → P1 → P2 → PA → P7 → PB ∥ PC ∥ P8 →
+P11 → P3 → P4 → P5 → P9 → P6** *(P10 removed 2026-07-21 — merged into FP-12)* *(amended
 2026-07-21: P7, the Decision-20 schedule migration, precedes every task that trains M1/M2; P8, the
 Decision-21 regularisation check, runs parallel and gates P4's read; P0-b1 and P1 were found
 already landed — see their headers)*.
@@ -679,7 +679,7 @@ are required, and this file had drifted so that adding a task no longer meant ad
   Decision 24 makes the capacity readout. Until it lands, **every task here that selects or reports a
   chosen k reads through a mechanism that scores on a LEARNED variance** — the forbidden case. That
   includes P8's re-run, P11, PB, PC, P3, P4, P5 and P7's re-validation.
-- **FP-12, P7 and P10 are a STRICT SERIAL CHAIN**: all three write
+- **FP-12 then P7 are a STRICT SERIAL CHAIN** *(was three tasks; P10 merged into FP-12 on 2026-07-21)*: both write
   `automl_package/models/probabilistic_regression.py`. The write-set guard is **session-scoped, not
   liveness-scoped**, so they cannot be worker-written in one session even sequentially — they need
   separate sessions or a root-applied handoff. **Plan this at dispatch, not on discovery.** (PT is parked and gates nothing — the existing toys are retained.) P0–P2 plus PA are the "fix it properly
@@ -908,7 +908,7 @@ undefined for constant/MC-dropout heads). P7 and PB consume this API and must co
 
 *(Original task spec follows, retained verbatim as the pre-registration this run was judged against.)*
 
-### PA — the k-selection API — OPEN, DISPATCHABLE *(disambiguated 2026-07-21: the ✅ that stood in this header marked its two design DECISIONS settled 2026-07-20, not the task — an audit flagged the header as readable-as-done)*
+### ~~PA — the k-selection API — OPEN, DISPATCHABLE~~ ➡️ **SUPERSEDED HEADER — the task is ✅ DONE; see the PA header above. Retained only as the pre-registration.** *(Struck 2026-07-21: an audit found a header grep could match this line and re-dispatch finished work. Original note: disambiguated 2026-07-21: the ✅ that stood in this header marked its two design DECISIONS settled 2026-07-20, not the task — an audit flagged the header as readable-as-done)*
 
 **Why this is a task and not an implementation detail.** The three models must be three *options on
 one model*, usable standalone and sharing every component. Today they are three different shapes,
@@ -1042,9 +1042,39 @@ exits 0; `python -c "import json; d=json.load(open('automl_package/examples/capa
 exits 0 (the invariant-or-not verdict is a field, not prose); if `d['invariant']` is `False`, the
 same file's `new_default` key is non-null and cited by PB's re-run.
 
-### P7 — migrate M1/M2 to the all-rungs schedule and re-validate (NEW 2026-07-21, MASTER Decision 20)
+### P7 — the WRITE side: migrate M1/M2 to the all-rungs schedule **AND to fixed-σ training**, re-validate ONCE (MASTER Decisions 20 + 26)
 
-**Files (write set):** `automl_package/models/selection_strategies/n_classes_strategies.py` ·
+⚠️ **SCOPE WIDENED 2026-07-21 (root): P7 absorbs MASTER Decision 26 — σ fixed in TRAINING.** Both
+changes rewrite the same loss. **Landing them separately would waste a re-validation and create a
+confound**: whichever ran second would measure the schedule change and the σ change entangled, with
+no way to attribute a movement to either. **One change, one re-validation.**
+
+**What the σ half means concretely** (Decision 26):
+- With σ a shared constant, each rung's NLL reduces to squared error up to a constant ⇒ **training
+  becomes MSE on the mixture mean.**
+- **The per-class heads predict MEANS ONLY.** *(Root-applied implementation ruling, flagged in
+  Decision 26 for the user to overturn.)* The rejected alternative — keeping a `log_var` output the
+  loss no longer trains — leaves an **untrained head that `predict_uncertainty` still exposes**,
+  a worse trap than the one being removed.
+- **The within-component term of the law-of-total-variance combination becomes the constant**, so
+  predictive spread = between-component spread + σ². Never fitted, still meaningful.
+- **The variance machinery is NOT deleted** (Decision 2's carry-over) — never fitted, never selected
+  on. Deletion is out of scope and user-gated.
+
+**⚠️ RE-BASELINE THE SUITE — the standing bar does NOT carry across this change.** The two accepted
+heteroscedastic failures test variance behaviour directly, and this alters what a component can
+express. **Run the suite FIRST, record the new expected result in this task's completion note as the
+new baseline, and treat only movement beyond that as a regression.** 🚫 **Do NOT drive the old
+numbers back to green** — that would mean suppressing the very effect this change makes.
+
+**deps: `flexnn-package.md` FP-12 must be MERGED FIRST** — P7's re-validation selects a k, and until
+FP-12 lands there is no compliant metric to select on (it would score on a learned variance, the
+forbidden case). **P7 and FP-12 write the same model file and cannot share a session** under the
+session-scoped write guard.
+
+**Files (write set):** `automl_package/models/flexnn/strategies/n_classes.py` ·
+`automl_package/models/probabilistic_regression.py` *(added 2026-07-21 with the σ half — the loss and
+the head-output shape live here)* ·
 `automl_package/enums.py` · `tests/test_phase3_dynamic_k.py` ·
 `automl_package/examples/capacity_ladder_results/P7/`
 **Spec:** Implement the ruled schedule for `NClassesSelectionMethod.NESTED`: per training step, ONE
@@ -1549,14 +1579,15 @@ re-derived. ⇒ **deps include P8** (see orchestration line).
 `automl_package/examples/capacity_ladder_results/P11/`
 **Non-goals:** no new architecture; no change to any head module (this battery CONFIGURES them, it
 does not edit them); no sweep reference; no tier 4; no deletion; no edit to `probabilistic_regression.py`
-(P7 and P10 own that file).
+(FP-12 and P7 own that file).
 
 *Orchestration:* parallel: **the 63 cells are independent COMPUTE — fan out on cells, but the ROOT
 runs the grid backgrounded and the worker only AUTHORS the driver** (per-cell CLI with
 `--layout/--toy/--seed`, one JSON per cell, `--summarize`, `--selftest`; explicit non-goal: do not run
-the full grid) · **deps: P7** (the schedule migration — running this on the retired per-sample draw
-would make every number citable only as old-schedule) **· P10** (the layout gate must exist before a
-battery configures layouts) **· P8** (its block, if it triggers, confounds this battery's selection
+the full grid) · **deps: FP-12** (the scorer AND every `NESTED` guard — the layout gate this battery relies on now
+lives there, P10 having been merged into it) **· P7** (schedule + fixed-σ training — running this on
+the retired draw or the old objective would make every number citable only as old-schedule/
+old-objective) **· P8** (its block, if it triggers, confounds this battery's selection
 comparison identically) · tier: sonnet high for the driver · scale: static (63 cells) ·
 shape: execution ·
 **verify:**
@@ -1609,7 +1640,21 @@ is nonzero (studies cited by task ID, not restated from memory); then for each �
 
 ---
 
-### P10 — gate the head layout under `NESTED` (NEW 2026-07-21, user-instructed)
+### P10 — gate the head layout under `NESTED` — ➡️ **MERGED INTO `flexnn-package.md` FP-12 (root, 2026-07-21). DO NOT DISPATCH THIS TASK.**
+
+**Why merged, not deleted.** MASTER Decision 29's guard is the same shape as this one — a constructor
+error plus a search-space repair under `NESTED`, in the same file
+(`automl_package/models/probabilistic_regression.py`), with the same test target
+(`tests/test_phase3_dynamic_k.py`). Two tasks editing one constructor's validation block, in
+sequence, under a session-scoped write guard, for one logical rule, is pure overhead — and it splits
+the rule across two documents so no reader sees it whole. **FP-12 now carries every
+illegal-under-`NESTED` configuration in one guard**, this one included.
+
+**Nothing in the spec below is dropped** — it is retained verbatim as FP-12's requirement for the
+head-layout clause, and as the pre-registration that clause is judged against. **Orchestration effect:
+the serial chain on the model file drops from three tasks to two (FP-12 → P7).**
+
+*(Original spec retained below, unchanged, as FP-12's input.)*
 
 **Why this exists.** §1's head-layout block rules that the nesting guarantee is a statement about
 per-class components, and that one of the three layouts produces none. `predict_distribution`
