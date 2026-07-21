@@ -142,12 +142,17 @@ def run_hard_vs_soft():
     x, y, _ = piecewise_data()
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=42)
 
+    # GUMBEL_SOFTMAX is RETIRED under the nested ladder (MASTER Decision 29); this comparison
+    # needs a genuine soft/hard distinction, which only a learned selection strategy provides
+    # (a survivor like NONE makes soft and hard predictions identical by construction), so this
+    # stays a labelled comparison arm via the explicit opt-out.
     model = FlexibleHiddenLayersNN(
         input_size=1, output_size=1, max_hidden_layers=4, n_predictor_layers=1,
         hidden_size=64, n_epochs=120, learning_rate=0.01, early_stopping_rounds=20,
         validation_fraction=0.2, random_seed=42, calculate_feature_importance=False,
         layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
         depth_regularization=DepthRegularization.ELBO,
+        allow_retired_capacity_selection=True,
     )
     model.fit(x_train, y_train)
 

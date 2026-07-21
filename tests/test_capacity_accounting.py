@@ -116,8 +116,19 @@ class TestKnownAnswersUnchanged:
         assert pkg.executed_flops(net, 2) == expected_flops_d2
 
     def test_flexnn_with_predictor(self):
+        # GUMBEL_SOFTMAX is RETIRED under the nested ladder (MASTER Decision 29); this test's
+        # subject is executed_flops' predictor-MAC accounting, which only exists when
+        # n_predictor_layers > 0 -- both surviving members (NONE, NESTED) require
+        # n_predictor_layers == 0, so a retired member plus the escape hatch is the only way left
+        # to construct a predictor-bearing net at all. Not a claim that GUMBEL_SOFTMAX itself works.
         model = FlexibleHiddenLayersNN(
-            input_size=1, hidden_size=4, output_size=1, max_hidden_layers=2, layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX, n_predictor_layers=1
+            input_size=1,
+            hidden_size=4,
+            output_size=1,
+            max_hidden_layers=2,
+            layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
+            n_predictor_layers=1,
+            allow_retired_capacity_selection=True,
         )
         model.build_model()
         net = model.model

@@ -71,12 +71,19 @@ def run(ds):
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=42)
     noise_std_test = noise_std[len(x_train):] if noise_std is not None else None
 
+    # SOFT_GATING and NClassesRegularization.K_PENALTY are RETIRED under the nested ladder
+    # (MASTER Decision 29, docs/plans/capacity_programme/MASTER.md). All three configs below use
+    # a retired member and are constructed EAGERLY (not inside the per-config try/except at the
+    # bottom of this function), so allow_retired_capacity_selection=True is required here or the
+    # whole run() call crashes before the comparison table prints at all -- this file's entire
+    # point is the head-to-head comparison, a labelled comparison arm by design.
     common_flex = dict(
         max_hidden_layers=4, hidden_size=64, n_predictor_layers=1,
         layer_selection_method=LayerSelectionMethod.SOFT_GATING,
         depth_regularization=DepthRegularization.ELBO,
         learning_rate=0.01, n_epochs=120, early_stopping_rounds=20,
         validation_fraction=0.2, random_seed=42, calculate_feature_importance=False,
+        allow_retired_capacity_selection=True,
     )
 
     configs = [
@@ -96,6 +103,7 @@ def run(ds):
             regression_head_params=dict(hidden_layers=0, hidden_size=32),
             learning_rate=0.01, n_epochs=100, early_stopping_rounds=15,
             validation_fraction=0.2, random_seed=42, calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )),
     ]
 

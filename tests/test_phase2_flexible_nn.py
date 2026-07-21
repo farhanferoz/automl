@@ -16,7 +16,12 @@ INDEPENDENT_WEIGHTS_MSE_TOLERANCE = 2.0
 
 
 class TestBug5ReinforceLogProb:
-    """Verify REINFORCE log_prob is in the correct tuple position."""
+    """Verify REINFORCE log_prob is in the correct tuple position.
+
+    REINFORCE is RETIRED under the nested ladder (MASTER Decision 29); this class's subject IS
+    REINFORCE's own log_prob wiring, so both tests stay as labelled comparison arms via the
+    explicit opt-out rather than being rewritten against a survivor.
+    """
 
     def test_reinforce_log_prob_nonzero(self):
         """The log_prob returned by REINFORCE should be non-trivial."""
@@ -25,6 +30,7 @@ class TestBug5ReinforceLogProb:
             layer_selection_method=LayerSelectionMethod.REINFORCE,
             max_hidden_layers=3, n_predictor_layers=1, hidden_size=16,
             n_epochs=1, random_seed=42,
+            allow_retired_capacity_selection=True,
         )
         model.build_model()
         x = torch.randn(8, 1, device=DEVICE)
@@ -41,6 +47,7 @@ class TestBug5ReinforceLogProb:
             layer_selection_method=LayerSelectionMethod.REINFORCE,
             max_hidden_layers=3, n_predictor_layers=1, hidden_size=16,
             n_epochs=1, random_seed=42,
+            allow_retired_capacity_selection=True,
         )
         model.build_model()
         x = torch.randn(8, 1, device=DEVICE)
@@ -61,7 +68,11 @@ class TestBug5ReinforceLogProb:
 
 
 class TestBug6SteGradientFlow:
-    """Verify STE passes gradients to n_predictor."""
+    """Verify STE passes gradients to n_predictor.
+
+    STE is RETIRED under the nested ladder (MASTER Decision 29); this test's subject IS STE's own
+    gradient wiring, so it stays a labelled comparison arm via the explicit opt-out.
+    """
 
     def test_ste_n_predictor_gradient_nonzero(self):
         """After backward pass, STE n_predictor should have non-zero gradients."""
@@ -70,6 +81,7 @@ class TestBug6SteGradientFlow:
             layer_selection_method=LayerSelectionMethod.STE,
             max_hidden_layers=3, n_predictor_layers=1, hidden_size=16,
             n_epochs=1, random_seed=42,
+            allow_retired_capacity_selection=True,
         )
         model.build_model()
         x = torch.randn(16, 1, device=DEVICE)
@@ -110,7 +122,16 @@ class TestBug7IndependentWeightsSte:
 
 
 class TestDepthComplexityControl:
-    """Tests for ELBO and depth penalty mechanisms."""
+    """Tests for ELBO and depth penalty mechanisms.
+
+    `DepthRegularization` itself is not retired, but it only shapes a LEARNED per-input
+    selection distribution -- which requires an `n_predictor`, and the only strategies that build
+    one (GUMBEL_SOFTMAX/SOFT_GATING/STE/REINFORCE) are all RETIRED under MASTER Decision 29. The
+    surviving NESTED strategy explicitly builds no `n_predictor` (per-sample depth is a random
+    draw, not learned -- automl_package/models/flexnn/strategies/layer.py's NestedStrategy
+    docstring) so it cannot exercise "does the regularizer change what the model learns to
+    select" at all. Every test below is a labelled comparison arm via the explicit opt-out.
+    """
 
     def test_elbo_prefers_shallow_on_linear(self, simple_linear_data):
         """With ELBO, linear data should result in shallower depth selections."""
@@ -121,6 +142,7 @@ class TestDepthComplexityControl:
             max_hidden_layers=3, n_predictor_layers=1, hidden_size=32,
             n_epochs=50, depth_regularization=DepthRegularization.ELBO, random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )
         model.fit(x, y)
 
@@ -148,6 +170,7 @@ class TestDepthComplexityControl:
             max_hidden_layers=4, n_predictor_layers=1, hidden_size=64,
             n_epochs=120, depth_regularization=DepthRegularization.ELBO, random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )
         model.fit(x, y)
 
@@ -185,6 +208,7 @@ class TestDepthComplexityControl:
             max_hidden_layers=5, n_predictor_layers=1, hidden_size=32,
             n_epochs=40, depth_regularization=DepthRegularization.NONE, random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )
         model_none.fit(x, y)
 
@@ -195,6 +219,7 @@ class TestDepthComplexityControl:
             n_epochs=40, depth_regularization=DepthRegularization.DEPTH_PENALTY,
             depth_penalty_weight=1.0, random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )
         model_pen.fit(x, y)
 
@@ -219,13 +244,20 @@ class TestFlexibleNNSmoke:
         LayerSelectionMethod.REINFORCE,
     ])
     def test_shared_weights_trains(self, simple_linear_data, method):
-        """Each strategy should train without crash."""
+        """Each strategy should train without crash.
+
+        All four parametrized methods are RETIRED under MASTER Decision 29 -- this test's whole
+        subject IS "does each of these specific methods still train", so the escape hatch is used
+        rather than a rewrite (a survivor cannot stand in for testing a retired method's own
+        training loop).
+        """
         x, y = simple_linear_data
         model = FlexibleHiddenLayersNN(
             input_size=1, output_size=1,
             layer_selection_method=method,
             max_hidden_layers=3, n_predictor_layers=1, hidden_size=16, n_epochs=10, random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )
         model.fit(x, y)
         y_pred = model.predict(x)
@@ -275,7 +307,13 @@ class TestFlexibleNNModelComparison:
         )
 
     def test_flexible_mse_reasonable_on_linear(self, simple_linear_data):
-        """On linear data, FlexibleNN should achieve MSE comparable to a fixed 1-layer NN."""
+        """On linear data, FlexibleNN should achieve MSE comparable to a fixed 1-layer NN.
+
+        No assertion here touches depth SELECTION (no per-sample depth check, no regularizer) --
+        the claim is only about FlexibleHiddenLayersNN's basic training/prediction pipeline, so
+        GUMBEL_SOFTMAX was incidental. Rewritten against NONE (fixed at max_hidden_layers, a
+        survivor under MASTER Decision 29).
+        """
         x, y = simple_linear_data
         x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=42)
 
@@ -284,7 +322,7 @@ class TestFlexibleNNModelComparison:
         fixed_pred = fixed_nn.predict(x_test)
         fixed_mse = float(np.mean((y_test - fixed_pred) ** 2))
 
-        flex = self._make_flexible()
+        flex = self._make_flexible(method=LayerSelectionMethod.NONE, n_predictor_layers=0)
         flex.fit(x_train, y_train)
         flex_pred = flex.predict(x_test)
         flex_mse = float(np.mean((y_test - flex_pred) ** 2))
@@ -295,7 +333,15 @@ class TestFlexibleNNModelComparison:
         )
 
     def test_flexible_beats_shallow_on_complex_data(self, piecewise_data):
-        """On piecewise data, FlexibleNN with depth should beat a 1-layer NN."""
+        """On piecewise data, FlexibleNN with depth should beat a 1-layer NN.
+
+        Tried rewriting against NONE (fixed at max_hidden_layers) first: empirically it does NOT
+        reproduce the claim on this fixture (measured flex_mse=0.302 > shallow_mse=0.270 under
+        NONE at this seed/epoch budget) -- a plain fixed-depth net trained directly converges
+        worse here than GUMBEL_SOFTMAX's soft/adaptive depth mixture does. The retired mechanism
+        is load-bearing for this specific empirical claim, not incidental, so this stays a
+        labelled comparison arm via the explicit opt-out.
+        """
         x, y, _ = piecewise_data
         x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=42)
 
@@ -304,7 +350,7 @@ class TestFlexibleNNModelComparison:
         shallow_pred = shallow.predict(x_test)
         shallow_mse = float(np.mean((y_test - shallow_pred) ** 2))
 
-        flex = self._make_flexible(n_epochs=100)
+        flex = self._make_flexible(n_epochs=100, allow_retired_capacity_selection=True)
         flex.fit(x_train, y_train)
         flex_pred = flex.predict(x_test)
         flex_mse = float(np.mean((y_test - flex_pred) ** 2))
@@ -315,14 +361,20 @@ class TestFlexibleNNModelComparison:
         )
 
     def test_elbo_selects_shallower_on_linear_vs_complex(self, simple_linear_data, piecewise_data):
-        """ELBO should select shallower depth on linear data than on piecewise data."""
+        """ELBO should select shallower depth on linear data than on piecewise data.
+
+        Needs a LEARNED per-input depth distribution for ELBO to shape -- only the retired
+        GUMBEL_SOFTMAX (and its siblings) build the `n_predictor` that provides one (see
+        TestDepthComplexityControl's class docstring for the full argument). Labelled comparison
+        arm via the explicit opt-out.
+        """
         x_lin, y_lin = simple_linear_data
         x_pw, y_pw, _ = piecewise_data
 
-        flex_lin = self._make_flexible(depth_reg=DepthRegularization.ELBO, n_epochs=60)
+        flex_lin = self._make_flexible(depth_reg=DepthRegularization.ELBO, n_epochs=60, allow_retired_capacity_selection=True)
         flex_lin.fit(x_lin, y_lin)
 
-        flex_pw = self._make_flexible(depth_reg=DepthRegularization.ELBO, n_epochs=60)
+        flex_pw = self._make_flexible(depth_reg=DepthRegularization.ELBO, n_epochs=60, allow_retired_capacity_selection=True)
         flex_pw.fit(x_pw, y_pw)
 
         x_lin_t = torch.tensor(x_lin, dtype=torch.float32).to(flex_lin.device)
@@ -378,9 +430,11 @@ class TestFlexibleNNModelComparison:
         """
         x, y, _ = piecewise_data
 
+        # Same rationale as test_elbo_selects_shallower_on_linear_vs_complex: needs the learned
+        # `n_predictor` only the retired GUMBEL_SOFTMAX (default here) and its siblings build.
         model = self._make_flexible(
             depth_reg=DepthRegularization.ELBO, n_epochs=120, hidden_size=64,
-            max_hidden_layers=4,
+            max_hidden_layers=4, allow_retired_capacity_selection=True,
         )
         model.fit(x, y)
 
@@ -469,10 +523,15 @@ class TestDD2PairedDepthUncertainty:
     """
 
     def _make_model(self, **overrides):
+        # Default is NONE (a survivor): 3 of this class's 4 tests are about the router/API
+        # contract, which fit_router/CapacitySelection.PER_INPUT exercise independent of the
+        # training-time strategy (forward_at_depth bypasses n_predictor/the strategy entirely --
+        # verified empirically before this edit). The one test that genuinely needs a learned
+        # n_predictor (test_hard_mode_uncertainty_matches_hard_mode_depths) overrides explicitly.
         defaults = {
             "input_size": 1, "output_size": 1,
-            "layer_selection_method": LayerSelectionMethod.GUMBEL_SOFTMAX,
-            "max_hidden_layers": 3, "n_predictor_layers": 1, "hidden_size": 16,
+            "layer_selection_method": LayerSelectionMethod.NONE,
+            "max_hidden_layers": 3, "n_predictor_layers": 0, "hidden_size": 16,
             "uncertainty_method": UncertaintyMethod.PROBABILISTIC,
             "n_epochs": 15, "random_seed": 42, "calculate_feature_importance": False,
         }
@@ -482,9 +541,17 @@ class TestDD2PairedDepthUncertainty:
     def test_hard_mode_uncertainty_matches_hard_mode_depths(self, simple_linear_data):
         """`predict_uncertainty(hard_execution=True)` must read `log_var` off the same
         per-sample argmax depth `predict(hard_execution=True)` uses -- not the soft mixture.
+
+        Directly reads `model.model.n_predictor`, so this needs a strategy that builds one; only
+        the retired GUMBEL_SOFTMAX (and siblings) do -- NONE/NESTED never build an n_predictor.
+        Labelled comparison arm via the explicit opt-out.
         """
         x, y = simple_linear_data
-        model = self._make_model()
+        model = self._make_model(
+            layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
+            n_predictor_layers=1,
+            allow_retired_capacity_selection=True,
+        )
         model.fit(x, y)
 
         x_tensor = torch.tensor(x, dtype=torch.float32).to(model.device)
@@ -550,6 +617,10 @@ class TestNPredictorInMainOptimizer:
     """For non-REINFORCE strategies, n_predictor weights must train via backprop,
     so they must be included in the main optimizer. Reinforce keeps its own policy
     optimizer.
+
+    soft_gating/gumbel_softmax/ste/REINFORCE are RETIRED under MASTER Decision 29; this class's
+    subject IS each specific strategy's own optimizer wiring, so they stay labelled comparison
+    arms via the explicit opt-out. "none" needs no flag (not retired).
     """
 
     @pytest.mark.parametrize("method", [
@@ -573,6 +644,7 @@ class TestNPredictorInMainOptimizer:
             uncertainty_method=UncertaintyMethod.CONSTANT,
             n_epochs=2, learning_rate=0.01, random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )
         m.build_model()
         m._setup_optimizers(m.model)
@@ -597,9 +669,11 @@ class TestNPredictorInMainOptimizer:
         m = FlexibleHiddenLayersNN(
             input_size=3, max_hidden_layers=4,
             layer_selection_method=LayerSelectionMethod.REINFORCE,
+            n_predictor_layers=1,
             uncertainty_method=UncertaintyMethod.CONSTANT,
             n_epochs=2, learning_rate=0.01, random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )
         m.build_model(); m._setup_optimizers(m.model)
         opt_ids = {id(p) for g in m.optimizer.param_groups for p in g["params"]}
@@ -635,10 +709,16 @@ class TestCapacityRouterPerInput:
     """`fit_router()` + `predict()` under `CapacitySelection.PER_INPUT` -- capacity-programme Task FP-3."""
 
     def _make_model(self, **overrides):
+        # Default is NONE (a survivor): fit_router's `forward_at_depth` bypasses n_predictor/the
+        # strategy entirely (automl_package/models/flexnn/depth/model.py:186-198's own docstring),
+        # so 5 of this class's 6 tests -- all about the router/API contract, not about how the
+        # underlying weights were trained -- don't need a retired strategy at all (verified
+        # empirically before this edit). test_hard_execution_matches_todays_hard_forward overrides
+        # explicitly because it needs `hard_forward`'s argmax/n_predictor branch specifically.
         defaults = dict(
             input_size=1, output_size=1,
-            layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
-            max_hidden_layers=3, n_predictor_layers=1, hidden_size=16,
+            layer_selection_method=LayerSelectionMethod.NONE,
+            max_hidden_layers=3, n_predictor_layers=0, hidden_size=16,
             n_epochs=10, random_seed=42, calculate_feature_importance=False,
             capacity_selection=CapacitySelection.PER_INPUT,
         )
@@ -682,9 +762,21 @@ class TestCapacityRouterPerInput:
     def test_hard_execution_matches_todays_hard_forward(self, simple_linear_data):
         """FP-3 test 5: the `hard_execution` boolean survives (orthogonal to `CapacitySelection`,
         not swept up as a selection mode) and produces the same predictions `hard_forward` always
-        has."""
+        has.
+
+        Under NONE, `hard_forward` degenerates to its trivial `n_predictor is None` branch (always
+        run every layer) -- that would still technically pass but stops exercising the
+        argmax-and-bucket-by-depth logic the docstring describes as the interesting behaviour.
+        Keeps GUMBEL_SOFTMAX (retired, MASTER Decision 29) via the explicit opt-out so the test
+        still exercises that branch.
+        """
         x, y = simple_linear_data
-        model = self._make_model(capacity_selection=CapacitySelection.FIXED)
+        model = self._make_model(
+            capacity_selection=CapacitySelection.FIXED,
+            layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
+            n_predictor_layers=1,
+            allow_retired_capacity_selection=True,
+        )
         model.fit(x, y)
 
         x_tensor = torch.tensor(x, dtype=torch.float32).to(model.device)

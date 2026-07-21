@@ -75,7 +75,8 @@ class TestPerformanceBaselines:
         model.fit(x_train, y_train)
         nll = _compute_nll(model, x_test, y_test)
         # Phase 1 baseline: ProbReg_k5 NLL=1.38. Allow slack.
-        assert nll < 1.8, f"ProbReg NLL ({nll:.4f}) regressed past 1.8 (known: 1.38)"
+        max_acceptable_nll = 1.8
+        assert nll < max_acceptable_nll, f"ProbReg NLL ({nll:.4f}) regressed past {max_acceptable_nll} (known: 1.38)"
 
     def test_prob_regression_heteroscedastic_mse(self, heteroscedastic_data):
         x, y, _, _ = heteroscedastic_data
@@ -85,21 +86,28 @@ class TestPerformanceBaselines:
         y_pred = model.predict(x_test)
         mse = float(np.mean((y_test - y_pred) ** 2))
         # Phase 1 baseline: ProbReg_k5 MSE=1.54. Allow slack.
-        assert mse < 2.5, f"ProbReg MSE ({mse:.4f}) regressed past 2.5 (known: 1.54)"
+        max_acceptable_mse = 2.5
+        assert mse < max_acceptable_mse, f"ProbReg MSE ({mse:.4f}) regressed past {max_acceptable_mse} (known: 1.54)"
 
     def test_flexible_nn_piecewise_mse(self, piecewise_data):
+        """No assertion here touches depth selection -- just an absolute MSE ceiling on the basic
+        training/prediction pipeline, so GUMBEL_SOFTMAX was incidental. Rewritten against NONE (a
+        survivor under MASTER Decision 29); verified empirically (mse=0.302, well under the 2.0
+        ceiling) before this edit.
+        """
         x, y, _ = piecewise_data
         x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=42)
+        max_acceptable_mse = 2.0
         model = FlexibleHiddenLayersNN(
-            input_size=1, output_size=1, max_hidden_layers=3, n_predictor_layers=1,
+            input_size=1, output_size=1, max_hidden_layers=3, n_predictor_layers=0,
             hidden_size=32, n_epochs=100, learning_rate=0.01, early_stopping_rounds=15,
             validation_fraction=0.2, random_seed=42, calculate_feature_importance=False,
-            layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
+            layer_selection_method=LayerSelectionMethod.NONE,
         )
         model.fit(x_train, y_train)
         y_pred = model.predict(x_test)
         mse = float(np.mean((y_test - y_pred) ** 2))
-        assert mse < 2.0, f"FlexibleNN piecewise MSE ({mse:.4f}) regressed past 2.0"
+        assert mse < max_acceptable_mse, f"FlexibleNN piecewise MSE ({mse:.4f}) regressed past {max_acceptable_mse}"
 
 
 # ----- Cross-model ranking ---------------------------------------------------
@@ -131,8 +139,15 @@ class TestCrossModelRanking:
         )
 
     def test_flexible_nn_competitive_with_shallow(self, piecewise_data):
+        """No assertion here reads depth selection or the ELBO posterior -- only final MSE within
+        a 1.2x slack of the shallow baseline. Rewritten against NONE (a survivor); verified
+        empirically (flex_mse=0.302 vs shallow_mse*1.2=0.324) before this edit. GUMBEL_SOFTMAX +
+        ELBO were incidental -- ELBO is dropped too since it is inert without a learned selector
+        (flexnn-package.md FP-12: "makes depth_regularization inert for layer_selection_method=NONE").
+        """
         x, y, _ = piecewise_data
         x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=42)
+        competitive_slack = 1.2
 
         shallow = PyTorchNeuralNetwork(
             input_size=1, output_size=1, hidden_layers=1, hidden_size=32,
@@ -144,18 +159,18 @@ class TestCrossModelRanking:
         shallow_mse = float(np.mean((y_test - shallow.predict(x_test)) ** 2))
 
         flex = FlexibleHiddenLayersNN(
-            input_size=1, output_size=1, max_hidden_layers=3, n_predictor_layers=1,
+            input_size=1, output_size=1, max_hidden_layers=3, n_predictor_layers=0,
             hidden_size=32, n_epochs=100, learning_rate=0.01, early_stopping_rounds=15,
             validation_fraction=0.2, random_seed=42, calculate_feature_importance=False,
-            layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
-            depth_regularization=DepthRegularization.ELBO,
+            layer_selection_method=LayerSelectionMethod.NONE,
+            depth_regularization=DepthRegularization.NONE,
         )
         flex.fit(x_train, y_train)
         flex_mse = float(np.mean((y_test - flex.predict(x_test)) ** 2))
 
         # Allow some slack — flex should be in the same ballpark or better
-        assert flex_mse <= shallow_mse * 1.2, (
-            f"FlexibleNN+ELBO ({flex_mse:.4f}) should be competitive with shallow ({shallow_mse:.4f})."
+        assert flex_mse <= shallow_mse * competitive_slack, (
+            f"FlexibleNN ({flex_mse:.4f}) should be competitive with shallow ({shallow_mse:.4f})."
         )
 
 
@@ -171,6 +186,12 @@ class TestEndToEndAllModels:
         "flexible_nn_elbo",
     ])
     def test_full_pipeline(self, heteroscedastic_data, model_factory):
+        """`flexible_nn_gumbel`/`flexible_nn_elbo` parametrize GUMBEL_SOFTMAX (RETIRED, MASTER
+        Decision 29) BY NAME -- this test's whole point is covering the pipeline under each named
+        variant, so those two stay labelled comparison arms via the explicit opt-out rather than
+        collapsing onto a survivor (which would silently stop testing what the variant names say
+        they test).
+        """
         x, y, _, _ = heteroscedastic_data
         x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=42)
 
@@ -182,6 +203,7 @@ class TestEndToEndAllModels:
                 hidden_size=16, n_epochs=10, random_seed=42,
                 calculate_feature_importance=False,
                 layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
+                allow_retired_capacity_selection=True,
             )
         elif model_factory == "flexible_nn_elbo":
             model = FlexibleHiddenLayersNN(
@@ -190,6 +212,7 @@ class TestEndToEndAllModels:
                 calculate_feature_importance=False,
                 layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
                 depth_regularization=DepthRegularization.ELBO,
+                allow_retired_capacity_selection=True,
             )
 
         model.fit(x_train, y_train)
@@ -229,14 +252,21 @@ class TestBetaNLL:
         model.fit(x_train, y_train)
         y_std = model.predict_uncertainty(x_test)
         r = float(np.corrcoef(noise_test.ravel(), y_std.ravel())[0, 1])
-        assert r > 0.2, f"β-NLL learned variance correlates poorly with noise (r={r:.3f})"
+        min_correlation = 0.2
+        assert r > min_correlation, f"β-NLL learned variance correlates poorly with noise (r={r:.3f})"
 
 
 # ----- Hard inference --------------------------------------------------------
 
 
 class TestHardInference:
-    """Tests for inference-time hard selection optimization."""
+    """Tests for inference-time hard selection optimization.
+
+    Both tests below need a genuine soft/hard DISTINCTION -- under NONE (a survivor) `predict()`
+    and `predict(hard_execution=True)` are identical by construction (verified empirically: soft
+    and hard predictions match exactly under NONE), which would make either test vacuous. GUMBEL_SOFTMAX
+    is RETIRED (MASTER Decision 29) but load-bearing here, so both stay labelled comparison arms.
+    """
 
     def test_hard_inference_predictions_close_to_soft(self, piecewise_data):
         x, y, _ = piecewise_data
@@ -247,6 +277,7 @@ class TestHardInference:
             hidden_size=32, n_epochs=80, learning_rate=0.01, early_stopping_rounds=15,
             validation_fraction=0.2, random_seed=42, calculate_feature_importance=False,
             layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
+            allow_retired_capacity_selection=True,
         )
         model.fit(x_train, y_train)
 
@@ -271,6 +302,7 @@ class TestHardInference:
             hidden_size=64, n_epochs=30, learning_rate=0.01, early_stopping_rounds=10,
             validation_fraction=0.2, random_seed=42, calculate_feature_importance=False,
             layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
+            allow_retired_capacity_selection=True,
         )
         model.fit(x_train, y_train)
         x_large = np.tile(x_test, (20, 1))
@@ -281,7 +313,8 @@ class TestHardInference:
         t_hard = time.perf_counter() - t0
 
         assert y_hard.shape == (len(x_large),)
-        assert t_hard < 30.0, f"Hard inference took too long: {t_hard:.2f}s"
+        max_acceptable_seconds = 30.0
+        assert t_hard < max_acceptable_seconds, f"Hard inference took too long: {t_hard:.2f}s"
 
 
 # ----- Conformal prediction --------------------------------------------------
@@ -349,7 +382,8 @@ class TestSymlogTransform:
         x = torch.tensor([0.0, 1.0, 10.0, 100.0, 1000.0])
         s = symlog(x)
         # symlog(1000) = log(1001) ≈ 6.9, much less than 1000
-        assert s[-1] < 10.0
+        compression_ceiling = 10.0
+        assert s[-1] < compression_ceiling
         # Monotonically increasing
         assert torch.all(s[1:] > s[:-1])
 
@@ -366,7 +400,8 @@ class TestSymlogTransform:
         assert not np.any(np.isnan(y_pred))
         # Sanity check — predictions in original scale should bear some correlation with truth
         r = float(np.corrcoef(y_test, y_pred)[0, 1])
-        assert r > 0.5, f"symlog model predictions poorly correlate with targets (r={r:.3f})"
+        min_correlation = 0.5
+        assert r > min_correlation, f"symlog model predictions poorly correlate with targets (r={r:.3f})"
 
 
 # ----- SHAP explainer --------------------------------------------------------
@@ -383,25 +418,32 @@ class TestSHAP:
     """SHAP explainer compatibility after tuple-output fixes."""
 
     def test_shap_flexible_nn(self):
-        """FlexibleNN (5-tuple forward) must produce valid SHAP values via DeepExplainer."""
+        """FlexibleNN (5-tuple forward) must produce valid SHAP values via DeepExplainer.
+
+        The subject is the 5-tuple forward SIGNATURE, which NoneStrategy (a survivor) shares with
+        GUMBEL_SOFTMAX -- verified empirically (DeepExplainer, shape (20, 3, 1), no NaN) before
+        this edit. GUMBEL_SOFTMAX was incidental; rewritten against NONE.
+        """
+        n_explain = 20
         x, y = _small_regression_data()
         model = FlexibleHiddenLayersNN(
             input_size=3, output_size=1, max_hidden_layers=3,
-            n_predictor_layers=1, hidden_size=32, n_epochs=20,
+            n_predictor_layers=0, hidden_size=32, n_epochs=20,
             learning_rate=0.01, validation_fraction=0.2, random_seed=0,
             calculate_feature_importance=False,
-            layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
+            layer_selection_method=LayerSelectionMethod.NONE,
         )
         model.fit(x, y)
         info = model.get_shap_explainer_info()
         assert info["explainer_type"] == ExplainerType.DEEP
         explainer = FeatureExplainer(model, x_background=x[:50], device=model.device, random_state=0)
-        shap_vals = explainer.explain(x[:20])
-        assert np.array(shap_vals).shape[0] == 20, "Expected one SHAP row per input sample"
+        shap_vals = explainer.explain(x[:n_explain])
+        assert np.array(shap_vals).shape[0] == n_explain, "Expected one SHAP row per input sample"
         assert not np.any(np.isnan(np.array(shap_vals))), "SHAP values contain NaN"
 
     def test_shap_independent_weights_flexible_nn(self):
         """IndependentWeightsFlexibleNN (5-tuple forward) must work with DeepExplainer."""
+        n_explain = 20
         x, y = _small_regression_data()
         model = IndependentWeightsFlexibleNN(
             input_size=3, output_size=1, max_hidden_layers=3,
@@ -414,29 +456,36 @@ class TestSHAP:
         info = model.get_shap_explainer_info()
         assert info["explainer_type"] == ExplainerType.DEEP
         explainer = FeatureExplainer(model, x_background=x[:50], device=model.device, random_state=0)
-        shap_vals = explainer.explain(x[:20])
-        assert np.array(shap_vals).shape[0] == 20
+        shap_vals = explainer.explain(x[:n_explain])
+        assert np.array(shap_vals).shape[0] == n_explain
         assert not np.any(np.isnan(np.array(shap_vals)))
 
     def test_shap_probreg_fixed_k_uses_deep_explainer(self):
         """ProbReg fixed-k must use DeepExplainer (wrapper returns prediction tensor)."""
+        n_explain = 20
         x, y = _small_regression_data()
         model = _make_probreg(input_size=3)
         model.fit(x, y)
         info = model.get_shap_explainer_info()
         assert info["explainer_type"] == ExplainerType.DEEP
         explainer = FeatureExplainer(model, x_background=x[:50], device=model.device, random_state=0)
-        shap_vals = explainer.explain(x[:20])
-        assert np.array(shap_vals).shape[0] == 20
+        shap_vals = explainer.explain(x[:n_explain])
+        assert np.array(shap_vals).shape[0] == n_explain
         assert not np.any(np.isnan(np.array(shap_vals)))
 
     def test_shap_probreg_dynamic_k_falls_back_to_kernel(self):
-        """Dynamic n_classes ProbReg must fall back to KernelExplainer (DeepLIFT incompatible)."""
+        """Dynamic n_classes ProbReg must fall back to KernelExplainer (DeepLIFT incompatible).
+
+        `get_shap_explainer_info` gates on `n_classes_selection_method != NONE` generically
+        (probabilistic_regression.py:1552) -- NESTED (a survivor) triggers the identical KERNEL
+        fallback, verified empirically before this edit. SOFT_GATING was incidental.
+        """
+        n_explain = 10
         x, y = _small_regression_data()
         model = ProbabilisticRegressionModel(
             input_size=3, max_n_classes_for_probabilistic_path=4,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.SOFT_GATING,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             n_epochs=20, learning_rate=0.01, validation_fraction=0.2, random_seed=0,
             calculate_feature_importance=False,
@@ -447,8 +496,8 @@ class TestSHAP:
             "Dynamic-k ProbReg must use KernelExplainer to avoid DeepLIFT batch-dispatch crash"
         )
         explainer = FeatureExplainer(model, x_background=x[:30], device=model.device, random_state=0)
-        shap_vals = explainer.explain(x[:10])
-        assert np.array(shap_vals).shape[0] == 10
+        shap_vals = explainer.explain(x[:n_explain])
+        assert np.array(shap_vals).shape[0] == n_explain
         assert not np.any(np.isnan(np.array(shap_vals)))
 
 

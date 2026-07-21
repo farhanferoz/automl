@@ -1,4 +1,12 @@
-"""Tests for CE_STOP_GRAD gradient routing (CT3)."""
+"""Tests for CE_STOP_GRAD gradient routing (CT3).
+
+CE_STOP_GRAD and GRADIENT_STOP are RETIRED under the nested ladder (MASTER Decision 29,
+docs/plans/capacity_programme/MASTER.md): cross-entropy training pulls the classifier toward a
+predetermined percentile carve-up of y, which the ladder forbids. This whole file's SUBJECT is
+those two retired cross-entropy modes -- it exists to verify their gradient-routing behaviour as a
+labelled comparison arm, not to claim they are the recommended path. Every model construction below
+that selects CE_STOP_GRAD or GRADIENT_STOP passes `allow_retired_capacity_selection=True`.
+"""
 
 import numpy as np
 import torch
@@ -34,6 +42,7 @@ class TestCeStopGrad:
             validation_fraction=0.2,
             random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )
 
     def test_ce_stop_grad_trains_without_error(self):
@@ -100,6 +109,7 @@ class TestCeStopGradRouting:
             validation_fraction=0.2,
             random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )
         model.fit(x, y)
         return model

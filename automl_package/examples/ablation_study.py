@@ -99,6 +99,10 @@ def ablation_flexnn(ds):
         validation_fraction=0.2, random_seed=42, calculate_feature_importance=False,
     )
 
+    # SOFT_GATING/GUMBEL_SOFTMAX are RETIRED under the nested ladder (MASTER Decision 29,
+    # docs/plans/capacity_programme/MASTER.md); every config below except the NONE baseline uses
+    # one, and comparing them against the baseline is this sweep's whole point, so
+    # allow_retired_capacity_selection=True is added to each (labelled comparison arm).
     configs = [
         # Baseline: no depth selection, constant uncertainty
         ("FlexNN(depth=2,CONST)", dict(
@@ -109,28 +113,28 @@ def ablation_flexnn(ds):
         ("FlexNN(ELBO,CONST)", dict(
             max_hidden_layers=4, layer_selection_method=LayerSelectionMethod.SOFT_GATING,
             depth_regularization=DepthRegularization.ELBO,
-            uncertainty_method=UncertaintyMethod.CONSTANT, **common)),
+            uncertainty_method=UncertaintyMethod.CONSTANT, allow_retired_capacity_selection=True, **common)),
         # MC Dropout uncertainty
         ("FlexNN(ELBO,MC_DROP)", dict(
             max_hidden_layers=4, layer_selection_method=LayerSelectionMethod.SOFT_GATING,
             depth_regularization=DepthRegularization.ELBO,
             uncertainty_method=UncertaintyMethod.MC_DROPOUT,
-            dropout_rate=0.1, n_mc_dropout_samples=30, **common)),
+            dropout_rate=0.1, n_mc_dropout_samples=30, allow_retired_capacity_selection=True, **common)),
         # Depth penalty instead of ELBO
         ("FlexNN(DEPTH_PENALTY,CONST)", dict(
             max_hidden_layers=4, layer_selection_method=LayerSelectionMethod.SOFT_GATING,
             depth_regularization=DepthRegularization.DEPTH_PENALTY,
-            uncertainty_method=UncertaintyMethod.CONSTANT, **common)),
+            uncertainty_method=UncertaintyMethod.CONSTANT, allow_retired_capacity_selection=True, **common)),
         # Gumbel instead of SoftGating
         ("FlexNN(ELBO,Gumbel,CONST)", dict(
             max_hidden_layers=4, layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
             depth_regularization=DepthRegularization.ELBO,
-            uncertainty_method=UncertaintyMethod.CONSTANT, **common)),
+            uncertainty_method=UncertaintyMethod.CONSTANT, allow_retired_capacity_selection=True, **common)),
         # Deeper: max_layers=6
         ("FlexNN(ELBO,max=6,CONST)", dict(
             max_hidden_layers=6, layer_selection_method=LayerSelectionMethod.SOFT_GATING,
             depth_regularization=DepthRegularization.ELBO,
-            uncertainty_method=UncertaintyMethod.CONSTANT, **common)),
+            uncertainty_method=UncertaintyMethod.CONSTANT, allow_retired_capacity_selection=True, **common)),
         # Wider: hidden=128
         ("FlexNN(ELBO,h=128,CONST)", dict(
             max_hidden_layers=4, layer_selection_method=LayerSelectionMethod.SOFT_GATING,
@@ -138,7 +142,7 @@ def ablation_flexnn(ds):
             uncertainty_method=UncertaintyMethod.CONSTANT, hidden_size=128,
             n_predictor_layers=1, learning_rate=0.01, n_epochs=120,
             early_stopping_rounds=20, validation_fraction=0.2, random_seed=42,
-            calculate_feature_importance=False)),
+            calculate_feature_importance=False, allow_retired_capacity_selection=True)),
     ]
 
     print(f"\n{'='*90}")
@@ -200,26 +204,30 @@ def ablation_probreg(ds):
             regression_strategy=RegressionStrategy.SEPARATE_HEADS, **common)),
 
         # --- Dynamic k strategies (max_n=10, SEPARATE_HEADS) ---
+        # SOFT_GATING/GUMBEL_SOFTMAX n_classes_selection_method and the ELBO/K_PENALTY
+        # regularizations are RETIRED under the nested ladder (MASTER Decision 29); comparing
+        # them is this sweep's whole point, so allow_retired_capacity_selection=True is added
+        # (labelled comparison arm).
         ("ProbReg(dyn,SG,NONE)", dict(
             n_classes=10, max_n_classes=10,
             n_classes_selection_method=NClassesSelectionMethod.SOFT_GATING,
             n_classes_regularization=NClassesRegularization.NONE,
-            regression_strategy=RegressionStrategy.SEPARATE_HEADS, **common)),
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS, allow_retired_capacity_selection=True, **common)),
         ("ProbReg(dyn,SG,ELBO)", dict(
             n_classes=10, max_n_classes=10,
             n_classes_selection_method=NClassesSelectionMethod.SOFT_GATING,
             n_classes_regularization=NClassesRegularization.ELBO,
-            regression_strategy=RegressionStrategy.SEPARATE_HEADS, **common)),
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS, allow_retired_capacity_selection=True, **common)),
         ("ProbReg(dyn,SG,K_PEN)", dict(
             n_classes=10, max_n_classes=10,
             n_classes_selection_method=NClassesSelectionMethod.SOFT_GATING,
             n_classes_regularization=NClassesRegularization.K_PENALTY,
-            regression_strategy=RegressionStrategy.SEPARATE_HEADS, **common)),
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS, allow_retired_capacity_selection=True, **common)),
         ("ProbReg(dyn,Gumbel,ELBO)", dict(
             n_classes=10, max_n_classes=10,
             n_classes_selection_method=NClassesSelectionMethod.GUMBEL_SOFTMAX,
             n_classes_regularization=NClassesRegularization.ELBO,
-            regression_strategy=RegressionStrategy.SEPARATE_HEADS, **common)),
+            regression_strategy=RegressionStrategy.SEPARATE_HEADS, allow_retired_capacity_selection=True, **common)),
 
         # --- Loss type sweep ---
         ("ProbReg(k=5,beta_nll_0.5)", dict(

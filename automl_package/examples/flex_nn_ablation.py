@@ -78,6 +78,10 @@ def run_one(ds_name: str, x_tr, y_tr, x_te, y_te,
             n_epochs: int = 40, seed: int = 42) -> dict:
     cls = IndependentWeightsFlexibleNN if weight_kind == "independent" else FlexibleHiddenLayersNN
     t0 = time.perf_counter()
+    # LAYER_METHOD_GRID is entirely SOFT_GATING/GUMBEL_SOFTMAX/STE/REINFORCE -- all RETIRED under
+    # the nested ladder (MASTER Decision 29, docs/plans/capacity_programme/MASTER.md). This
+    # sweep's whole purpose is ablating across those methods (a labelled-comparison-arm table by
+    # design), so the escape hatch is used rather than dropping them from the grid.
     m = cls(
         input_size=x_tr.shape[1], max_hidden_layers=max_layers,
         layer_selection_method=layer_method,
@@ -87,6 +91,7 @@ def run_one(ds_name: str, x_tr, y_tr, x_te, y_te,
         n_epochs=n_epochs, learning_rate=0.01, early_stopping_rounds=15,
         validation_fraction=0.2, random_seed=seed,
         calculate_feature_importance=False,
+        allow_retired_capacity_selection=True,
     )
     m.fit(x_tr, y_tr)
     y_pred = m.predict(x_te)

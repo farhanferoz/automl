@@ -82,6 +82,10 @@ def assert_n_predictor_gets_gradient() -> dict:
     train_idx, val_idx, _ = create_train_val_split(
         x, validation_fraction=VAL_FRACTION, test_fraction=TEST_FRACTION, split_strategy=DataSplitStrategy.RANDOM, timestamps=None, random_state=0
     )
+    # SOFT_GATING is RETIRED under the nested ladder (MASTER Decision 29); this script's entire
+    # subject IS SOFT_GATING's n_predictor and the ELBO depth-selection claim under it (the
+    # Phase-9 re-validation this file is named for), so both constructions here stay labelled
+    # comparison arms via the explicit opt-out.
     model = FlexibleHiddenLayersNN(
         max_hidden_layers=MAX_HIDDEN_LAYERS,
         hidden_size=HIDDEN_SIZE,
@@ -93,6 +97,7 @@ def assert_n_predictor_gets_gradient() -> dict:
         early_stopping_rounds=PATIENCE,
         random_seed=0,
         calculate_feature_importance=False,
+        allow_retired_capacity_selection=True,
     )
     model._fit_single(x[train_idx], y[train_idx], x_val=x[val_idx], y_val=y[val_idx], forced_iterations=1)
 
@@ -130,6 +135,7 @@ def run_one(reg_name: str, reg: DepthRegularization, seed: int) -> dict:
         early_stopping_rounds=PATIENCE,
         random_seed=seed,
         calculate_feature_importance=False,
+        allow_retired_capacity_selection=True,
     )
     _best_epoch, val_loss_history = model._fit_single(x[train_idx], y[train_idx], x_val=x[val_idx], y_val=y[val_idx])
 

@@ -67,6 +67,9 @@ def _uci_california() -> dict:
 
 # --- Model factory (feature importance disabled everywhere, fewer ProbReg variants) ---
 
+_GP_SAMPLE_CEILING = 5000  # GaussianProcessModel's O(n^3) fit is only practical below this
+
+
 def _make_models(input_size: int, n_samples: int) -> list[tuple[str, object]]:
     from automl_package.enums import MapperType
     from automl_package.models.baselines.ft_transformer import FTTransformerModel
@@ -119,6 +122,11 @@ def _make_models(input_size: int, n_samples: int) -> list[tuple[str, object]]:
             regression_head_params=dict(hidden_layers=0, hidden_size=32),
             **common_nn,
         )),
+        # SOFT_GATING and NClassesRegularization.K_PENALTY are RETIRED under the nested ladder
+        # (MASTER Decision 29); the three benchmark rows below are labelled comparison arms and
+        # are constructed EAGERLY in this list (not inside main()'s per-model try/except), so
+        # allow_retired_capacity_selection=True is required or building `models` itself crashes
+        # before the benchmark loop runs at all.
         ("ProbReg(dyn,K_PEN)", ProbabilisticRegressionModel(
             n_classes=10, max_n_classes=10,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
@@ -127,19 +135,22 @@ def _make_models(input_size: int, n_samples: int) -> list[tuple[str, object]]:
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             base_classifier_params=dict(hidden_layers=1, hidden_size=64),
             regression_head_params=dict(hidden_layers=0, hidden_size=32),
+            allow_retired_capacity_selection=True,
             **common_nn,
         )),
         ("FlexNN(CONST)", FlexibleHiddenLayersNN(
             max_hidden_layers=4, hidden_size=64, n_predictor_layers=1,
             layer_selection_method=LayerSelectionMethod.SOFT_GATING,
             depth_regularization=DepthRegularization.ELBO,
-            uncertainty_method=UncertaintyMethod.CONSTANT, **common_nn,
+            uncertainty_method=UncertaintyMethod.CONSTANT,
+            allow_retired_capacity_selection=True, **common_nn,
         )),
         ("FlexNN(PROB)", FlexibleHiddenLayersNN(
             max_hidden_layers=4, hidden_size=64, n_predictor_layers=1,
             layer_selection_method=LayerSelectionMethod.SOFT_GATING,
             depth_regularization=DepthRegularization.ELBO,
-            uncertainty_method=UncertaintyMethod.PROBABILISTIC, **common_nn,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            allow_retired_capacity_selection=True, **common_nn,
         )),
         ("ClassReg(k=7)", ClassifierRegressionModel(
             base_classifier_class=PyTorchNeuralNetwork, n_classes=7, mapper_type=MapperType.LOOKUP_MEDIAN,
@@ -152,7 +163,7 @@ def _make_models(input_size: int, n_samples: int) -> list[tuple[str, object]]:
         ("QR-NN", QuantileRegressionNN(hidden_size=64, n_hidden=2, **common_nn)),
         ("FT-Transformer", FTTransformerModel(d_model=32, n_heads=4, n_layers=2, **common_nn)),
     ]
-    if n_samples <= 5000:
+    if n_samples <= _GP_SAMPLE_CEILING:
         models.insert(5, ("GP(Matern)", GaussianProcessModel(kernel_nu=2.5, n_restarts_optimizer=3)))
     return models
 

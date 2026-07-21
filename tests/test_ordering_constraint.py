@@ -94,8 +94,9 @@ def test_means_probability_weighted_not_arithmetic():
     # Weighted mean: (sum p_0 * h_0) / (sum p_0) = (5 * ~0.998 * 10 + 5 * ~0.85 * 0) / (5*~0.998 + 5*~0.85)
     #              ~= (~49.9) / (~9.24) ~= 5.4
     # So weighted > arithmetic when the high-p samples also have high h.
-    assert means[0].item() > 5.1, (
-        f"Expected weighted mean > arithmetic mean (5.0); got {means[0].item():.4f}"
+    arithmetic_mean = 5.0
+    assert means[0].item() > arithmetic_mean + 0.1, (
+        f"Expected weighted mean > arithmetic mean ({arithmetic_mean}); got {means[0].item():.4f}"
     )
 
 
@@ -114,7 +115,8 @@ def test_means_respects_top_decile_subset():
     # Top 10% of samples by p_0 are all in the first 50; M_0 should reflect
     # them, not be diluted by the second 50.
     means = compute_ordering_means(logits, head_means, top_decile_fraction=0.1)
-    assert means[0].item() > 50.0, (
+    diluted_threshold = 50.0  # h0's true value (100.0) diluted by the untouched second half would sit at/below this
+    assert means[0].item() > diluted_threshold, (
         f"Top-decile subset should pick high-p_0 samples only; got M_0={means[0].item():.3f}"
     )
 
@@ -154,7 +156,9 @@ def test_penalty_margin_respected():
     assert loss_zero_margin.item() == 0.0
     # With margin 0.1, need M_1 > M_0 + 0.1 = 1.1; we have 1.05, so
     # violation = 1.0 - 1.05 + 0.1 = 0.05, penalty = 0.05^2 = 0.0025.
-    assert 0.001 < loss_small_margin.item() < 0.01
+    expected_penalty_lower_bound = 0.001
+    expected_penalty_upper_bound = 0.01
+    assert expected_penalty_lower_bound < loss_small_margin.item() < expected_penalty_upper_bound
 
 
 def test_penalty_gradient_flows_to_means():
@@ -196,10 +200,14 @@ def test_probreg_ordering_weight_auto_enables_for_recommended_combo():
         "Default (SEP_HEADS + Gauss-LTV + RegOnly) should auto-enable ordering."
     )
 
+    # CE_STOP_GRAD is RETIRED under the nested ladder (MASTER Decision 29); this cell's subject
+    # IS the auto-resolution rule's behaviour under CE_STOP_GRAD specifically, so the retired
+    # member plus the escape hatch is the right repair, not a rewrite against a survivor.
     cell_c = ProbabilisticRegressionModel(
         input_size=1, n_classes=3,
         optimization_strategy=ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
         uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+        allow_retired_capacity_selection=True,
     )
     assert cell_c.ordering_constraint_weight == 0.0, (
         "CE_STOP_GRAD already pre-orders heads — ordering should auto-disable."
@@ -212,10 +220,11 @@ def test_probreg_ordering_weight_auto_enables_for_recommended_combo():
         "MDN + ordering is harmful — should auto-disable."
     )
 
+    explicit_weight = 0.5
     explicit = ProbabilisticRegressionModel(
-        input_size=1, n_classes=3, ordering_constraint_weight=0.5,
+        input_size=1, n_classes=3, ordering_constraint_weight=explicit_weight,
     )
-    assert explicit.ordering_constraint_weight == 0.5, (
+    assert explicit.ordering_constraint_weight == explicit_weight, (
         "Explicit float should override auto-resolution."
     )
 
@@ -236,14 +245,20 @@ def test_probreg_ordering_loss_is_zero_when_means_ordered(probreg_pair):
     model_outputs, y_t = _synthetic_model_outputs([0.0, 5.0, 10.0])  # ordered
     loss_off = off._calculate_custom_loss(model_outputs, y_t, include_boundary_loss=False)
     loss_on = on._calculate_custom_loss(model_outputs, y_t, include_boundary_loss=False)
-    assert abs(loss_on.item() - loss_off.item()) < 1e-4, (
+    zero_contribution_tolerance = 1e-4
+    assert abs(loss_on.item() - loss_off.item()) < zero_contribution_tolerance, (
         f"Ordered means should produce zero ordering contribution: "
         f"off={loss_off.item():.6f}, on={loss_on.item():.6f}"
     )
 
 
 def test_probreg_ordering_under_ce_stop_grad_does_not_leak_to_classifier():
-    """Gradient-stop contract: under CE_STOP_GRAD, ordering must not flow to logits."""
+    """Gradient-stop contract: under CE_STOP_GRAD, ordering must not flow to logits.
+
+    CE_STOP_GRAD is RETIRED under the nested ladder (MASTER Decision 29) but this test's SUBJECT
+    is exactly its gradient-stop contract, so it stays as a labelled comparison arm via the
+    explicit opt-out rather than being rewritten against a survivor.
+    """
     from automl_package.enums import (
         ProbabilisticRegressionOptimizationStrategy,
         RegressionStrategy,
@@ -263,6 +278,7 @@ def test_probreg_ordering_under_ce_stop_grad_does_not_leak_to_classifier():
         ordering_constraint_weight=100.0,
         n_epochs=1, random_seed=0, early_stopping_rounds=None,
         calculate_feature_importance=False, validation_fraction=0.2,
+        allow_retired_capacity_selection=True,
     )
     model.fit(x, y)
 
@@ -371,6 +387,15 @@ def test_probreg_ordering_active_under_soft_gating_dynamic_k():
     _calculate_custom_loss. With the same fitted model, batch, and seed,
     ordering_constraint_weight=0.0 vs >0.0 must produce materially different
     loss values.
+
+    SOFT_GATING is RETIRED under the nested ladder (MASTER Decision 29), but the surviving
+    NESTED strategy cannot stand in here: NestedStrategy always returns per_head_outputs=None
+    BY DESIGN (each sample trains a different rung -- see its class docstring in
+    automl_package/models/flexnn/strategies/n_classes.py, which explicitly names the retired
+    strategies as the ones to use "if per-head penalties are required"). Exercising the
+    bug this test guards against needs a strategy that returns non-None per_head_outputs for a
+    full batch, which only the retired members do -- so this stays a labelled comparison arm via
+    the explicit opt-out rather than a rewrite.
     """
     from automl_package.enums import (
         NClassesSelectionMethod,
@@ -394,6 +419,7 @@ def test_probreg_ordering_active_under_soft_gating_dynamic_k():
         ordering_constraint_weight=1.0,
         n_epochs=2, random_seed=0, early_stopping_rounds=None,
         calculate_feature_importance=False, validation_fraction=0.2,
+        allow_retired_capacity_selection=True,
     )
     model.fit(x, y)
 

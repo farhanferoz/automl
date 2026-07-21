@@ -9,7 +9,7 @@ from bokeh.plotting import figure, show
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-from automl_package.enums import LearnedRegularizationType, Metric, TaskType
+from automl_package.enums import LayerSelectionMethod, LearnedRegularizationType, Metric, TaskType
 from automl_package.models.catboost_model import CatBoostModel
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
 from automl_package.models.lightgbm_model import LightGBMModel
@@ -136,6 +136,12 @@ def run_experiment() -> None:
     )
 
     # Flexible Neural Network
+    # GUMBEL_SOFTMAX is RETIRED under the nested ladder (MASTER Decision 29,
+    # docs/plans/capacity_programme/MASTER.md); this script's own gumbel_tau/
+    # gumbel_tau_anneal_rate/n_predictor_learning_rate config was already written for it (a
+    # default-construction site the FP-12 fix's default change would otherwise silently break
+    # with a ValueError -- invisible to a keyword grep since layer_selection_method itself was
+    # never named here). Kept explicit as a labelled comparison arm via the opt-out.
     flexible_nn = FlexibleHiddenLayersNN(
         input_size=x_train.shape[1],
         max_hidden_layers=5,
@@ -145,6 +151,7 @@ def run_experiment() -> None:
         learning_rate=0.01,
         early_stopping_rounds=20,
         validation_fraction=0.2,
+        layer_selection_method=LayerSelectionMethod.GUMBEL_SOFTMAX,
         gumbel_tau=0.1,
         n_predictor_layers=2,
         learn_regularization_lambdas=True,
@@ -152,6 +159,7 @@ def run_experiment() -> None:
         lambda_learning_rate=0.001,
         gumbel_tau_anneal_rate=0.9,
         n_predictor_learning_rate=0.01,
+        allow_retired_capacity_selection=True,
     )
 
     # Probabilistic Regression Model

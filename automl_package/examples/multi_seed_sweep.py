@@ -70,13 +70,20 @@ def build_probreg(seed: int) -> ProbabilisticRegressionModel:
 
 
 def build_flex(seed: int) -> FlexibleHiddenLayersNN:
+    # SOFT_GATING is RETIRED under the nested ladder (MASTER Decision 29); the reported row is
+    # labelled "FlexNN(ELBO)" and the label itself commits to ELBO being active, so this stays a
+    # labelled comparison arm via the explicit opt-out rather than swapping to a survivor that
+    # would silently make the label describe a config that no longer ran. n_predictor_layers=1 is
+    # now explicit too -- FP-12's default-construction fix changed the class default to 0
+    # (required by the NONE/NESTED survivors), which this call relied on implicitly before.
     return FlexibleHiddenLayersNN(
-        input_size=1, max_hidden_layers=5, hidden_size=32,
+        input_size=1, max_hidden_layers=5, hidden_size=32, n_predictor_layers=1,
         layer_selection_method=LayerSelectionMethod.SOFT_GATING,
         depth_regularization=DepthRegularization.ELBO,
         uncertainty_method=UncertaintyMethod.PROBABILISTIC,
         n_epochs=60, learning_rate=0.01, early_stopping_rounds=15, validation_fraction=0.2,
         random_seed=seed, calculate_feature_importance=False,
+        allow_retired_capacity_selection=True,
     )
 
 

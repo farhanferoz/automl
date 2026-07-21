@@ -119,7 +119,8 @@ class TestNLLLoss:
 
         loss = nll_loss(outputs, targets)
         expected = 0.5 * (np.log(2 * np.pi) + 0.0 + 1.0)
-        assert abs(loss.item() - expected) < 1e-4
+        tolerance = 1e-4
+        assert abs(loss.item() - expected) < tolerance
 
     def test_nll_loss_penalizes_wrong_mean(self):
         """Higher error in mean should produce higher NLL."""
@@ -190,7 +191,8 @@ class TestProbabilisticRegressionFixedK:
         pred_std = model.predict_uncertainty(x_test)
 
         correlation = np.corrcoef(pred_std, noise_test)[0, 1]
-        assert correlation > 0.2, (
+        min_correlation = 0.2
+        assert correlation > min_correlation, (
             f"Predicted uncertainty poorly correlated with true noise "
             f"(r={correlation:.3f}). Bug 8 may not be fully fixed."
         )
@@ -218,7 +220,8 @@ class TestProbabilisticRegressionFixedK:
         y_pred = model.predict(x_test)
         mse = np.mean((y_test - y_pred) ** 2)
 
-        assert mse < 2.0, f"MSE={mse:.4f} too high for simple linear data (y=2x+1, noise_std=0.3)"
+        max_acceptable_mse = 2.0
+        assert mse < max_acceptable_mse, f"MSE={mse:.4f} too high for simple linear data (y=2x+1, noise_std=0.3)"
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +385,8 @@ class TestModelComparison:
 
         # On bimodal data (delta=1.5), even a perfect model predicting the conditional
         # mean gets MSE ~= delta^2 = 2.25. We verify the model trains without catastrophic failure.
-        assert multimodal_mse < 20.0, (
+        catastrophic_failure_mse = 20.0
+        assert multimodal_mse < catastrophic_failure_mse, (
             f"ClassifierRegression MSE ({multimodal_mse:.4f}) is unreasonably high "
             f"on bimodal data -- model may have failed to train."
         )
@@ -417,7 +421,8 @@ class TestModelComparison:
 
         # Coefficient of variation of predicted std should be meaningful
         std_cv = np.std(pred_std) / (np.mean(pred_std) + 1e-8)
-        assert std_cv > 0.05, (
+        min_cv = 0.05
+        assert std_cv > min_cv, (
             f"Predicted uncertainty is nearly constant (CV={std_cv:.4f}). "
             f"Model is not learning input-dependent variance."
         )
@@ -435,7 +440,8 @@ class TestModelComparison:
         xgb_mse = float(np.mean((y_test - y_pred) ** 2))
 
         # XGBoost should do well on this — it's a flexible nonparametric model
-        assert xgb_mse < 5.0, f"XGBoost MSE={xgb_mse:.4f} unexpectedly high on heteroscedastic data"
+        max_acceptable_xgb_mse = 5.0
+        assert xgb_mse < max_acceptable_xgb_mse, f"XGBoost MSE={xgb_mse:.4f} unexpectedly high on heteroscedastic data"
 
     def test_linear_regression_on_linear_data(self, simple_linear_data):
         """Linear regression should achieve near-optimal MSE on y=2x+1+noise."""
@@ -450,7 +456,8 @@ class TestModelComparison:
         lr_mse = float(np.mean((y_test - y_pred) ** 2))
 
         # For y=2x+1+noise(0.3), irreducible MSE ~= 0.09. LR should be close.
-        assert lr_mse < 0.5, f"LinearRegression MSE={lr_mse:.4f} too high for y=2x+1 data"
+        max_acceptable_lr_mse = 0.5
+        assert lr_mse < max_acceptable_lr_mse, f"LinearRegression MSE={lr_mse:.4f} too high for y=2x+1 data"
 
 
 class TestPredictDistribution:
@@ -511,10 +518,14 @@ class TestPredictDistribution:
         x = np.random.randn(60, 1).astype(np.float32)
         y = np.random.randn(60).astype(np.float32)
 
+        # predict_distribution's own guard fires for ANY n_classes_selection_method != NONE
+        # (automl_package/models/probabilistic_regression.py, "dynamic-k is not yet implemented").
+        # SOFT_GATING was incidental to that guard -- NESTED (a surviving member under MASTER
+        # Decision 29) triggers the identical branch, verified by running both before this edit.
         m = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.SOFT_GATING,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             n_epochs=5, random_seed=42, calculate_feature_importance=False,
         )
@@ -593,25 +604,35 @@ class TestP2CreateBinsWarning:
 
     def test_tied_targets_warn_and_shrink(self, automl_caplog):
         # Only 3 distinct values repeated many times -> percentile edges at k=5 collide.
+        requested_n_bins = 5
         y = np.array([1.0, 2.0, 3.0] * 20)
-        edges, _ = create_bins(data=y, n_bins=5, min_value=-np.inf, max_value=np.inf)
+        edges, _ = create_bins(data=y, n_bins=requested_n_bins, min_value=-np.inf, max_value=np.inf)
 
         effective_n_bins = len(edges) - 1
-        assert effective_n_bins < 5, f"expected n_bins to shrink below 5, got {effective_n_bins}"
-        assert "requested n_bins=5" in automl_caplog.text
+        assert effective_n_bins < requested_n_bins, f"expected n_bins to shrink below {requested_n_bins}, got {effective_n_bins}"
+        assert f"requested n_bins={requested_n_bins}" in automl_caplog.text
         assert f"effective n_bins={effective_n_bins}" in automl_caplog.text
 
     def test_clean_continuous_target_no_warning(self, automl_caplog):
+        requested_n_bins = 5
         rng = np.random.default_rng(0)
         y = rng.normal(size=200)
-        edges, _ = create_bins(data=y, n_bins=5, min_value=-np.inf, max_value=np.inf)
+        edges, _ = create_bins(data=y, n_bins=requested_n_bins, min_value=-np.inf, max_value=np.inf)
 
-        assert len(edges) - 1 == 5, "clean continuous data should not need to shrink n_bins"
+        assert len(edges) - 1 == requested_n_bins, "clean continuous data should not need to shrink n_bins"
         assert automl_caplog.text == ""
 
 
 class TestP3DynamicKCeGuardWarning:
-    """P3: guard the incoherent dynamic-k + CE combination (plan §3.1 node-0 conflict)."""
+    """P3: guard the incoherent dynamic-k + CE combination (plan §3.1 node-0 conflict).
+
+    The warning fires on `n_classes_selection_method != NONE and is_ce_active`
+    (probabilistic_regression.py:751); `is_ce_active` is true only for CE_STOP_GRAD or
+    COMPOSITE_LOSS, both RETIRED under MASTER Decision 29 -- so no non-retired optimization
+    strategy can ever exercise this warning, and the escape hatch is unavoidable regardless of
+    which n_classes_selection_method is paired with it. SOFT_GATING is kept (not swapped for
+    NESTED) because both are already gated by the same flag here.
+    """
 
     def _fit_dynamic_k(self, opt_strategy: ProbabilisticRegressionOptimizationStrategy) -> ProbabilisticRegressionModel:
         rng = np.random.default_rng(7)
@@ -629,6 +650,7 @@ class TestP3DynamicKCeGuardWarning:
             validation_fraction=0.2,
             random_seed=42,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )
         model.fit(x, y)
         return model
@@ -659,12 +681,18 @@ class TestP4HygieneGating:
         assert "n_classes_predictor_learning_rate" not in space
 
     def test_hpo_space_gates_dims_by_selection_strategy(self):
+        """`gumbel_tau`/`n_classes_predictor_learning_rate` only exist under GUMBEL_SOFTMAX/STE
+        and REINFORCE respectively (probabilistic_regression.py:689-692) -- both survivors (NONE,
+        NESTED) never populate them, so this per-strategy gating can only be exercised through the
+        retired members themselves; the escape hatch is required, not incidental.
+        """
         gumbel_model = ProbabilisticRegressionModel(
             input_size=1,
             n_classes_selection_method=NClassesSelectionMethod.GUMBEL_SOFTMAX,
             max_n_classes_for_probabilistic_path=4,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )
         gumbel_space = gumbel_model.get_hyperparameter_search_space()
         assert "gumbel_tau" in gumbel_space
@@ -676,6 +704,7 @@ class TestP4HygieneGating:
             max_n_classes_for_probabilistic_path=4,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             calculate_feature_importance=False,
+            allow_retired_capacity_selection=True,
         )
         reinforce_space = reinforce_model.get_hyperparameter_search_space()
         assert "n_classes_predictor_learning_rate" in reinforce_space

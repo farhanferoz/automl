@@ -39,7 +39,13 @@ def _tiny_dataset(n: int = 100, seed: int = 99) -> tuple[np.ndarray, np.ndarray]
 
 @pytest.mark.parametrize(("cell_id", "loss_type", "opt_strategy", "use_anchored"), _CELLS)
 def test_cell_smoke(cell_id, loss_type, opt_strategy, use_anchored):
-    """Each cell trains without crash and produces finite predictions."""
+    """Each cell trains without crash and produces finite predictions.
+
+    Cells C/D/G/H parametrize opt_strategy=CE_STOP_GRAD, RETIRED under MASTER Decision 29. This
+    2x2x2 grid's whole point is covering every (loss_type, opt_strategy, use_anchored) cell,
+    including the CE_STOP_GRAD ones -- CE_STOP_GRAD IS a parametrized dimension of this test's
+    subject, not incidental, so the escape hatch is used rather than dropping those cells.
+    """
     x, y = _tiny_dataset()
     x_tr, y_tr = x[:80], y[:80]
     x_te = x[80:]
@@ -61,6 +67,7 @@ def test_cell_smoke(cell_id, loss_type, opt_strategy, use_anchored):
         validation_fraction=0.2,
         random_seed=42,
         calculate_feature_importance=False,
+        allow_retired_capacity_selection=True,
     )
 
     model.fit(x_tr, y_tr)
@@ -70,7 +77,8 @@ def test_cell_smoke(cell_id, loss_type, opt_strategy, use_anchored):
     assert np.all(np.isfinite(preds)), f"Cell {cell_id}: non-finite predictions"
 
     mse = float(np.mean((preds - y[80:]) ** 2))
-    assert mse < 100.0, f"Cell {cell_id}: unreasonably high MSE {mse:.2f}"
+    catastrophic_failure_mse = 100.0
+    assert mse < catastrophic_failure_mse, f"Cell {cell_id}: unreasonably high MSE {mse:.2f}"
 
     dist = model.predict_distribution(x_te)
     assert dist is not None, f"Cell {cell_id}: predict_distribution returned None"
