@@ -23,7 +23,7 @@ resumes at the first wave not marked ✅ — never re-dispatches a ✅ wave.
 | **0** | wave-1 closeout (root) | ✅ **complete 2026-07-21** | `ca18d59` test/example repair (suite 426P/2F/1S, the 2 = pre-accepted pair) · `9a80021` schedule refusal guard + 3 mislabelled `nested` cells voided (proven: differed from certified only in `provenance`+`training_schedule`) · `7ec5a58` this plan, gates 9/9 |
 | **0.5** | merge `capacity/wave-1` → master | ✅ **complete 2026-07-21** — fast-forward `fd80b39..d66d74c` (13 commits, 0 divergence). Full suite gate first: **431 passed / 2 failed / 1 skipped**, the 2 being the pre-accepted pair (+5 vs the pre-Wave-A baseline = the new tests). Ongoing work moved to branch `capacity/wave-2`. | — |
 | **A** | PS-A1 ∥ PS-A2 | ✅ **complete 2026-07-21** — both reviewed clean (spec ✅ / quality approved, 0 Critical, 0 Important on each) | **PS-A1 = `25fcf9a`** (+ root hardening: `head_spread` lacked the string coercion every other enum kwarg in that `__init__` has, so a string would have matched none of the `is` branches and silently behaved as `PER_INPUT`). **PS-A2 = `d9a8cd9`** driver + **`d66d74c`** (D1 made explicitly inapplicable to no-fitted-spread arms rather than accidentally so). Reviewers independently re-ran selftest/ruff and hand-checked the D2 comparison SIGN — an inversion there would have silently selected the WORST arm. 4 Minor findings in the ledger for the final review. |
-| **B** | PS-1 trunk grid | 🔄 **RUNNING** — launched 2026-07-21, 160 cells (10 arms × 4 toys × k{2,6} × seeds{0,1}), concurrency 2, `systemd-inhibit`-wrapped, idempotent/resumable | — |
+| **B** | PS-1 trunk grid | ✅ **complete 2026-07-21** — 160/160 cells (10 arms × 4 toys × k{2,6} × seeds{0,1}), all readable, no duplicates, primary metric present on every cell. 20 cells hit the 300-epoch cap and were re-run once at 600 per §2; **one did not converge even then** and is excluded from D2 per D-PS-5. **Winner = `ce × fixed_shared × mixture`, decided by D4, NOT by a measured win** — see the evidence note below. | `automl_package/examples/capacity_ladder_results/PS1/frozen.json` · `automl_package/examples/capacity_ladder_results/PS1/ps1_decision.json` · originals of the capped cells kept under `automl_package/examples/capacity_ladder_results/PS1/capped_at_300/` so the re-run is auditable against what it replaced |
 | **C** | PS-2 patch audit | ⬜ | — |
 | **D** | PS-3 head battery | ⬜ | — |
 | **E** | PS-4 certification → ⛔ user gate | ⬜ | — |
@@ -41,6 +41,34 @@ resumes at the first wave not marked ✅ — never re-dispatches a ✅ wave.
   `self.parameters()` on a `BaseModel` wrapper that is not an `nn.Module`, so it raised
   `AttributeError` for every caller. Reproduced, then routed to the wrapped network with an
   explicit error when unbuilt. PS-3's parameter-matching depends on it.
+- **D-PS-5 — §2's locked re-run rule was recorded but not ENFORCED; fixed at source.** The driver
+  wrote `converged: false` on a still-capped cell and then let `--decide` average it into the D2
+  per-toy means anyway, so "never silently averaged in" held only as prose. Non-converged cells are
+  now dropped at `_pairwise_metric_result` — the one choke point both D2 matrices pass through —
+  and listed in the decision JSON's `non_converged_excluded` so the memo reports the exclusion
+  instead of it showing up only as a quietly smaller `n_seeds`. One cell is affected
+  (`ce × all_constant × mixture`, `toy_a`, k=2, seed 1). **A rule that is recorded but not wired to
+  the code that consumes it is not a rule** — the same defect class as D-PS-1 and D-PS-4.
+
+**⚠️ PS-1 EVIDENCE NOTE — carry this verbatim into the PS-4 memo; it constrains how the trunk
+winner may be described.** Both facts below are the locked rules firing exactly as written; neither
+is a defect. Both weaken the winner's warrant, so neither may be dropped when the result is written
+up. Source: `automl_package/examples/capacity_ladder_results/PS1/ps1_decision.json`.
+
+1. **The winner was chosen by D4's simplicity order, not by D2.** No arm dominated the survivor
+   pool on the primary metric (`decided_by: "d4_tiebreak"`, `primary_winner: null`), and the
+   own-NLL tie-break was correctly blocked outright because three surviving arms have no fitted
+   spread and therefore no defined own-NLL. 13 of 21 pairs did separate, but the winner never
+   separated from either `per_input` arm — so `fixed_shared` is the arm the *preference order*
+   picks among statistical equals, **not** the arm the data picked. See `automl_package/examples/capacity_ladder_results/PS1/ps1_decision.json`.
+   ⇒ The memo must say the trunk is *underdetermined* between `fixed_shared` and `per_input`, and
+   PS-2/PS-3 must not be read as validating `fixed_shared` — they inherit it as an assumption.
+2. **The entire `none` (unsupervised) axis was disqualified by D3, on ordering violations alone.**
+   All three `none` arms failed; every `ce` arm cleared its D3 bar on the reference toy. The
+   supervision axis therefore closed by disqualification of the alternative, not by a D2 win. That
+   is the pre-registered rule ("labels have no stable meaning without the constraint"), but it
+   means PS-1 supplies **no positive evidence that cross-entropy supervision helps** — only that
+   the unsupervised arms violate the ordering constraint. See `automl_package/examples/capacity_ladder_results/PS1/ps1_decision.json`.
 
 ---
 

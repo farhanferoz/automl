@@ -1,0 +1,225 @@
+{
+  "arm": {
+    "supervision": "none",
+    "spread": "per_input",
+    "likelihood": "collapsed",
+    "patches": {
+      "ordering": "auto",
+      "anchored": "off",
+      "monotonic": "off",
+      "middle_class": "on",
+      "boundary": "off"
+    },
+    "layout": "separate"
+  },
+  "param_match": "off",
+  "hidden_size_used": null,
+  "toy": "broad_unimodal",
+  "k": 6,
+  "seed": 0,
+  "sigma_toy": 0.6708203932499369,
+  "resolved_kwargs": {
+    "input_size": 1,
+    "n_classes": 6,
+    "max_n_classes_for_probabilistic_path": 6,
+    "n_classes_selection_method": "none",
+    "n_epochs": 300,
+    "learning_rate": 0.01,
+    "early_stopping_rounds": null,
+    "validation_fraction": 0.2,
+    "test_fraction": 0.0,
+    "batch_size": 64,
+    "random_seed": 0,
+    "calculate_feature_importance": false,
+    "uncertainty_method": "probabilistic",
+    "head_spread": "per_input",
+    "prob_reg_loss_type": "gaussian_ltv",
+    "use_anchored_heads": false,
+    "use_monotonic_constraints": false,
+    "constrain_middle_class": true,
+    "boundary_regularization_method": "none",
+    "regression_strategy": "separate_heads"
+  },
+  "allow_retired_recorded": false,
+  "provenance": {
+    "timestamp_utc": "2026-07-21T19:47:55+00:00",
+    "git": {
+      "commit": "ce49af992f5f06d9be8c5a6781fa20e46ed82912",
+      "dirty": true
+    },
+    "python": "3.12.13",
+    "torch": "2.10.0+xpu",
+    "numpy": "2.4.3",
+    "platform": "Linux-7.1.3-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "threads": {
+      "omp_num_threads": "4",
+      "torch_num_threads": 4,
+      "cpu_count": 22
+    },
+    "automl_device": "cpu"
+  },
+  "trajectory": [
+    {
+      "epoch": 0,
+      "train_nll_own": 1.0483462810516357,
+      "heldout_nll_own": 1.0554243326187134,
+      "per_class_sigma": {
+        "min": 0.6916988492012024,
+        "median": 0.7583628296852112,
+        "max": 1.0157448053359985
+      },
+      "classifier_max_prob": {
+        "mean": 0.33707258105278015,
+        "max": 0.46367576718330383
+      },
+      "ordering_violations": 1
+    },
+    {
+      "epoch": 10,
+      "train_nll_own": 0.9752573370933533,
+      "heldout_nll_own": 0.9909000396728516,
+      "per_class_sigma": {
+        "min": 0.3805842995643616,
+        "median": 0.48281416296958923,
+        "max": 0.6277367472648621
+      },
+      "classifier_max_prob": {
+        "mean": 0.4367212951183319,
+        "max": 0.47752320766448975
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 20,
+      "train_nll_own": 0.97491854429245,
+      "heldout_nll_own": 0.9908177852630615,
+      "per_class_sigma": {
+        "min": 0.3977412283420563,
+        "median": 0.5437743663787842,
+        "max": 0.6446647644042969
+      },
+      "classifier_max_prob": {
+        "mean": 0.35469451546669006,
+        "max": 0.4116169512271881
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 30,
+      "train_nll_own": 0.9738079905509949,
+      "heldout_nll_own": 0.9932727813720703,
+      "per_class_sigma": {
+        "min": 0.40329504013061523,
+        "median": 0.5285003185272217,
+        "max": 0.6209872364997864
+      },
+      "classifier_max_prob": {
+        "mean": 0.31642797589302063,
+        "max": 0.3802717626094818
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 40,
+      "train_nll_own": 0.973829984664917,
+      "heldout_nll_own": 0.9933896660804749,
+      "per_class_sigma": {
+        "min": 0.4221300184726715,
+        "median": 0.5585585236549377,
+        "max": 0.6577169895172119
+      },
+      "classifier_max_prob": {
+        "mean": 0.27284082770347595,
+        "max": 0.2997478246688843
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 50,
+      "train_nll_own": 0.9732306003570557,
+      "heldout_nll_own": 0.9969636797904968,
+      "per_class_sigma": {
+        "min": 0.4300687611103058,
+        "median": 0.5295281410217285,
+        "max": 0.650303304195404
+      },
+      "classifier_max_prob": {
+        "mean": 0.27322202920913696,
+        "max": 0.3382181227207184
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 60,
+      "train_nll_own": 0.9743880033493042,
+      "heldout_nll_own": 0.999799370765686,
+      "per_class_sigma": {
+        "min": 0.38087379932403564,
+        "median": 0.5343544483184814,
+        "max": 0.6437747478485107
+      },
+      "classifier_max_prob": {
+        "mean": 0.27710869908332825,
+        "max": 0.32296836376190186
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 70,
+      "train_nll_own": 0.9733217358589172,
+      "heldout_nll_own": 0.9977267384529114,
+      "per_class_sigma": {
+        "min": 0.35425254702568054,
+        "median": 0.5623347163200378,
+        "max": 0.6713850498199463
+      },
+      "classifier_max_prob": {
+        "mean": 0.2841714322566986,
+        "max": 0.33681967854499817
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 80,
+      "train_nll_own": 0.9713457226753235,
+      "heldout_nll_own": 1.001854419708252,
+      "per_class_sigma": {
+        "min": 0.3210008442401886,
+        "median": 0.5551009774208069,
+        "max": 0.6794238686561584
+      },
+      "classifier_max_prob": {
+        "mean": 0.2872951626777649,
+        "max": 0.4202454686164856
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 90,
+      "train_nll_own": 0.9705657958984375,
+      "heldout_nll_own": 1.007667899131775,
+      "per_class_sigma": {
+        "min": 0.2839084267616272,
+        "median": 0.5587670207023621,
+        "max": 0.6918948888778687
+      },
+      "classifier_max_prob": {
+        "mean": 0.29994967579841614,
+        "max": 0.5748370289802551
+      },
+      "ordering_violations": 0
+    }
+  ],
+  "final": {
+    "heldout_nll_own": 1.007667899131775,
+    "heldout_fixed_sigma_mll": -1.014683723449707,
+    "rmse": 0.6581135392189026,
+    "coverage_1sigma": 0.6899999976158142,
+    "coverage_2sigma": 0.9599999785423279,
+    "min_sigma_ratio": 0.429442144534937,
+    "slice_accuracy": 0.17,
+    "hit_cap": false,
+    "converged": true,
+    "params_count": 1298
+  }
+}
