@@ -165,11 +165,30 @@ passed. `SharedTrunkPerWidthHeadNet` is the architecture of record. Evidence:
 > **STANDING CONSEQUENCES until the user rules:** the PASS is procedurally unsound as written
 > though empirically plausible; **WSEL-3..8 dispatch HELD** (they build on the certified
 > architecture); **WSEL-16 CONTINUES** (its own non-goal: `B_HEADS` is the reference, not a
-> defendant — and its comparison is informative under ANY ruling). **Options prepared for the
-> ruling:** (1) amend the verdict to "PASS with re-derivation caveats" naming both clause failures;
-> (2) run the pre-registered remediation as written (noisy-easy seeds 3/4 + the W8 scan) and
-> re-read the gate mechanically; (3) demote to "architecture of record by evidence-weight; gate
-> void as written". Not decided autonomously — the pre-registered rule names the user as decider.
+> defendant — and its comparison is informative under ANY ruling). ~~Options prepared for the
+> ruling~~ **SUPERSEDED 2026-07-22 — the plan itself prescribed the remediation
+> (`EXECUTION_PLAN.md:192-193` "add seeds 3/4 if any seed is quarantined by the curve gate"); run
+> without a ruling, as it should have been in July. The W8-scan precondition of the (b)-fail
+> branch was already satisfied on disk.**
+>
+> **RE-GRADE 2026-07-22 (seeds 3/4 landed; gate re-read mechanically as written):**
+> - **Seed 4 — the FIRST VALID measurement of the noise-vs-difficulty clause, and it PASSES:**
+>   curve gate clean (easy-flat 0.0030 vs allowed 0.0036); dial expected width 2.31 on the
+>   noisy-easy region vs 8.34 on the hard region, separation ≫ 2·SE. <!-- source: `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse_hetero3_n2250_s0.05_wp3s4.json` -->
+> - **Seed 3 — QUARANTINED by the same curve-gate failure as the originals** (easy-region error at
+>   width 2: 0.0109 vs allowed 0.0033, 3.3× over). <!-- source: `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse_hetero3_n2250_s0.05_wp3s3.json` -->
+>   **The stale-narrow-heads pathology now hits 3 of 5 seeds on this toy variant** — a real, named
+>   limitation of the certified architecture under the sandwich schedule (plausibly the same
+>   narrow/mid-width starvation VARIANCE the WSEL-15 FOLLOW-UP measured; testable under the ALL
+>   schedule if the user wants that evidence).
+> - **Formal state:** clause (a) now has 1 valid PASS against a pre-registered quorum of ≥2
+>   (all other seeds quarantined: 0/2/3 by curve gate, 1 by convergence) → the clause cannot PASS
+>   as written on current data. Clause (b)'s small-data fit failure stands (universal — the
+>   ceiling control fails identically). **⇒ G-WIDTH cannot be marked PASS under its own rules;
+>   the plan-reserved user escalation is NOW properly constituted**, with every existing
+>   measurement — valid and quarantined alike — pointing one way (the dial reads difficulty, not
+>   noise). User options: extend seeds beyond the pre-registered 3/4 to seek quorum (itself a
+>   rule amendment); amend to PASS-with-caveats on evidence-weight; or demote.
 
 **Established (MECHANISM, recorded 2026-07-21 after a user discussion — an ACCOUNT, not new evidence).**
 Why the shared readout fails and the per-width readout succeeds is now written down once, so it is not

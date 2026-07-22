@@ -69,7 +69,6 @@ automl_package/examples/capacity_ladder_results/P7/frozen.json      # P7 (verify
 # --- width.md WSEL-12/13/14 Create targets (parked 2026-07-21, root) ----------------------------
 # Efficiency/mechanism track added after the 2026-07-21 width discussion. Each is named in its
 # task's Files (write set) AND asserted by that task's own verify line (pytest / test -f).
-automl_package/examples/capacity_ladder_results/WSEL16/frozen.json   # WSEL-16 Step 6 (verify 5)
 # --- flexnn-package.md FP-11 target tree — LANDED 2026-07-21; all 10 entries REMOVED (shrink-only)
 # The task-zero reorganisation is done and every path exists on disk, so none of them may remain
 # parked here. Retained as a comment so the shrink is auditable, not silent.
