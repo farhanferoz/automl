@@ -871,6 +871,21 @@ a second test asserts the returned width is stable under a reshuffle of the sele
 > 3. **Carry-forward caveat:** the reference's own `untrustworthy_seeds: [0, 1]` means some
 >    historical cells are not trajectory-certified; reproduction of their numbers validates the
 >    DRIVER, and WSEL-8's quality half must not lean on those specific reference cells.
+>
+> **⛔ RULED at the 2026-07-22 sign-off (item 4, user): the 2%-RELATIVE bar construction is
+> REJECTED as arbitrary — relative percentages of a log-likelihood are not meaningful (the LL's
+> absolute scale is set by constants unrelated to fit quality). Replacement standard, ratified:**
+> **(a) UNITS — reproduction bars on likelihood anchors are stated as an absolute PER-POINT
+> log-likelihood difference; for the fixed-sigma Gaussian setting this equals ΔMSE/(2σ²), i.e.
+> "agreement to within x% of the irreducible noise floor". (b) TOLERANCE — never hand-picked:
+> anchored ≥10× below the smallest difference any consumer of the reference acts on (the 10%
+> decision bar ⇒ reproduction noise invisible at decision scale), with the measured-determinism
+> precedent (a sibling driver re-ran bit-identically under pinned settings) justifying a tight
+> value. Corrections 1-2 above are ratified UNDER THIS BAR, conditionally: a wave-A verification
+> step (scheduled; recompute the landed per-cell gaps in the new units from the JSONs on disk —
+> no retraining) confirms every cell passes; any breach halts before the merge and escalates.
+> This standard applies to FUTURE reproduction bars strand-wide; the WSEL-13 5% plateau
+> tolerance and similar pre-registered bars are not re-graded retroactively.**
 
 **Files (write set):** `automl_package/examples/width_wsel4.py` (Create) ·
 `automl_package/examples/capacity_ladder_results/WSEL4/`
