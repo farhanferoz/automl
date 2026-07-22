@@ -2167,6 +2167,25 @@ field in Step 3 and `hit_cap: false`; (4)
 >   block collapses to a self-comparison. Logged as the reversible default under Decision 32;
 >   batched for user review (if certified-design tier-3 canonical-suite coverage is wanted for
 >   its own sake — e.g. for WSEL-17's supersession argument — it is a cheap standalone launch).
+>   **RULED at the 2026-07-22 sign-off (item 3 CLOSED, user): coverage APPROVED, single-arm —
+>   `B_HEADS` alone across the 36 tier-3 ladder cells (§3.8); the comparison half stays empty by
+>   construction. NOT launched during the review (user instruction: no runs mid-sign-off);
+>   queued to execute AFTER the review concludes. Prerequisite: the driver excludes the stage-3
+>   ladder by design (`width_wsel16.py:90`, `--tier` accepts 1/2 only) — a small tier-3
+>   extension is a separate authoring contract first; §3.8 requires tier 3 to train on the
+>   fixed-sigma weighted squared error from `width_candidates.py` (landed with WSEL-15), never
+>   plain MSE. The residual-recipe convergence audit raised at the same sitting (trajectories
+>   re-read off disk: 36/36 widths converged, 0 hit_cap, no overfitting signature, corrective's
+>   sawtooth = burst schedule not memorization, reported numbers = best-val snapshots on an
+>   independent split) is recorded in the sign-off transcript; the stage-2 verdict stands
+>   unchanged.**
+>   **AUTONOMOUS HAND-OFF (user, 2026-07-22: "once all sign-offs are done, you can start the
+>   orchestration"): the moment sign-off items 4-6 close, the root proceeds WITHOUT further user
+>   input under the Decision-32 regime — (wave A) dispatch the tier-3 driver-extension authoring
+>   contract; (wave B) root runs the 36-cell grid backgrounded, each cell landing as produced;
+>   (wave C) `--summarize`, commit results, execute WSEL-17 Step 7 per the signed-off manifest,
+>   then the local merge to master per MASTER's branch protocol. User-only questions are batched
+>   to the end; only irreversible/destructive actions outside the ratified manifest halt.**
 >
 > **USER RULING 2026-07-22 (selection-studies coupling):** the selection studies' MEASUREMENT tasks
 > (WSEL-6, WSEL-7, WSEL-8) are ARCHITECTURE-PARAMETERISED: they run on the vectorised multi-head
