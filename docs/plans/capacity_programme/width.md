@@ -552,6 +552,10 @@ Constants: `automl_package/examples/converged_width_experiment.py:45-49`.
 > authority is §3.7 — `(pred - y)^2 / sigma_true(x)^2`, sigma from the generator, never learned.
 > **WSEL-13's tier-2 driver guard stays in place** until the loss lands AND WSEL-13 tier 2 is
 > separately re-authorized; this update does not touch `width_wsel13.py`.
+> **RE-AUTHORIZED 2026-07-22 (user, as part of the ratified wave-2 execution):** the loss landed
+> with WSEL-16's authoring; WSEL-13 tier 2 runs in the wave — under the ALL schedule per the
+> Decision-20 ruling, labelled as such (its tier-1 cells were sandwich-trained; the schedule
+> difference is named wherever the two tiers are tabulated together).
 
 **Rules — mechanical, nothing left to interpret:**
 - **Tier 3 runs for exactly two arms**: the certified per-width-head design, and whichever candidate
@@ -1966,6 +1970,38 @@ candidate cell exists; (4) every JSON under
 `automl_package/examples/capacity_ladder_results/WSEL16/` carries every field in Step 5 with
 `hit_cap: false`; (5)
 `automl_package/examples/capacity_ladder_results/WSEL16/frozen.json` carries every field in Step 6.
+
+### WSEL-18 — vectorise the multi-head readout (user ruling 2026-07-22: FIRST in the multi-head queue)
+
+**Why.** The ALL-schedule cost premium is per-head bookkeeping (12 separate tensors each paying
+forward/backward/optimizer dispatch — the WSEL-14 cost probe's attribution), not arithmetic. Fusing
+the heads into ONE lower-triangular-masked `(w_max, w_max)` weight tensor + bias vector removes it.
+Under the ALL schedule the fusion is MATHEMATICALLY EXACT: every head receives gradient every step,
+and elementwise optimizer updates on one tensor equal per-tensor updates. Under sampling schedules
+it is NOT exact (zero-gradients vs no-gradients — the WSEL-14 Step-2 footgun) and must be refused.
+
+**Files (write set):** `automl_package/models/flexnn/width/architectures.py` (fused mode on
+`SharedTrunkPerWidthHeadNet`, constructor flag, DEFAULT OFF) ·
+`automl_package/examples/kdropout_converged_width_experiment.py` (flag threading + the
+fused×non-ALL hard error) · `tests/test_fused_heads_equivalence.py` (Create) ·
+`automl_package/examples/capacity_ladder_results/WSEL18/` (Create by the acceptance benchmark).
+
+**Spec.** (1) Fused parameterisation with the upper triangle hard-masked; init maps the per-head
+weights row-for-row so a fused net can be constructed equal to a per-head net. (2) Equivalence
+test: outputs and gradients equal per-head at float tolerance on fixed seeds; masked entries
+remain EXACTLY zero after real optimizer steps (pinned, not assumed); per-width best-weight
+snapshots slice rows and round-trip. Prove-it-fails included. (3) Hard error on fused + any
+schedule other than ALL. (4) Acceptance benchmark, committed as
+`automl_package/examples/capacity_ladder_results/WSEL18/bench.json`: fused ALL-schedule per-step
+wall-clock vs per-head SANDWICH per-step on the canonical cell — the measurement that verifies the
+"dominance, no decision" premise.
+**Non-goals:** no default flip (flag off; existing paths byte-identical), no other architectures,
+no use in any grid until the equivalence test is green.
+*Orchestration:* parallel: yes (disjoint from WSEL-16 stage-2 authoring) · deps: none ·
+tier: sonnet high · **gates: WSEL-16 stage-3's multi-head cells** · verify:
+`AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_fused_heads_equivalence.py -q` PASS
+with prove-it-fails shown; driver `--selftest` PASS with the flag off AND on; the benchmark JSON
+exists and carries both per-step numbers.
 
 ### WSEL-17 — THE GRAND CLEANUP: consolidate the architectures, delete what is superseded
 

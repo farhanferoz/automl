@@ -20,7 +20,7 @@ copy (gate: `test_plan_gates.py`).
 | 5 | `flexnn-moe.md` | MoE build (M0-M2 early) + reports (b), (c) | build: none; comparisons+reports: **G-JOINT** | **DONE — M0-M2 DONE 2026-07-16**; M3 rescoped as flexnn-core F6; M4/M5 superseded by F7 (user 2026-07-18) |
 | 6 | `flexnn-core.md` | Package refactor + FF-depth pilot + unified report | — | **yes** — but see the SPLIT note below; this file is 4 workstreams in one |
 | 7 | `probreg.md` | **ProbReg k-selection: models M1/M2/M3, defects, battery, report** | — | **yes — the live workstream (user, 2026-07-20)** |
-| 8 | `width.md` | **Width SELECTION + (new 2026-07-21) the ARCHITECTURE comparison, the toy suite, and the code-organisation rules.** Architecture certification stays in `width-cert.md` (CLOSED) | **`flexnn-package.md` FP-11 (TASK ZERO)**, FP-3, FP-9, FP-4 | **yes — the LIVE strand.** Order: `FP-11 → WSEL-12 → (WSEL-14 ∥ WSEL-15) → WSEL-16 → WSEL-17`, WSEL-13 parallel. §3.7 sigma-fixed-at-truth · §3.8 the toy suite (3 tiers, per-task assignment) · §3.9 the architecture inventory + no-duplication rules. WSEL-9 ⏸ PARKED, toys-only |
+| 8 | `width.md` | **Width SELECTION + the ARCHITECTURE comparison, the toy suite, and the code-organisation rules.** Architecture certification in `width-cert.md` — **AMENDED 2026-07-22 to PASS WITH CAVEATS** (user ruling after adversarial re-derivation; see width.md §2 ⛔ block) | **`flexnn-package.md` FP-11 (TASK ZERO)**, FP-3, FP-9, FP-4 | **yes — the LIVE strand, under the Decision-32 autonomous mandate.** Wave-2 order: `[WSEL-18 ∥ WSEL-16 stage-2 authoring ∥ WSEL-3 ∥ WSEL-4] → stage-2 cells + WSEL-5 → stage-3 (WSEL-18-gated) → verdict → (WSEL-6 ∥ WSEL-7) → WSEL-8 (architecture-parameterised per the WSEL-16 coupling ruling) → WSEL-17`; WSEL-13 tier 2 + small items slotted. Landed 2026-07-22: WSEL-14∥15 + follow-ups, WSEL-16 stage 1, cost probe, reviews. §3.7 sigma-fixed-at-truth · §3.8 toy suite · §3.9 no-duplication · §3.10 arbitrary-w_max rule · Decision-31 schedule/vectorisation/retention rulings. WSEL-9 ⏸ PARKED, toys-only; normalisation follow-ons ⏸ PARKED (user 2026-07-22) |
 | 9 | `depth-selection.md` | **FEED-FORWARD depth (the object) + depth selection.** | — | **⛔ ENTIRE STRAND PARKED (user, 2026-07-21): "let's park depth completely". NOTHING dispatchable.** Supersedes the earlier strand-local block. Two untried levers (per-depth output layers; regularisation) and a missing literature survey are recorded in the strand header for whoever unparks it; neither lever has a written task, and writing them is a ROOT action on unpark. **Live programme = width + ProbReg only.** |
 | 10 | `flexnn-package.md` | **The codebase**: package-vs-scripts boundary, the ONE selection API, router de-duplication, shared selection primitives, cleanup, **and FP-11 — ONE HOME under `models/flexnn/`** | — | **yes — and FP-11 is TASK ZERO for the whole programme** (user, 2026-07-21: do the reorganisation FIRST, not last — nothing is in flight to collide with, and the new width tasks create files that would otherwise be moved twice). FP-2 DONE. Boundary rule = Decision 19 |
 
@@ -556,6 +556,40 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     Retiring a mechanism never licenses breaking a shipped class's constructor. The test was inverted
     to assert the default constructs, plus a companion asserting **every method the search space
     advertises actually constructs** — the property that was really violated.
+
+31. **WIDTH SCHEDULE + ARCHITECTURE RULINGS (user, 2026-07-22, during the width review).** Three
+    parts, binding on the width strand and on any strand that later trains multi-width models:
+    (a) **the ALL schedule (every width, every step) is the DEFAULT** — the sandwich survives only
+    as the labelled comparability mode against already-landed ledgers; rationale: dominance, not
+    trade-off (never less accurate, 6× lower mid-width variance, cost premium is an implementation
+    artifact removed by (b)); (b) **the multi-head readout is VECTORISED before any further
+    multi-head compute** (`width.md` WSEL-18 — exact under ALL, refused under sampling);
+    (c) **the multi-head architecture is RETAINED regardless of the WSEL-16 outcome** — the
+    comparison selects the default recommendation, never a sole survivor, and WSEL-17's deletion
+    scope is amended accordingly. Full ruling text: `width.md` §Decision-20 REVISIT.
+
+32. **AUTONOMOUS EXECUTION MANDATE — width wave-2 (user, 2026-07-22).** The user ratified the
+    execution outline and mandates autonomous execution: **the root is dispatcher and verifier;
+    plan-prescribed branches are EXECUTED, never re-asked; ambiguities take the reversible default
+    and a logged decision; questions are batched to the end.** Commits are pre-authorized for
+    validated results, plan updates, and decision records (gates green, by exit code). The ONLY
+    halts: (i) irreversible/destructive/outward-facing actions; (ii) a defect that would make
+    continuing produce known-wrong numbers — halting that BRANCH only; (iii) the natural end.
+    **Wave-close checklist, derived from the previous run's failures — each item MANDATORY:**
+    1. "Done" is claimed ONLY against each task's verify clause, re-checked on disk — never
+       against the task list (the previous run reported a half-finished strand as done).
+    2. Every pre-registered prediction/bar in the specs of the wave's tasks is SWEPT and
+       reconciled at wave close (the 1.5× cost prediction failed silently for weeks).
+    3. Any gate/halt outcome is recorded with the rule QUOTED VERBATIM from the plan beside the
+       measured values (two gates were mis-graded from memory of their rules).
+    4. Grid launches are direct, verified started, and watched; every cell lands to disk as
+       produced (two chained/detached launches failed silently).
+    5. Gate→commit chains condition on the TEST'S exit code, never a pipeline tail's (two commits
+       landed on red gates).
+    6. Worker briefs carry: report-via-message clause, no-findings-file clause, land-as-verified
+       clause, and explicit non-goals (three report-delivery incidents).
+    7. Status and findings are reported by RESEARCH APPROACH in the user's ratified names
+       (multi-head / single-head / recipe), never task ids.
 
 ## Rules (cache discipline)
 
