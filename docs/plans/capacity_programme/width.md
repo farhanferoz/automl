@@ -1586,6 +1586,27 @@ passes with its prove-it-fails run shown; (3) 15 JSONs under
   ALL is the schedule that makes mid-width readouts trustworthy — but the mechanism is stabilisation,
   not mean shift.
 
+#### DECISION-20 REVISIT — ✅ RULED BY THE USER 2026-07-22 (supersedes the draft below)
+
+**The ruling (three parts, binding programme-wide):**
+1. **ALL-WIDTHS IS THE DEFAULT TRAINING SCHEDULE** for every future width experiment and training
+   run. The sandwich survives in exactly ONE labelled role: like-for-like comparisons against
+   already-landed sandwich ledgers (either re-run the reference under ALL, or run sandwich and
+   label it). Rationale on record: the sandwich's mid-width variance lottery broke 3/5
+   certification seeds and mis-graded a gate; ALL costs ~2x wall-clock at w_max=12 — an
+   implementation artifact (per-head bookkeeping), not a law.
+2. **VECTORISATION OF THE MULTI-HEAD ARCHITECTURE COMES FIRST — before any further multi-head
+   compute.** Fused triangular-masked head tensor behind an explicit flag; equivalence test vs the
+   per-head path (float-noise tolerance); hard-error on fused+sampling-schedule; per-width best
+   snapshots as row slices. Under ALL the fusion is mathematically exact (every head gets gradient
+   every step). Gates stage-3's 36 multi-head cells; single-head work proceeds in parallel.
+3. **MULTI-HEAD IS RETAINED as a supported architecture REGARDLESS of the comparison outcome** —
+   WSEL-16 now selects the DEFAULT RECOMMENDATION, not a sole survivor; WSEL-17's deletion scope
+   is amended: the multi-head architecture is never deleted, whatever wins.
+
+*(The draft below is retained for the reasoning record; where it conflicts with the ruling above,
+the ruling governs.)*
+
 #### DECISION-20 REVISIT — DRAFT RECOMMENDATION, FOR USER SIGN-OFF (root, 2026-07-22; NOT decided)
 
 Inputs: the schedule grid (WSEL-14), the cost probe, and the 5-seed confound extension. Facts on
@@ -1935,6 +1956,12 @@ candidate cell exists; (4) every JSON under
 `automl_package/examples/capacity_ladder_results/WSEL16/frozen.json` carries every field in Step 6.
 
 ### WSEL-17 — THE GRAND CLEANUP: consolidate the architectures, delete what is superseded
+
+> **⚠️ SCOPE AMENDED BY USER RULING 2026-07-22 (Decision-20 revisit, part 3): the MULTI-HEAD
+> architecture (`SharedTrunkPerWidthHeadNet`) is NEVER a deletion candidate, regardless of the
+> WSEL-16 outcome** — it is retained as a supported architecture ("it may be better on some
+> problems"). WSEL-16 selects the default recommendation, not a sole survivor. Deletion eligibility
+> below applies to genuinely superseded duplicates/variants only.
 
 **Why.** §3.9's inventory found six width architectures across two directories, one duplicate pair,
 two stranded never-promoted candidates, and two classes that fit a variance this strand parks. **User
