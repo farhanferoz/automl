@@ -205,36 +205,90 @@ class SharedTrunkPerWidthHeadNet(nn.Module):
     MSE-only (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §0: no variance fitting anywhere) --
     `forward_width`/`all_widths_forward` return a `log_var` of zeros to match the `(mean, log_var)`
     interface every caller expects, but it is never read by `_width_mse` and carries no gradient.
+
+    **WSEL-18 fused mode** (`fused_heads=True`, constructor flag, DEFAULT OFF -- `docs/plans/
+    capacity_programme/width.md` WSEL-18): replaces the `w_max` disjoint `mean_heads` with ONE
+    lower-triangular-masked `(w_max, w_max)` weight tensor + a `(w_max,)` bias vector, turning
+    `all_widths_forward`'s `w_max`-iteration python loop into a single matmul. Under the WSEL-14 ALL
+    schedule (every width trained every step) this is MATHEMATICALLY EXACT: row `k-1` is masked to
+    its own first `k` columns, so it computes exactly what `mean_heads[k-1]` computes off the same
+    masked hidden vector, and elementwise Adam updates on one tensor equal per-tensor updates when
+    every row gets a real gradient every step. Under a SAMPLING schedule (sandwich/uniform) it is
+    NOT exact -- a width not drawn on a given step gets a genuine ZERO gradient in fused mode (an
+    executed Adam no-op, advancing its bias-correction bookkeeping) vs NO gradient at all in unfused
+    mode (the optimizer never touches that head) -- so callers must refuse fused mode outside ALL
+    (enforced in `kdropout_converged_width_experiment.py`, not here: this class has no notion of
+    "schedule", only the trainer does).
     """
 
-    def __init__(self, w_max: int = W_MAX_DEFAULT, activation: type[nn.Module] = nn.Tanh) -> None:
-        """Builds the shared trunk plus `w_max` independent `Linear(w_max -> 1)` mean heads.
+    def __init__(self, w_max: int = W_MAX_DEFAULT, activation: type[nn.Module] = nn.Tanh, fused_heads: bool = False) -> None:
+        """Builds the shared trunk plus either `w_max` independent mean heads or ONE fused readout.
 
         Args:
             w_max: maximum hidden width (the largest prefix the net can express).
             activation: hidden-layer nonlinearity class (instantiated with no args); tanh per the
                 plan's fixed hyperparameter (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §5).
+            fused_heads: WSEL-18, default OFF. When `True`, replaces `mean_heads` with a single
+                lower-triangular-masked `(w_max, w_max)` weight + `(w_max,)` bias (see class
+                docstring) instead of the `w_max`-entry `ModuleList`. Each row is initialised from
+                an independently-constructed `Linear(w_max, 1)` -- the SAME per-row RNG draw order
+                the unfused `mean_heads` loop uses -- so a `fused_heads=True` net built under the
+                same seed as a `fused_heads=False` net has IDENTICAL live (unmasked) weights and
+                biases; only each row's DEAD tail (columns >= that row's own width, read by neither
+                mode) differs, since the fused tail is hard-zeroed at init rather than left at its
+                unused random draw.
         """
         super().__init__()
         self.w_max = int(w_max)
         self.trunk = nn.Linear(1, self.w_max)
         self.activation = activation()
-        self.mean_heads = nn.ModuleList(nn.Linear(self.w_max, 1) for _ in range(self.w_max))
+        self.fused_heads = bool(fused_heads)
+        if self.fused_heads:
+            row_weights, row_biases = [], []
+            for _ in range(self.w_max):
+                head = nn.Linear(self.w_max, 1)
+                row_weights.append(head.weight.detach())
+                row_biases.append(head.bias.detach())
+            mask = torch.tril(torch.ones(self.w_max, self.w_max))  # row k-1 valid at cols <= k-1
+            self.register_buffer("_fused_head_mask", mask)
+            self.fused_mean_weight = nn.Parameter(torch.cat(row_weights, dim=0) * mask)
+            self.fused_mean_bias = nn.Parameter(torch.cat(row_biases, dim=0))
+            self.mean_heads = None
+        else:
+            self.mean_heads = nn.ModuleList(nn.Linear(self.w_max, 1) for _ in range(self.w_max))
 
     def hidden(self, x: torch.Tensor) -> torch.Tensor:
         """`(N, 1) -> (N, w_max)` post-activation hidden representation (identical to `NestedWidthNet.hidden`)."""
         return self.activation(self.trunk(x))
 
+    def _fused_weight(self) -> torch.Tensor:
+        """Effective fused mean-head weight `(w_max, w_max)`, fused mode only.
+
+        The mask buffer is re-applied on every call, so the hard-masked upper triangle (`col > row`)
+        is EXACTLY zero in whatever this returns regardless of what an optimizer step does to the
+        raw parameter's masked entries (`tests/test_fused_heads_equivalence.py` pins this after real
+        Adam steps, not merely at init).
+        """
+        return self.fused_mean_weight * self._fused_head_mask
+
     def forward_width(self, x: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
         """`(mean, log_var)` at one FIXED width `k` (1..w_max) via width-k's OWN mean head, each `(N, 1)`.
 
-        Prefix-masks `h[:, k:] = 0` before the readout -- the same masking `NestedWidthNet.forward_width`
-        uses -- then reads `mean_head_k` off the masked hidden vector. `log_var` is a dummy zero tensor
-        (MSE-only; never in this loss's autograd graph, see class docstring).
+        Unfused: prefix-masks `h[:, k:] = 0` before the readout -- the same masking
+        `NestedWidthNet.forward_width` uses -- then reads `mean_head_k` off the masked hidden vector.
+        Fused: reads row `k-1` of the fused weight (already zero past column `k-1`, see
+        `_fused_weight`) against the UNMASKED hidden vector -- the weight's own mask makes columns
+        `>= k` of `h` contribute exactly 0 either way, so no separate `h` masking is needed. `log_var`
+        is a dummy zero tensor either way (MSE-only; never in this loss's autograd graph, see class
+        docstring).
         """
         if not (1 <= k <= self.w_max):
             raise ValueError(f"k={k} out of range [1, {self.w_max}]")
         h = self.hidden(x)
+        if self.fused_heads:
+            row = self._fused_weight()[k - 1]
+            mean = h @ row.unsqueeze(1) + self.fused_mean_bias[k - 1]
+            return mean, torch.zeros_like(mean)
         mask = torch.zeros_like(h)
         mask[:, :k] = 1.0
         h_masked = h * mask
@@ -244,10 +298,17 @@ class SharedTrunkPerWidthHeadNet(nn.Module):
     def all_widths_forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """`(mean, log_var)` at every width `k=1..w_max`, each shape `(N, w_max)`; column k-1 is width-k's own head.
 
-        No cumsum trick (unlike `NestedWidthNet`) -- each width's head is an independent parameter set,
-        not a linear function of a shared readout -- so this is `w_max` masked-`Linear(w_max -> 1)`
-        matmuls, one per width (same loop shape as `IndependentWidthNet.all_widths_forward`).
+        Unfused: no cumsum trick (unlike `NestedWidthNet`) -- each width's head is an independent
+        parameter set, not a linear function of a shared readout -- so this is `w_max` masked-
+        `Linear(w_max -> 1)` matmuls, one per width (same loop shape as
+        `IndependentWidthNet.all_widths_forward`). Fused (WSEL-18): the whole `(N, w_max)` table is
+        ONE matmul, `h @ fused_weight.T + fused_bias` -- the per-row mask makes row k-1's dot product
+        read only h's first k columns, the vectorisation this task exists for.
         """
+        if self.fused_heads:
+            h = self.hidden(x)
+            mean_all = h @ self._fused_weight().t() + self.fused_mean_bias
+            return mean_all, torch.zeros_like(mean_all)
         means, logvars = [], []
         for k in range(1, self.w_max + 1):
             mean_k, logvar_k = self.forward_width(x, k)
@@ -258,20 +319,30 @@ class SharedTrunkPerWidthHeadNet(nn.Module):
     def sampled_widths_forward(self, x: torch.Tensor, widths: Sequence[int]) -> tuple[torch.Tensor, torch.Tensor]:
         """`(mean, log_var)` for exactly `widths` (order preserved, repeats allowed), trunk evaluated ONCE.
 
-        `capacity_programme` WSEL-12. Unlike `NestedWidthNet`/`SharedReadoutPerWidthAffineNet`, this
-        class's `all_widths_forward` has NO cumsum shortcut (each width reads its OWN head, not a linear
-        function of one shared readout) -- it loops `forward_width` over every `k` in `1..w_max`, and
-        `forward_width` itself calls `self.hidden(x)` fresh each call, so `all_widths_forward` here still
-        recomputes the trunk `w_max` TIMES, not once. Gathering columns out of it would not fix the
-        k-dropout training-loop defect this task targets (for a sampled subset smaller than `w_max` it
-        would recompute the trunk MORE times than the old per-sampled-width loop, not fewer). This method
-        computes `h` ONCE and applies only the SAMPLED widths' own heads to it -- the actual fix.
+        `capacity_programme` WSEL-12. Unfused: this class's `all_widths_forward` has NO cumsum
+        shortcut (each width reads its OWN head, not a linear function of one shared readout) -- it
+        loops `forward_width` over every `k` in `1..w_max`, and `forward_width` itself calls
+        `self.hidden(x)` fresh each call, so `all_widths_forward` here still recomputes the trunk
+        `w_max` TIMES, not once. Gathering columns out of it would not fix the k-dropout training-loop
+        defect this task targets (for a sampled subset smaller than `w_max` it would recompute the
+        trunk MORE times than the old per-sampled-width loop, not fewer). This method computes `h`
+        ONCE and applies only the SAMPLED widths' own heads to it -- the actual fix. Fused (WSEL-18):
+        same one-trunk-eval-then-gather shape, but the per-width gather is an `index_select` over the
+        fused weight's ROWS (repeats allowed, same as the unfused loop over `widths`) instead of
+        `len(widths)` separate module calls.
         """
         h = self.hidden(x)
-        means, logvars = [], []
         for k in widths:
             if not (1 <= k <= self.w_max):
                 raise ValueError(f"k={k} out of range [1, {self.w_max}]")
+        if self.fused_heads:
+            idx = torch.as_tensor([k - 1 for k in widths], dtype=torch.long, device=x.device)
+            weight_rows = self._fused_weight().index_select(0, idx)
+            bias_rows = self.fused_mean_bias.index_select(0, idx)
+            mean = h @ weight_rows.t() + bias_rows
+            return mean, torch.zeros_like(mean)
+        means, logvars = [], []
+        for k in widths:
             mask = torch.zeros_like(h)
             mask[:, :k] = 1.0
             mean = self.mean_heads[k - 1](h * mask)
@@ -378,15 +449,19 @@ def _executed_flops_shared_trunk_per_width_head(net: SharedTrunkPerWidthHeadNet,
 
     Same trunk-slicing argument as `NestedWidthNet` (the prefix property is trunk-level, not
     readout-level, so it holds for any head reading the masked hidden vector), then width-
-    `config`'s OWN `mean_heads[config - 1]`, sliced to its own first `config` input columns by the
-    same masked-to-zero argument. No logvar branch -- this class's `log_var` is a dummy zero
-    tensor, never computed (see class docstring).
+    `config`'s OWN readout, sliced to its own first `config` input columns by the same
+    masked-to-zero argument. The readout always produces a single scalar mean output -- true of
+    both the unfused `mean_heads[config - 1]` (`Linear(w_max, 1)`) and the WSEL-18 fused row
+    (`fused_mean_weight[config - 1]`) -- so this reads that constant directly rather than
+    `net.mean_heads[k - 1].out_features`, which is `None` in fused mode (`fused_heads=True`).
+    No logvar branch -- this class's `log_var` is a dummy zero tensor, never computed (see class
+    docstring).
     """
     k = config
     if not (1 <= k <= net.w_max):
         raise ValueError(f"config={k} out of range [1, {net.w_max}]")
-    head = net.mean_heads[k - 1]
-    return _linear_macs(net.trunk.in_features, k) + _linear_macs(k, head.out_features)
+    mean_head_out_features = 1  # both fused and per-head readouts always produce one scalar mean.
+    return _linear_macs(net.trunk.in_features, k) + _linear_macs(k, mean_head_out_features)
 
 
 @executed_flops.register(IndependentWidthNet)

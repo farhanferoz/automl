@@ -333,6 +333,27 @@ def _train_kdropout_to_convergence(
     return {k: trackers[k].result(final_epoch=final_epoch) for k in range(1, w_max + 1)}, best_mean_val_epoch
 
 
+def _validate_fused_heads(arch: Arch, schedule: nwn.WidthSchedule, *, fused_heads: bool) -> None:
+    """WSEL-18 spec (3): hard error on `fused_heads=True` outside `Arch.SHARED_TRUNK` + `WidthSchedule.ALL`.
+
+    Fusion is mathematically exact only when EVERY width gets a real gradient every step (the ALL
+    schedule): under a sampling schedule an unselected width gets a genuine ZERO gradient in fused
+    mode (an executed Adam no-op, advancing its bias-correction bookkeeping) vs NO gradient at all
+    in unfused mode (the optimizer never touches that head) -- not the same update. Only
+    `SharedTrunkPerWidthHeadNet` (`Arch.SHARED_TRUNK`) has a fused mode at all. Refusing here, before
+    any data or net is built, is cheaper than a silently wrong number several commits later.
+    """
+    if not fused_heads:
+        return
+    if arch is not Arch.SHARED_TRUNK:
+        raise ValueError(f"fused_heads=True requires --arch {Arch.SHARED_TRUNK.value} (the only architecture with a fused mode), got arch={arch.value!r}")
+    if schedule is not nwn.WidthSchedule.ALL:
+        raise ValueError(
+            f"fused_heads=True requires --schedule {nwn.WidthSchedule.ALL.value} -- fusion is only mathematically exact "
+            f"under ALL (every width, every step); got schedule={schedule.value!r}"
+        )
+
+
 def run_case(
     seed: int,
     w_max: int,
@@ -351,6 +372,7 @@ def run_case(
     schedule: nwn.WidthSchedule = nwn.WidthSchedule.SANDWICH,
     router_hidden_mult: float = 1.0,
     uniform_draw_n: int = _DEFAULT_UNIFORM_SCHEDULE_DRAW_N,
+    fused_heads: bool = False,
 ) -> dict:
     """Trains the k-dropout net to per-width convergence, then scores the frozen net for the pre-registered bars.
 
@@ -364,7 +386,12 @@ def run_case(
     region (fixed structure, `sigma` ignored — its hard region keeps the quiet `HETERO_NOISE_SIGMA`, so
     `floor_hard = HETERO_NOISE_SIGMA**2`) and, under `--loss mse`, the §5.4 noisy-easy negative-control
     bar is added to the case.
+
+    `fused_heads` (WSEL-18, default off): use `SharedTrunkPerWidthHeadNet`'s fused readout instead of
+    its per-width `mean_heads`. Refused (`_validate_fused_heads`) unless `arch=Arch.SHARED_TRUNK` and
+    `schedule=WidthSchedule.ALL` -- fusion is only mathematically exact there (see class docstring).
     """
+    _validate_fused_heads(arch, schedule, fused_heads=fused_heads)
     if toy is nwn.Toy.HETERO3:
         x_tr, y_tr, _reg_tr = nwn.make_hetero3(n_train, seed)
         x_te, y_te, region_te = nwn.make_hetero3(n_test, seed + 500)
@@ -391,7 +418,7 @@ def run_case(
     elif arch is Arch.INDEPENDENT:
         net = nwn.IndependentWidthNet(w_max=w_max)
     elif arch is Arch.SHARED_TRUNK:
-        net = nwn.SharedTrunkPerWidthHeadNet(w_max=w_max)
+        net = nwn.SharedTrunkPerWidthHeadNet(w_max=w_max, fused_heads=fused_heads)
     else:
         net = nwn.SharedReadoutPerWidthAffineNet(w_max=w_max)
     # WSEL-12 cost instrumentation (Step 3): wall-clock wraps ONLY the training call itself, unchanged
@@ -431,6 +458,7 @@ def run_case(
         "seed": seed,
         "arch": arch.value,
         "loss": loss.value,
+        "fused_heads": fused_heads,  # WSEL-18: only ever True for arch=shared_trunk, schedule=all (see _validate_fused_heads).
         "convergence": {k: r.summary() for k, r in conv.items()},
         "n_widths_trustworthy": n_trustworthy,
         "all_widths_trustworthy": n_trustworthy == w_max,
@@ -600,6 +628,35 @@ def run_selftest() -> bool:
     print(f"[kdropout-converged selftest] toy=hetero3 arch=independent loss=mse noisy_easy_bar_present={hetero3_ok}  {'PASS' if hetero3_ok else 'FAIL'}")
     ok = ok and hetero3_ok
 
+    # WSEL-18 wiring: fused_heads=True (arch=shared_trunk, schedule=all) trains and produces the same
+    # case shape as the unfused case; the two forbidden combinations are hard-refused.
+    case_fused = run_case(
+        seed=0, w_max=3, n_train=200, n_test=100, max_epochs=1500, device="cpu", arch=Arch.SHARED_TRUNK, loss=LossType.MSE,
+        check_every=100, patience=3, min_delta=2e-3, schedule=nwn.WidthSchedule.ALL, fused_heads=True,
+    )
+    fused_ok = _selftest_bars_present(case_fused, LossType.MSE) and case_fused.get("fused_heads") is True
+    print(f"[kdropout-converged selftest] fused_heads=True arch=shared_trunk schedule=all bars_present={fused_ok}  {'PASS' if fused_ok else 'FAIL'}")
+    ok = ok and fused_ok
+
+    refused = []
+    try:
+        run_case(
+            seed=0, w_max=3, n_train=50, n_test=20, max_epochs=10, device="cpu", arch=Arch.SHARED_TRUNK, loss=LossType.MSE,
+            check_every=5, patience=1, min_delta=2e-3, schedule=nwn.WidthSchedule.SANDWICH, fused_heads=True,
+        )
+    except ValueError:
+        refused.append("non_all_schedule")
+    try:
+        run_case(
+            seed=0, w_max=3, n_train=50, n_test=20, max_epochs=10, device="cpu", arch=Arch.NESTED, loss=LossType.MSE,
+            check_every=5, patience=1, min_delta=2e-3, schedule=nwn.WidthSchedule.ALL, fused_heads=True,
+        )
+    except ValueError:
+        refused.append("non_shared_trunk_arch")
+    refusals_ok = refused == ["non_all_schedule", "non_shared_trunk_arch"]
+    print(f"[kdropout-converged selftest] fused_heads hard-error refusals: {refused}  {'PASS' if refusals_ok else 'FAIL'}")
+    ok = ok and refusals_ok
+
     print(f"[kdropout-converged selftest] {'PASS' if ok else 'FAIL'}")
     return ok
 
@@ -722,6 +779,13 @@ def main() -> None:
     parser.add_argument("--router-hidden-mult", type=float, default=1.0,
                         help="W6: scale deploy-router hidden off ck6.HIDDEN=(32,32) (0.5=half, 2.0=double; 1.0=canonical).")
     parser.add_argument("--w-max", type=int, default=None, help="W8: max width / number of levels (default 12=W_MAX; scan couples #levels with total trunk size).")
+    parser.add_argument(
+        "--fused-heads",
+        action="store_true",
+        help="WSEL-18: SharedTrunkPerWidthHeadNet's fused (w_max, w_max) readout instead of its per-width mean_heads list. "
+        "Default off (existing paths byte-identical). Requires --arch shared_trunk and --schedule all; refused otherwise "
+        "(fusion is only mathematically exact under ALL -- see architectures.py's class docstring).",
+    )
     args = parser.parse_args()
 
     if args.selftest:
@@ -733,6 +797,8 @@ def main() -> None:
     sigma = args.sigma
     tag = args.tag
     schedule = nwn.WidthSchedule(args.schedule)
+    fused_heads = args.fused_heads
+    _validate_fused_heads(arch, schedule, fused_heads=fused_heads)  # fail fast, before building data for any seed
 
     device = str(get_device())
     if args.smoke:
@@ -750,7 +816,8 @@ def main() -> None:
 
     print(
         f"[kdropout-converged] device={device} arch={arch.value} loss={loss.value} toy={toy.value} sigma={sigma:g} "
-        f"seeds={seeds} w_max={w_max} n_train={n_train} n_test={n_test} max_epochs_cap={max_epochs} check_every={args.check_every} tag={tag}",
+        f"seeds={seeds} w_max={w_max} n_train={n_train} n_test={n_test} max_epochs_cap={max_epochs} check_every={args.check_every} "
+        f"tag={tag} fused_heads={fused_heads}",
         flush=True,
     )
     os.makedirs(results_dir, exist_ok=True)
@@ -761,7 +828,7 @@ def main() -> None:
         case = run_case(
             seed, w_max, n_train, n_test, max_epochs, device,
             arch=arch, loss=loss, check_every=args.check_every, patience=args.patience, min_delta=args.min_delta, toy=toy, sigma=sigma,
-            schedule=schedule, router_hidden_mult=args.router_hidden_mult, uniform_draw_n=args.uniform_draw_n,
+            schedule=schedule, router_hidden_mult=args.router_hidden_mult, uniform_draw_n=args.uniform_draw_n, fused_heads=fused_heads,
         )
         per_case.append(case)
         if loss is LossType.NLL:
@@ -787,6 +854,7 @@ def main() -> None:
                 "router_hidden_mult": args.router_hidden_mult,
                 "arch": arch.value,
                 "loss": loss.value,
+                "fused_heads": fused_heads,  # WSEL-18
                 "toy": toy.value,
                 "tag": tag,
                 "w_max": w_max,
