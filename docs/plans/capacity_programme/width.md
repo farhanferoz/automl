@@ -1358,6 +1358,17 @@ the failure cost one calibration run (~36 small nets), not a 432-cell grid read 
   More data reaches error floors at SMALLER widths, so the easy-side degradation (3 → 5 despite
   2× data) is UNCONFOUNDED; the hard-side convergence is partially confounded.
 
+**✅ REDESIGN v2 GO RENDERED (root, under the standing delegation, 2026-07-22 late):**
+`shared/wsel19-toy-redesign.md` (the rotated-box construction — Φ-warp removed entirely; the
+canonical coordinate embedded by a deterministic Householder rotation with uniform decoy
+coordinates) authored against R1-R4 below, adversarially adjudicated (construction mathematics
+CONFIRMED by executed numeric probe; no construction-level defect found; verdict
+GO-WITH-AMENDMENTS), all mandatory + recommended amendments incorporated (verdict-aggregation
+rule with survivor-bias closure; pre-dispatch regime reads; calibration failure taxonomy
+protecting the iteration budget; trustworthiness field pinned; majority pass bar per the traced
+measure; selection pool-and-prefix; scale-aware selftest tolerances). **The amended v2 spec is
+the build authority for the multi-feature slice; build proceeds on `capacity/wave-3`.**
+
 **Redesign requirements derived from the trace (BINDING on the redesign spec):**
 - **R1** — the network-visible coordinate along `v` must preserve the canonical coordinate's
   geometry: no Φ-warp (or any nonlinear reparameterization) between the canonical target's
