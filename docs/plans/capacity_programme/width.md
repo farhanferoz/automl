@@ -1552,6 +1552,35 @@ passes with its prove-it-fails run shown; (3) 15 JSONs under
   **Recommendation drafted for user sign-off — never decided autonomously.**
 - Probe artifacts preserved: `automl_package/examples/capacity_ladder_results/WSEL14/cost_probe/`
   (probe script + 6 result JSONs: orders A/B × schedules b1/sandwich/all).
+- **AMENDMENT 2026-07-22 (after the WSEL-15 FOLLOW-UP's 5-seed extension): "ALL wins the mids" above
+  is refined — at 3-seed means it looked like a mean improvement; per-seed pairing shows the real
+  effect is VARIANCE COLLAPSE** (sandwich's mid widths are a 6× per-seed lottery that ALL removes;
+  see the WSEL-15 FOLLOW-UP verdict, item 5). The schedule conclusion is unchanged in direction —
+  ALL is the schedule that makes mid-width readouts trustworthy — but the mechanism is stabilisation,
+  not mean shift.
+
+#### DECISION-20 REVISIT — DRAFT RECOMMENDATION, FOR USER SIGN-OFF (root, 2026-07-22; NOT decided)
+
+Inputs: the schedule grid (WSEL-14), the cost probe, and the 5-seed confound extension. Facts on
+record: sandwich holds every accuracy bar and is the cheapest adequate schedule; its mid widths are
+a per-seed LOTTERY (variance, not bias) that the ALL schedule eliminates; ALL costs ~2.4× per step
+(intrinsic per-width-head work — head loop/backward/optimizer, per the probe), partially offset by
+converging in ~0.8× the steps → **~2× total wall-clock at `w_max=12`**; <!-- source: `automl_package/examples/capacity_ladder_results/WSEL14/cost_probe/result_orderA_all.json` + `automl_package/examples/capacity_ladder_results/WSEL15_ALLSCHED/frozen.json` -->
+the cost gap vanishes under a vectorised readout (fused heads are EXACT under ALL; the cheap
+running-sum structure is natively vectorised); and starvation worsens with width count
+(§3.10 — each mid trains on ~2/(w_max−2) of sandwich steps).
+
+**Draft recommendation (three clauses):**
+1. **Sandwich stays the default** for cost-sensitive training of the certified architecture at
+   `w_max=12` — nothing it is certified for is contradicted.
+2. **ALL becomes REQUIRED for any run whose READOUT consumes mid-width values** (per-width
+   profiles, ordering diagnostics, architecture-comparison per-width tables): under sandwich those
+   numbers carry a 6× seed lottery and are not measurement-grade. ~2× cost is the price of a
+   trustworthy readout. *(Consequence to note, not retrofit: stage-1 WSEL-16 per-width PROFILES
+   carry the sandwich caveat; its PRIMARY bar reads full-width only and is unaffected.)*
+3. **At larger `w_max`, or once any vectorised/cheap readout lands, ALL becomes the default** —
+   the cost argument for sandwich is architecture-bound and scale-bound, and both bounds are
+   expected to fall.
 
 ### WSEL-15 — does the nested design survive a normalisation layer? (the transformer-port repairs, measured)
 
@@ -1677,8 +1706,28 @@ field in Step 3 and `hit_cap: false`; (4)
   Root added `--schedule {sandwich,all}`: default byte-identical (sandwich, selftest PASS under both
   schedules, ruff clean), and `all` cells write to `WSEL15_ALLSCHED/` so the landed `WSEL15/` grid
   and its `frozen.json` can never be clobbered nor mixed-schedule-aggregated.
-- 🔄 **RUNNING 2026-07-22 (root, backgrounded):** 9 cells — arms a/b/c × seeds 0/1/2 under
-  `--schedule all`, canonical cell otherwise unchanged; then `--schedule all --summarize`.
+- ✅ **ANSWERED 2026-07-22 — 14 cells landed (arms a/b/c × seeds 0/1/2, then a/b extended to seeds
+  3/4 when the 3-seed mid-width readout proved inside seed noise). Verdict, per-seed-paired:**
+  1. **Normalisation's claimed mid-width benefit is NOT established — it was a seed lottery.**
+     Paired per-seed gaps at widths 3–5 flip sign seed to seed (−87% to +185%; norm better on only
+     2–3 of 5 seeds). The sandwich grid's 33–64% mean improvements were 3-seed means over the same
+     bimodal fit-regime lottery. **Do not cite normalisation as helping the mid widths.** <!-- source: `automl_package/examples/capacity_ladder_results/WSEL15_ALLSCHED/frozen.json` + per-seed cells in the same dir -->
+  2. **The wide-end cost IS established:** +13–28% mean at widths 7–10, worse on 4/5 seeds at w7
+     and w10, consistent across BOTH schedules. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL15_ALLSCHED/frozen.json` -->
+  3. **The convergence cost IS established:** +34% steps under ALL (24.1k vs 18.0k mean), +43%
+     under sandwich. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL15_ALLSCHED/frozen.json` vs `automl_package/examples/capacity_ladder_results/WSEL15/frozen.json` -->
+  4. **Port conclusion:** prefix normalisation is mechanically exact and per-step free, but carries
+     two established costs and no established benefit in a nested net. A transformer port must
+     budget for that or test repairs beyond the two tried here.
+  5. **Bonus finding, feeds the Decision-20 revisit: the all-widths schedule STABILIZES the starved
+     mid widths rather than shifting their mean.** No-norm w5 per-seed spans 0.068–0.406 under sandwich <!-- source: `automl_package/examples/capacity_ladder_results/WSEL15/wsel15_a_seed0.json` .. seed2 -->
+     (a 6× lottery) vs a tight band under ALL — five-seed min 0.0549 <!-- source: `automl_package/examples/capacity_ladder_results/WSEL15_ALLSCHED/wsel15_a_seed2.json` -->
+     to max 0.0915. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL15_ALLSCHED/wsel15_a_seed1.json` -->
+     **The sandwich mid-width problem is VARIANCE, not bias** — any readout that consumes per-width
+     profiles at mid widths under sandwich is reading lottery noise.
+  6. Integrity: 14/14 cells converged under the cap; one cell (b, seed 3) has width 2 untrustworthy —
+     not verdict-bearing (mid-width claims are lottery-labelled anyway; wide-end conclusions hold
+     with and without it, checked both ways).
 
 ### WSEL-16 — the architecture comparison: can the CHEAP structure be trained to work? — 🔄 **IN PROGRESS 2026-07-22**
 
