@@ -1042,9 +1042,14 @@ def _get_or_build_mf_models(
     return models, metas, all_cache_hit, n_train
 
 
-def _mf_error_table(models: dict[int, FlexibleWidthNN], x: np.ndarray, y: np.ndarray, w_max: int) -> np.ndarray:
-    """`(n, w_max)` per-sample squared error against `y`, one column per width -- the held-out (noisy-target) table every backend trains/scores against."""
-    return np.stack([(models[w].predict(x, filter_data=False, width=w) - y) ** 2 for w in range(1, w_max + 1)], axis=1)
+def _mf_error_table(models: dict[int, FlexibleWidthNN], x: np.ndarray, target: np.ndarray, w_max: int) -> np.ndarray:
+    """`(n, w_max)` per-sample squared error against `target`, one column per width.
+
+    Pass the noisy `y` for the held-out table every backend trains/scores against, or the
+    generator-true signal `h(t)` (`_hetero_h`) for the §5.4/F4 true-error/oracle table -- the
+    computation is identical, only the target differs.
+    """
+    return np.stack([(models[w].predict(x, filter_data=False, width=w) - target) ** 2 for w in range(1, w_max + 1)], axis=1)
 
 
 def _hetero_h(t: np.ndarray, r: float = nwn.HETERO_R_DEFAULT) -> np.ndarray:
@@ -1182,8 +1187,9 @@ def _run_calibration_block(
 
         x_report, y_report, region_report, t_report = wt.make_report_split(seed, _CALIBRATION_D, _CALIBRATION_GEOMETRY)
         error_table_report = _mf_error_table(models, x_report, y_report, w_max)
-        h_report = _hetero_h(t_report)
-        true_error_table = np.stack([(models[w].predict(x_report, filter_data=False, width=w) - h_report) ** 2 for w in range(1, w_max + 1)], axis=1)
+        # The generator-TRUE table is the same per-width squared-error stack scored against h(t)
+        # instead of the noisy y (§5.4/F4) -- `_mf_error_table` already takes an arbitrary target.
+        true_error_table = _mf_error_table(models, x_report, _hetero_h(t_report), w_max)
 
         best_fixed_mse = float(error_table_report.mean(axis=0).min())
         analysis = _regime_floor_analysis(true_error_table, region_report)
@@ -1321,8 +1327,7 @@ def run_cell_multifeature(
     fit_status = FitStatus.OK if ratio_to_noise_floor <= calibration["anchor_ratio_to_noise_floor"] else FitStatus.VOID_FOR_FIT
 
     # §5.4/F4 hidden-ness falsifier -- true-error oracle vs best FIXED width, both against h(t), never noisy y.
-    h_report = _hetero_h(t_report)
-    true_error_table_report = np.stack([(models[w].predict(x_report, filter_data=False, width=w) - h_report) ** 2 for w in range(1, w_max + 1)], axis=1)
+    true_error_table_report = _mf_error_table(models, x_report, _hetero_h(t_report), w_max)
     oracle_true_mean = float(true_error_table_report.min(axis=1).mean())
     best_fixed_true_mean = float(true_error_table_report.mean(axis=0).min())
     relative_gain = (best_fixed_true_mean - oracle_true_mean) / best_fixed_true_mean if best_fixed_true_mean > 0 else 0.0
