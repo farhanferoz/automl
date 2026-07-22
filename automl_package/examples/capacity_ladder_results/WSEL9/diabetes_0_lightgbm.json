@@ -1,0 +1,197 @@
+{
+  "dataset": "diabetes",
+  "seed": 0,
+  "arm": "lightgbm",
+  "width": null,
+  "held_out_mse": 3879.2032083791028,
+  "held_out_trajectory": [
+    [
+      1,
+      73.50569263202799
+    ],
+    [
+      2,
+      71.12433593484934
+    ],
+    [
+      3,
+      68.79458108154473
+    ],
+    [
+      4,
+      67.05352112880469
+    ],
+    [
+      5,
+      65.91467493658567
+    ],
+    [
+      6,
+      64.42186848667053
+    ],
+    [
+      7,
+      63.89244304593027
+    ],
+    [
+      8,
+      62.469625289556255
+    ],
+    [
+      9,
+      61.25393166164326
+    ],
+    [
+      10,
+      60.79178702449948
+    ],
+    [
+      11,
+      60.07788539936229
+    ],
+    [
+      12,
+      60.36140031308984
+    ],
+    [
+      13,
+      59.022195616790604
+    ],
+    [
+      14,
+      58.29278177817537
+    ],
+    [
+      15,
+      58.19840189922331
+    ],
+    [
+      16,
+      57.47637090195628
+    ],
+    [
+      17,
+      57.64948699561542
+    ],
+    [
+      18,
+      57.12985590449553
+    ],
+    [
+      19,
+      56.64037438727399
+    ],
+    [
+      20,
+      56.98267501056227
+    ],
+    [
+      21,
+      57.20150316728187
+    ],
+    [
+      22,
+      57.11055428399233
+    ],
+    [
+      23,
+      56.9926484028034
+    ],
+    [
+      24,
+      56.7059737020152
+    ],
+    [
+      25,
+      56.78761643517808
+    ],
+    [
+      26,
+      57.055957629189265
+    ],
+    [
+      27,
+      57.15992311188239
+    ],
+    [
+      28,
+      57.23536041863468
+    ],
+    [
+      29,
+      57.369099470373726
+    ],
+    [
+      30,
+      57.02468418604942
+    ],
+    [
+      31,
+      57.10078013022263
+    ],
+    [
+      32,
+      57.44812646979021
+    ],
+    [
+      33,
+      57.63591022852115
+    ],
+    [
+      34,
+      57.879993521622154
+    ]
+  ],
+  "trustworthy": true,
+  "hit_cap": false,
+  "converged": true,
+  "trajectory_applicable": true,
+  "selection_cost": null,
+  "config": {
+    "n_estimators": 200,
+    "early_stopping_rounds": 15,
+    "best_iteration": 19,
+    "test_fraction": 0.2,
+    "max_train": null,
+    "fraction_pct": 15
+  },
+  "constants": {
+    "selection_fraction": {
+      "source": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL6/frozen.json",
+      "fraction": 0.15,
+      "fraction_pct": 15
+    },
+    "width_ladder": {
+      "source": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL8/hetero_0.json",
+      "w_max": 12
+    },
+    "router": {
+      "source": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL7/frozen.json",
+      "invariant": false,
+      "ratified_default": {
+        "hidden": 32,
+        "depth": 2,
+        "epochs": 300,
+        "lr": 0.01
+      },
+      "ruling": "width.md WSEL-7 2026-07-22 sign-off ruling 1: frozen default STAYS, new_default NOT adopted"
+    }
+  },
+  "provenance": {
+    "timestamp_utc": "2026-07-22T18:33:06+00:00",
+    "git": {
+      "commit": "2a22061a952104f39e07bd32de1771791876c6d9",
+      "dirty": true
+    },
+    "python": "3.12.13",
+    "torch": "2.10.0+xpu",
+    "numpy": "2.4.3",
+    "platform": "Linux-7.1.3-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "threads": {
+      "omp_num_threads": "4",
+      "torch_num_threads": 4,
+      "cpu_count": 22
+    },
+    "automl_device": "cpu"
+  }
+}
