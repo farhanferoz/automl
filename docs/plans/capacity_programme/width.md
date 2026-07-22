@@ -886,6 +886,20 @@ a second test asserts the returned width is stable under a reshuffle of the sele
 > no retraining) confirms every cell passes; any breach halts before the merge and escalates.
 > This standard applies to FUTURE reproduction bars strand-wide; the WSEL-13 5% plateau
 > tolerance and similar pre-registered bars are not re-graded retroactively.**
+>
+> **✅ WAVE-A VERIFICATION EXECUTED AND RULED (root, 2026-07-22, under the delegated mandate).**
+> Two-stage recompute (`WSEL4/bar_recheck.{py,json}`, commits `8b2cafe` proxy → `8b422b9`
+> true-σ): under the ratified formula with the generator's TRUE noise variance (σ² = 0.0025,
+> verified at `nested_width_net.py:93,144` — common-mode across regions, so genuinely
+> x-independent for hetero), **34/36 cells pass; the 2 failures (seed 1, widths 7 and 12; worst
+> ratio 3.749) BOTH sit on reference-UNCERTIFIED cells** <!-- source: `automl_package/examples/capacity_ladder_results/WSEL4/bar_recheck.json` (`all_pass`, per-cell `ratio`/`pass`/`reference_seed_untrustworthy`) --> (`untrustworthy_seeds: [0, 1]` read
+> from the reference itself; zero failures on trustworthy seeds). **Ruling: corrections 1-2
+> stand RATIFIED; the two failing cells are attributable to the reference's own uncertified
+> seed-1 trajectories (the port's runs ARE trajectory-certified), fall under carry-forward
+> caveat 3 (already banned from downstream use), and are additionally annotated in
+> `bar_recheck.json`. The item-4 MERGE HOLD IS LIFTED.** The earlier proxy construction
+> (σ² := achieved MSE) is retained in the artifact as `proxy_*` columns for the record; it
+> over-fails underfit widths and is not the standard.
 
 **Files (write set):** `automl_package/examples/width_wsel4.py` (Create) ·
 `automl_package/examples/capacity_ladder_results/WSEL4/`
@@ -1202,6 +1216,56 @@ deployed compute.
 
 **Non-goals:** no changes to `routing.py` (the owning strand's write set); no soft-target
 *construction* sweep (experiment-protocol, stays with the drivers); no depth/ProbReg cells.
+
+#### WSEL-19 D1 — the decision-complete execution spec (root, 2026-07-22, wave D)
+
+**Driver:** `automl_package/examples/width_wsel19.py` (Create) + results dir
+`automl_package/examples/capacity_ladder_results/WSEL19/` (Create by runs). **Write set of the
+authoring contract: exactly those two paths.**
+
+**REUSE FIRST (§3.9 — read before writing a line):** `width_wsel7.py` already builds per-width
+error tables and fits/evaluates the distilled router per cell; `width_wsel6.py` already varies
+the selection-set fraction; `automl_package/models/flexnn/routing.py` already provides
+`fit`/`route_index`/`blend_scores`/`blend_nll` and the labelling rule. The bake-off driver
+IMPORTS/adapts that machinery — the author re-derives the exact reuse points from source at
+execution time and reimplements NOTHING that exists. XGBoost is an installed dependency
+(`xgboost`); verify the import before writing code that assumes an API.
+
+**The four backends per cell (WSEL-19 header, ratified):** (1) frozen MLP recipe — call
+`DistilledCapacityRouter` at its defaults, unchanged; (2) rule-sized + regularised MLP — hidden
+sizes from an input-relative rule the driver DEFINES AND RECORDS in every cell JSON (ruling 2:
+the rule is a deliverable; the frozen `(32, 32)` must be its d=1 instance), trained with an
+internal validation split + early stopping + mild weight decay, dropout excluded (ruling 6) —
+implemented INSIDE the driver (routing.py is out of the write set; this arm re-implements only
+the small training loop it needs, citing ruling 3's future home); (3) gradient-boosted trees —
+`xgboost` classifier on the same hard labels, native early stopping on the same internal split;
+(4) constant router — always the globally-best capacity from the training-side table.
+
+**× two evaluation modes per backend (no extra training):** HARD (argmax route; report routed
+held-out error + mean deployed FLOPs via the existing cost accounting) and BLEND (probability-
+weighted; for likelihood readouts use `blend_scores`/`blend_nll`; deployed compute = expected
+cost under the router's class probabilities — report it next to quality in every cell).
+
+**1-D slice cells (runs NOW, canonical toys only):** toy = tier-1 hetero per §3.8 (§3.7 σ fixed
+at truth), selection-set sizes {75, 300, 1200} × seeds {0, 1, 2} × 4 backends × 2 modes. The
+per-width error table per (seed) comes from per-width models trained ONCE per seed under the
+WSEL-4-vetted protocol and SHARED by all backends (confound C3 of the toy-design spec) — reuse
+landed per-width machinery/artifacts where the protocol matches exactly; retrain only what
+cannot be reused, and say which in the cell JSON. One JSON per (backend, mode, N_sel, seed):
+routed held-out error, oracle agreement, deployed compute, labels/table provenance, the sizing
+rule (arm 2), fitted-backend config. `--selftest` (tiny synthetic end-to-end across all four
+backends × both modes) and `--summarize` (aggregate to
+`automl_package/examples/capacity_ladder_results/WSEL19/frozen.json`) required.
+**Multi-feature slice:** cells per `shared/wsel19-toy-design.md` — BUILD NOTHING until the
+root's delegated go/no-go is recorded there (adjudicator review in flight).
+
+**Verify (authoring contract):** selftest PASS · ruff clean · ONE real 1-D cell (backend 1,
+HARD, N_sel 300, seed 0, `--tag authsmoke`, deleted after schema check) · `git status --short`
+clean but for the driver before commit.
+
+**Non-goals (authoring):** run no grid beyond the smoke cell (the ROOT runs the slices); no
+edits to `routing.py`, `width_wsel7.py`, `width_wsel6.py`, or any plan doc; no tolerance sweep
+(Decision 18); no new toy code before the multi-feature GO is recorded.
 
 ### WSEL-8 — the W-SHARED ≈ W-SWEEP claim, both halves, on toys — ⛔ **ANSWERED 2026-07-22: BOTH HALVES FAIL. The dial network is NOT ≈ the exhaustive sweep on this toy — 2.6-7.2× worse at matched middle widths, 0/3 agreement on the chosen width, and the disagreement is a mechanical consequence of the quality gap. A FAIL is a finding, not a bug.**
 

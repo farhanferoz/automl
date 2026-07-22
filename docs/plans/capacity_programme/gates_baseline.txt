@@ -79,3 +79,9 @@ automl_package/examples/probreg_p11.py                                # P11
 # Each verified: named in a PS task's Files line AND consumed by that task's verify command.
 # Remove each entry the moment the artifact lands.
 docs/plans/capacity_programme/shared/ps-certification-memo.md       # PS-4 (memo)
+
+# --- width.md WSEL-19 D1 Create targets (wave D, root 2026-07-22) ------------------------------
+# The bake-off driver + its aggregate ledger. Created by the D2 authoring contract / the root's
+# slice runs. Remove each entry the moment the artifact lands.
+automl_package/examples/width_wsel19.py                             # WSEL-19 D2 (driver)
+automl_package/examples/capacity_ladder_results/WSEL19/frozen.json  # WSEL-19 --summarize
