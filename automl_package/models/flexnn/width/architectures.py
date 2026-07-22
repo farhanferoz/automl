@@ -149,11 +149,11 @@ class IndependentWidthNet(nn.Module):
     The width twin of `automl_package/models/independent_weights_flexible_neural_network.py`
     (`IndependentWeightsFlexibleNN`: independent weights per DEPTH, one `nn.ModuleList` entry per
     depth, trained with the same k-dropout selection). Here width-k is its OWN sub-net
-    `Linear(1 -> k) -> tanh -> (mean_head_k, logvar_head_k)`, sharing NOTHING with width-k'≠k. This
-    deliberately breaks the shared-trunk prefix property of `NestedWidthNet` — the one variable W1/W2
-    pinned as the obstruction (`docs/plans/width_dial_2026-07-11/EXECUTION_PLAN.md` §6 follow-up):
-    node-0 no longer has to double as a good small-width predictor, so each width is free to fit to
-    its own ceiling.
+    `Linear(in_dim -> k) -> tanh -> (mean_head_k, logvar_head_k)`, sharing NOTHING with width-k'≠k.
+    This deliberately breaks the shared-trunk prefix property of `NestedWidthNet` — the one variable
+    W1/W2 pinned as the obstruction (`docs/plans/width_dial_2026-07-11/EXECUTION_PLAN.md` §6
+    follow-up): node-0 no longer has to double as a good small-width predictor, so each width is free
+    to fit to its own ceiling.
 
     Exposes the SAME `w_max` / `forward_width` / `all_widths_forward` interface as `NestedWidthNet`,
     so it is a drop-in for `sinc_width_experiment._score_all_widths` and for the SANDWICH branch of
@@ -164,14 +164,27 @@ class IndependentWidthNet(nn.Module):
     readouts are LEARNED-variance heads from the pre-ruling lineage; fitting them in any new run is
     forbidden (variance is FIXED at the true generator value, never learned). New runs train MSE or
     the fixed-sigma weighted objective only.
+
+    **Input-dimension generalization** (WSEL-19 §2b, `docs/plans/capacity_programme/shared/
+    wsel19-toy-design.md`): every sub-net's trunk takes a constructor-time `in_dim` (default 1) —
+    a constructor argument, not something inferred from data, because this class has no `fit()`
+    hook to infer it from; `in_dim` follows the same convention `w_max`/`activation` already do.
+    `in_dim=1` (the default) is BYTE-IDENTICAL to the pre-generalization class: same parameter
+    shapes, same per-seed initialization draws, same forward outputs
+    (`tests/test_width_indim_equivalence.py`).
     """
 
-    def __init__(self, w_max: int = W_MAX_DEFAULT, activation: type[nn.Module] = nn.Tanh) -> None:
-        """Builds `w_max` disjoint sub-nets; sub-net k (0-indexed k-1) has exactly k hidden units."""
+    def __init__(self, w_max: int = W_MAX_DEFAULT, activation: type[nn.Module] = nn.Tanh, in_dim: int = 1) -> None:
+        """Builds `w_max` disjoint sub-nets; sub-net k (0-indexed k-1) has exactly k hidden units.
+
+        Each sub-net reads `in_dim` input features (default 1, byte-identical to this class's
+        original scalar-input behaviour -- WSEL-19 §2b).
+        """
         super().__init__()
         self.w_max = int(w_max)
+        self.in_dim = int(in_dim)
         self.subnets = nn.ModuleList(
-            nn.ModuleDict({"trunk": nn.Linear(1, k), "act": activation(), "mean_head": nn.Linear(k, 1), "logvar_head": nn.Linear(k, 1)})
+            nn.ModuleDict({"trunk": nn.Linear(self.in_dim, k), "act": activation(), "mean_head": nn.Linear(k, 1), "logvar_head": nn.Linear(k, 1)})
             for k in range(1, self.w_max + 1)
         )
 
@@ -201,8 +214,8 @@ class IndependentWidthNet(nn.Module):
 class SharedTrunkPerWidthHeadNet(nn.Module):
     """Width-MSE program's Contingency C: `NestedWidthNet` with ONE change -- per-width mean heads.
 
-    Same shared `Linear(1 -> w_max)` trunk and the SAME prefix-masking mechanism as
-    `NestedWidthNet.forward_width` (`h[:, k:] = 0` before the readout), but width `k` reads its OWN
+    Same shared `Linear(in_dim -> w_max)` trunk (in_dim defaults to 1, matching `NestedWidthNet`)
+    and the SAME prefix-masking mechanism as `NestedWidthNet.forward_width` (`h[:, k:] = 0` before the readout), but width `k` reads its OWN
     `mean_head_k = Linear(w_max -> 1)` instead of the one `mean_head` shared across every width. This
     isolates the readout-sharing variable ALONE -- mirroring how `IndependentWidthNet` above isolates
     trunk sharing by breaking everything at once -- so a WP-2 comparison against `NestedWidthNet`
@@ -230,9 +243,21 @@ class SharedTrunkPerWidthHeadNet(nn.Module):
     mode (the optimizer never touches that head) -- so callers must refuse fused mode outside ALL
     (enforced in `kdropout_converged_width_experiment.py`, not here: this class has no notion of
     "schedule", only the trainer does).
+
+    **Input-dimension generalization** (WSEL-19 §2b, `docs/plans/capacity_programme/shared/
+    wsel19-toy-design.md`): the trunk takes a constructor-time `in_dim` (default 1) -- a
+    constructor argument, not something inferred from data, following the same convention
+    `w_max`/`activation`/`fused_heads` already use (this class has no `fit()` hook to infer
+    dimensionality from). `in_dim=1` (the default) is BYTE-IDENTICAL to the pre-generalization
+    class: same parameter shapes, same per-seed initialization draws, same forward outputs
+    (`tests/test_width_indim_equivalence.py`). Orthogonal to `fused_heads` -- both flags compose
+    freely, since `in_dim` only changes the trunk's input side and `fused_heads` only changes the
+    readout side.
     """
 
-    def __init__(self, w_max: int = W_MAX_DEFAULT, activation: type[nn.Module] = nn.Tanh, fused_heads: bool = False) -> None:
+    def __init__(
+        self, w_max: int = W_MAX_DEFAULT, activation: type[nn.Module] = nn.Tanh, fused_heads: bool = False, in_dim: int = 1
+    ) -> None:
         """Builds the shared trunk plus either `w_max` independent mean heads or ONE fused readout.
 
         Args:
@@ -248,10 +273,13 @@ class SharedTrunkPerWidthHeadNet(nn.Module):
                 biases; only each row's DEAD tail (columns >= that row's own width, read by neither
                 mode) differs, since the fused tail is hard-zeroed at init rather than left at its
                 unused random draw.
+            in_dim: WSEL-19 §2b, default 1. Input feature dimension the trunk reads. Default 1
+                preserves this class's original scalar-input behaviour byte-for-bit.
         """
         super().__init__()
         self.w_max = int(w_max)
-        self.trunk = nn.Linear(1, self.w_max)
+        self.in_dim = int(in_dim)
+        self.trunk = nn.Linear(self.in_dim, self.w_max)
         self.activation = activation()
         self.fused_heads = bool(fused_heads)
         if self.fused_heads:
@@ -269,7 +297,7 @@ class SharedTrunkPerWidthHeadNet(nn.Module):
             self.mean_heads = nn.ModuleList(nn.Linear(self.w_max, 1) for _ in range(self.w_max))
 
     def hidden(self, x: torch.Tensor) -> torch.Tensor:
-        """`(N, 1) -> (N, w_max)` post-activation hidden representation (identical to `NestedWidthNet.hidden`)."""
+        """`(N, in_dim) -> (N, w_max)` post-activation hidden representation (identical to `NestedWidthNet.hidden` at the default `in_dim=1`)."""
         return self.activation(self.trunk(x))
 
     def _fused_weight(self) -> torch.Tensor:
@@ -480,7 +508,7 @@ def _executed_flops_independent_width(net: IndependentWidthNet, config: int) -> 
     """Routed width-`config` MACs for `IndependentWidthNet` (K disjoint sub-nets, no sharing).
 
     No slicing trick needed here (unlike the shared-trunk classes above) -- sub-net `config` is
-    already sized exactly `config`, with literal full compute: `trunk = Linear(1, config)` then
+    already sized exactly `config`, with literal full compute: `trunk = Linear(in_dim, config)` then
     `mean_head = Linear(config, 1)`. `logvar_head` excluded unconditionally -- module docstring.
     """
     k = config
