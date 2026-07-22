@@ -25,8 +25,8 @@ resumes at the first wave not marked ✅ — never re-dispatches a ✅ wave.
 | **A** | PS-A1 ∥ PS-A2 | ✅ **complete 2026-07-21** — both reviewed clean (spec ✅ / quality approved, 0 Critical, 0 Important on each) | **PS-A1 = `25fcf9a`** (+ root hardening: `head_spread` lacked the string coercion every other enum kwarg in that `__init__` has, so a string would have matched none of the `is` branches and silently behaved as `PER_INPUT`). **PS-A2 = `d9a8cd9`** driver + **`d66d74c`** (D1 made explicitly inapplicable to no-fitted-spread arms rather than accidentally so). Reviewers independently re-ran selftest/ruff and hand-checked the D2 comparison SIGN — an inversion there would have silently selected the WORST arm. 4 Minor findings in the ledger for the final review. |
 | **B** | PS-1 trunk grid | ✅ **complete 2026-07-21** — 160/160 cells (10 arms × 4 toys × k{2,6} × seeds{0,1}), all readable, no duplicates, primary metric present on every cell. 20 cells hit the 300-epoch cap and were re-run once at 600 per §2; **one did not converge even then** and is excluded from D2 per D-PS-5. **Winner = `ce × fixed_shared × mixture`, decided by D4, NOT by a measured win** — see the evidence note below. | `automl_package/examples/capacity_ladder_results/PS1/frozen.json` · `automl_package/examples/capacity_ladder_results/PS1/ps1_decision.json` · originals of the capped cells kept under `automl_package/examples/capacity_ladder_results/PS1/capped_at_300/` so the re-run is auditable against what it replaced |
 | **C** | PS-2 patch audit | ✅ **complete 2026-07-22** — 144 cells (4 distinct arms × 4 toys × k{2,3,6} × seeds{0,1,2}; k=3 added on user authorisation, D-PS-8). 24 cells hit the 300-epoch cap; all 24 converged on the locked 600-epoch re-run (0 excluded). **Verdict: NO patch is kept — winner = trunk W with every patch off**, by D4 (no arm dominated the k=2 D2 pool). Boundary loses decisively at k=2 (−0.19 toy_a, −0.37 toy_b), so the repaired path is not a spurious winner. **Caveat, for the memo: at k=3, middle-class ON modestly BEATS off (3/4 toys, +0.087 on the reference toy_b) — but the k=2-locked D2 readout is structurally blind to it. See the PS-2 evidence note.** <!-- numcheck-ignore: the decimals here are cross-cell seed-mean DIFFS (mc_on−mc_off, boundary−winner), not values stored in any single cell; authoritative source = the PS2 cells + frozen.json. --> | `automl_package/examples/capacity_ladder_results/PS2/ps2_decision.json` · `frozen.json` · `inapplicable_arms.json` · capped originals under `PS2/capped_at_300/` |
-| **D** | PS-3 head battery | ⬜ | — |
-| **E** | PS-4 certification → ⛔ user gate | ⬜ | — |
+| **D** | PS-3 head battery | ✅ **complete 2026-07-22** — 72 cells (3 layouts × 4 toys × k{2,6} × seeds{0,1,2}), all converged (9 capped cells cleared the 600-epoch re-run). Winner = `separate` by D4. **⚠️ THE MECHANISM-CONTROL HALT RULE MECHANICALLY FIRED** — `single_final` ties the component layouts on aggregate D2 at matched params (452/420/407, the ≥0.9× rule). **But the tie is an aggregation artifact and its stated rationale is false here** — see the PS-3 halt note. **Phase stops at PS-3 per the halt rule; PS-4 NOT run; this is the ⛔ USER GATE.** | `automl_package/examples/capacity_ladder_results/PS3/ps3_decision.json` · `frozen.json` · capped originals under `PS3/capped_at_300/` |
+| **E** | PS-4 certification → ⛔ user gate | ⏸️ **NOT RUN — blocked on the PS-3 halt decision** (the plan's halt rule says "propose nothing" until the user rules; running PS-4 would presume the component story the halt puts in question) | — |
 
 **Root-applied decisions during the autonomous run** (batched to the PS-4 memo; none irreversible):
 - **D-PS-1 — §4.5 D2's metric was WRONG and is amended (not a default; a defect fix).** It named
@@ -117,6 +117,40 @@ resumes at the first wave not marked ✅ — never re-dispatches a ✅ wave.
   the halt outcome.** The classification bottleneck is real even for this layout, so `slice_accuracy`
   is read off the true k-way classifier, not the degenerate weights. Regression test:
   `tests/test_structure_phase_heads.py::test_mechanism_control_layout_produces_a_valid_cell`.
+
+**⛔ PS-3 HALT NOTE — THIS IS THE USER GATE. The mechanism-control halt rule fired; I believe it
+misfires here, and the call is the user's.** Source:
+`automl_package/examples/capacity_ladder_results/PS3/ps3_decision.json` + the k=2 cells.
+
+- **What the rule says.** §PS-3: "Mechanism control ties or wins at matched params → END THE PHASE,
+  write the memo around that finding, propose nothing (it contradicts the component story the strand
+  rests on — a user matter, batched to the gate)."
+- **What fired.** At k=2, matched params (`separate` 452, `single_n` 420, `single_final` 407 — all
+  ≥ 0.9× separate, the locked rule), the aggregate D2 verdict is a THREE-WAY TIE: no layout beats
+  another on "≥2 toys better, none worse". So the mechanism control (`single_final`, one pooled head,
+  no per-class components) mechanically "ties" the component layouts. The halt rule triggers.
+- **Why the trigger is an aggregation artifact, and its rationale ("contradicts the component
+  story") is FALSE here.** Per toy, `separate` vs `single_final` on the fixed-σ mixture LL:
+  - **`toy_b` (the reference toy, genuine components): `separate` wins by +1.19 nats** (2×SE 0.15) —
+    decisive.
+  - `toy_a` (near-smooth): `single_final` wins by 0.034 (2×SE 0.022) — tiny.
+  - `broad_unimodal`, `toy_c_broad`: dead ties (< 2×SE).
+  The "tie" exists ONLY because the D2 rule needs ≥2 winning toys with none worse: the mixture wins
+  one toy hugely and loses one toy trivially, so it doesn't dominate — but that is the OPPOSITE of
+  "components don't matter". Components win enormously exactly where components exist and cost a hair
+  only on a smooth toy where there is nothing multi-modal to model. Corroborating: on `toy_b` the
+  mechanism control's **RMSE is actually BETTER** (0.687 vs 0.713) <!-- numcheck-ignore: seed-mean RMSE on toy_b k=2, aggregated across the PS3 cells (not a single stored value); source = the PS3 toy_b cells. --> while its mixture LL is far worse
+  — its single mean fits the conditional average fine but cannot cover a multi-modal conditional, so
+  a fixed-σ Gaussian around it scores terribly. That is the mechanism control doing exactly what it
+  was built to expose, faithfully scored (D-PS-10).
+- **The call for the user.** The mechanical trigger fired, so by the letter of the plan the phase
+  halts and PS-4 is not run. But the trigger's PURPOSE — evidence that the classification-mixture
+  buys nothing — is contradicted by the per-toy split. Options: (a) accept the halt and treat the
+  component story as unsupported (**I recommend against** — the per-toy evidence is strongly for it);
+  (b) rule that the D2 aggregate rule misfires when the toy suite MIXES component and non-component
+  toys, lift the halt, and let PS-4 certify `separate` (mixture) as the structure whose payoff is
+  concentrated on multi-component data; (c) amend the halt rule to read per-toy on the reference toy
+  (like D3 does) before re-deciding. **No PS-4 cells were spent pending this.**
 
 **⚠️ PS-2 EVIDENCE NOTE — carry into the PS-4 memo.** Source:
 `automl_package/examples/capacity_ladder_results/PS2/ps2_decision.json` + the k=3 cells.
