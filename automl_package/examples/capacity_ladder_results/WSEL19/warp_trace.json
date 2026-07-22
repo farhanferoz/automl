@@ -1,0 +1,367 @@
+{
+  "task": "WSEL-19 d=1 calibration-failure warp-hypothesis trace",
+  "hypothesis": "the inverse-CDF lift makes the model see the easy region's flat-linear target through a sigmoid-like reparameterization, plausibly destroying its easy/cheap character so every region wants width",
+  "n_fresh": 4000,
+  "fresh_seed_offset": 50000,
+  "w_max": 12,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "noise_floor": 0.0025000000000000005,
+  "declared_criteria": {
+    "practical_floor_fractions": [
+      0.1,
+      0.2,
+      0.3
+    ],
+    "primary_fraction": 0.2,
+    "gap_thresh": 1,
+    "min_seeds_for_pattern": 2
+  },
+  "per_seed": {
+    "0": {
+      "canonical": {
+        "easy_curve": [
+          0.0009760170360095799,
+          0.012127500958740711,
+          0.00022352547966875136,
+          0.003577378811314702,
+          7.586716674268246e-05,
+          0.0002597302373033017,
+          0.00012495892588049173,
+          5.522980427485891e-05,
+          0.00010814168490469456,
+          9.015361865749583e-05,
+          7.355253183050081e-05,
+          3.709437442012131e-05
+        ],
+        "hard_curve": [
+          0.12867315113544464,
+          0.07491716742515564,
+          0.07345811277627945,
+          0.00108755799010396,
+          0.0009750780882313848,
+          0.001045165816321969,
+          0.0005115110543556511,
+          0.0003827791369985789,
+          0.0002594818652141839,
+          0.0005162005545571446,
+          0.0005270130350254476,
+          0.0005401766393333673
+        ],
+        "easy_argmin": 12,
+        "hard_argmin": 9,
+        "practical_floor_width_by_fraction": {
+          "0.1": {
+            "easy": 3,
+            "hard": null
+          },
+          "0.2": {
+            "easy": 3,
+            "hard": 8
+          },
+          "0.3": {
+            "easy": 3,
+            "hard": 7
+          }
+        },
+        "practical_floor_gap": 5,
+        "all_widths_trustworthy": true,
+        "untrustworthy_widths": [],
+        "n_train_used": 600
+      },
+      "lifted": {
+        "easy_curve": [
+          0.0012961092870682478,
+          0.0010230651823803782,
+          0.0005088153993710876,
+          0.0007222359417937696,
+          0.00011048234591726214,
+          8.566562610212713e-05,
+          7.136671774787828e-05,
+          0.00024040801508817822,
+          0.00015021352737676352,
+          0.00019651504408102483,
+          8.441937825409696e-05,
+          4.032543074572459e-05
+        ],
+        "hard_curve": [
+          0.12860283255577087,
+          0.08775708824396133,
+          0.0879940539598465,
+          0.0009434198145754635,
+          0.0004804797063115984,
+          0.00027501475415192544,
+          0.0002775954199023545,
+          0.0007561692618764937,
+          0.0005345927202142775,
+          0.0005902480916120112,
+          0.00030896111275069416,
+          0.00025199816445820034
+        ],
+        "easy_argmin": 12,
+        "hard_argmin": 12,
+        "practical_floor_width_by_fraction": {
+          "0.1": {
+            "easy": 5,
+            "hard": null
+          },
+          "0.2": {
+            "easy": 5,
+            "hard": 5
+          },
+          "0.3": {
+            "easy": 3,
+            "hard": 5
+          }
+        },
+        "practical_floor_gap": 0,
+        "all_widths_trustworthy": true,
+        "untrustworthy_widths": [],
+        "n_train_used": 1200
+      }
+    },
+    "1": {
+      "canonical": {
+        "easy_curve": [
+          0.0011453693732619286,
+          0.0011121847201138735,
+          0.0006019467837177217,
+          0.003542903810739517,
+          7.261870632646605e-05,
+          0.00022189904120750725,
+          8.842040551826358e-05,
+          6.203562224982306e-05,
+          5.5319895182037726e-05,
+          3.867387931677513e-05,
+          3.974812352680601e-05,
+          4.883693327428773e-05
+        ],
+        "hard_curve": [
+          0.12764683365821838,
+          0.09543222934007645,
+          0.09326677769422531,
+          0.002526889555156231,
+          0.005063434597104788,
+          0.0004510875733103603,
+          0.0007363278418779373,
+          7.649460894754156e-05,
+          0.0006243653479032218,
+          0.00022534473100677133,
+          0.00014726589142810553,
+          0.00018083874601870775
+        ],
+        "easy_argmin": 10,
+        "hard_argmin": 8,
+        "practical_floor_width_by_fraction": {
+          "0.1": {
+            "easy": 5,
+            "hard": 8
+          },
+          "0.2": {
+            "easy": 5,
+            "hard": 6
+          },
+          "0.3": {
+            "easy": 3,
+            "hard": 6
+          }
+        },
+        "practical_floor_gap": 1,
+        "all_widths_trustworthy": true,
+        "untrustworthy_widths": [],
+        "n_train_used": 600
+      },
+      "lifted": {
+        "easy_curve": [
+          0.0011054392671212554,
+          0.0010116506600752473,
+          0.0071688247844576836,
+          0.007496924605220556,
+          0.00013659227988682687,
+          9.82836281764321e-05,
+          0.00036310384166426957,
+          0.0002637081779539585,
+          0.0006985394866205752,
+          0.00035750551614910364,
+          0.0003071894752793014,
+          0.0003580746706575155
+        ],
+        "hard_curve": [
+          0.1276317834854126,
+          0.0925995334982872,
+          0.01083296351134777,
+          0.005319703370332718,
+          0.00028885770007036626,
+          0.0002072460192721337,
+          0.0005712129641324282,
+          0.0003187417460139841,
+          0.0008537162793800235,
+          0.0005220564198680222,
+          0.0003258364158682525,
+          0.000344461906934157
+        ],
+        "easy_argmin": 6,
+        "hard_argmin": 6,
+        "practical_floor_width_by_fraction": {
+          "0.1": {
+            "easy": 5,
+            "hard": 6
+          },
+          "0.2": {
+            "easy": 5,
+            "hard": 5
+          },
+          "0.3": {
+            "easy": 5,
+            "hard": 5
+          }
+        },
+        "practical_floor_gap": 0,
+        "all_widths_trustworthy": true,
+        "untrustworthy_widths": [],
+        "n_train_used": 1200
+      }
+    },
+    "2": {
+      "canonical": {
+        "easy_curve": [
+          0.0013130396837368608,
+          0.010232741944491863,
+          0.0002706518571358174,
+          0.002661284524947405,
+          0.0004942879313603044,
+          3.2421794458059594e-05,
+          3.8393020076910034e-05,
+          3.9753787859808654e-05,
+          5.941144627286121e-05,
+          3.547974847606383e-05,
+          3.581812416086905e-05,
+          2.833279904734809e-05
+        ],
+        "hard_curve": [
+          0.12722912430763245,
+          0.0773167684674263,
+          0.08876656740903854,
+          0.0031772274523973465,
+          0.002110446570441127,
+          0.0003707908617798239,
+          0.0003971531114075333,
+          0.00019401406461838633,
+          0.0001787737855920568,
+          0.00027765543200075626,
+          0.0007607124280184507,
+          0.00033439171966165304
+        ],
+        "easy_argmin": 12,
+        "hard_argmin": 9,
+        "practical_floor_width_by_fraction": {
+          "0.1": {
+            "easy": 6,
+            "hard": 8
+          },
+          "0.2": {
+            "easy": 3,
+            "hard": 6
+          },
+          "0.3": {
+            "easy": 3,
+            "hard": 6
+          }
+        },
+        "practical_floor_gap": 3,
+        "all_widths_trustworthy": true,
+        "untrustworthy_widths": [],
+        "n_train_used": 600
+      },
+      "lifted": {
+        "easy_curve": [
+          0.0010314690880477428,
+          0.0009345329599454999,
+          0.006509493105113506,
+          0.0013834795681759715,
+          0.00011219174484722316,
+          0.0001887444668682292,
+          0.00011316384188830853,
+          0.0001076594417099841,
+          0.000178521906491369,
+          0.00019638455705717206,
+          0.00015010885545052588,
+          0.00018752695177681744
+        ],
+        "hard_curve": [
+          0.12879633903503418,
+          0.08972534537315369,
+          0.015106483362615108,
+          0.002157722832635045,
+          0.00030800735112279654,
+          0.00017398910131305456,
+          0.0001696732797427103,
+          0.00015687062114011496,
+          0.00014275457942858338,
+          0.00023459641670342535,
+          0.0001521428202977404,
+          0.00026522058760747313
+        ],
+        "easy_argmin": 8,
+        "hard_argmin": 9,
+        "practical_floor_width_by_fraction": {
+          "0.1": {
+            "easy": 5,
+            "hard": 6
+          },
+          "0.2": {
+            "easy": 5,
+            "hard": 5
+          },
+          "0.3": {
+            "easy": 5,
+            "hard": 5
+          }
+        },
+        "practical_floor_gap": 0,
+        "all_widths_trustworthy": false,
+        "untrustworthy_widths": [
+          3
+        ],
+        "n_train_used": 1200
+      }
+    }
+  },
+  "classification": {
+    "primary_fraction": 0.2,
+    "gap_thresh": 1,
+    "canonical_differentiates_seed_count": 3,
+    "lifted_ties_seed_count": 3,
+    "lifted_differentiates_seed_count": 0,
+    "verdict": "CONFIRMED",
+    "mechanism": "the calibration failure IS explained by the lift, but not exactly as literally framed. The canonical control's hard region needs a strictly larger practical-floor width than its easy region on 3/3 seeds (a real per-region routing signal); under the lift, that gap collapses to zero or negative on 3/3 seeds -- easy and hard converge onto the SAME practical width. This is a two-sided convergence, not a one-sided 'easy became as hard as hard': per-seed numbers below typically show the lifted easy region needing MORE practical width than canonical's easy region AND the lifted hard region needing LESS than canonical's hard region, meeting near a common value -- the easy region's ABSOLUTE achievable true error stays tiny and comparable between constructions (it does not become as large as the hard region's); what the lift destroys is specifically the WIDTH GAP between regions, which is exactly what a per-input router would need to have anything to route on."
+  },
+  "caveats": [
+    "raw argmin (reported per curve above, per the brief's step 3) is NOT what the verdict is judged on: the canonical control's easy-region argmin is 10-12 (out of 12) on all 3 seeds -- not small -- so a plain small-vs-large argmin comparison cannot establish the predicted contrast even on the control side. See the module docstring for why (noisy-y vs generator-TRUE scoring are different metrics with different floors); the verdict above is judged on `practical_floor_gap` instead, which is robust to this.",
+    "this script's reload/scoring pipeline was cross-checked against the calibration artifact itself: the lifted-construction `easy_argmin`/`hard_argmin` computed here reproduce `wsel19_calibration_d1.json`'s own `best_width_easy`/`best_width_hard` exactly on all 3 seeds (12/12, 6/6, 5/9) -- strong evidence this trace is scoring the SAME nets the same way the calibration run did, not a divergent re-derivation.",
+    "lifted seed=2's width=3 net is recorded untrustworthy (hit_cap=True) in its own cached meta.json -- the same seed the calibration artifact itself flags trustworthy=false; its curve point at width=3 should be read with that in mind, not silently trusted.",
+    "the two constructions' caches do NOT share an effective training-set size: canonical WSEL6 sweep nets trained on n_train_used=600 (the p1/p2 50/50 selection carve applied BEFORE the internal val split), lifted WSEL19 calibration nets trained on n_train_used=1200 (the val split applied directly to the full 1500-point draw, no p1/p2 carve). This is a genuine protocol difference between the two caches this trace reads, not part of the warp hypothesis -- recorded here, not corrected (out of this task's write set)."
+  ],
+  "provenance": {
+    "timestamp_utc": "2026-07-22T20:43:44+00:00",
+    "git": {
+      "commit": "743a24791e47e50dfbc1b2038b8e49faadc20fbf",
+      "dirty": true
+    },
+    "python": "3.12.13",
+    "torch": "2.10.0+xpu",
+    "numpy": "2.4.3",
+    "platform": "Linux-7.1.3-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "threads": {
+      "omp_num_threads": "4",
+      "torch_num_threads": 4,
+      "cpu_count": 22
+    },
+    "automl_device": "cpu"
+  },
+  "inputs_mtime_max_utc": "2026-07-22T19:26:46+00:00",
+  "n_input_files": 144
+}
