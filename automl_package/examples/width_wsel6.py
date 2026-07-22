@@ -887,6 +887,15 @@ def main() -> None:
     )
     parser.add_argument("--arm", choices=[a.value for a in Arm], default=None, help="Required outside --selftest/--summarize.")
     parser.add_argument("--results-dir", type=str, default=RESULTS_DIR)
+    parser.add_argument(
+        "--epoch-cap",
+        type=int,
+        default=w4.PORTED_N_EPOCHS_CAP,
+        help="Safety cap on training epochs for any net this cell has to train (default: the w4 ported protocol's cap). "
+        "Raise it ONLY to repair a cell whose cached net hit the cap (the DO-NOT-CONCLUDE guard); the capped cache entry "
+        "must be moved aside first or the cell will just reload it. A raised cap is a named deviation: the rebuilt cache "
+        "meta records the actual epochs, and convergence is still decided by the patience gate, not the cap.",
+    )
 
     args = parser.parse_args()
 
@@ -905,7 +914,7 @@ def main() -> None:
     arm = Arm(args.arm)
     os.makedirs(args.results_dir, exist_ok=True)
     print(f"[wsel6] tier={tier.value} toy={_TIER_CONFIG[tier].toy.value} seed={args.seed} fraction={args.fraction}% arm={arm.value} w_max={W_MAX}", flush=True)
-    case = run_cell(tier, args.seed, args.fraction, arm, results_dir=args.results_dir)
+    case = run_cell(tier, args.seed, args.fraction, arm, results_dir=args.results_dir, max_epochs=args.epoch_cap)
 
     if not case["trustworthy"]:
         print(
