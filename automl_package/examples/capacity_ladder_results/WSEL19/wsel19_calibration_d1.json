@@ -1,4 +1,5 @@
 {
+  "construction": "box_v2",
   "d": 1,
   "geometry": "axis",
   "seeds": [
@@ -6,46 +7,330 @@
     1,
     2
   ],
-  "per_seed": {
-    "0": {
-      "best_fixed_held_out_mse": 0.0028085156809538603,
-      "ratio_to_noise_floor": 1.123406272381544,
-      "regime_visible": false,
-      "best_width_easy": 12,
-      "best_width_hard": 12,
-      "trustworthy": true,
-      "n_train": 1500
-    },
-    "1": {
-      "best_fixed_held_out_mse": 0.0026033855974674225,
-      "ratio_to_noise_floor": 1.0413542389869688,
-      "regime_visible": false,
-      "best_width_easy": 6,
-      "best_width_hard": 6,
-      "trustworthy": true,
-      "n_train": 1500
-    },
-    "2": {
-      "best_fixed_held_out_mse": 0.002538325497880578,
-      "ratio_to_noise_floor": 1.015330199152231,
-      "regime_visible": true,
-      "best_width_easy": 5,
-      "best_width_hard": 9,
-      "trustworthy": false,
-      "n_train": 1500
-    }
+  "declared_criteria": {
+    "practical_floor_fractions": [
+      0.1,
+      0.2,
+      0.3
+    ],
+    "primary_fraction": 0.2,
+    "gap_thresh": 1,
+    "min_seeds_for_pattern": 2
   },
-  "anchor_ratio_to_noise_floor": 1.123406272381544,
-  "regime_visible_all_seeds": false,
-  "all_trustworthy": false,
-  "passed": false,
+  "regime_block": {
+    "n_train": 750,
+    "per_seed": {
+      "0": {
+        "best_fixed_held_out_mse": 0.0028236734215170145,
+        "ratio_to_noise_floor": 1.1294693686068056,
+        "trustworthy": true,
+        "n_train": 750,
+        "retrained_widths": {
+          "5": {
+            "original_meta": {
+              "actual_epochs": 6000,
+              "n_train_used": 600,
+              "trustworthy": false,
+              "hit_cap": true
+            },
+            "retrained_meta": {
+              "actual_epochs": 7374,
+              "n_train_used": 600,
+              "trustworthy": true,
+              "hit_cap": false
+            },
+            "raised_cap": 12000
+          },
+          "8": {
+            "original_meta": {
+              "actual_epochs": 6000,
+              "n_train_used": 600,
+              "trustworthy": false,
+              "hit_cap": true
+            },
+            "retrained_meta": {
+              "actual_epochs": 6173,
+              "n_train_used": 600,
+              "trustworthy": true,
+              "hit_cap": false
+            },
+            "raised_cap": 12000
+          }
+        },
+        "regime_visible": true,
+        "floor_width_easy": 5,
+        "floor_width_hard": 9,
+        "practical_floor_gap": 4,
+        "floors_by_fraction": {
+          "0.1": {
+            "easy": 5,
+            "hard": 11
+          },
+          "0.2": {
+            "easy": 5,
+            "hard": 9
+          },
+          "0.3": {
+            "easy": 5,
+            "hard": 6
+          }
+        },
+        "argmin_width_easy": 7,
+        "argmin_width_hard": 11
+      },
+      "1": {
+        "best_fixed_held_out_mse": 0.00472189811989665,
+        "ratio_to_noise_floor": 1.8887592479586597,
+        "trustworthy": true,
+        "n_train": 750,
+        "retrained_widths": {},
+        "regime_visible": false,
+        "floor_width_easy": 2,
+        "floor_width_hard": null,
+        "practical_floor_gap": null,
+        "floors_by_fraction": {
+          "0.1": {
+            "easy": 2,
+            "hard": null
+          },
+          "0.2": {
+            "easy": 2,
+            "hard": null
+          },
+          "0.3": {
+            "easy": 2,
+            "hard": null
+          }
+        },
+        "argmin_width_easy": 8,
+        "argmin_width_hard": 6
+      },
+      "2": {
+        "best_fixed_held_out_mse": 0.0025489218533039093,
+        "ratio_to_noise_floor": 1.0195687413215635,
+        "trustworthy": true,
+        "n_train": 750,
+        "retrained_widths": {
+          "8": {
+            "original_meta": {
+              "actual_epochs": 6000,
+              "n_train_used": 600,
+              "trustworthy": false,
+              "hit_cap": true
+            },
+            "retrained_meta": {
+              "actual_epochs": 6200,
+              "n_train_used": 600,
+              "trustworthy": true,
+              "hit_cap": false
+            },
+            "raised_cap": 12000
+          }
+        },
+        "regime_visible": true,
+        "floor_width_easy": 5,
+        "floor_width_hard": 6,
+        "practical_floor_gap": 1,
+        "floors_by_fraction": {
+          "0.1": {
+            "easy": 5,
+            "hard": null
+          },
+          "0.2": {
+            "easy": 5,
+            "hard": 6
+          },
+          "0.3": {
+            "easy": 5,
+            "hard": 6
+          }
+        },
+        "argmin_width_easy": 12,
+        "argmin_width_hard": 11
+      }
+    },
+    "anchor_ratio_to_noise_floor": 1.8887592479586597,
+    "n_trustworthy_seeds": 3,
+    "n_differentiating_trustworthy_seeds": 2,
+    "all_trustworthy": true
+  },
+  "anchor_block": {
+    "n_train": 1500,
+    "per_seed": {
+      "0": {
+        "best_fixed_held_out_mse": 0.0028196575585752726,
+        "ratio_to_noise_floor": 1.1278630234301088,
+        "trustworthy": true,
+        "n_train": 1500,
+        "retrained_widths": {
+          "4": {
+            "original_meta": {
+              "actual_epochs": 6000,
+              "n_train_used": 1200,
+              "trustworthy": false,
+              "hit_cap": true
+            },
+            "retrained_meta": {
+              "actual_epochs": 8281,
+              "n_train_used": 1200,
+              "trustworthy": true,
+              "hit_cap": false
+            },
+            "raised_cap": 12000
+          },
+          "5": {
+            "original_meta": {
+              "actual_epochs": 6000,
+              "n_train_used": 1200,
+              "trustworthy": false,
+              "hit_cap": true
+            },
+            "retrained_meta": {
+              "actual_epochs": 10440,
+              "n_train_used": 1200,
+              "trustworthy": true,
+              "hit_cap": false
+            },
+            "raised_cap": 12000
+          }
+        },
+        "regime_visible": true,
+        "floor_width_easy": 4,
+        "floor_width_hard": 8,
+        "practical_floor_gap": 4,
+        "floors_by_fraction": {
+          "0.1": {
+            "easy": 5,
+            "hard": 9
+          },
+          "0.2": {
+            "easy": 4,
+            "hard": 8
+          },
+          "0.3": {
+            "easy": 4,
+            "hard": 6
+          }
+        },
+        "argmin_width_easy": 8,
+        "argmin_width_hard": 9
+      },
+      "1": {
+        "best_fixed_held_out_mse": 0.002554608741775155,
+        "ratio_to_noise_floor": 1.0218434967100618,
+        "trustworthy": true,
+        "n_train": 1500,
+        "retrained_widths": {
+          "2": {
+            "original_meta": {
+              "actual_epochs": 6000,
+              "n_train_used": 1200,
+              "trustworthy": false,
+              "hit_cap": true
+            },
+            "retrained_meta": {
+              "actual_epochs": 6996,
+              "n_train_used": 1200,
+              "trustworthy": true,
+              "hit_cap": false
+            },
+            "raised_cap": 12000
+          },
+          "5": {
+            "original_meta": {
+              "actual_epochs": 6000,
+              "n_train_used": 1200,
+              "trustworthy": false,
+              "hit_cap": true
+            },
+            "retrained_meta": {
+              "actual_epochs": 6759,
+              "n_train_used": 1200,
+              "trustworthy": true,
+              "hit_cap": false
+            },
+            "raised_cap": 12000
+          },
+          "7": {
+            "original_meta": {
+              "actual_epochs": 6000,
+              "n_train_used": 1200,
+              "trustworthy": false,
+              "hit_cap": true
+            },
+            "retrained_meta": {
+              "actual_epochs": 6230,
+              "n_train_used": 1200,
+              "trustworthy": true,
+              "hit_cap": false
+            },
+            "raised_cap": 12000
+          }
+        },
+        "regime_visible": true,
+        "floor_width_easy": 3,
+        "floor_width_hard": 8,
+        "practical_floor_gap": 5,
+        "floors_by_fraction": {
+          "0.1": {
+            "easy": 6,
+            "hard": 8
+          },
+          "0.2": {
+            "easy": 3,
+            "hard": 8
+          },
+          "0.3": {
+            "easy": 3,
+            "hard": 6
+          }
+        },
+        "argmin_width_easy": 11,
+        "argmin_width_hard": 12
+      },
+      "2": {
+        "best_fixed_held_out_mse": 0.0024493748787790537,
+        "ratio_to_noise_floor": 0.9797499515116213,
+        "trustworthy": true,
+        "n_train": 1500,
+        "retrained_widths": {},
+        "regime_visible": true,
+        "floor_width_easy": 3,
+        "floor_width_hard": 6,
+        "practical_floor_gap": 3,
+        "floors_by_fraction": {
+          "0.1": {
+            "easy": 6,
+            "hard": 8
+          },
+          "0.2": {
+            "easy": 3,
+            "hard": 6
+          },
+          "0.3": {
+            "easy": 3,
+            "hard": 6
+          }
+        },
+        "argmin_width_easy": 12,
+        "argmin_width_hard": 9
+      }
+    },
+    "anchor_ratio_to_noise_floor": 1.1278630234301088,
+    "n_trustworthy_seeds": 3,
+    "n_differentiating_trustworthy_seeds": 3,
+    "all_trustworthy": true
+  },
+  "regime_passed": true,
+  "passed": true,
+  "anchor_ratio_to_noise_floor": 1.1278630234301088,
   "noise_floor": 0.0025000000000000005,
   "w_max": 12,
   "provenance": {
-    "timestamp_utc": "2026-07-22T19:14:13+00:00",
+    "timestamp_utc": "2026-07-22T22:23:56+00:00",
     "git": {
-      "commit": "a7cfd3dc250b24660a9e221dbae5f66ff0647f34",
-      "dirty": false
+      "commit": "eab0aa66e80643614a35f3ab1090792d27374a87",
+      "dirty": true
     },
     "python": "3.12.13",
     "torch": "2.10.0+xpu",

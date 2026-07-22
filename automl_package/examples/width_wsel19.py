@@ -1171,7 +1171,13 @@ def _run_calibration_block(
                 widths=untrustworthy,
             )
             for w in untrustworthy:
-                retrained[str(w)] = {"original_meta": metas[w], "retrained_meta": metas_retrained[w], "raised_cap": raised_cap}
+                # Record summaries only -- the full per-epoch trajectories stay in the cache metas
+                # (git-ignored); a committed artifact must stay reviewably small.
+                retrained[str(w)] = {
+                    "original_meta": {k: metas[w][k] for k in ("actual_epochs", "n_train_used", "trustworthy", "hit_cap")},
+                    "retrained_meta": {k: metas_retrained[w][k] for k in ("actual_epochs", "n_train_used", "trustworthy", "hit_cap")},
+                    "raised_cap": raised_cap,
+                }
                 models[w], metas[w] = models_retrained[w], metas_retrained[w]
 
         x_report, y_report, region_report, t_report = wt.make_report_split(seed, _CALIBRATION_D, _CALIBRATION_GEOMETRY)
