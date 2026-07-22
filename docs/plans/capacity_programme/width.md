@@ -486,6 +486,16 @@ Constants: `automl_package/examples/converged_width_experiment.py:45-49`.
 >
 > **Do NOT read this as licence to skip tier 2 elsewhere.** Every other tier-2/tier-3 row above is
 > still owed, and each is blocked behind WSEL-15 by the same argument.
+>
+> **RESOLUTION UPDATE 2026-07-22 (root; user authorized starting WSEL-16 during the width review):**
+> WSEL-15 landed `width_candidates.py` **without** the weighted loss — correctly, since WSEL-15's own
+> spec never named it; the dependency above was assumed, not specced (the orphaned dependency
+> surfaced in RESUME). **The fixed-sigma weighted squared error is hereby assigned to WSEL-16's
+> authoring contract**: it lives in `automl_package/examples/width_candidates.py` per §3.7/§3.9, and
+> WSEL-16 is the first task that cannot run its own spec (Step 2, tier-2 cells) without it. Formula
+> authority is §3.7 — `(pred - y)^2 / sigma_true(x)^2`, sigma from the generator, never learned.
+> **WSEL-13's tier-2 driver guard stays in place** until the loss lands AND WSEL-13 tier 2 is
+> separately re-authorized; this update does not touch `width_wsel13.py`.
 
 **Rules — mechanical, nothing left to interpret:**
 - **Tier 3 runs for exactly two arms**: the certified per-width-head design, and whichever candidate
@@ -563,6 +573,25 @@ duplicate pair.** Inventory below is read off disk 2026-07-21, not recalled.
 - **Every candidate holds sigma FIXED at the true value** (§3.7). A class with a LEARNED variance head
   is ported — the head is clamped and dropped from the optimiser — never wrapped in a driver that
   quietly passes it a free-sigma likelihood.
+
+## 3.10 GENERALIZABILITY TO ARBITRARY WIDTH (user ruling, 2026-07-22)
+
+**Every mechanism this strand tests must be defined for arbitrary `w_max`, never for 12.** The toy
+suite fixes `w_max = 12` as the measurement point; 12 is a sample point, not a design constant.
+- **No formula, initialisation, schedule or constant may hard-code 12.** Stated generically once:
+  sandwich = `{1, w_max}` + 2 random mids · gates init `softplus(nu) = ln(2)/(w_max - 1)` ·
+  `params_effective = w_max(w_max+1)/2` · the prefix-norm and stop-grad cumulative sums are
+  `O(w_max)` by construction. An implementer finding a bare `12` outside the toy-suite constants
+  treats it as a defect.
+- **Any cost or parameter count super-linear in `w_max` is reported WITH its scaling law**, not just
+  its value at 12. The certified per-width-head reference carries `O(w_max^2)` output parameters
+  (`shared/width_transformer_port.md` §3) — exactly why the `O(w_max)` cheap structure (WSEL-16)
+  is the deciding question at transformer scale, and why a 12-only verdict would be worthless.
+- **A result whose mechanism cannot be stated for general `w_max` is reported as a 12-specific
+  observation, never as a design property.**
+- Consequence already visible in data: sandwich trains each middle width on ~`2/(w_max - 2)` of
+  steps, so mid-width starvation WORSENS as `w_max` grows — the ALL-schedule finding (WSEL-14
+  follow-up) matters MORE at scale, not less.
 
 ## 4. Tasks
 
@@ -1413,6 +1442,40 @@ passes with its prove-it-fails run shown; (3) 15 JSONs under
 `hit_cap: false`; (4) an
 `automl_package/examples/capacity_ladder_results/WSEL14/frozen.json` with the three readouts above.
 
+#### WSEL-14 FOLLOW-UP — the ALL-schedule cost anomaly — 🔄 PROBE DISPATCHED 2026-07-22 (user-authorized)
+
+- **The pre-registered cost prediction FAILED and nobody followed up at the time.** ALL measured
+  ~4.1x b=1 per step (6.8 ms vs 1.7 ms; 2.6x on total wall-clock), against the on-record "within
+  ~1.5x or the fix is incomplete". <!-- source: `automl_package/examples/capacity_ladder_results/WSEL14/frozen.json` -->
+- **Signed re-read of the fit numbers (root, 2026-07-22, prompted by user review): ALL matches
+  sandwich on accuracy and WINS the mids — sandwich's verdict is a COST verdict.** ALL is better by
+  18-70% at widths 4-6 and tied elsewhere; its only two bar misses (+10.8% at w3/w9) sit inside
+  sandwich's own 33-35% seed spread at those widths. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL14/frozen.json` -->
+  The earlier binary reading ("ALL fails the fit bar") was technically correct per the
+  pre-registered bar and interpretively misleading; this note is the correction of record.
+- **PROBE VERDICT 2026-07-22 — REPRODUCED AND DIAGNOSED: the extra cost is INTRINSIC to the
+  per-width-head architecture at toy scale, NOT a residual defect in the trunk-once fix.** Reproduced
+  at 4.6-5.0x per step (frozen: 4.06x). The trunk forward is FLAT across schedules (~0.06-0.09
+  ms/step at 1 vs 4 vs 12 sampled widths) — WSEL-12's fix works. The growth is per-width work:
+  head loop ~29% / backward ~41% / optimizer step ~27% of the ALL per-step total, each ~linear in
+  sampled width count; at this net size per-op dispatch overhead dominates FLOPs. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL14/cost_probe/result_orderA_all.json` -->
+- **The ~1.5x prediction was wrong in its PREMISE, not its arithmetic:** it assumed a fixed per-step
+  cost dominates a small per-width marginal cost. With 12 SEPARATE head tensors (deliberate — the
+  design isolates readout sharing), the marginal cost IS the dominant term. Closing the gap requires
+  vectorised heads (one `(w_max, w_max)` tensor / fused step). Semantics caveat (reasoned, not
+  coded): fused heads are EXACT under ALL (every head gets gradient every step) but CHANGE optimizer
+  behaviour under sampling schedules — a fused tensor always carries a gradient, so Adam stops
+  skipping unsampled widths, the very footgun WSEL-14 Step 2 pinned. NOT implemented; it is an
+  input to the schedule revisit — and the cheap structure (WSEL-16, in flight) vectorises natively,
+  one more reason that comparison decides things.
+- **Sequencing consequence: the cost question is RESOLVED (intrinsic, diagnosis on disk) ⇒ the
+  WSEL-15 FOLLOW-UP confound check is UNBLOCKED** and root-run. The Decision-20 schedule revisit
+  reads: ALL = better mids + no overfitting change (above), 2.6x total wall-clock at `w_max=12`,
+  cost gap intrinsic at THIS architecture but vanishing under a vectorised/cheap readout.
+  **Recommendation drafted for user sign-off — never decided autonomously.**
+- Probe artifacts preserved: `automl_package/examples/capacity_ladder_results/WSEL14/cost_probe/`
+  (probe script + 6 result JSONs: orders A/B × schedules b1/sandwich/all).
+
 ### WSEL-15 — does the nested design survive a normalisation layer? (the transformer-port repairs, measured)
 
 **Why.** `shared/width_transformer_port.md` §5 lists four repairs for the one obstacle that stops this
@@ -1514,7 +1577,42 @@ PASS; (3) 9 JSONs under `automl_package/examples/capacity_ladder_results/WSEL15/
 field in Step 3 and `hit_cap: false`; (4)
 `automl_package/examples/capacity_ladder_results/WSEL15/frozen.json` carries every field in Step 5.
 
-### WSEL-16 — the architecture comparison: can the CHEAP structure be trained to work?
+#### WSEL-15 FOLLOW-UP — schedule-starvation confound in the accuracy readout — 📌 QUEUED 2026-07-22 (user-agreed)
+
+- **The observation (root, 2026-07-22, from the user review; CANDIDATE common cause, not established):**
+  normalisation's accuracy effect is a REDISTRIBUTION — widths 3-5 improve 33/41/64%, widths 7-11
+  degrade 11-39% — and the improvement region coincides exactly with the widths the sandwich schedule
+  STARVES (each mid trains on ~2/(w_max-2) of steps; WSEL-14). The normalised arm also converged 43%
+  later (32.5k vs 22.7k steps), i.e. its starved mids received substantially more draws. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL15/frozen.json` -->
+  **So part of "normalisation helps the mids" may be "longer training feeds the starved mids" — the
+  accuracy readout is potentially schedule-confounded.** The wide-end degradation has no such
+  alternative account on record.
+- **The discriminating check (9 cells):** re-run arms A/B/C × seeds 0/1/2 under `WidthSchedule.ALL`
+  (no width starved), everything else identical to the landed grid. Mid-width improvement VANISHES →
+  it was schedule starvation; the true cost of normalisation is the wide-end degradation alone.
+  PERSISTS → normalisation genuinely helps the mids. Either answer sharpens the transformer port.
+- **Sequencing:** blocked behind the WSEL-14 follow-up (the ALL-schedule cost anomaly) — running the
+  check on a schedule whose cost is anomalous would tangle two open questions; resolve cost first,
+  then this, then the Decision-20 schedule revisit reads both.
+- **CORRECTION 2026-07-22 (root): the line originally here — "driver support already exists,
+  expected new code ≈ none" — was WRONG, caught by checking the source before running.**
+  `width_wsel15.py` pinned the schedule as a module constant (its parent task's explicit non-goal).
+  Root added `--schedule {sandwich,all}`: default byte-identical (sandwich, selftest PASS under both
+  schedules, ruff clean), and `all` cells write to `WSEL15_ALLSCHED/` so the landed `WSEL15/` grid
+  and its `frozen.json` can never be clobbered nor mixed-schedule-aggregated.
+- 🔄 **RUNNING 2026-07-22 (root, backgrounded):** 9 cells — arms a/b/c × seeds 0/1/2 under
+  `--schedule all`, canonical cell otherwise unchanged; then `--schedule all --summarize`.
+
+### WSEL-16 — the architecture comparison: can the CHEAP structure be trained to work? — 🔄 **IN PROGRESS 2026-07-22**
+
+> **STATUS 2026-07-22 (tracking, root):** user authorized an EARLY START during the width review,
+> ahead of the wave-2 orchestration (the rest of the strand dispatches after the review). Scope of
+> the start: **authoring only — the stage-1 driver, the Step-1 identity test, and the two
+> `width_candidates.py` additions (the gate wrapper + the tier-2 weighted loss per §3.8's RESOLUTION
+> UPDATE 2026-07-22)** — dispatched to one worker. **The ROOT runs every grid, controls first
+> (Step 3), backgrounded.** Stage-2 arms are NOT in the authoring contract (conditional; separate
+> contract if `stage2_required`). The PS-3 halt ruling (structure.md) is a separate matter and
+> remains pending; it does not gate this task.
 
 **The question, stated once.** Two structures produce a width dial from one shared hidden layer:
 

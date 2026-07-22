@@ -82,7 +82,20 @@ SIGMA = nwn.HETERO_NOISE_SIGMA  # 0.05
 TOY = nwn.Toy.HETERO
 ARCH = kce.Arch.SHARED_TRUNK  # checkpointing-branch selector only; arms B/C are still whole-net-checkpointed like SHARED_TRUNK.
 LOSS = kce.LossType.MSE  # MSE-only, no variance fit (SS3.7).
-SCHEDULE = nwn.WidthSchedule.SANDWICH  # the certified schedule, unchanged (non-goal: no schedule change).
+SCHEDULE = nwn.WidthSchedule.SANDWICH  # DEFAULT: the certified schedule -- byte-identical to the landed grid.
+# WSEL-15 FOLLOW-UP (width.md, 2026-07-22): `--schedule all` re-runs the arms with NO width starved, to
+# separate "normalisation helps the mids" from "longer training feeds the mids the sandwich starves".
+# Results are segregated into WSEL15_ALLSCHED/ so the landed WSEL15/ grid and its frozen.json can never
+# be clobbered, nor aggregated with mixed-schedule cells.
+_ALLSCHED_RESULTS_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "WSEL15_ALLSCHED")
+
+
+def _apply_schedule(value: str) -> None:
+    """Points the module schedule + results dir at the requested follow-up arm (default: unchanged)."""
+    global SCHEDULE, RESULTS_DIR  # noqa: PLW0603 -- this script's config IS module-level constants (existing idiom); one mutation point, before any work runs.
+    SCHEDULE = nwn.WidthSchedule(value)
+    if SCHEDULE is not nwn.WidthSchedule.SANDWICH:
+        RESULTS_DIR = _ALLSCHED_RESULTS_DIR
 
 DEFAULT_MAX_EPOCHS = kce.DEFAULT_MAX_EPOCHS
 DEFAULT_CHECK_EVERY = kce.cvg.DEFAULT_CHECK_EVERY
@@ -455,11 +468,19 @@ def main() -> None:
     parser.add_argument("--summarize", action="store_true", help="Aggregate every per-cell JSON on disk into WSEL15/frozen.json.")
     parser.add_argument("--arm", type=str, choices=[a.value for a in Arm], default=None, help="Which of the 3 grid arms this cell trains (a=no-norm, b=running-totals, c=+affine).")
     parser.add_argument("--seed", type=int, default=None, help="RNG seed for this cell (canonical suite: 0, 1, 2).")
+    parser.add_argument(
+        "--schedule",
+        type=str,
+        choices=[nwn.WidthSchedule.SANDWICH.value, nwn.WidthSchedule.ALL.value],
+        default=nwn.WidthSchedule.SANDWICH.value,
+        help="Training schedule. Default 'sandwich' = the landed grid, byte-identical; 'all' = the WSEL-15 FOLLOW-UP confound check (results go to WSEL15_ALLSCHED/).",
+    )
     parser.add_argument("--max-epochs", type=int, default=DEFAULT_MAX_EPOCHS)
     parser.add_argument("--check-every", type=int, default=DEFAULT_CHECK_EVERY)
     parser.add_argument("--patience", type=int, default=DEFAULT_PATIENCE)
     parser.add_argument("--min-delta", type=float, default=DEFAULT_MIN_DELTA)
     args = parser.parse_args()
+    _apply_schedule(args.schedule)
 
     if args.selftest:
         sys.exit(0 if run_selftest() else 1)

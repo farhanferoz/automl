@@ -1,0 +1,23 @@
+{
+  "label": "sandwich",
+  "schedule": "sandwich",
+  "steps": 2000,
+  "warmup_excluded": 50,
+  "n_counted": 1950,
+  "total_wall_clock_s": 2.9169973299722187,
+  "total_wall_clock_ms_per_step": 1.4584986649861094,
+  "phase_means_ms_per_step": {
+    "widths_select": 0.02677644002967729,
+    "trunk_forward": 0.062490033152966924,
+    "head_loop": 0.35756019735111827,
+    "backward": 0.5153247159726632,
+    "opt_step": 0.4145098078207901
+  },
+  "phase_sum_ms_per_step_excl_eval": 1.3766611943272158,
+  "n_eval_blocks": 4,
+  "eval_block_mean_ms": 0.8579755085520446,
+  "eval_amortized_ms_per_step": 0.001759949761132399,
+  "phase_sum_plus_eval_ms_per_step": 1.3784211440883483,
+  "order": "B",
+  "invocation_wall_s": 2.9222599409986287
+}

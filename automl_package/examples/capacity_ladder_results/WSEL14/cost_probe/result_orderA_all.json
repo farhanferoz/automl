@@ -1,0 +1,23 @@
+{
+  "label": "all",
+  "schedule": "all",
+  "steps": 2000,
+  "warmup_excluded": 50,
+  "n_counted": 1950,
+  "total_wall_clock_s": 7.069438356033061,
+  "total_wall_clock_ms_per_step": 3.5347191780165303,
+  "phase_means_ms_per_step": {
+    "widths_select": 0.004204835008399991,
+    "trunk_forward": 0.08518121948537345,
+    "head_loop": 1.007051261392637,
+    "backward": 1.4361512987540128,
+    "opt_step": 0.953554287702084
+  },
+  "phase_sum_ms_per_step_excl_eval": 3.486142902342507,
+  "n_eval_blocks": 4,
+  "eval_block_mean_ms": 0.8958227408584207,
+  "eval_amortized_ms_per_step": 0.0018375851094531708,
+  "phase_sum_plus_eval_ms_per_step": 3.48798048745196,
+  "order": "A",
+  "invocation_wall_s": 7.0720805960008875
+}
