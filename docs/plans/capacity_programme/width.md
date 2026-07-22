@@ -1256,8 +1256,13 @@ routed held-out error, oracle agreement, deployed compute, labels/table provenan
 rule (arm 2), fitted-backend config. `--selftest` (tiny synthetic end-to-end across all four
 backends × both modes) and `--summarize` (aggregate to
 `automl_package/examples/capacity_ladder_results/WSEL19/frozen.json`) required.
-**Multi-feature slice:** cells per `shared/wsel19-toy-design.md` — BUILD NOTHING until the
-root's delegated go/no-go is recorded there (adjudicator review in flight).
+**Multi-feature slice:** cells per `shared/wsel19-toy-design.md` — **GO RENDERED (root, under
+the delegated authority, 2026-07-22): adjudicator verdict GO-WITH-AMENDMENTS; all six findings
+(F1-F6) incorporated into the amended spec, which is now the build authority.** The
+multi-feature authoring contract additionally owns the §2b input-dimension generalization of
+the package width classes (`architectures.py` in its write set per §3.9; 1-D behavior
+byte-identical, guarded by the existing equivalence suites; the d=1 calibration cell gates the
+d>1 grid).
 
 **Verify (authoring contract):** selftest PASS · ruff clean · ONE real 1-D cell (backend 1,
 HARD, N_sel 300, seed 0, `--tag authsmoke`, deleted after schema check) · `git status --short`

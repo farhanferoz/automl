@@ -1,90 +1,128 @@
-# WSEL-19 multi-feature toy design — FOR USER GO (2026-07-22)
+# WSEL-19 multi-feature toy design — ✅ GO (root verdict under delegated authority, 2026-07-22)
 
-Written per the standing toy gate: no toy is built without a reviewed design spec. This document
-is what the user GOes; the 1-D slice of WSEL-19 uses only the canonical §3.8 toys and does not
-wait on it. Owner: `docs/plans/capacity_programme/width.md` WSEL-19.
+**Verdict record.** The user delegated the go/no-go ("you do a final review of these & tell me if
+its a go"). An adversarial adjudicator review (2026-07-22) returned GO-WITH-AMENDMENTS: four
+mandatory spec defects (F1 architecture dimensionality, F2 identity-check impossibility, F4
+oracle optimism, F5 data provisioning) and two recommended pre-registrations (F3 warp
+calibration, F6 fit gate). **All six are incorporated below; the root's key claims (F1, F2) were
+independently re-verified at source before amending. This amended spec is the build authority
+for the multi-feature slice.** The original construction is in git history (`9e49c4c`).
 
 ## 1. What these toys must decide
 
-The bake-off (WSEL-19) compares four router backends across input dimensionality and
-selection-set size. The multi-feature toys must (a) present the router with inputs of dimension
-d > 1 while *provably preserving* the per-input routing signal the 1-D canonical toy was
-certified on, and (b) contain the overfitting regime that motivated the regularisation ruling
-(WSEL-7 ruling 3).
+Unchanged: the bake-off's multi-feature cells must (a) present routers with d > 1 inputs while
+provably preserving the per-input routing signal certified in 1-D, and (b) contain the
+overfitting regime motivating WSEL-7 ruling 3.
 
-## 2. Generative construction — the 1-D canonical toy behind a projection
+## 2. Generative construction — the canonical toy lifted into d dimensions (INVERTED, F2)
 
-**Inputs:** `x ~ N(0, I_d)`, standardized coordinates.
+The forward draft (x ~ N, project, feed the target function) could not reuse the canonical
+generator — `make_hetero` draws its own input internally (`rng.uniform(-r, r, n)`,
+`nested_width_net.py:174`) with no injection point, and uniform-vs-normal RNG consumption can
+never bit-match. **The construction is therefore inverted:**
 
-**Projection:** a unit vector `v ∈ R^d` defines `t_raw = v·x`. Because the design is spherical
-Gaussian, `t_raw ~ N(0, 1)` for EVERY unit `v` — axis-aligned and oblique variants have
-*identical* projection marginals by construction, so geometry is the only thing that differs
-between them (confound C1, §6).
+1. `(t, y, region) = make_hetero(n, seed)` — the canonical call, VERBATIM (genuine §3.9 reuse;
+   the target function and noise are never re-implemented).
+2. `u = Φ⁻¹((t + r) / (2r))`, with the probability clipped away from {0, 1} at float eps —
+   the probability-integral-transform lift, so `u ~ N(0, 1)` exactly.
+3. `x = u·v + (I − vvᵀ)z`, `z ~ N(0, I_d)` drawn from a decoupled seed (offset convention in
+   §3b), projected to the orthogonal complement — so `x ~ N(0, I_d)` exactly and `v·x = u`.
 
-**Target:** `t = A(Φ(t_raw))` where `Φ` is the standard normal CDF and `A` the affine map onto
-the canonical 1-D toy's input interval; then `y = h(t) + ε`, `ε ~ N(0, σ(t)²)`, where `h` and
-the noise profile `σ(·)` are EXACTLY the canonical hetero construction — the implementer reads
-both from the canonical toy's source at build time and re-uses that code (§3.9 reuse rule);
-this spec deliberately restates neither. The Φ-map gives `t` the same marginal the 1-D toy
-trains on, for every `d` and every `v`.
+Every d and every unit `v` then carries the SAME `(t, y, region)` samples bit-for-bit — the
+identity check (§5.1) holds by construction, and confound C1 is exact.
 
-**Consequence:** the easy-region / width-hungry-region structure — the thing that makes the
-oracle best-width vary per input, certified in 1-D — is inherited unchanged. `d = 1` with
-`v = (1)` recovers the canonical toy exactly (identity check, §5).
+**Model-visible warp (F3, honest scope):** the (t, y) pipeline is reused unchanged, but the
+model's input along `v` is Gaussian `u`, i.e. the model sees `h` reparameterized through
+`A(Φ(u))` — seam-local frequency ≈ 1.6 cycles/unit vs ≈ 1.16 canonical, second sine period
+stretched into the low-density tail. Learnability is expected to survive (far below the probed
+frequency wall) but **the 1-D certification does NOT transfer automatically** — hence the d = 1
+calibration cell (§5.2) gating the grid.
+
+## 2b. Per-width architecture generalization (F1 — was a silent blocker)
+
+Every package width class hard-codes a scalar input (`nn.Linear(1, ·)`,
+`automl_package/models/flexnn/width/architectures.py:65,174,254,379`), and the vetted sweep
+protocol standardizes scalars. **WSEL-4's certification is a 1-D certification.** The
+multi-feature authoring contract therefore: (a) extends the class(es) the error tables need
+(at minimum `SharedTrunkPerWidthHeadNet`, plus `IndependentWidthNet` if the fit gate's anchor
+uses it) with an input-dimension parameter inferred from data, **default preserving 1-D
+behavior byte-identically** (guarded by the existing equivalence/selftest suites); (b) declares
+`architectures.py` in that contract's write set per §3.9 — no freelanced library edits;
+(c) runs the d = 1 anchor/calibration cell (§5.2) and requires it green BEFORE any d > 1 cell.
 
 ## 3. Grid axes
 
-| axis | values | why |
+| axis | values | notes |
 |---|---|---|
-| input dimension `d` | 2, 8, 32 | spans the rule-fitting range; 32 is the starvation regime |
-| geometry of `v` | AXIS (`v = e_1`) · OBLIQUE (dense, drawn once per seed, unit norm) | AXIS is tree-friendly (one informative coordinate, d−1 nuisance); OBLIQUE is tree-hostile (every coordinate partially informative). Both at every d. |
-| selection-set size `N_sel` | 75, 300, 1200 | 75 = the observed overfitting regime (WSEL-6 re-run evidence); 1200 = unstarved contrast |
+| input dimension `d` | 2, 8, 32 | as before |
+| geometry of `v` | AXIS (`v = e_1`) · OBLIQUE (`v = s/√d`, `s` a per-seed ±1 sign pattern) | oblique now DETERMINISTIC and maximally oblique — no near-axis draws, no per-seed direction variance (adjudicator note adopted) |
+| selection-set size `N_sel` | 75, 300, 1200 | provisioned per §3b, never carved from the training set |
 | seeds | 0, 1, 2 | canonical |
 
-Sparse-oblique (`v` on 2 of d coordinates) is EXCLUDED for compute — AXIS already supplies the
-nuisance-dimensions stress at `d−1` nuisance coordinates; recorded here so its absence is a
-decision, not an oversight.
+Sparse-oblique remains EXCLUDED (recorded decision, unchanged). **Also recorded as a decision
+(adjudicator note): the noisy-easy control tier (hetero3) is ABSENT from the multi-feature
+grid** — the slice targets the tier-1 construction only; a hetero3 extension is deferred unless
+the bake-off verdict proves tier-sensitive. "12-way" wherever it appears is the §3.8 measurement
+instance, per §3.10.
 
-## 4. Starvation arithmetic (why 75 points is the stress cell)
+## 3b. Data provisioning — pre-registered (F5)
 
-The frozen router at `d = 32` (hidden `(32, 32)`, 12-way output): `32·32+32 + 32·32+32 +
-32·12+12 = 2508` parameters against 75 selection points — 33 parameters per label. At `d = 2`:
-`1548` parameters — 21 per label. Both starved cells sit far past interpolation capacity;
-`N_sel = 1200` gives ~2 parameters per label at `d = 32`. The bake-off's regularisation
-question *requires* the starved cells; the unstarved cells are the control.
+- **Per-width training set:** the canonical size (n_train = 1500) per (d, geometry, seed),
+  generated by §2 with the cell's base seed — independent of `N_sel` (C5 genuinely unconfounded;
+  the old draft's 1200 exceeded the canonical 750-point selection carve and was unbuildable).
+- **Selection set:** an INDEPENDENT §2 draw of exactly `N_sel` points, seed offset +1000.
+- **Report/held-out set:** an INDEPENDENT §2 draw of 2000 points, seed offset +2000 (toy data
+  is free; kills the falsifier's estimation-noise failure mode).
+- **Fallback (F6, pre-authorized):** if the d = 32 fit gate fails, raise that cell's n_train to
+  4000 (a §3.8 ladder value) and re-run; record the raise in the cell JSON.
 
-## 5. Pre-registered validity checks (per (d, geometry, seed) cell, BEFORE any backend verdict)
+## 5. Pre-registered validity checks (in order; BEFORE any backend verdict)
 
-1. **Identity check:** `d = 1` construction reproduces the canonical toy's `(t, y)` samples
-   bit-for-bit on a shared seed.
-2. **Hidden-ness falsifier (routing signal exists):** the oracle per-input width (error-table
-   row minimum under the standing 0.25 tie-band) must beat the best single fixed width by ≥ 10%
-   of the latter's held-out routed error — the strand's decision bar reused as the signal floor.
-   A cell that fails is reported VOID-FOR-ROUTING and excluded from backend verdicts (never
-   silently included). *(10% is a chosen default, flagged for review with everything else here.)*
-3. **Regime visibility:** the per-width error table must show different argmin widths in the
-   easy vs width-hungry regions (sanity that the projection preserved the structure).
+1. **Identity:** the `(t, y, region)` triple equals `make_hetero(n, seed)`'s output bit-for-bit
+   at every d (holds by construction; the check asserts it).
+2. **d = 1 calibration cell (F3):** the extended architecture's per-width sweep at d = 1 must
+   reproduce the canonical qualitative regime structure (different best widths in the easy vs
+   width-hungry regions) before the d > 1 grid runs. This is also the anchor for §5.3.
+3. **Fit gate (F6):** per (d, geometry, seed), the best fixed width's held-out error must be
+   within the factor-of-noise-floor the d = 1 calibration cell achieves (anchor-relative — no
+   new arbitrary constant). Failure → §3b fallback; still failing → the cell is VOID-FOR-FIT
+   (recorded, excluded, never silently included). Separates "can't fit" from "can't route".
+4. **Hidden-ness falsifier (F4 — oracle optimism closed):** the oracle is defined on
+   generator-TRUE expected error, `(pred_w(x) − h(t))²` (σ² is constant per row and cancels in
+   the argmin) — never on single noisy draws, whose row-minima reward selection-on-noise and
+   can fake >10% "routing gain" on a degenerate cell. The oracle must beat the best fixed
+   width by ≥ 10% of the latter's true error on the 2000-point report set. In-strand precedent
+   for true-noise grounding: the item-4 bar ruling.
+5. **Regime visibility:** the per-width TRUE-error table must prefer different widths in the
+   easy vs width-hungry regions.
 
 ## 6. Confound ledger
 
-- **C1 geometry vs input distribution** — closed by the spherical design + Φ-map (§2): AXIS and
-  OBLIQUE have identical `t` marginals; geometry is the only difference.
-- **C2 backend-favoring geometry** — trees favor AXIS, MLPs tolerate OBLIQUE; both run at every
-  `d`, and any backend verdict must hold on both geometries or be reported geometry-conditional.
-- **C3 error-table equality** — the per-width model sweep is trained ONCE per (d, geometry,
-  seed) under the WSEL-4-vetted protocol (Tanh, full-batch, convergence gate, σ fixed at truth
-  per §3.7); every backend fits the SAME table. Router choice is the only free variable.
-- **C4 standardization** — identical input standardization for all backends.
-- **C5 size × dimension** — `N_sel` and `d` fully crossed, never confounded.
-- **C6 tie-band** — labelling tolerance stays at its frozen default; not swept (Decision 18).
+- **C1 geometry vs input distribution** — EXACT by the inverse-CDF lift (§2): identical
+  `(t, y)` for every (d, v); `x ~ N(0, I_d)` exactly.
+- **C2 backend-favoring geometry** — both geometries at every d; verdicts must hold on both or
+  be reported geometry-conditional.
+- **C3 error-table equality** — per-width models trained ONCE per (d, geometry, seed) on the
+  §2b-extended classes under the vetted protocol (σ fixed at truth §3.7); every backend fits
+  the SAME table.
+- **C4 standardization** — identical vector standardization for all backends (train-split
+  stats applied to held-out, the canonical pattern).
+- **C5 size × dimension** — fully crossed; provisioning (§3b) keeps N_sel independent of
+  training data.
+- **C6 tie-band** — frozen default, not swept (Decision 18).
+- **C7 oracle optimism** — closed by the true-error oracle (§5.4).
+- **C8 provisioning independence** — selection/report sets are independent draws with declared
+  seed offsets (§3b), never carves of the training set.
 
 ## 7. Compute note
 
-18 (d × geometry × seed) per-width sweeps × 12 widths of small-net training dominate; router
-fits are seconds. Hours-scale under the 3-concurrent cap; runs as the wave-D multi-feature
-slice after GO, root-run, backgrounded, land-as-produced.
+18 (d × geometry × seed) per-width sweeps × 12 convergence-gated small-net trainings dominate —
+hours under the 3-concurrent cap; 432 router fits are seconds-scale. Convergence caps at d > 1
+are unmeasured: the d = 1 calibration cell plus the first d = 32 sweep measure them before the
+bulk dispatches.
 
 ## 8. Non-goals
 
-No new target families beyond the projected canonical construction; no real data (WSEL-9's
-scope); no tolerance sweep; no depth/ProbReg cells; no router-constant changes (FP-5.b binds).
+No new target families beyond the lifted canonical construction; no real data (WSEL-9's
+scope); no tolerance sweep; no depth/ProbReg cells; no router-constant changes (FP-5.b binds);
+no hetero3 cells (recorded decision, §3).
