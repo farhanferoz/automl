@@ -18,8 +18,6 @@ automl_package/examples/probreg_benchmark.py
 # is retained on disk, so it still CITES these paths and the citation gate still sees them --
 # but nobody is scheduled to build them. If WSEL-9 is ever formally CUT rather than parked,
 # delete these two entries with it. They are not live forward work.
-automl_package/examples/width_wsel9.py                              # WSEL-9 (PARKED task)
-docs/width_benchmark/benchmark_spec.md                              # WSEL-9 (PARKED task)
 
 # --- depth-selection.md Create targets (parked 2026-07-20, root) -------------------------------
 # Each verified: named in a DSEL task's write set / §3.6 constants row AND asserted by that task's
@@ -83,4 +81,3 @@ docs/plans/capacity_programme/shared/ps-certification-memo.md       # PS-4 (memo
 # --- width.md WSEL-19 D1 Create targets (wave D, root 2026-07-22) ------------------------------
 # The bake-off driver + its aggregate ledger. Created by the D2 authoring contract / the root's
 # slice runs. Remove each entry the moment the artifact lands.
-automl_package/examples/capacity_ladder_results/WSEL19/frozen.json  # WSEL-19 --summarize

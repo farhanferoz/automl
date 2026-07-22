@@ -1272,6 +1272,37 @@ clean but for the driver before commit.
 edits to `routing.py`, `width_wsel7.py`, `width_wsel6.py`, or any plan doc; no tolerance sweep
 (Decision 18); no new toy code before the multi-feature GO is recorded.
 
+#### WSEL-19 1-D slice — ✅ **RUN 2026-07-22 (root, wave D3): 72/72 cells, 0 failures** — ledger `automl_package/examples/capacity_ladder_results/WSEL19/frozen.json`
+
+- **The constant-router control wins QUALITY at every selection size (0.00296 ± 0.00006 routed held-out MSE) at the HIGHEST deployed compute (11.3 FLOP-units, mean routed width 5.67).** <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/frozen.json` (`per_group['constant:hard:*']`) -->
+  This is the designed shape of the cheapest-within-tolerance policy, not a routing refutation:
+  routers trade a bounded quality band for compute. The frozen backend's hard cells deliver the
+  compute saving (9.4-9.9 units) within ~1.11-1.17× constant's error at n_sel ≥ 300 <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/frozen.json` (`per_group['frozen_mlp:hard:{300,1200}']` vs `constant:hard`) -->
+  (0.00346 → 0.00328); the other two backends exceed the band at some sizes. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/frozen.json` (`per_group`) -->
+- **The starved cell (n_sel = 75) INVERTS ruling 6's expectation at d=1: the frozen fixed-epoch
+  recipe is the most robust (0.00392 ± 0.00024), while the identically-sized early-stopping
+  recipe — at d=1, `rule_mlp` IS the same (32, 32) net, differing only by validation split +
+  early stop + weight decay — lands ~6× worse with huge seed variance (0.02324 ± 0.02012);
+  xgboost 0.00906 ± 0.00552.** <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/frozen.json` (`per_group['*:hard:75']`) -->
+  Reading: at 75 points the internal validation carve costs more than fixed-epoch overfitting
+  gains — mandatory early stopping is NOT free at tiny selection sets. NOT recorded as a
+  refutation of ruling 6 (d=1 is the frozen recipe's home turf, and the motivating overfitting
+  evidence came from BIGGER routers); **the multi-feature cells at d ∈ {8, 32} are the deciding
+  test, now with this 1-D anchor on record.**
+- **BLEND is dominated by HARD on this toy — worse quality AND more deployed compute in every
+  group** (frozen at 75: 0.00690 vs 0.00392; deployed 10.7 vs 9.9). <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/frozen.json` (`per_group['frozen_mlp:{hard,blend}:75']`) -->
+  First empirical answer to the blending half of ruling 5 at d=1; the multi-feature slice
+  re-tests it where the router's job is harder.
+- **xgboost is competitive at n_sel ≥ 300** (0.00390 / 0.00343), carries the best
+  oracle-agreement (28-34%) and the cheapest deployed compute among the routed backends, but is
+  unstable at 75. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/frozen.json` (`per_group['xgboost:hard:*']`) -->
+- **Oracle agreement is low across the board (routed 20-34%, constant 9.8%)** — per-point labels
+  on this toy are noise-dominated (the adjudicator's selection-on-noise finding applies to the
+  LABELS as well; the multi-feature falsifier's generator-true oracle exists for exactly this
+  reason). <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/frozen.json` (`per_group` `oracle_agreement` fields) -->
+- No backend/default change lands from this slice (FP-5.b binds; the slice MEASURES). The
+  multi-feature slice + this anchor together produce the bake-off verdict.
+
 ### WSEL-8 — the W-SHARED ≈ W-SWEEP claim, both halves, on toys — ⛔ **ANSWERED 2026-07-22: BOTH HALVES FAIL. The dial network is NOT ≈ the exhaustive sweep on this toy — 2.6-7.2× worse at matched middle widths, 0/3 agreement on the chosen width, and the disagreement is a mechanical consequence of the quality gap. A FAIL is a finding, not a bug.**
 
 **RESULT: `agreement_rate: 0.0`, quality NOT matched at middle widths** — ledger `automl_package/examples/capacity_ladder_results/WSEL8/frozen.json` (36 sweep cells + control + 3 dial cells, ALL trustworthy, no cap hits after the same-precedent repair; per-cell JSONs in the same directory).
