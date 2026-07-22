@@ -87,22 +87,27 @@ beyond automatically picking the new arms up into its existing generic per-(arm,
 **Non-goals**: no real data, no transformer, no multi-layer net, no variance fitting, no new selection
 rule, no change to the toy suite, no promotion of any candidate into the package (WSEL-17), no new
 nested-width class, no re-opening of `G-WIDTH = PASS`, no stage-2 grid EXECUTION (the root runs the 9
-cells), no stage-3 ladder (the 2-finalist generality check, a separate contract), no stage-2 decision
-rule (diagnostic only, see above), no redesign of the stop-gradient frozen-readout-bias quirk on record
-in `frozen.json`.
+cells), no stage-3 grid EXECUTION (the root runs the 36 cells; this file only adds `--tier 3` CLI
+support -- SANCTIONED 2026-07-22, `width.md`'s stage-3 sign-off ruling: "coverage APPROVED, single-arm
+-- `B_HEADS` alone across the 36 tier-3 ladder cells", the driver-extension authoring contract named
+there), no stage-2 decision rule (diagnostic only, see above), no redesign of the stop-gradient
+frozen-readout-bias quirk on record in `frozen.json`.
 
 Driver CLI contract (root-run grid; this file is never run over the full grid by its author):
   `--arm {b_heads,a_joint,a_stopgrad,a_gates,independent,a_corrective,a_stopgrad_distill,
-  a_cascade_staged} --tier {1,2} --seed <int> [--tag TAG]` runs ONE cell, writing its per-cell JSON +
-  `state_dict` immediately. `a_cascade_staged` only accepts `--tier 1`.
+  a_cascade_staged} --tier {1,2,3} --seed <int> [--tag TAG]` runs ONE cell, writing its per-cell JSON +
+  `state_dict` immediately. `--tier 3` additionally requires `--n-train {200,500,1500,4000}` and
+  `--sigma {0.05,0.15,0.5}` (`width.md` SS3.8's data x noise ladder; `--n-test` is never a tier-3 flag,
+  it stays at the driver default). `a_cascade_staged` only accepts `--tier 1`.
   `--summarize` aggregates every per-cell JSON on disk into `WSEL16/frozen.json`.
-  `--selftest` runs tiny cells for every (arm, tier) combo (skipping `a_cascade_staged` x tier 2, the
-  one combo `run_cell` refuses) plus the stop-grad/weighted-loss identity checks -- no real cell is
+  `--selftest` runs tiny cells for every (arm, tier) combo (skipping `a_cascade_staged` x tiers 2/3, the
+  combos `run_cell` refuses) plus the stop-grad/weighted-loss identity checks -- no real cell is
   ever run here.
 
 Usage:
     AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel16.py --selftest
     AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel16.py --arm b_heads --tier 1 --seed 0
+    AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel16.py --arm b_heads --tier 3 --n-train 1500 --sigma 0.05 --seed 0
     AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel16.py --summarize
 """
 
@@ -187,10 +192,16 @@ class Arm(enum.Enum):
 
 
 class Tier(enum.IntEnum):
-    """SS3.8's canonical toy suite tiers this task runs (WSEL-16's row: tier 1 + tier 2, 30 cells total)."""
+    """SS3.8's canonical toy suite tiers.
+
+    WSEL-16's own grid: tier 1 + tier 2, 30 cells; tier 3 is the data x noise ladder, CLI support added
+    under `width.md`'s 2026-07-22 stage-3 sign-off ruling -- the root, not this driver, decides which
+    arms/cells actually run there.
+    """
 
     ONE = 1  # the reference cell -- PRIMARY/ORDERING/COST bars and the Step-3 controls read here.
     TWO = 2  # the noisy-easy control -- PRIMARY/ORDERING bars ALSO hold here (unlike WSEL-13's tier 2).
+    THREE = 3  # the data x noise ladder -- no single fixed row (n_train x sigma varies per cell); see _TIER3_* below.
 
 
 @dataclass(frozen=True)
@@ -206,7 +217,43 @@ class _TierConfig:
 _TIER_CONFIG: dict[Tier, _TierConfig] = {
     Tier.ONE: _TierConfig(toy=nwn.Toy.HETERO, n_train=1500, n_test=500, sigma=nwn.HETERO_NOISE_SIGMA),
     Tier.TWO: _TierConfig(toy=nwn.Toy.HETERO3, n_train=2250, n_test=750, sigma=nwn.HETERO_NOISE_SIGMA),
+    # Tier.THREE has NO entry here -- its n_train/sigma vary per cell (the ladder itself), resolved by
+    # _resolve_tier_config() into an ephemeral _TierConfig instead of a fixed row.
 }
+
+# Tier 3 (`width.md` §3.8's data x noise ladder): --toy hetero always, --n-test at this driver's own
+# default (cwe.N_TEST=500, matching tier 1 and the `_n*_s*_wp4` ledger precedent, which used n_test=500
+# at every n_train/sigma combo). --n-train and --sigma are CLOSED SETS, validated at the CLI boundary
+# (argparse `choices=`, main()) -- not re-validated inside run_cell(), which only requires them to be
+# GIVEN, so --selftest can still exercise the wiring with a tiny synthetic n_train.
+_TIER3_TOY = nwn.Toy.HETERO
+_TIER3_N_TEST = cwe.N_TEST
+_TIER3_N_TRAIN_CHOICES: tuple[int, ...] = (200, 500, 1500, 4000)
+_TIER3_SIGMA_CHOICES: tuple[float, ...] = (0.05, 0.15, 0.5)
+
+# Tiers whose training objective is the fixed-sigma WEIGHTED squared error (`width_candidates.
+# weighted_squared_error`, §3.7) rather than tier 1's plain `--loss mse`. Tier 3 shares tier 2's
+# objective verbatim -- both are `hetero`/`hetero3` cells that need per-point sigma weighting, never
+# plain MSE (§3.7: "Tier 2 and Tier 3: a fixed-sigma weighted squared error").
+_WEIGHTED_OBJECTIVE_TIERS = (Tier.TWO, Tier.THREE)
+
+
+def _resolve_tier_config(tier: Tier, n_train: int | None, n_test: int | None, sigma: float | None) -> _TierConfig:
+    """Tier's `_TierConfig` -- the fixed row for tiers 1/2, or an ephemeral one built from `n_train`/`sigma` for tier 3.
+
+    Tier 3 has no single row (`width.md` §3.8: it is a 4 n_train x 3 sigma ladder, `--n-test` left at
+    this driver's own default) -- `n_train` and `sigma` must both be given by the caller; the closed-set
+    membership check itself lives at the CLI boundary (`main()`'s argparse `choices=`), not here, so
+    `--selftest` can still pass a tiny synthetic `n_train` through this same path.
+
+    Raises:
+        ValueError: `tier is Tier.THREE` and either `n_train` or `sigma` is `None`.
+    """
+    if tier is Tier.THREE:
+        if n_train is None or sigma is None:
+            raise ValueError("Tier.THREE (the SS3.8 data x noise ladder) has no single fixed config -- n_train and sigma must both be given explicitly.")
+        return _TierConfig(toy=_TIER3_TOY, n_train=n_train, n_test=n_test if n_test is not None else _TIER3_N_TEST, sigma=sigma)
+    return _TIER_CONFIG[tier]
 
 # Checkpointing-branch selector for the FOUR arms trained through the EXISTING kce trainer at tier 1
 # (arch-agnostic beyond the INDEPENDENT/whole-net split -- WSEL-15's own comment for its arms B/C
@@ -306,7 +353,7 @@ def _make_standard_total_loss_fn(tier: Tier, sigma_tr: torch.Tensor) -> Callable
         for k in widths:
             mean, _log_var = net.forward_width(x, k)
             pred = mean.squeeze(1)
-            total = total + (wc.weighted_squared_error(pred, y, sigma_tr) if tier is Tier.TWO else ((pred - y) ** 2).mean())
+            total = total + (wc.weighted_squared_error(pred, y, sigma_tr) if tier in _WEIGHTED_OBJECTIVE_TIERS else ((pred - y) ** 2).mean())
         return total
 
     return _fn
@@ -320,7 +367,7 @@ def _make_stopgrad_total_loss_fn(tier: Tier, sigma_tr: torch.Tensor) -> Callable
         cols = [k - 1 for k in widths]
         sel = preds[:, cols]  # (N, len(widths))
         y_b = y.unsqueeze(1)
-        sq = (sel - y_b) ** 2 / sigma_tr.unsqueeze(1) ** 2 if tier is Tier.TWO else (sel - y_b) ** 2
+        sq = (sel - y_b) ** 2 / sigma_tr.unsqueeze(1) ** 2 if tier in _WEIGHTED_OBJECTIVE_TIERS else (sel - y_b) ** 2
         return sq.mean(dim=0).sum()
 
     return _fn
@@ -343,7 +390,7 @@ def _make_stopgrad_distill_total_loss_fn(tier: Tier, sigma_tr: torch.Tensor, w_m
         cols = [k - 1 for k in widths]
         sel = preds[:, cols]  # (N, len(widths))
         targets = torch.stack([y if k == w_max else s_wmax_detached for k in widths], dim=1)
-        sq = (sel - targets) ** 2 / sigma_tr.unsqueeze(1) ** 2 if tier is Tier.TWO else (sel - targets) ** 2
+        sq = (sel - targets) ** 2 / sigma_tr.unsqueeze(1) ** 2 if tier in _WEIGHTED_OBJECTIVE_TIERS else (sel - targets) ** 2
         return sq.mean(dim=0).sum()
 
     return _fn
@@ -360,7 +407,7 @@ def _make_per_width_val_fn(tier: Tier, sigma_val: torch.Tensor) -> Callable[[nn.
     def _fn(net: nn.Module, k: int, x: torch.Tensor, y: torch.Tensor) -> float:
         mean, _log_var = net.forward_width(x, k)
         pred = mean.squeeze(1)
-        loss = wc.weighted_squared_error(pred, y, sigma_val) if tier is Tier.TWO else ((pred - y) ** 2).mean()
+        loss = wc.weighted_squared_error(pred, y, sigma_val) if tier in _WEIGHTED_OBJECTIVE_TIERS else ((pred - y) ** 2).mean()
         return float(loss.item())
 
     return _fn
@@ -683,6 +730,7 @@ def run_cell(
     w_max: int = W_MAX,
     n_train: int | None = None,
     n_test: int | None = None,
+    sigma: float | None = None,
     max_epochs: int = DEFAULT_MAX_EPOCHS,
     check_every: int = DEFAULT_CHECK_EVERY,
     patience: int = DEFAULT_PATIENCE,
@@ -699,17 +747,23 @@ def run_cell(
     never hand-rolled per cell: tier-1 arms among `{B_HEADS, A_JOINT, A_GATES, INDEPENDENT}` go through
     the EXISTING `kce._train_kdropout_to_convergence`; `A_CASCADE_STAGED` goes through the ALREADY-
     IMPLEMENTED `cascade.train_cascade` (tier 1 only); everything else (`A_STOPGRAD`/`A_CORRECTIVE`/
-    `A_STOPGRAD_DISTILL` at any tier, and tier 2 for the four kce-trained arms) goes through
-    `_train_custom_to_convergence` (see module docstring for why).
+    `A_STOPGRAD_DISTILL` at any tier, and tiers 2/3 for the four kce-trained arms) goes through
+    `_train_custom_to_convergence` (see module docstring for why) -- tier 3 shares tier 2's weighted
+    objective verbatim (`_WEIGHTED_OBJECTIVE_TIERS`), never the kce trainer's MSE-only path.
 
     Args:
         arm: which of the 8 arms to train (5 stage-1, 3 stage-2).
-        tier: which SS3.8 canonical-suite tier (1 = reference, 2 = noisy-easy control).
+        tier: which SS3.8 canonical-suite tier (1 = reference, 2 = noisy-easy control, 3 = the data x
+            noise ladder -- no single fixed row, see `n_train`/`sigma` below).
         seed: RNG seed for this cell (canonical suite: 0, 1, 2).
         w_max: maximum hidden width.
-        n_train: overrides `_TIER_CONFIG[tier].n_train` (used by `--selftest` for a tiny toy; `None` =
-            the tier's canonical value).
-        n_test: overrides `_TIER_CONFIG[tier].n_test`, same convention.
+        n_train: overrides `_TIER_CONFIG[tier].n_train` for tiers 1/2 (used by `--selftest` for a tiny
+            toy; `None` = the tier's canonical value). REQUIRED (not `None`) for `tier is Tier.THREE`,
+            which has no canonical value to fall back to -- see `_resolve_tier_config`.
+        n_test: overrides `_TIER_CONFIG[tier].n_test` for tiers 1/2, same convention; `None` at tier 3
+            falls back to `_TIER3_N_TEST` (this driver's own default), not a per-cell requirement.
+        sigma: tier-3-only override of the cell's noise sigma (ignored for tiers 1/2, whose sigma is
+            fixed by `_TIER_CONFIG`). REQUIRED (not `None`) for `tier is Tier.THREE`.
         max_epochs: safety cap on optimizer steps (convergence decides the real stop).
         check_every: epochs between per-width held-out checkpoints.
         patience: consecutive flat checkpoints that declare one width converged.
@@ -725,12 +779,13 @@ def run_cell(
         net's own (already best-checkpoint-restored) parameters.
 
     Raises:
-        ValueError: `arm is Arm.A_CASCADE_STAGED` and `tier is Tier.TWO` -- the cascade's squared-error
-            stage-loss port (`cascade_width_net.StageLoss.SQUARED_ERROR`) is scoped to tier 1's
-            constant-sigma `hetero` toy only; a tier-2 per-point-weighted cascade objective was never
-            authorized (`width.md` Stage 2: "tier 1 only, 3 arms x 3 seeds").
+        ValueError: `tier is Tier.THREE` and `n_train`/`sigma` are not both given (see
+            `_resolve_tier_config`); or `arm is Arm.A_CASCADE_STAGED` and `tier is not Tier.ONE` -- the
+            cascade's squared-error stage-loss port (`cascade_width_net.StageLoss.SQUARED_ERROR`) is
+            scoped to tier 1's constant-sigma `hetero` toy only; a tier-2/tier-3 per-point-weighted
+            cascade objective was never authorized (`width.md` Stage 2: "tier 1 only, 3 arms x 3 seeds").
     """
-    cfg = _TIER_CONFIG[tier]
+    cfg = _resolve_tier_config(tier, n_train, n_test, sigma)
     n_tr = n_train if n_train is not None else cfg.n_train
     n_te = n_test if n_test is not None else cfg.n_test
 
@@ -759,10 +814,10 @@ def run_cell(
 
     _train_t0 = time.perf_counter()
     if arm is Arm.A_CASCADE_STAGED:
-        if tier is Tier.TWO:
+        if tier is not Tier.ONE:
             raise ValueError(
                 "A_CASCADE_STAGED's squared-error stage-loss port is scoped to tier 1 only "
-                "(width.md Stage 2: 'tier 1 only, 3 arms x 3 seeds') -- tier 2 was never authorized for this arm."
+                "(width.md Stage 2: 'tier 1 only, 3 arms x 3 seeds') -- neither tier 2 nor tier 3 was ever authorized for this arm."
             )
         stage_results = cascade.train_cascade(
             net,
@@ -779,7 +834,7 @@ def run_cell(
             sigma_true=None,  # tier 1 hetero is constant-sigma -- PLAIN squared error, `width.md` §3.7.
         )
         conv = {b: stage_results[b]["conv"] for b in range(1, w_max + 1)}  # stage b IS rung/width b.
-    elif arm is Arm.A_STOPGRAD or arm is Arm.A_STOPGRAD_DISTILL or arm is Arm.A_CORRECTIVE or tier is Tier.TWO:
+    elif arm is Arm.A_STOPGRAD or arm is Arm.A_STOPGRAD_DISTILL or arm is Arm.A_CORRECTIVE or tier in _WEIGHTED_OBJECTIVE_TIERS:
         if arm is Arm.A_STOPGRAD_DISTILL:
             total_loss_fn = _make_stopgrad_distill_total_loss_fn(tier, sigma_tr, w_max)
             corrective_kwargs = {}
@@ -904,15 +959,30 @@ def run_cell(
     return case, {name: t.detach().clone() for name, t in net.state_dict().items()}
 
 
-def _cell_json_path(arm: Arm, tier: Tier, seed: int, tag: str | None = None) -> str:
-    base = f"wsel16_{arm.value}_tier{tier.value}_seed{seed}"
+def _tier3_suffix(n_train: int | None, sigma: float | None) -> str:
+    """`_n{n_train}_s{sigma}` filename suffix, present ONLY when both are given (tier 3's ladder cells).
+
+    Tiers 1/2 never pass `n_train`/`sigma` here, so their filenames are byte-identical to before this
+    task -- this is precisely what keeps a tier-3 cell from ever clobbering a tier-1/2 canonical one,
+    since no tier-1/2 filename contains `_n`/`_s` segments.
+    """
+    suffix = ""
+    if n_train is not None:
+        suffix += f"_n{n_train}"
+    if sigma is not None:
+        suffix += f"_s{sigma}"
+    return suffix
+
+
+def _cell_json_path(arm: Arm, tier: Tier, seed: int, tag: str | None = None, *, n_train: int | None = None, sigma: float | None = None) -> str:
+    base = f"wsel16_{arm.value}_tier{tier.value}_seed{seed}" + _tier3_suffix(n_train, sigma)
     if tag:
         base += f"_{tag}"
     return os.path.join(RESULTS_DIR, base + ".json")
 
 
-def _state_path(arm: Arm, tier: Tier, seed: int, tag: str | None = None) -> str:
-    base = f"state_{arm.value}_tier{tier.value}_seed{seed}"
+def _state_path(arm: Arm, tier: Tier, seed: int, tag: str | None = None, *, n_train: int | None = None, sigma: float | None = None) -> str:
+    base = f"state_{arm.value}_tier{tier.value}_seed{seed}" + _tier3_suffix(n_train, sigma)
     if tag:
         base += f"_{tag}"
     return os.path.join(RESULTS_DIR, base + ".pt")
@@ -1190,6 +1260,12 @@ _SELFTEST_KW = {"w_max": 3, "n_train": 60, "n_test": 40, "max_epochs": 400, "che
 # unexercised by this wiring check. Tiny values here make it fire a few times within the tiny budget.
 _SELFTEST_CORRECTIVE_KW = {"corrective_interval": 40, "corrective_duration": 10}
 
+# Tier.THREE-only override: run_cell requires sigma explicitly for that tier (no canonical fallback,
+# see _resolve_tier_config) -- _SELFTEST_KW's own n_train/n_test stand in for tier 3's normally-required
+# n_train too (run_cell does not re-validate closed-set membership, only the CLI's argparse does), so
+# this tiny wiring check never needs a real {200,500,1500,4000} x {0.05,0.15,0.5} cell.
+_SELFTEST_TIER3_KW = {"sigma": 0.05}
+
 # Arms with no SHARED hidden trunk (`_ordering_statistic` returns None for them -- see its docstring).
 _ORDERING_NONE_ARMS = (Arm.INDEPENDENT, Arm.A_CASCADE_STAGED)
 
@@ -1220,11 +1296,13 @@ def run_selftest() -> bool:
     ok = True
     for arm in Arm:
         for tier in Tier:
-            if arm is Arm.A_CASCADE_STAGED and tier is Tier.TWO:
-                continue  # A_CASCADE_STAGED's squared-error port is tier-1-only -- run_cell refuses this combo (width.md Stage 2).
+            if arm is Arm.A_CASCADE_STAGED and tier is not Tier.ONE:
+                continue  # A_CASCADE_STAGED's squared-error port is tier-1-only -- run_cell refuses tiers 2/3 (width.md Stage 2).
             kw = dict(_SELFTEST_KW)
             if arm is Arm.A_CORRECTIVE:
                 kw.update(_SELFTEST_CORRECTIVE_KW)
+            if tier is Tier.THREE:
+                kw.update(_SELFTEST_TIER3_KW)
             case, _state = run_cell(arm, tier, seed=0, **kw)
             keys_ok = all(key in case for key in _SELFTEST_REQUIRED_KEYS)
             conv_ok = all(len(case["convergence"][k]["trajectory"]) >= 1 for k in range(1, _SELFTEST_KW["w_max"] + 1))
@@ -1281,9 +1359,11 @@ def main() -> None:
     parser.add_argument("--selftest", action="store_true", help="Tiny wiring check, then exit.")
     parser.add_argument("--summarize", action="store_true", help="Aggregate every per-cell JSON on disk into WSEL16/frozen.json.")
     parser.add_argument("--arm", type=str, choices=[a.value for a in Arm], default=None, help="Which of the 8 arms this cell trains (5 stage-1, 3 stage-2).")
-    parser.add_argument("--tier", type=int, choices=[t.value for t in Tier], default=None, help="SS3.8 tier (1 = reference, 2 = noisy-easy control).")
+    parser.add_argument("--tier", type=int, choices=[t.value for t in Tier], default=None, help="SS3.8 tier (1 = reference, 2 = noisy-easy control, 3 = data x noise ladder).")
     parser.add_argument("--seed", type=int, default=None, help="RNG seed for this cell (canonical suite: 0, 1, 2).")
     parser.add_argument("--tag", type=str, default=None, help="Optional filename suffix (keeps a re-run from clobbering the canonical grid cell).")
+    parser.add_argument("--n-train", type=int, choices=_TIER3_N_TRAIN_CHOICES, default=None, help="Tier-3-only: training set size (SS3.8's data x noise ladder).")
+    parser.add_argument("--sigma", type=float, choices=_TIER3_SIGMA_CHOICES, default=None, help="Tier-3-only: noise sigma (SS3.8's data x noise ladder).")
     parser.add_argument("--max-epochs", type=int, default=DEFAULT_MAX_EPOCHS)
     parser.add_argument("--check-every", type=int, default=DEFAULT_CHECK_EVERY)
     parser.add_argument("--patience", type=int, default=DEFAULT_PATIENCE)
@@ -1301,22 +1381,38 @@ def main() -> None:
 
     arm = Arm(args.arm)
     tier = Tier(args.tier)
+    if tier is Tier.THREE:
+        if args.n_train is None or args.sigma is None:
+            parser.error("--tier 3 (the SS3.8 data x noise ladder) requires both --n-train and --sigma.")
+    elif args.n_train is not None or args.sigma is not None:
+        parser.error("--n-train/--sigma only apply to --tier 3 (SS3.8's data x noise ladder); tiers 1/2 use their own fixed config.")
     w_max = args.w_max if args.w_max is not None else W_MAX
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    print(f"[wsel16] arm={arm.value} tier={tier.value} toy={_TIER_CONFIG[tier].toy.value} seed={args.seed} w_max={w_max}", flush=True)
+    cfg_preview = _resolve_tier_config(tier, args.n_train, None, args.sigma)
+    print(f"[wsel16] arm={arm.value} tier={tier.value} toy={cfg_preview.toy.value} seed={args.seed} w_max={w_max}", flush=True)
     case, state_dict = run_cell(
-        arm, tier, args.seed, w_max=w_max, max_epochs=args.max_epochs, check_every=args.check_every, patience=args.patience, min_delta=args.min_delta
+        arm,
+        tier,
+        args.seed,
+        w_max=w_max,
+        n_train=args.n_train,
+        sigma=args.sigma,
+        max_epochs=args.max_epochs,
+        check_every=args.check_every,
+        patience=args.patience,
+        min_delta=args.min_delta,
     )
 
     if not case["all_widths_trustworthy"]:
         print(f"*** DO-NOT-CONCLUDE GUARD: arm={arm.value} tier={tier.value} seed={args.seed} has widths that did NOT converge trustworthily. Raise --max-epochs. ***")
 
-    cell_path = _cell_json_path(arm, tier, args.seed, tag=args.tag)
+    path_kw = {"n_train": args.n_train, "sigma": args.sigma} if tier is Tier.THREE else {}
+    cell_path = _cell_json_path(arm, tier, args.seed, tag=args.tag, **path_kw)
     with open(cell_path, "w") as f:
         json.dump(_jsonable(case), f, indent=2)
     print(f"wrote {cell_path}")
 
-    state_path = _state_path(arm, tier, args.seed, tag=args.tag)
+    state_path = _state_path(arm, tier, args.seed, tag=args.tag, **path_kw)
     torch.save(state_dict, state_path)
     print(f"wrote {state_path}")
 
