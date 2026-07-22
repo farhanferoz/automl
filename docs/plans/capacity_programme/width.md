@@ -1682,6 +1682,11 @@ cells before the diagnostic can be re-read.** *(Flagged for the user: force-addi
 would cost ~25 KB total and would make the result re-analysable without any retraining.)*
 *(Tier-2 update, 2026-07-22: the tier-2 state dicts ARE force-added, per the ratified wave-2
 instruction for this commit; the tier-1 three remain the user's call as flagged above.)*
+**⛔ RULED at the 2026-07-22 sign-off (item 5 CLOSED, user): trained-model state dicts are NEVER
+committed — "we don't commit these sort of results." The tier-1 files stay local, and the
+force-added tier-2 files are UNTRACKED again in the same commit (they remain on disk and in the
+wave branch's history). This supersedes the wave-2 force-add instruction. The repo-wide `*.pt`
+ignore rule is the standing policy; the retrain-to-re-read consequence above is accepted.**
 
 #### Tier-2 corroboration — landed 2026-07-22 (RE-AUTHORIZED run: ALL schedule + §3.7 weighted objective, hetero3)
 
