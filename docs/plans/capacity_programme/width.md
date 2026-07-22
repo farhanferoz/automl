@@ -1003,7 +1003,7 @@ tier: sonnet high · scale: dynamic · shape: research · verify:
 exits 0; `ls automl_package/examples/capacity_ladder_results/WSEL6/*.json` shows one file per
 (toy, seed, fraction, arm); a saturation plot file exists under the same results dir.
 
-### WSEL-7 — is the router's architecture right for width? — ⛔ **ANSWERED 2026-07-22: NOT INVARIANT under the pre-registered rule — with a noise caveat that goes to user review before the new default is treated as settled.**
+### WSEL-7 — is the router's architecture right for width? — ⛔ **ANSWERED 2026-07-22: NOT INVARIANT under the pre-registered rule. REVIEWED & CLOSED at the 2026-07-22 sign-off: the frozen default STAYS; six user rulings recorded below; the follow-on experiment is WSEL-19.**
 
 **RESULT: `invariant: false`, `new_default = {hidden: 64, depth: 3, epochs: 600, lr: 0.01}`** — ledger `automl_package/examples/capacity_ladder_results/WSEL7/frozen.json` (78 cells: 4 dimensions × 13 values total × 2 tiers × 3 seeds; per-cell JSONs in the same directory).
 
@@ -1037,8 +1037,9 @@ dir so the primary grid's cells are never pooled with re-run cells. **Re-run DON
 candidate shows NO end-task gain (slightly worse on the noisy tier at every fraction); see WSEL-6's
 re-run block for the head-to-head and the keep-the-frozen-default recommendation.**
 
-> **⛔ USER RULINGS AT THE 2026-07-22 SIGN-OFF REVIEW — router disposition SETTLED, two new
-> binding requirements:**
+> **⛔ USER RULINGS AT THE 2026-07-22 SIGN-OFF REVIEW — router disposition SETTLED; sign-off
+> item CLOSED. Six rulings: 1-3 recorded at the first sitting, 4-6 at the second sitting the
+> same day.**
 > 1. **The frozen default STAYS (32×2, 300 epochs, lr 0.01). `new_default` is NOT adopted** — the
 >    registered sweep verdict stands as recorded, but the discriminating re-run showed no end-task
 >    gain and the user ratified keeping the constant where it is.
@@ -1054,11 +1055,31 @@ re-run block for the head-to-head and the keep-the-frozen-default recommendation
 >    decay, no dropout. The re-run's overfitting signature (bigger router worse on 75-point
 >    selection sets) is the motivating evidence. Implementation lands via the router module's
 >    owning strand (`flexnn-package.md` — `routing.py` is outside every WSEL write set); this
->    strand's studies re-read the constants after any such change per §3.6's feed-forward rule. No global freeze from this
+>    strand's studies re-read the constants after any such change per §3.6's feed-forward rule.
+> 4. **Metric ruling (user): router candidates are ranked on the SAME metric the underlying model
+>    trains on, evaluated OUT-OF-SAMPLE — no size/complexity penalty enters the metric.** The
+>    held-out error table is pure per-input error; smallness enters only through the declared
+>    cheapest-within-tolerance tie-band (`DEFAULT_TOLERANCE`, `routing.py:77`), which stays
+>    declared, not tuned (MASTER Decision 18 rules its sensitivity sweep not scheduled). Matches
+>    the implementation as-is — no code change.
+> 5. **Ruling 2's generalizability requirement may be met EITHER by an input-size-relative sizing
+>    rule OR by a router backend with no size-scaling problem (gradient-boosted trees) — decided
+>    EMPIRICALLY, not by fiat: the WSEL-19 router-backend bake-off, ratified at this sign-off
+>    (task block below).** Blending is part of that test, never hand-waved (user): every arm runs
+>    in both routing modes — hard (one width per input) and probabilistic (per-width outputs
+>    blended by the router's class probabilities) — with deployed compute reported next to
+>    quality.
+> 6. **Ruling 3 concretised (user-approved): early stopping on an internal validation split is
+>    MANDATORY; mild weight decay is the default; dropout is EXCLUDED** (wrong regime for a tiny
+>    router on small selection sets). A tree backend satisfies this natively (early stopping +
+>    depth limits + shrinkage + subsampling).
+
+No global freeze from this
 strand (`flexnn-package.md` FP-5 owns `routing.py`). **WSEL-8 is unaffected: its spec's output
 contract carries `w_shared_width`/`w_sweep_width` only — no router-consuming arm.** Whether
 `new_default` becomes the strand's settled per-dial default is decided at user review with this
-caveat block and the re-run's outcome on the table.
+caveat block and the re-run's outcome on the table. **Decided 2026-07-22: it does not — ruling 1
+above.**
 
 **Files (write set):** `automl_package/examples/width_wsel7.py` (Create) ·
 `automl_package/examples/capacity_ladder_results/WSEL7/`
@@ -1092,6 +1113,55 @@ verify: `test -f automl_package/examples/capacity_ladder_results/WSEL7/frozen.js
 exits 0; `python -c "import json; d=json.load(open('automl_package/examples/capacity_ladder_results/WSEL7/frozen.json')); assert 'invariant' in d, d"`
 exits 0 (the invariant-or-not verdict is a field, not prose); if `d['invariant']` is `False`, the same
 file's `new_default` key is non-null and cited by WSEL-6's re-run.
+
+### WSEL-19 — the router-backend bake-off — ⏸ **RATIFIED AT THE 2026-07-22 SIGN-OFF, NOT SCHEDULED (post-merge work; writing the decision-complete spec is a ROOT action on scheduling)**
+
+**Question:** what should the distilled router BE? This is WSEL-7 rulings 2/3/5/6 turned into an
+experiment: the input-size-relative architecture requirement and the first-class regularisation
+requirement are decided empirically by a backend comparison, not by fiat.
+
+**Four arms (user-approved 2026-07-22):**
+1. **Frozen recipe** — the current router MLP exactly as shipped (hidden `(32, 32)`, 300
+   full-batch Adam epochs, lr 1e-2; `routing.py:77-80`) — the baseline every claim is measured
+   against.
+2. **Rule-sized + regularised MLP** — the same architecture family with hidden sizes set by an
+   input-dimensionality-relative rule (the rule itself is a deliverable, per ruling 2), trained
+   under ruling 6: early stopping on an internal validation split, mild weight decay, no dropout.
+3. **Gradient-boosted trees (XGBoost — already a project dependency)** — no
+   architecture-vs-input-size problem to solve at all, and native regularisation (early stopping,
+   depth limits, shrinkage, subsampling). Trained on the same hard labels the
+   cheapest-within-tolerance rule produces.
+4. **Constant router** — always predicts the single globally-best capacity from the error table;
+   the control that tells us whether per-input routing pays at all.
+
+**× two routing modes, both first-class (user ruling: blending is TESTED, never hand-waved):**
+- **HARD** — argmax: one width per input; deployed compute = that width's cost only.
+- **PROBABILISTIC** — per-width predictions/likelihoods blended by the router's class
+  probabilities (for likelihoods, the existing `blend_scores`/`blend_nll` path). Blending
+  executes several widths per input, so **deployed compute is reported next to quality in every
+  cell** — otherwise blend wins unfairly. *(Interpretation confirmed with the user 2026-07-22:
+  "two ways" = hard routing vs probability-blend routing; training targets stay hard-label in
+  both modes.)*
+
+**Grid:** arms × modes, crossed over input dimensionality and selection-set size (small
+selection sets are where the overfitting signature appeared). ⚠ The multi-feature toys this
+requires do NOT exist in the canonical §3.8 suite; their design goes through the written-toy-spec
+gate (user review before building) at scheduling time.
+
+**Readout (ruling 4):** routed held-out error on the underlying model's own training metric — no
+size penalty, smallness only via the declared tie-band — plus routed-vs-oracle agreement and mean
+deployed compute.
+
+**Constraints inherited:**
+- `flexnn-package.md` FP-5.b binds: this task MEASURES AND REPORTS. It writes no new shared
+  default and does not modify `routing.py`; only the owning strand changes the router's
+  constants/machinery, per its process.
+- MASTER Decision 18: the labelling tolerance is not swept.
+- The depth and ProbReg sibling studies read this design when they unpark, rather than inventing
+  their own.
+
+**Non-goals:** no changes to `routing.py` (the owning strand's write set); no soft-target
+*construction* sweep (experiment-protocol, stays with the drivers); no depth/ProbReg cells.
 
 ### WSEL-8 — the W-SHARED ≈ W-SWEEP claim, both halves, on toys — ⛔ **ANSWERED 2026-07-22: BOTH HALVES FAIL. The dial network is NOT ≈ the exhaustive sweep on this toy — 2.6-7.2× worse at matched middle widths, 0/3 agreement on the chosen width, and the disagreement is a mechanical consequence of the quality gap. A FAIL is a finding, not a bug.**
 
