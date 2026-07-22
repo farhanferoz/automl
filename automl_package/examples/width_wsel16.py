@@ -123,6 +123,7 @@ _INDEPENDENT_CERT_REF_PATH = os.path.join(
 
 # Pre-registered bars (`width.md` "Pre-registered bars" block), fixed BEFORE any run.
 _REL_TOL_10PCT = 0.10  # both halt condition (a) (A_JOINT vs B_HEADS, every width) and the PRIMARY bar (full-width only).
+_REPRO_RATIO_RTOL = 0.02  # halt (b): |ours - certified| ratio-to-floor tolerance for "reproduces the certified reference" (observed deviations ~1e-3; thread noise ~5% ceiling).
 _COST_WALLCLOCK_RATIO_BAR = 1.3
 
 _HETERO3_NOISY_REGION = 2  # nwn.make_hetero3's region id for the noisy-easy tail (HETERO3_NOISY_SIGMA).
@@ -851,8 +852,20 @@ def _check_controls(per_cell: dict[Arm, dict[Tier, dict[int, dict]]]) -> dict:
         halt_b = {
             "certified_reference": _INDEPENDENT_CERT_REF_PATH,
             "per_seed": per_seed,
-            # HALT (b) fires iff INDEPENDENT does NOT reach the SAME (strong_pass) bar the certified run did.
-            "halt_condition_b_triggered": not all(v["ours_strong_pass"] for v in per_seed.values()) if per_seed else None,
+            # HALT (b) fires iff INDEPENDENT fails to REPRODUCE its certified reference (width.md Step 3:
+            # "does not reach its certified fit bar" -- the bar the certified run itself reached, PER SEED).
+            # ROOT FIX 2026-07-22: the original predicate demanded strong_pass on every seed, which the
+            # CERTIFIED run itself does not satisfy (its seed 2 is 1.1887, strong_pass=False) -- so a
+            # bit-faithful reproduction (ours: 1.1887, matching to 4 d.p.) tripped the halt. Reproduction
+            # means: no seed regresses below the certified outcome, and ratios match within tolerance.
+            "halt_condition_b_triggered": any(
+                (v["certified_strong_pass"] and not v["ours_strong_pass"])
+                or v["certified_ratio_to_floor"] is None
+                or abs(v["ours_ratio_to_floor"] - v["certified_ratio_to_floor"]) / v["certified_ratio_to_floor"] > _REPRO_RATIO_RTOL
+                for v in per_seed.values()
+            )
+            if per_seed
+            else None,
         }
 
     controls_passed = bool(
