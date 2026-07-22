@@ -1061,9 +1061,9 @@ grep -rn -E "(^[[:space:]]*(import|from)[[:space:]]+hetero_width_experiment\\b)|
 ```
 Output: 15 matches. First 3:
 ```
-  automl_package/examples/independent_width_experiment.py:7:W1/W2 (`sinc_width_experiment.py` / `hetero_width_experiment.py`) fail bar (i) because the SHARED
-  automl_package/examples/independent_width_experiment.py:16:Everything else mirrors `hetero_width_experiment.py` verbatim: same `make_hetero` toy, same
-  automl_package/examples/independent_width_experiment.py:179:    import hetero_width_experiment as hw  # noqa: PLC0415 — selftest-only reuse of the planted-table bar wiring
+  automl_package/examples/independent_width_experiment.py:7:W1/W2 (`sinc_width_experiment.py` / `hetero_width_experiment.py`) fail bar (i) because the SHARED <!-- citecheck-ignore: deleted at Step 7 2026-07-22; this line is part of the deletion record -->
+  automl_package/examples/independent_width_experiment.py:16:Everything else mirrors `hetero_width_experiment.py` verbatim: same `make_hetero` toy, same <!-- citecheck-ignore: deleted at Step 7 2026-07-22; this line is part of the deletion record -->
+  automl_package/examples/independent_width_experiment.py:179:    import hetero_width_experiment as hw  # noqa: PLC0415 — selftest-only reuse of the planted-table bar wiring <!-- citecheck-ignore: deleted at Step 7 2026-07-22; this line is part of the deletion record -->
 ```
 Protected (PROTECTED.tsv): no
 Disposition: **live**
@@ -1080,16 +1080,16 @@ Output: 1 matches. First 3:
 Protected (PROTECTED.tsv): no
 Disposition: **live**
 
-#### `automl_package/examples/independent_width_experiment.py`
+#### `automl_package/examples/independent_width_experiment.py` <!-- citecheck-ignore: deleted at Step 7 2026-07-22; this line is part of the deletion record -->
 
 ```
 grep -rn -E "(^[[:space:]]*(import|from)[[:space:]]+independent_width_experiment\\b)|(automl_package\\.examples\\.independent_width_experiment\\b)|(\\bindependent_width_experiment\\.py\\b)" --include='*.py' --include='*.md' --include='*.sh' --include='*.txt' automl_package/ docs/ tests/ | grep -v "^automl_package/examples/independent_width_experiment\\.py:"
 ```
 Output: 5 matches. First 3:
 ```
-  automl_package/examples/converged_width_experiment.py:3:This replaces the fixed-epoch width runs (`independent_width_experiment.py` and the scratchpad probes)
-  docs/width_dial_synthesis_2026-07-13/per_input_width_architecture_readthrough.md:629:| `W_INDEP` | `independent_width_experiment.py` | `IndependentWidthNet` | K× | 2.5k ep | mixed (1.37/1.55/1.51) | 3/3 direction |
-  docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md:53:| `W_INDEP` | `independent_width_experiment.py` | `IndependentWidthNet` | K× | 2.5k ep | mixed (1.37/1.55/1.51) | 3/3 direction |
+  automl_package/examples/converged_width_experiment.py:3:This replaces the fixed-epoch width runs (`independent_width_experiment.py` and the scratchpad probes) <!-- citecheck-ignore: deleted at Step 7 2026-07-22; this line is part of the deletion record -->
+  docs/width_dial_synthesis_2026-07-13/per_input_width_architecture_readthrough.md:629:| `W_INDEP` | `independent_width_experiment.py` | `IndependentWidthNet` | K× | 2.5k ep | mixed (1.37/1.55/1.51) | 3/3 direction | <!-- citecheck-ignore: deleted at Step 7 2026-07-22; this line is part of the deletion record -->
+  docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md:53:| `W_INDEP` | `independent_width_experiment.py` | `IndependentWidthNet` | K× | 2.5k ep | mixed (1.37/1.55/1.51) | 3/3 direction | <!-- citecheck-ignore: deleted at Step 7 2026-07-22; this line is part of the deletion record -->
 ```
 Protected (PROTECTED.tsv): no
 Disposition: **live**

@@ -2586,21 +2586,24 @@ genuine, and only after it exists is anything provably superseded.
   manifest goes to the user.** The deletion itself is a separate, attended step — the user authorised
   the category, not a blind sweep, and a 30+ file corpus is exactly where an unreviewed rule
   misfires.
-- [ ] **Step 7 — attended deletion.** After sign-off: delete in ONE commit whose body is the manifest.
-  `git` history retains every file, so this is recoverable; say so in the commit body.
+- [x] **Step 7 — attended deletion. ✅ EXECUTED 2026-07-22 (root, autonomous run — front-loaded
+  from wave C the moment the rulings made it unblocked):** the three ratified files deleted in
+  one commit, manifest updated to 40 KEEP / 2 SHIM / 3 DELETED, importer/reference safety
+  re-derived by grep immediately before the `git rm` (zero genuine importers; W_INDEP emptied).
+  `git` history retains every file, so this is recoverable; said so in the commit body.
   **⛔ SIGN-OFF TAKEN 2026-07-22 (item 6 CLOSED, user — three rulings, execution delegated to the
   autonomous post-review run's wave C):**
   1. **Citation-gate scope AMENDED (the headstone finding fixed at the rule):** pure
      audit/inventory documents — `shared/zero-caller-inventory.md` and any future disposal-audit
      doc — are EXCLUDED from the citation walk. A mention that nominates a file for disposal is
      not a dependency. The manifest's c2 column is re-read under this scope at Step-7 execution.
-  2. **DELETE `automl_package/examples/independent_width_experiment.py` +
-     `automl_package/examples/capacity_ladder_results/W_INDEP/w_indep_summary.json`** — superseded
+  2. **DELETE `automl_package/examples/independent_width_experiment.py` + <!-- citecheck-ignore: deleted at Step 7 2026-07-22; this line is part of the deletion record -->
+     `automl_package/examples/capacity_ladder_results/W_INDEP/w_indep_summary.json`** — superseded <!-- citecheck-ignore: deleted at Step 7 2026-07-22; this line is part of the deletion record -->
      by name (`converged_width_experiment.py` docstring), zero genuine importers, unprotected;
      was blocked solely by ruling 1's defect. Consequence recorded: `hetero_width_experiment.py`
      loses its only genuine importer and becomes zero-caller, but stays KEEP (fails c4 — no named
      replacement); a future wave may name one and retire it.
-  3. **DELETE `automl_package/examples/capacity_ladder_results/W_MRL/w_mrl_summary_run1_partial.json`**
+  3. **DELETE `automl_package/examples/capacity_ladder_results/W_MRL/w_mrl_summary_run1_partial.json`** <!-- citecheck-ignore: deleted at Step 7 2026-07-22; this line is part of the deletion record -->
      — partial run superseded by its completed directory-mate, zero references repo-wide; the
      producer's directory-umbrella protection is ruled NOT to cover this leaf (explicit leaf
      exemption, recorded here).
