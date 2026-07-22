@@ -1809,6 +1809,14 @@ field in Step 3 and `hit_cap: false`; (4)
 > mid-flight; the spec's formula is implemented exactly, and the quirk is documented in
 > `stopgrad_all_widths_pred`'s docstring.
 > 🔄 **GRID: controls first (Step 3) launched 2026-07-22 — root-run, backgrounded, sequential.**
+>
+> **USER RULING 2026-07-22 (selection-studies coupling):** the selection studies' MEASUREMENT tasks
+> (WSEL-6, WSEL-7, WSEL-8) are ARCHITECTURE-PARAMETERISED: they run on the vectorised multi-head
+> AND on any single-head recipe that lands competitive (at or near the 10% primary bar) after
+> stages 2–3, with WSEL-8's central claim compared across both. If no single-head recipe is
+> competitive, they run multi-head only and single-head is recorded as
+> ordering-success/accuracy-failure. The infrastructure tasks (WSEL-3/4/5) are
+> architecture-agnostic and are NOT gated on this.
 
 **The question, stated once.** Two structures produce a width dial from one shared hidden layer:
 
