@@ -925,7 +925,38 @@ exits 0 (shim still resolves); hand-computed known-answer checks for one small c
 asserted in a test, not eyeballed; a test asserts each of §1's three models returns a finite total
 cost including selection.
 
-### WSEL-6 — how much data does width selection need?
+### WSEL-6 — how much data does width selection need? — ✅ **ANSWERED 2026-07-22 (primary grid): 15% of the training portion suffices for every arm; NO arm is data-limited. Router-dependent-arm re-run at WSEL-7's `new_default` still owed.**
+
+**RESULT: `fraction: 0.15`, `saturated: true`, `data_limited` all false** — ledger `automl_package/examples/capacity_ladder_results/WSEL6/frozen.json` (90 cells: 2 tiers × 3 seeds × 5 fractions × 3 arms; per-cell JSONs + `saturation.png` in the same directory; per-(tier,seed[,width]) cached nets under `WSEL6/_cache/`).
+
+| tier | arm | smallest fraction within 2·bootstrap-SE of its best | saturated |
+|---|---|---:|---|
+| 1 (hetero) | W-SHARED | 5% | yes | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL6/frozen.json` `per_tier_arm_fraction_choice` -->
+| 1 (hetero) | W-PERINPUT | 5% | yes | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL6/frozen.json` -->
+| 1 (hetero) | W-SWEEP | 5% | yes | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL6/frozen.json` -->
+| 2 (hetero3) | W-SHARED | 10% | yes | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL6/frozen.json` -->
+| 2 (hetero3) | W-PERINPUT | 15% | yes | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL6/frozen.json` -->
+| 2 (hetero3) | W-SWEEP | 5% | yes | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL6/frozen.json` -->
+
+**Findings.** (a) Every (tier, arm) pair saturates INSIDE the sweep — the frozen constant is the max
+over pairs, 15%, bound by the noisy tier's per-input arm; the historical 50/50 selection carve
+(`kdropout_converged_width_experiment.py:273-276`) therefore carries ≥3× more selection data than
+selection needs on these toys. (b) **W-PERINPUT is NOT router-starved at the frozen fraction** — the
+§2 worry ("per-input width does not pay" vs "the router was starved" indistinguishable) is resolved
+within the swept range: every `data_limited` flag is false, so a battery loss is attributable to the
+arm, not to selection-data starvation. (c) The exposure ordering came out as §2 predicted: the
+per-input arm is the hungriest (15% on the noisy tier), the rank-on-average arms saturate at 5-10%.
+(d) Run integrity: 4 of 78 cached nets hit the w4 ported protocol's 6000-epoch cap (the tier-2
+seed-0 shared net; one middle-width sweep net in three other groups) and were retrained under a
+raised cap (actual epochs 6312-8983, all patience-stopped, none capped); the capped originals are
+preserved under `WSEL6/capped_at_6000/` and `WSEL6/_cache/capped_at_6000/`; all 90 primary cells are
+`trustworthy: true`. <!-- numcheck-ignore: the four actual-epoch counts live in the four rebuilt `automl_package/examples/capacity_ladder_results/WSEL6/_cache/*_meta.json` files, one per file -->
+**Protocol notes.** Trains the package class on RAW x/y per WSEL-4's vetted ported protocol — name
+this if these numbers ever share a table with the standardizing drivers (wsel13/wsel16). The router
+ran at the CURRENT frozen defaults (`automl_package/models/flexnn/routing.py:57-60`); **the §3.5
+consequence of WSEL-7's non-invariance verdict — re-running the W-PERINPUT cells citing WSEL-7's
+`new_default` into a separate results dir — is still owed** and lands before the frozen fraction is
+treated as settled for the per-input arm at the new router.
 
 **Files (write set):** `automl_package/examples/width_wsel6.py` (Create) ·
 `automl_package/examples/capacity_ladder_results/WSEL6/`
