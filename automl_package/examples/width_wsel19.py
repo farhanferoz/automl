@@ -125,13 +125,19 @@ The §5 validity checks run IN ORDER and are recorded in every multi-feature cel
   1. **Identity (§5.1):** `wt.identity_holds` at a fixed check size -- asserts, does not gate
      (holds by construction; a `False` here means the construction itself is broken, so it raises
      rather than being recorded as a soft status).
-  2. **d=1 calibration cell (§5.2):** `--calibrate` runs the SAME per-width sweep at `d=1,
-     geometry=axis` (the canonical anchor -- a flagged choice, see `run_calibration`) across every
-     canonical seed, asserts the canonical regime structure (different best widths in the easy vs
-     width-hungry region) survives the probability-integral-transform lift, and writes the gating
-     artifact (`wsel19_calibration_d1.json`). Every multi-feature cell (`_load_calibration_or_
-     refuse`) REFUSES (raises) unless this artifact exists and `passed=True` -- a hard gate, unlike
-     checks 1/3/4/5 below, which are recorded, not refused on.
+  2. **d=1 calibration cell (§5.2, v2 two-block -- redesign spec `shared/wsel19-toy-redesign.md`):**
+     `--calibrate` runs the per-width sweep at `d=1, geometry=axis` TWICE per canonical seed: the
+     REGIME block at `n_train=750` (600 gradient-visible points under the shared every-5th val
+     split -- R2's pin to the canonical carve, killing the traced 600-vs-1200 confound) judged by
+     the R3 practical-floor differentiation criterion on >= 2 of 3 seeds (the traced measure's own
+     declared bar), and the ANCHOR block at the grid's own `n_train=1500`, which provides the §5.3
+     fit-gate anchor and the §7 pre-dispatch regime read. Untrustworthy nets get exactly ONE
+     pre-authorized raised-cap (x2) retrain, both results recorded (the pre-registered §5.2
+     failure taxonomy -- a d=1 failure is a protocol/draw artifact, never a construction
+     indictment, since at d=1 AXIS the v2 construction IS the canonical toy bit-for-bit). Writes
+     `wsel19_calibration_d1.json`; every multi-feature cell (`_load_calibration_or_refuse`)
+     REFUSES (raises) unless this artifact exists, is v2 (`construction: box_v2`), and
+     `passed=True` -- a hard gate, unlike checks 1/3/4/5 below, which are recorded, not refused on.
   3. **Fit gate (§5.3/F6):** the cell's best-fixed-width held-out MSE, as a multiple of the noise
      floor (`HETERO_NOISE_SIGMA**2`), must not exceed the calibration artifact's own worst-seed
      ratio (anchor-relative, no new constant) -- `fit_status: ok` or `void_for_fit`. `--n-train-
@@ -141,8 +147,13 @@ The §5 validity checks run IN ORDER and are recorded in every multi-feature cel
      `nested_width_net.make_hetero`'s own noise-free signal, evaluated on the untouched `t` --
      never a noisy single draw) must beat the best FIXED width by >= 10% of the latter's true
      error on the report set -- `routing_status: ok` or `void_for_routing`.
-  5. **Regime visibility (§5.5):** the per-width TRUE-error table must prefer different widths in
-     the easy (`region=0`) vs width-hungry (`region=1`) report subsets -- `regime_visible`.
+  5. **Regime visibility (§5.5, R3-operationalized):** the per-region practical-floor widths of
+     the per-width TRUE-error table (smallest width whose region-mean true error reaches
+     `<= fraction * noise_floor`; primary fraction 0.2, robustness 0.1/0.3 recorded) must
+     differ by `>= 1` (hard > easy) between the easy (`region=0`) and width-hungry (`region=1`)
+     report subsets -- `regime_visible`, with the floor widths, gap, robustness triple and raw
+     argmins all recorded. Raw argmin no longer gates anything (the trace showed the true-error
+     curves genuinely non-monotonic at tiny errors).
 
 Backends/modes/readouts are UNCHANGED from the 1-D slice (`_fit_backend`/`_score_hard`/
 `_score_blend`, already `in_dim`-parametrized) -- the multi-feature extension only had to fix each
@@ -245,11 +256,23 @@ _REPORT_SEED_OFFSET = 500  # this strand's universal disjoint-test-draw conventi
 
 _MF_DIM_CHOICES = (1, *wt.D_GRID)  # 1 (the calibration/anchor dimension) + the toy-design's own d-grid (2, 8, 32).
 _MF_CACHE_DIRNAME = "_mf_cache"
+_MF_CACHE_CONSTRUCTION_TAG = "box"  # v2 rotated-box construction -- cache paths carry this so v2 nets can never collide with any older scheme (redesign spec §8.2).
 _MF_N_TRAIN_FALLBACK = 4000  # §3b F6: the pre-authorized fallback n_train (a §3.8 ladder value), an EXPLICIT flag only.
 _IDENTITY_CHECK_N = 500  # §5.1: any n proves the by-construction identity; a fixed, modest size keeps the check cheap.
 _CALIBRATION_D = 1  # §5.2's anchor dimension.
-_CALIBRATION_GEOMETRY = wt.Geometry.AXIS  # the canonical d=1 geometry -- v=e_1 is the closest thing to a no-op reparametrization; flagged choice, see run_calibration.
+_CALIBRATION_GEOMETRY = wt.Geometry.AXIS  # the canonical d=1 geometry -- at d=1 AXIS the v2 construction IS the canonical toy (x = t exactly); flagged choice, see run_calibration.
 _CALIBRATION_FILENAME = "wsel19_calibration_d1.json"
+_CALIBRATION_CONSTRUCTION = "box_v2"  # artifact schema marker -- the gate refuses any pre-v2 (probit-lift) artifact.
+_CALIBRATION_N_TRAIN_REGIME = 750  # §5.2 regime block: 750 -> 600 gradient-visible under the every-5th val split == the canonical carve (R2's pin).
+_CALIBRATION_RETRAIN_CAP_MULT = 2  # §5.2 failure taxonomy (a): the single pre-authorized raised-cap retrain multiplier (the WSEL-8 same-precedent repair).
+
+# §5.2/§5.5 practical-floor differentiation criterion (R3 -- the traced measure, ported from the
+# recorded trace `capacity_ladder_results/WSEL19/warp_trace.py`; constants MUST match its
+# declared_criteria, verified against `warp_trace.json` at redesign time).
+_PRACTICAL_FLOOR_FRACTIONS = (0.1, 0.2, 0.3)  # robustness triple; only the primary fraction gates.
+_PRIMARY_FLOOR_FRACTION = 0.2  # the fraction the differentiation verdict is judged on.
+_FLOOR_GAP_THRESH = 1  # hard_floor - easy_floor >= this counts as "differentiates".
+_REGIME_MIN_SEEDS = 2  # majority bar: differentiation on >= this many seeds passes (min_seeds_for_pattern, the trace's own declared value).
 _HIDDENNESS_MIN_RELATIVE_GAIN = 0.10  # §5.4/F4: the oracle must beat the best FIXED width by >= 10% of the latter's true error.
 _HETERO_EASY_REGION = 0  # nwn.make_hetero's region id for x < 0 (the flat-easy branch).
 _HETERO_HARD_REGION = 1  # nwn.make_hetero's region id for x >= 0 (the width-hungry sine branch).
@@ -913,10 +936,11 @@ def _mf_train_one_width(
     return model, val_loss_history
 
 
-def _mf_model_cache_paths(results_dir: str, d: int, geometry: wt.Geometry, seed: int, n_train: int, width: int) -> tuple[str, str]:
+def _mf_model_cache_paths(results_dir: str, d: int, geometry: wt.Geometry, seed: int, n_train: int, width: int, *, cache_tag: str = "") -> tuple[str, str]:
+    """Cache paths carry the v2 construction tag (collision-proof vs any older scheme) and an optional `cache_tag` (e.g. the raised-cap retrain)."""
     base = os.path.join(results_dir, _MF_CACHE_DIRNAME)
     os.makedirs(base, exist_ok=True)
-    tag = f"d{d}_{geometry.value}_seed{seed}_ntrain{n_train}_w{width}"
+    tag = f"{_MF_CACHE_CONSTRUCTION_TAG}_d{d}_{geometry.value}_seed{seed}_ntrain{n_train}_w{width}{cache_tag}"
     return os.path.join(base, f"{tag}.pt"), os.path.join(base, f"{tag}_meta.json")
 
 
@@ -983,13 +1007,17 @@ def _get_or_build_mf_models(
     patience: int = w4.PORTED_PATIENCE,
     min_delta: float = w4.PORTED_MIN_DELTA,
     lr: float = w4.PORTED_LR_DEFAULT,
+    cache_tag: str = "",
+    widths: tuple[int, ...] | None = None,
 ) -> tuple[dict[int, FlexibleWidthNN], dict[int, dict[str, Any]], bool, int]:
     """The §2b/§3b multi-feature twin of `width_wsel6._get_or_train_sweep_all`.
 
-    `w_max` dedicated single-width nets, trained ONCE per (d, geometry, seed, n_train) on the FULL
+    Dedicated single-width nets, trained ONCE per (d, geometry, seed, n_train) on the FULL
     independent training draw (`wt.make_hetero_multifeature` at the cell's own base seed -- no
     p1/p2 carve; §3b/C8: selection is never a carve of training), cached to disk under
-    `results_dir/_mf_cache/`.
+    `results_dir/_mf_cache/`. `cache_tag`/`widths` exist for the §5.2 failure-taxonomy retrain
+    path (a raised-cap retrain of SPECIFIC widths cached under a distinct tag, never clobbering
+    the originals); the default is the full `1..w_max` sweep.
 
     Returns:
         `(models, metas, all_cache_hit, n_train)` -- `n_train` is the ACTUAL value used (the §3b
@@ -1004,8 +1032,8 @@ def _get_or_build_mf_models(
     models: dict[int, FlexibleWidthNN] = {}
     metas: dict[int, dict[str, Any]] = {}
     all_cache_hit = True
-    for width in range(1, w_max + 1):
-        state_path, meta_path = _mf_model_cache_paths(results_dir, d, geometry, seed, n_train, width)
+    for width in widths if widths is not None else range(1, w_max + 1):
+        state_path, meta_path = _mf_model_cache_paths(results_dir, d, geometry, seed, n_train, width, cache_tag=cache_tag)
         model, meta, cache_hit = _mf_get_or_train_one_width(
             d, width, seed, x_tr, y_tr, x_val, y_val, state_path, meta_path, max_epochs=max_epochs, patience=patience, min_delta=min_delta, lr=lr
         )
@@ -1030,19 +1058,54 @@ def _hetero_h(t: np.ndarray, r: float = nwn.HETERO_R_DEFAULT) -> np.ndarray:
     return np.where(t < 0, (0.5 / r) * t, 0.5 * np.sin(t)).astype(np.float32)
 
 
-def _regime_prefers_different_widths(true_error_table: np.ndarray, region: np.ndarray) -> tuple[bool, int, int]:
-    """§5.2/§5.5: does the per-width TRUE-error table prefer a different width in the easy vs width-hungry region?
+def _practical_floor_width(curve: np.ndarray, fraction: float, noise_floor: float) -> int | None:
+    """Smallest 1-based width whose region-mean true error first drops to `<= fraction * noise_floor` (R3 -- the traced measure).
+
+    Ported from the recorded trace (`capacity_ladder_results/WSEL19/warp_trace.py`): robust to a
+    single noisy interior bump, unlike the raw argmin -- it asks only for the FIRST width that
+    clears an externally-meaningful bar, not the curve's global minimum.
+
+    Returns:
+        The 1-based width, or `None` if no width clears the bar within the swept range.
+    """
+    bar = fraction * noise_floor
+    for i, v in enumerate(curve):
+        if v <= bar:
+            return i + 1
+    return None
+
+
+def _regime_floor_analysis(true_error_table: np.ndarray, region: np.ndarray) -> dict[str, Any]:
+    """§5.2/§5.5 (R3-operationalized): practical-floor differentiation between the easy and width-hungry regions.
 
     Args:
         true_error_table: `(n, w_max)` per-sample `(pred_w(x) - h(t))**2`.
-        region: `(n,)` int array, `nwn.make_hetero`'s own region id (0 = easy, 1 = hard), untouched by the §2 lift.
+        region: `(n,)` int array, `nwn.make_hetero`'s own region id (0 = easy, 1 = hard), untouched by §2.
 
     Returns:
-        `(regime_visible, best_width_easy, best_width_hard)` -- widths are 1-based.
+        Dict with `regime_visible` (primary-fraction floors both exist and hard - easy >=
+        `_FLOOR_GAP_THRESH`), the primary floor widths and gap, the full fractions-robustness
+        triple, and the raw per-region argmins (recorded informationally; they gate nothing).
     """
-    best_easy = int(np.argmin(true_error_table[region == _HETERO_EASY_REGION].mean(axis=0))) + 1
-    best_hard = int(np.argmin(true_error_table[region == _HETERO_HARD_REGION].mean(axis=0))) + 1
-    return best_easy != best_hard, best_easy, best_hard
+    noise_floor = float(nwn.HETERO_NOISE_SIGMA**2)
+    easy_curve = true_error_table[region == _HETERO_EASY_REGION].mean(axis=0)
+    hard_curve = true_error_table[region == _HETERO_HARD_REGION].mean(axis=0)
+    floors_by_fraction = {
+        str(fraction): {"easy": _practical_floor_width(easy_curve, fraction, noise_floor), "hard": _practical_floor_width(hard_curve, fraction, noise_floor)}
+        for fraction in _PRACTICAL_FLOOR_FRACTIONS
+    }
+    primary = floors_by_fraction[str(_PRIMARY_FLOOR_FRACTION)]
+    floor_easy, floor_hard = primary["easy"], primary["hard"]
+    gap = None if (floor_easy is None or floor_hard is None) else floor_hard - floor_easy
+    return {
+        "regime_visible": bool(gap is not None and gap >= _FLOOR_GAP_THRESH),
+        "floor_width_easy": floor_easy,
+        "floor_width_hard": floor_hard,
+        "practical_floor_gap": gap,
+        "floors_by_fraction": floors_by_fraction,
+        "argmin_width_easy": int(np.argmin(easy_curve)) + 1,
+        "argmin_width_hard": int(np.argmin(hard_curve)) + 1,
+    }
 
 
 def _calibration_path(results_dir: str) -> str:
@@ -1050,86 +1113,146 @@ def _calibration_path(results_dir: str) -> str:
 
 
 def _load_calibration_or_refuse(results_dir: str) -> dict[str, Any]:
-    """§5.2 gate: every multi-feature cell REFUSES (raises) unless the calibration artifact exists and passed."""
+    """§5.2 gate: every multi-feature cell REFUSES (raises) unless a PASSING v2 calibration artifact exists.
+
+    Returns a normalized dict that PRESERVES the top-level `anchor_ratio_to_noise_floor` key --
+    both consumers (the §5.3 fit-gate comparison and the cell-JSON provenance record in
+    `run_cell_multifeature`) read exactly that key (redesign spec §8.2 / adjudicator finding 7).
+    """
     path = _calibration_path(results_dir)
     if not os.path.exists(path):
         raise RuntimeError(f"multi-feature cell refused (§5.2 gate): no calibration artifact at {path} -- run --calibrate first.")
     with open(path) as f:
         calibration = json.load(f)
+    if calibration.get("construction") != _CALIBRATION_CONSTRUCTION:
+        raise RuntimeError(
+            f"multi-feature cell refused (§5.2 gate): calibration artifact at {path} is not the v2 "
+            f"({_CALIBRATION_CONSTRUCTION}) schema -- a stale pre-redesign artifact cannot gate v2 cells; re-run --calibrate."
+        )
     if not calibration.get("passed", False):
         raise RuntimeError(
             f"multi-feature cell refused (§5.2 gate): calibration artifact at {path} did not pass -- "
             "the d=1 calibration cell must reproduce the canonical regime structure before any multi-feature cell may run."
         )
+    if "anchor_ratio_to_noise_floor" not in calibration:
+        raise RuntimeError(f"multi-feature cell refused (§5.2 gate): calibration artifact at {path} lacks anchor_ratio_to_noise_floor.")
     return calibration
 
 
-def run_calibration(
-    *, w_max: int = W_MAX, seeds: tuple[int, ...] = SEEDS, n_train: int | None = None, results_dir: str = RESULTS_DIR
+def _run_calibration_block(
+    *, w_max: int, seeds: tuple[int, ...], n_train: int, results_dir: str, max_epochs: int = w4.PORTED_N_EPOCHS_CAP
 ) -> dict[str, Any]:
-    """§5.2: the d=1 calibration cell, gating every multi-feature cell.
+    """One §5.2 calibration block: the d=1 AXIS per-width sweep at `n_train`, per seed, with the taxonomy-(a) retrain.
 
-    Runs the SAME multi-feature per-width sweep at `d=1, geometry=axis` (the canonical anchor:
-    `v=e_1` is the closest thing to a no-op reparametrization of the 1-D construction, a flagged
-    choice like every other chosen default in this strand), for every canonical seed. Asserts the
-    canonical qualitative regime structure (different best widths in the easy vs width-hungry
-    region) survives the probability-integral-transform lift BEFORE any multi-feature (d>1) cell
-    may run, and writes the anchor every such cell's fit gate (§5.3) reads
-    (`_load_calibration_or_refuse`).
-
-    The anchor (`anchor_ratio_to_noise_floor`) is the MAXIMUM best-fixed-width-held-out-MSE /
-    noise-floor ratio across the calibration seeds -- the worst-case d=1 fit quality, not a mean or
-    a single seed, so a later multi-feature cell is graded against the loosest defensible 1-D
-    reference rather than amplifying calibration seed noise into a spurious fit-gate failure. No
-    new constant is introduced (F6: "anchor-relative, no new arbitrary constant") -- the ratio
-    itself IS the bar, with no added tolerance multiplier.
+    Per seed: build/load the sweep, apply exactly ONE pre-authorized raised-cap
+    (`_CALIBRATION_RETRAIN_CAP_MULT`x) retrain to any untrustworthy net (cached under a distinct
+    tag -- both results recorded), then score the FINAL nets' held-out and generator-true tables
+    on the report split and run the R3 practical-floor analysis.
     """
     noise_floor = float(nwn.HETERO_NOISE_SIGMA**2)
     per_seed: dict[str, Any] = {}
-    ratios: list[float] = []
-    regime_flags: list[bool] = []
-    trustworthy_flags: list[bool] = []
-
     for seed in seeds:
-        models, metas, _cache_hit, n_train_used = _get_or_build_mf_models(seed, _CALIBRATION_D, _CALIBRATION_GEOMETRY, w_max=w_max, n_train=n_train, results_dir=results_dir)
+        models, metas, _cache_hit, n_train_used = _get_or_build_mf_models(
+            seed, _CALIBRATION_D, _CALIBRATION_GEOMETRY, w_max=w_max, n_train=n_train, results_dir=results_dir, max_epochs=max_epochs
+        )
+        untrustworthy = tuple(w for w in range(1, w_max + 1) if not metas[w]["trustworthy"])
+        retrained: dict[str, Any] = {}
+        if untrustworthy:
+            raised_cap = max_epochs * _CALIBRATION_RETRAIN_CAP_MULT
+            models_retrained, metas_retrained, _hit, _n = _get_or_build_mf_models(
+                seed,
+                _CALIBRATION_D,
+                _CALIBRATION_GEOMETRY,
+                w_max=w_max,
+                n_train=n_train,
+                results_dir=results_dir,
+                max_epochs=raised_cap,
+                cache_tag=f"_capx{_CALIBRATION_RETRAIN_CAP_MULT}",
+                widths=untrustworthy,
+            )
+            for w in untrustworthy:
+                retrained[str(w)] = {"original_meta": metas[w], "retrained_meta": metas_retrained[w], "raised_cap": raised_cap}
+                models[w], metas[w] = models_retrained[w], metas_retrained[w]
+
         x_report, y_report, region_report, t_report = wt.make_report_split(seed, _CALIBRATION_D, _CALIBRATION_GEOMETRY)
         error_table_report = _mf_error_table(models, x_report, y_report, w_max)
         h_report = _hetero_h(t_report)
         true_error_table = np.stack([(models[w].predict(x_report, filter_data=False, width=w) - h_report) ** 2 for w in range(1, w_max + 1)], axis=1)
 
         best_fixed_mse = float(error_table_report.mean(axis=0).min())
-        ratio = best_fixed_mse / noise_floor
-        regime_visible, best_easy, best_hard = _regime_prefers_different_widths(true_error_table, region_report)
+        analysis = _regime_floor_analysis(true_error_table, region_report)
         seed_trustworthy = all(metas[w]["trustworthy"] for w in range(1, w_max + 1))
 
-        ratios.append(ratio)
-        regime_flags.append(regime_visible)
-        trustworthy_flags.append(seed_trustworthy)
         per_seed[str(seed)] = {
             "best_fixed_held_out_mse": best_fixed_mse,
-            "ratio_to_noise_floor": ratio,
-            "regime_visible": regime_visible,
-            "best_width_easy": best_easy,
-            "best_width_hard": best_hard,
+            "ratio_to_noise_floor": best_fixed_mse / noise_floor,
             "trustworthy": seed_trustworthy,
             "n_train": n_train_used,
+            "retrained_widths": retrained,
+            **analysis,
         }
 
-    anchor_ratio = float(max(ratios))
-    regime_visible_all = bool(all(regime_flags))
-    all_trustworthy = bool(all(trustworthy_flags))
-    passed = regime_visible_all and all_trustworthy
+    ratios = [per_seed[str(s)]["ratio_to_noise_floor"] for s in seeds]
+    trustworthy_seeds = [s for s in seeds if per_seed[str(s)]["trustworthy"]]
+    differentiating_trustworthy = [s for s in trustworthy_seeds if per_seed[str(s)]["regime_visible"]]
+    return {
+        "n_train": n_train,
+        "per_seed": per_seed,
+        "anchor_ratio_to_noise_floor": float(max(ratios)),
+        "n_trustworthy_seeds": len(trustworthy_seeds),
+        "n_differentiating_trustworthy_seeds": len(differentiating_trustworthy),
+        "all_trustworthy": bool(len(trustworthy_seeds) == len(seeds)),
+    }
+
+
+def run_calibration(
+    *, w_max: int = W_MAX, seeds: tuple[int, ...] = SEEDS, n_train_regime: int = _CALIBRATION_N_TRAIN_REGIME, n_train_anchor: int | None = None, results_dir: str = RESULTS_DIR
+) -> dict[str, Any]:
+    """§5.2 v2 (redesign spec `shared/wsel19-toy-redesign.md`): the TWO-BLOCK d=1 calibration cell, gating every multi-feature cell.
+
+    REGIME block (`n_train_regime`, default 750 -> 600 gradient-visible == the canonical carve;
+    R2's pin): judged by the R3 practical-floor differentiation criterion; PASS requires
+    differentiation on >= `_REGIME_MIN_SEEDS` seeds (capped at the seed count, so a tiny selftest
+    block still exercises the rule) among trustworthy seeds -- the traced measure's own declared
+    bar, NOT 3/3 (adjudicator finding 4). ANCHOR block (`n_train_anchor`, default the grid's own
+    `wt.TRAIN_N` = 1500): provides `anchor_ratio_to_noise_floor` -- the MAXIMUM
+    best-fixed-MSE/noise-floor across seeds, the worst-case d=1 fit quality at the grid's own
+    provisioning (F6: anchor-relative, no new constant) -- and requires all its nets trustworthy.
+    Its regime/floor numbers are DECISION-BEARING via the §7 pre-dispatch read (amendment A1).
+
+    Both blocks apply the §5.2 failure-taxonomy retrain (one raised-cap retrain per untrustworthy
+    net, both results recorded). PASS = regime-block majority differentiation AND anchor-block
+    all-trustworthy. A False here is a protocol/draw artifact by construction (at d=1 AXIS the v2
+    construction IS the canonical toy) -- the taxonomy in the redesign spec governs the response;
+    it NEVER consumes a construction-redesign iteration.
+    """
+    resolved_n_train_anchor = wt.TRAIN_N if n_train_anchor is None else n_train_anchor
+    regime_block = _run_calibration_block(w_max=w_max, seeds=seeds, n_train=n_train_regime, results_dir=results_dir)
+    anchor_block = _run_calibration_block(w_max=w_max, seeds=seeds, n_train=resolved_n_train_anchor, results_dir=results_dir)
+
+    min_seeds = min(_REGIME_MIN_SEEDS, len(seeds))
+    regime_passed = bool(regime_block["n_differentiating_trustworthy_seeds"] >= min_seeds)
+    passed = regime_passed and bool(anchor_block["all_trustworthy"])
 
     out = {
+        "construction": _CALIBRATION_CONSTRUCTION,
         "d": _CALIBRATION_D,
         "geometry": _CALIBRATION_GEOMETRY.value,
         "seeds": list(seeds),
-        "per_seed": per_seed,
-        "anchor_ratio_to_noise_floor": anchor_ratio,
-        "regime_visible_all_seeds": regime_visible_all,
-        "all_trustworthy": all_trustworthy,
+        "declared_criteria": {
+            "practical_floor_fractions": list(_PRACTICAL_FLOOR_FRACTIONS),
+            "primary_fraction": _PRIMARY_FLOOR_FRACTION,
+            "gap_thresh": _FLOOR_GAP_THRESH,
+            "min_seeds_for_pattern": min_seeds,
+        },
+        "regime_block": regime_block,
+        "anchor_block": anchor_block,
+        "regime_passed": regime_passed,
         "passed": passed,
-        "noise_floor": noise_floor,
+        # Top-level anchor is the ANCHOR block's (grid-provisioned) -- the normalized key both
+        # §5.3 consumers read (redesign spec §8.2 / adjudicator finding 7).
+        "anchor_ratio_to_noise_floor": anchor_block["anchor_ratio_to_noise_floor"],
+        "noise_floor": float(nwn.HETERO_NOISE_SIGMA**2),
         "w_max": w_max,
         "provenance": run_provenance(),
     }
@@ -1137,7 +1260,10 @@ def run_calibration(
     path = _calibration_path(results_dir)
     with open(path, "w") as f:
         json.dump(_jsonable(out), f, indent=2)
-    print(f"wrote {path}  passed={passed}  anchor_ratio_to_noise_floor={anchor_ratio:.4g}")
+    print(
+        f"wrote {path}  passed={passed}  regime: {regime_block['n_differentiating_trustworthy_seeds']}/{len(seeds)} differentiating "
+        f"(need {min_seeds})  anchor_ratio_to_noise_floor={anchor_block['anchor_ratio_to_noise_floor']:.4g}"
+    )
     return out
 
 
@@ -1196,8 +1322,8 @@ def run_cell_multifeature(
     relative_gain = (best_fixed_true_mean - oracle_true_mean) / best_fixed_true_mean if best_fixed_true_mean > 0 else 0.0
     routing_status = RoutingStatus.OK if relative_gain >= _HIDDENNESS_MIN_RELATIVE_GAIN else RoutingStatus.VOID_FOR_ROUTING
 
-    # §5.5 regime visibility, off the SAME true-error table.
-    regime_visible, best_width_easy, best_width_hard = _regime_prefers_different_widths(true_error_table_report, region_report)
+    # §5.5 regime visibility (R3-operationalized: practical floors, not raw argmin), off the SAME true-error table.
+    regime = _regime_floor_analysis(true_error_table_report, region_report)
 
     fitted = _fit_backend(backend, x_sel, y_sel, error_table_sel, flops_by_width, seed, w_max, d)
     readout = _SCORERS[mode](fitted, x_report, error_table_report, flops_by_width, w_max)
@@ -1229,9 +1355,7 @@ def run_cell_multifeature(
             "calibration_anchor_ratio_to_noise_floor": calibration["anchor_ratio_to_noise_floor"],
             "routing_status": routing_status.value,
             "hiddenness_relative_gain": relative_gain,
-            "regime_visible": regime_visible,
-            "best_width_easy": best_width_easy,
-            "best_width_hard": best_width_hard,
+            **regime,
         },
         "provenance": run_provenance(),
     }
@@ -1409,10 +1533,19 @@ def run_selftest() -> bool:
         print(f"[wsel19 selftest] mf calibration gate refuses before artifact exists: {gate_refused}  {'PASS' if gate_refused else 'FAIL'}")
         ok = ok and gate_refused
 
-        calibration = run_calibration(w_max=3, seeds=(seed,), n_train=40, results_dir=tmp_dir)
-        calibration_ok = "passed" in calibration and "anchor_ratio_to_noise_floor" in calibration and math.isfinite(calibration["anchor_ratio_to_noise_floor"])
+        calibration = run_calibration(w_max=3, seeds=(seed,), n_train_regime=40, n_train_anchor=60, results_dir=tmp_dir)
+        calibration_ok = (
+            "passed" in calibration
+            and calibration.get("construction") == _CALIBRATION_CONSTRUCTION
+            and "regime_block" in calibration
+            and "anchor_block" in calibration
+            and "declared_criteria" in calibration
+            and "anchor_ratio_to_noise_floor" in calibration
+            and math.isfinite(calibration["anchor_ratio_to_noise_floor"])
+            and calibration["anchor_ratio_to_noise_floor"] == calibration["anchor_block"]["anchor_ratio_to_noise_floor"]
+        )
         anchor = calibration.get("anchor_ratio_to_noise_floor")
-        print(f"[wsel19 selftest] mf calibration: passed={calibration.get('passed')} anchor={anchor:.4g}  {'PASS' if calibration_ok else 'FAIL'}")
+        print(f"[wsel19 selftest] mf calibration (two-block v2): passed={calibration.get('passed')} anchor={anchor:.4g}  {'PASS' if calibration_ok else 'FAIL'}")
         ok = ok and calibration_ok
 
         # A w_max=3/n_train=40 toy is too tiny to reliably reproduce real regime structure (that is
@@ -1420,13 +1553,31 @@ def run_selftest() -> bool:
         # property) -- overwrite with a synthetic PASSING fixture so the downstream gate-consumption
         # wiring (_load_calibration_or_refuse -> run_cell_multifeature) is exercised deterministically.
         with open(_calibration_path(tmp_dir), "w") as f:
-            json.dump({**calibration, "passed": True, "regime_visible_all_seeds": True, "all_trustworthy": True}, f)
+            json.dump({**calibration, "passed": True}, f)
+
+        # The v2 gate refuses a stale pre-redesign (non-box_v2) artifact even if it claims passed.
+        with open(_calibration_path(tmp_dir)) as f:
+            fixture = json.load(f)
+        try:
+            with open(_calibration_path(tmp_dir), "w") as f:
+                json.dump({**fixture, "construction": "probit_v1"}, f)
+            _load_calibration_or_refuse(tmp_dir)
+            stale_refused = False
+        except RuntimeError:
+            stale_refused = True
+        finally:
+            with open(_calibration_path(tmp_dir), "w") as f:
+                json.dump(fixture, f)
+        print(f"[wsel19 selftest] mf calibration gate refuses stale pre-v2 artifact: {stale_refused}  {'PASS' if stale_refused else 'FAIL'}")
+        ok = ok and stale_refused
 
         mf_d = _SELFTEST_MF_D
         mf_n_train = 40  # tiny -- keeps the wiring check fast; the real 1500/4000 sizes are the root's grid, not this check.
         for geometry in wt.Geometry:
             mf_case = run_cell_multifeature(Backend.FROZEN_MLP, Mode.HARD, n_sel=20, seed=seed, d=mf_d, geometry=geometry, w_max=3, n_train=mf_n_train, results_dir=tmp_dir)
-            mf_keys_ok = "validity_checks" in mf_case and mf_case["d"] == mf_d and mf_case["geometry"] == geometry.value and mf_case["n_train"] == mf_n_train
+            _mf_floor_keys = ("regime_visible", "floor_width_easy", "floor_width_hard", "practical_floor_gap", "floors_by_fraction", "argmin_width_easy", "argmin_width_hard")
+            mf_floor_keys_ok = all(k in mf_case.get("validity_checks", {}) for k in _mf_floor_keys)
+            mf_keys_ok = mf_floor_keys_ok and "validity_checks" in mf_case and mf_case["d"] == mf_d and mf_case["geometry"] == geometry.value and mf_case["n_train"] == mf_n_train
             mf_finite_ok = math.isfinite(mf_case["routed_held_out_quality"])
             mf_ok = mf_keys_ok and mf_finite_ok
             ok = ok and mf_ok
