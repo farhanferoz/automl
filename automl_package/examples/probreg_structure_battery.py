@@ -608,12 +608,21 @@ def _own_nll_per_point(
     return (y_flat - final_predictions.squeeze(-1)) ** 2
 
 
-def _per_class_sigma_stats(per_head_outputs: torch.Tensor, sigma_toy: float) -> tuple[dict[str, float], np.ndarray]:
+def _per_class_sigma_stats(per_head_outputs: torch.Tensor | None, sigma_toy: float) -> tuple[dict[str, float], np.ndarray]:
     """{min, median, max} of the per-class median-over-batch fitted sigma, plus the raw per-class array.
 
     Under CONSTANT uncertainty (fixed_shared spread, either likelihood) there is no log-variance
     column by construction -- every class reports sigma_toy exactly (asserted in `--selftest`).
+
+    `per_head_outputs is None` for the PS-3 mechanism-control layout (SINGLE_HEAD_FINAL_OUTPUT),
+    which by construction has no per-class heads at all. Per-class sigma is undefined there, so the
+    stats are NaN and the raw array is empty -- a non-decision-bearing diagnostic (D1 is inapplicable
+    to the fixed_shared winner this stage builds on; see `_own_nll_is_defined`), reported as absent
+    rather than fabricated.
     """
+    if per_head_outputs is None:
+        nan = float("nan")
+        return {"min": nan, "median": nan, "max": nan}, np.empty(0)
     if per_head_outputs.shape[-1] == _PROBABILISTIC_OUTPUT_WIDTH:
         sigma = torch.exp(0.5 * per_head_outputs[..., 1])  # (N, k)
         per_class_median = sigma.median(dim=0).values.cpu().numpy()
@@ -628,8 +637,15 @@ def _classifier_max_prob_stats(probs: torch.Tensor) -> dict[str, float]:
     return {"mean": float(max_p.mean().item()), "max": float(max_p.max().item())}
 
 
-def _ordering_violations(model: ProbabilisticRegressionModel, classifier_logits_out: torch.Tensor, per_head_outputs: torch.Tensor) -> int:
-    """Count of adjacent-class-mean pairs violating M_0 < M_1 < ... < M_{k-1} -- a hinge-count twin of `ordering_penalty`."""
+def _ordering_violations(model: ProbabilisticRegressionModel, classifier_logits_out: torch.Tensor, per_head_outputs: torch.Tensor | None) -> int:
+    """Count of adjacent-class-mean pairs violating M_0 < M_1 < ... < M_{k-1} -- a hinge-count twin of `ordering_penalty`.
+
+    Returns 0 for the mechanism-control layout (`per_head_outputs is None`): with no per-class means
+    there is no adjacency to order, so the count is vacuously zero. This is a `ce`-arm diagnostic
+    only (D3's ordering gate fires on `none` arms); it never bears on the mechanism-control decision.
+    """
+    if per_head_outputs is None:
+        return 0
     n = model.n_classes
     means = compute_ordering_means(classifier_logits_out[:, :n], per_head_outputs[:, :n, 0], top_decile_fraction=model.ordering_top_decile_fraction)
     if means.numel() < _MIN_CLASSES_FOR_ORDERING:
@@ -770,16 +786,43 @@ def _own_nll_is_defined_json(arm_json: dict[str, Any]) -> bool:
     return arm_json["spread"] != Spread.FIXED_SHARED.value
 
 
+def _fixed_sigma_mixture_components(
+    model: ProbabilisticRegressionModel, final_ho: torch.Tensor, logits_ho: torch.Tensor, heads_ho: torch.Tensor | None
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """The (weights, means) fed to `fixed_sigma_mixture_log_likelihood`, the common D2 yardstick.
+
+    For every layout with per-class heads this is the k-component mixture: softmax classifier
+    weights over the per-class means. The PS-3 mechanism control (SINGLE_HEAD_FINAL_OUTPUT) has NO
+    per-class means -- it emits one pooled (mean, log_var) prediction. It is scored as the DEGENERATE
+    1-component case of the SAME formula: a single weight-1 component at its own predicted mean, i.e.
+    a fixed-sigma Gaussian around that mean. This keeps the yardstick identically defined across all
+    three layouts and makes the mechanism-control comparison neutral -- it is exactly the phase's
+    central question, "does the k-way classification mixture beat one head, both scored at fixed
+    sigma?". REVERSIBLE DEFAULT, un-locked in the plan (§4.5 names the metric, not how a no-component
+    model joins its scale); logged for the PS-4 gate as D-PS-10. Recomputable from stored (final,
+    probs, mus), so nothing is lost if the user rules differently.
+    """
+    n = model.n_classes
+    if heads_ho is not None:
+        return torch.softmax(logits_ho[:, :n], dim=-1), heads_ho[:, :n, 0]
+    weights = torch.ones(final_ho.shape[0], 1, device=final_ho.device, dtype=final_ho.dtype)
+    return weights, final_ho[:, :1]
+
+
 def _finalize(
     model: ProbabilisticRegressionModel, arm: Arm, toy: Toy, x_ho: np.ndarray, y_ho: np.ndarray, x_ho_t: torch.Tensor, y_ho_t: torch.Tensor, sigma_toy: float
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     """The `final` block (minus hit_cap/converged/params_count, attached by the caller)."""
     final_ho, logits_ho, _, _, heads_ho = _forward(model, x_ho_t)
     n = model.n_classes
-    probs_ho = torch.softmax(logits_ho[:, :n], dim=-1)
-    mus = heads_ho[:, :n, 0]
+    # The mixture weights/means for the D2 yardstick (degenerate 1-component for the mechanism
+    # control, see `_fixed_sigma_mixture_components`) are SEPARATE from the classifier probabilities:
+    # even SINGLE_HEAD_FINAL_OUTPUT keeps a real k-way classification bottleneck, so `slice_accuracy`
+    # must read the true classifier, not the degenerate mixture weights.
+    mix_weights, mus = _fixed_sigma_mixture_components(model, final_ho, logits_ho, heads_ho)
+    classifier_probs = torch.softmax(logits_ho[:, :n], dim=-1)
 
-    fixed_sigma_ll_perpoint = fixed_sigma_mixture_log_likelihood(y_ho_t, probs_ho, mus, sigma=sigma_toy)
+    fixed_sigma_ll_perpoint = fixed_sigma_mixture_log_likelihood(y_ho_t, mix_weights, mus, sigma=sigma_toy)
     heldout_fixed_sigma_mll = float(fixed_sigma_ll_perpoint.mean().item())
     heldout_nll_own = float(_own_nll_per_point(model, y_ho_t, final_ho, logits_ho, heads_ho).mean().item()) if _own_nll_is_defined(arm) else None
 
@@ -792,14 +835,17 @@ def _finalize(
 
     boundaries = model.precomputed_class_boundaries[n]
     _, y_ho_binned = create_bins(data=y_ho, unique_bin_edges=boundaries)
-    pred_class = probs_ho.argmax(dim=1).cpu().numpy()
+    pred_class = classifier_probs.argmax(dim=1).cpu().numpy()
     slice_accuracy = float(np.mean(pred_class == y_ho_binned))
 
     _, per_class_median = _per_class_sigma_stats(heads_ho, sigma_toy)
-    true_sigma = _true_class_sigma(toy, x_ho, y_ho_binned, n, seed=int(model.random_seed))
-    with np.errstate(invalid="ignore", divide="ignore"):
-        ratios = per_class_median / true_sigma
-    min_sigma_ratio = float(np.nanmin(ratios)) if np.any(~np.isnan(ratios)) else float("nan")
+    if per_class_median.size == 0:  # mechanism control: no per-class heads, so no sigma ratio exists
+        min_sigma_ratio = float("nan")
+    else:
+        true_sigma = _true_class_sigma(toy, x_ho, y_ho_binned, n, seed=int(model.random_seed))
+        with np.errstate(invalid="ignore", divide="ignore"):
+            ratios = per_class_median / true_sigma
+        min_sigma_ratio = float(np.nanmin(ratios)) if np.any(~np.isnan(ratios)) else float("nan")
 
     final_block = {
         "heldout_nll_own": heldout_nll_own,
@@ -811,8 +857,10 @@ def _finalize(
         "slice_accuracy": slice_accuracy,
     }
     perpoint = {
+        # The mixture weights/means are stored (not the classifier probs) so `--rescore` reproduces
+        # the D2 metric bit-for-bit -- for the mechanism control these are the degenerate 1-component.
         "fixed_sigma_ll_per_point": fixed_sigma_ll_perpoint.detach().cpu().numpy().astype(np.float32),
-        "probs": probs_ho.detach().cpu().numpy().astype(np.float32),
+        "probs": mix_weights.detach().cpu().numpy().astype(np.float32),
         "mus": mus.detach().cpu().numpy().astype(np.float32),
         "y_true": np.asarray(y_ho, dtype=np.float32),
     }

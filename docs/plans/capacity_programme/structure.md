@@ -97,6 +97,27 @@ resumes at the first wave not marked ✅ — never re-dispatches a ✅ wave.
   code path repaired the same day. If that arm wins, treat it as grounds for suspicion, not a
   finding.**
 
+- **D-PS-10 — PS-3's mechanism control was uncomputable as specified; scored as the degenerate
+  1-component of the same yardstick (REVERSIBLE DEFAULT, needs user ratification at the gate).**
+  §4.5 locks the D2 metric as the fixed-σ *mixture* log-likelihood and §PS-3 runs
+  `single_final` (SINGLE_HEAD_FINAL_OUTPUT) as the mechanism control — but that layout emits ONE
+  pooled (mean, log_var) prediction and **no per-class means**, so a k-component mixture LL is
+  undefined for it, and the battery crashed on every mechanism-control cell (per-class diagnostics
+  called `.shape` on the `None` head tensor). Two things were unlocked and are now decided: (a) the
+  per-class diagnostics (`per_class_sigma`, `ordering_violations`, `min_sigma_ratio`) are recorded
+  ABSENT (NaN→null) for this layout rather than fabricated — non-decision-bearing here; (b) the
+  control is placed on the common scale as the **degenerate 1-component** fixed-σ mixture: a single
+  weight-1 component at its own predicted mean, i.e. a fixed-σ Gaussian around that mean — the SAME
+  formula, so the yardstick stays identically defined. This is deliberately the NEUTRAL choice: it
+  makes the halt-rule comparison exactly the phase's central question — *does the k-way
+  classification mixture beat one head, both scored at fixed σ?* — without tilting it either way.
+  It is reversible (recomputable from the stored per-point (probs, mus, y)). ⚠️ **Because the
+  mechanism control winning/tying ENDS THE PHASE (a user matter by the plan's own halt rule), the
+  memo must surface this scoring choice for explicit ratification — a different rule here could flip
+  the halt outcome.** The classification bottleneck is real even for this layout, so `slice_accuracy`
+  is read off the true k-way classifier, not the degenerate weights. Regression test:
+  `tests/test_structure_phase_heads.py::test_mechanism_control_layout_produces_a_valid_cell`.
+
 **⚠️ PS-2 EVIDENCE NOTE — carry into the PS-4 memo.** Source:
 `automl_package/examples/capacity_ladder_results/PS2/ps2_decision.json` + the k=3 cells.
 
