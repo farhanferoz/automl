@@ -1478,6 +1478,36 @@ and the cost of the alternative is small (≈1 min/seed to retrain, and the driv
 under its seeds). Consequence to know rather than rediscover: **a fresh clone must re-run the three
 cells before the diagnostic can be re-read.** *(Flagged for the user: force-adding the three files
 would cost ~25 KB total and would make the result re-analysable without any retraining.)*
+*(Tier-2 update, 2026-07-22: the tier-2 state dicts ARE force-added, per the ratified wave-2
+instruction for this commit; the tier-1 three remain the user's call as flagged above.)*
+
+#### Tier-2 corroboration — landed 2026-07-22 (RE-AUTHORIZED run: ALL schedule + §3.7 weighted objective, hetero3)
+
+**RESULT: corroboration only, no bar re-grade — the noisy-easy tier also shows NO decreasing importance ordering, and the prefix penalty vanishes there** — ledger `automl_package/examples/capacity_ladder_results/WSEL13/frozen.json` (`tier2` block; per-cell `wsel13_tier2_all_seed{0,1,2}.json` + `state_tier2_all_seed{0,1,2}.pt` in the same directory).
+
+| seed | Spearman(index, importance) | prefix-vs-greedy gap | Kendall(greedy, index) | widths trustworthy |
+|---|---:|---:|---:|---:|
+| 0 | -0.0979 | 0.0131 | 0.3030 | 12/12 | <!-- numcheck-ignore: values are `step2_ablation.spearman_index_vs_importance.rho` etc. in `automl_package/examples/capacity_ladder_results/WSEL13/wsel13_tier2_all_seed0.json`; the checker's token extractor drops the minus sign, so a signed leaf can never match -->
+| 1 | -0.0559 | 0.0123 | 0.3030 | 12/12 | <!-- numcheck-ignore: same fields in `automl_package/examples/capacity_ladder_results/WSEL13/wsel13_tier2_all_seed1.json`; signed-leaf limitation as above -->
+| 2 | -0.0559 | 0.0048 | 0.6061 | 12/12 | <!-- numcheck-ignore: same fields in `automl_package/examples/capacity_ladder_results/WSEL13/wsel13_tier2_all_seed2.json`; signed-leaf limitation as above -->
+
+**Grade vs tier 1 (the two tiers differ in schedule, objective AND toy — the re-authorization ruling
+requires the schedule difference named wherever they are tabulated: tier 1 = sandwich + plain MSE +
+hetero; tier 2 = ALL + fixed-sigma weighted + hetero3. Cross-tier contrasts attribute to that BUNDLE,
+never to a single factor):**
+- **The refutation is corroborated**: 0/3 tier-2 seeds anywhere near the `<= -0.5` primary bar —
+  there is no decreasing-importance ordering on this tier either. The certified design's mechanistic
+  ordering account stays refuted on both tiers now, not just the reference cell.
+- **Tier 1's positive correlation does NOT replicate**: tier-2 correlations are ≈ zero (-0.0979 to <!-- numcheck-ignore: tier-2 values as in the table above (signed-leaf limitation); tier-1 values restate the tier-1 table -->
+  -0.0559), not positive (+0.524/+0.881/+0.580 on tier 1). The reversed-ordering anomaly is <!-- numcheck-ignore: continuation — tier-1 values from `automl_package/examples/capacity_ladder_results/WSEL13/wsel13_tier1_seed{0,1,2}.json` -->
+  tier-1-specific on current evidence.
+- **The prefix penalty vanishes on tier 2**: mean prefix-vs-greedy gap 0.0100 vs tier 1's 0.310 — <!-- numcheck-ignore: 0.0100 is `tier2.mean_relative_prefix_gap` and 0.310 restates the tier-1 secondary-bar mean, both in `automl_package/examples/capacity_ladder_results/WSEL13/frozen.json` -->
+  under this tier's bundle the prefix is within ~1% of greedy, i.e. "nested prefix" as COMPUTATION
+  SHARING is essentially free here.
+- **Run integrity**: first tier-2 run (2026-07-22, same day) stopped at a non-stationary point via
+  the latched joint stop rule and was discarded unconcluded per its own guard; this run, under the
+  corrected simultaneous-flatness rule (commit `f3a1c65`), is 12/12 trustworthy on every seed with
+  zero guard hits.
 
 ---
 
