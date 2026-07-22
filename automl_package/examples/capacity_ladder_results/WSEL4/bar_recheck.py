@@ -8,13 +8,22 @@ arbitrary and replaced with an absolute, consumer-anchored standard --
   (b) TOLERANCE: 0.1x the per-point LL difference that a 10% change in that cell's own held-out
       error (MSE) would produce, under a fixed-sigma Gaussian idealization.
 
-This script is pure arithmetic over `reproduction.json` (already on disk, landed 2026-07-22) --
-NO retraining, NO model runs. It joins that file's `cells` (control_nll/reference_nll, the
-control-arm-vs-`W_CONVERGED` reproduction check) with its `ported_vs_control`
-(control_held_out_mse, from the SAME trained control-arm net) and recomputes each of the 36
-(toy, seed, width) gaps in the new units. Full derivation and the assumptions it rests on are
-written into `bar_recheck.json` itself (`formula`, `assumptions`) so a reader never needs this
-docstring.
+REFINED 2026-07-22 (root follow-up): the first cut of this recompute used each cell's OWN achieved
+held-out MSE as the fixed-sigma proxy, which makes the bar artificially strict exactly where the
+net underfits (achieved MSE >> true noise variance there). The hetero toy's noise is GENERATIVE
+TRUTH, readable from source with no retraining -- `nested_width_net.make_hetero` adds Gaussian
+noise, COMMON-MODE across both regions, at a fixed `HETERO_NOISE_SIGMA=0.05` (nested_width_net.py
+:93,144,161-164,176) -- so this version uses that true noise variance as sigma, and keeps the old
+MSE-based construction alongside under `proxy_*` fields so both are on record.
+
+This script is pure arithmetic (plus a deterministic, seeded NumPy data regeneration -- no model
+training, no model runs) over JSONs already on disk. It joins `reproduction.json`'s `cells`
+(control_nll/reference_nll, the control-arm-vs-`W_CONVERGED` reproduction check) with its
+`ported_vs_control` (control_held_out_mse, from the SAME trained control-arm net), regenerates each
+seed's exact TEST inputs via `nested_width_net.make_hetero` to compute the true noise variance those
+inputs carry, and recomputes each of the 36 (toy, seed, width) gaps in the new units. Full
+derivation and the assumptions it rests on are written into `bar_recheck.json` itself (`formula`,
+`assumptions`) so a reader never needs this docstring.
 
 Determinism note: `provenance.timestamp` is derived from `reproduction.json`'s own mtime, not
 wall-clock time, so two runs against the same landed input reproduce `bar_recheck.json`
@@ -37,7 +46,13 @@ from typing import Any
 import numpy as np
 
 _HERE = Path(__file__).resolve().parent
+_EXAMPLES_DIR = _HERE.parent.parent
+sys.path.insert(0, str(_EXAMPLES_DIR))
+
+import nested_width_net as nwn  # noqa: E402 -- reused verbatim: make_hetero, HETERO_NOISE_SIGMA
+
 _REPRODUCTION_PATH = _HERE / "reproduction.json"
+_W_CONVERGED_PATH = _EXAMPLES_DIR / "capacity_ladder_results" / "W_CONVERGED" / "w_converged_summary.json"
 _OUTPUT_PATH = _HERE / "bar_recheck.json"
 
 _TEN_PCT_CHANGE = 0.10  # the consumer-anchor's own "10% change in that cell's error" fraction
@@ -45,51 +60,61 @@ _BAR_FRACTION = 0.10  # ratified tolerance: bar = 0.1x the 10%-equivalent LL dif
 
 _FORMULA = (
     "achieved_per_point_ll_diff = |control_nll - reference_nll|, both already per-point-mean "
-    "Gaussian NLL over the same N_TEST=500 held-out points computed by the identical "
-    "gaussian_log_likelihood()/.mean() construction (converged_width_experiment.py:120, "
-    "width_wsel4.py:220-221 via sinc_width_experiment.py's _score_all_widths) -- directly "
-    "comparable with no further per-point normalization. "
-    "sigma_sq_proxy = control_held_out_mse, this SAME cell's own control-arm held-out MSE from "
-    "the SAME trained net that produced control_nll (width_wsel4.py:220-223), used as the "
-    "fixed-sigma idealization's noise-floor proxy (docs/plans/capacity_programme/width.md:878-880 "
-    "states the formula for 'a Gaussian with fixed per-point sigma'; no raw per-point variance or "
-    "historical MSE anchor is recorded on disk to do otherwise -- see `assumptions`). "
-    "ten_pct_equivalent_ll_diff = (0.10 * sigma_sq_proxy) / (2 * sigma_sq_proxy). "
-    "bar = 0.10 * ten_pct_equivalent_ll_diff. "
-    "ratio = achieved_per_point_ll_diff / bar. "
-    "pass = achieved_per_point_ll_diff <= bar."
+    "Gaussian NLL over the same N_TEST held-out points (n_test read per-cell from that cell's own "
+    "landed JSON) computed by the identical gaussian_log_likelihood()/.mean() construction "
+    "(converged_width_experiment.py:120, width_wsel4.py:220-221 via sinc_width_experiment.py's "
+    "_score_all_widths) -- directly comparable with no further per-point normalization. "
+    "PRIMARY construction: sigma_sq_true = the hetero toy's GENERATIVE noise variance "
+    "(HETERO_NOISE_SIGMA**2), averaged over this cell's own regenerated TEST inputs "
+    "(`nested_width_net.make_hetero(n_test, seed + 500)`, the exact deterministic draw both the "
+    "control and reference arms scored) -- read from source, not fitted. "
+    "ten_pct_equivalent_ll_diff = (0.10 * control_held_out_mse) / (2 * sigma_sq_true). "
+    "bar = 0.10 * ten_pct_equivalent_ll_diff. ratio = achieved_per_point_ll_diff / bar. "
+    "pass = achieved_per_point_ll_diff <= bar. "
+    "PROXY construction (retained for the record, prefixed proxy_*): identical formula with "
+    "sigma_sq_true replaced by control_held_out_mse itself (the cell's own achieved error standing "
+    "in for its noise floor) -- this was the first-cut construction; it over-tightens the bar "
+    "wherever the achieved MSE exceeds the true noise floor (i.e. wherever the net underfits)."
 )
 
 _ASSUMPTIONS = [
-    "control_nll and reference_nll are both per-point MEAN Gaussian NLL over the same N_TEST=500 "
-    "held-out points (converged_width_experiment.py:47-48 N_TEST=500, used unmodified at :188 for "
-    "the landed full run; width_wsel4.py's --n-test defaults to cwe.N_TEST). Same scoring function "
-    "on both sides: converged_width_experiment.py:120 "
+    "control_nll and reference_nll are both per-point MEAN Gaussian NLL over the same N_TEST "
+    "held-out points -- converged_width_experiment.py:120 "
     "`per_k_nll = {k: float(-fixed_width_ll[k].mean()) ...}` where fixed_width_ll comes from "
     "sinc_width_experiment.py:154-170 `_score_all_widths`; width_wsel4.py:220-221 "
-    "`nll_te = float(-ll_te.mean())` reuses the identical `sw._score_all_widths`. No rescaling is "
-    "needed to compare them as per-point quantities.",
+    "`nll_te = float(-ll_te.mean())` reuses the identical `sw._score_all_widths`. No rescaling "
+    "needed to compare them as per-point quantities. n_test is read per cell from that cell's own "
+    "landed `<toy>_<seed>_<width>_control.json` (`config.n_test`) rather than assumed; verified "
+    "uniform at 500 across all 36 landed control cells.",
+    "The hetero toy's noise is GENERATIVE TRUTH, not fitted: `make_hetero` adds "
+    "`rng.normal(0.0, sigma, n)` with `sigma=HETERO_NOISE_SIGMA=0.05` "
+    "(nested_width_net.py:93,144,176), and its own docstring states this is 'COMMON-MODE across "
+    "both regions' (nested_width_net.py:161-164) -- i.e. sigma(t)**2 is the SAME constant "
+    "(0.05**2 = 0.0025) at every input t, not x-/region-dependent (contrast `make_hetero3`, which "
+    "DOES vary noise by region at nested_width_net.py:218 -- out of WSEL-4's hetero-only scope). "
+    "Both the control and reference arms score the SAME deterministic test draw, "
+    "`make_hetero(n_test, seed + 500)` (width_wsel4.py:155, converged_width_experiment.py:94) -- "
+    "this script regenerates that exact draw (a pure seeded NumPy call, no model training/scoring) "
+    "and averages the true per-point noise variance over it, rather than shortcutting straight to "
+    "the constant, so the on-disk number reflects a real per-cell computation. Because the noise is "
+    "input-independent, that average is exactly 0.0025 for every cell regardless of seed/width -- a "
+    "verified consequence of the toy's construction, not an assumption.",
     "The per-width net predicts a LEARNED, per-point-varying (heteroscedastic) log-variance -- "
     "nested_width_net.py:126-129 `gaussian_log_likelihood(mean, log_var, y) = -0.5*(log(2*pi) + "
-    "log_var + (y-mean)**2/exp(log_var))`. The historical reference "
-    "(W_CONVERGED/w_converged_summary.json) records no per-point variances and no raw MSE -- "
-    "verified: its `per_case` entries carry only "
+    "log_var + (y-mean)**2/exp(log_var))` -- which is a MODEL of the noise, distinct from the toy's "
+    "true generative noise used here. The historical reference "
+    "(W_CONVERGED/w_converged_summary.json) records neither the model's per-point variances nor a "
+    "raw MSE (verified: its `per_case` entries carry only "
     "{seed, convergence, n_widths_trustworthy, all_widths_trustworthy, hard_curve, easy_curve, "
-    "construction, recovery, deploy, marginal_p, per_k_nll}, and width_wsel4.py:27-35 documents the "
-    "same finding ('W_CONVERGED's summary JSON never recorded a raw MSE'). An exact "
-    "per-point-sigma-weighted ΔLL/ΔMSE relationship therefore cannot be reconstructed from disk "
-    "without re-scoring the trained nets, which this task's non-goals prohibit (no retraining, no "
-    "model runs).",
-    "Given that, sigma_sq_proxy is taken as each cell's OWN control-arm held-out MSE "
-    "(`control_held_out_mse` in reproduction.json's `ported_vs_control`, produced by the SAME "
-    "trained net as that cell's `control_nll` -- width_wsel4.py:220-223 computes both "
-    "`nll_te`/`mse_te` from one `net`/`split[\"x_test\"]`/`split[\"y_test\"]`) -- i.e. the cell's own "
-    "achieved noise floor stands in for the fixed sigma under which 'a 10% change in that cell's "
-    "error' is evaluated. This is an assumption, not a value read from the source.",
-    "Algebraic consequence of that choice: ten_pct_equivalent_ll_diff = (0.10*MSE)/(2*MSE) = 0.05 "
-    "nats for every cell (MSE cancels exactly), so bar = 0.10*0.05 = 0.005 nats is a constant "
-    "across all 36 cells -- a discovered identity of the chosen proxy, not a hardcoded threshold; "
-    "computed per cell below rather than assumed.",
+    "construction, recovery, deploy, marginal_p, per_k_nll}), so an exact per-point MODEL-sigma- "
+    "weighted ΔLL/ΔMSE relationship still cannot be reconstructed without re-scoring the trained "
+    "nets (prohibited). Using the toy's true GENERATIVE sigma instead sidesteps that gap entirely "
+    "for this toy, since it needs no model internals at all.",
+    "`reference_seed_untrustworthy` is read directly from "
+    "`W_CONVERGED/w_converged_summary.json`'s top-level `untrustworthy_seeds` list (verified content "
+    "below, not assumed from the dispatching message) -- per width.md's WSEL-4 carry-forward "
+    "caveat, those seeds' historical numbers are not trajectory-certified, so a bar failure on one "
+    "of them reflects on the historical reference's own certification, not solely on the port.",
 ]
 
 
@@ -104,9 +129,58 @@ def _index_mse(rows: list[dict[str, Any]]) -> dict[tuple[str, int, int], dict[st
     return {(r["toy"], r["seed"], r["width"]): r for r in rows}
 
 
-def _recompute_cell(cell: dict[str, Any], mse_row: dict[str, Any] | None) -> dict[str, Any]:
-    """Recomputes one (toy, seed, width) cell's reproduction gap in the ratified per-point-LL units."""
+def _control_cell_n_test(toy: str, seed: int, width: int) -> int:
+    """Reads this cell's own recorded `n_test` from its landed per-cell control JSON (no hardcode)."""
+    path = _HERE / f"{toy}_{seed}_{width}_control.json"
+    return int(_load(path)["config"]["n_test"])
+
+
+def _mean_true_sigma_sq(toy: str, seed: int, n_test: int) -> float:
+    """Mean GENERATIVE noise variance over the exact TEST inputs this (toy, seed) cell scored.
+
+    Regenerates the deterministic draw both arms scored (`make_hetero(n_test, seed + 500)` --
+    width_wsel4.py:155, converged_width_experiment.py:94) and averages the toy's true per-point
+    noise variance over it. For `hetero`, that variance is a fixed constant (COMMON-MODE noise,
+    nested_width_net.py:161-164), so the average is invariant to seed/width/n_test -- computed
+    explicitly here rather than shortcut, so the number on disk is a real per-cell computation.
+    """
+    if toy != nwn.Toy.HETERO.value:
+        raise ValueError(f"no true-noise generator wired for toy={toy!r} -- WSEL-4's scope is hetero only")
+    x_te, _y_te, _region_te = nwn.make_hetero(n_test, seed + 500)
+    sigma_sq = np.full(x_te.shape, nwn.HETERO_NOISE_SIGMA**2, dtype=np.float64)
+    return float(sigma_sq.mean())
+
+
+def _ten_pct_bar(achieved: float, mse: float | None, sigma_sq: float | None, sigma_label: str) -> dict[str, Any]:
+    """Shared 10%-consumer-anchor construction: `ten_pct_equivalent_ll_diff = 0.10*mse / (2*sigma_sq)`, `bar = 0.10*that`."""
+    if mse is None or not math.isfinite(mse) or mse <= 0:
+        reason = f"control_held_out_mse={mse!r} missing/non-positive -- conversion ill-defined"
+        return {"ten_pct_equivalent_ll_diff": None, "bar": None, "ratio": None, "pass": None, "reason": reason}
+    if sigma_sq is None or not math.isfinite(sigma_sq) or sigma_sq <= 0:
+        reason = f"{sigma_label} sigma_sq={sigma_sq!r} missing/non-positive -- conversion ill-defined"
+        return {"ten_pct_equivalent_ll_diff": None, "bar": None, "ratio": None, "pass": None, "reason": reason}
+    ten_pct_equivalent = (_TEN_PCT_CHANGE * mse) / (2.0 * sigma_sq)
+    bar = _BAR_FRACTION * ten_pct_equivalent
+    return {
+        "ten_pct_equivalent_ll_diff": ten_pct_equivalent,
+        "bar": bar,
+        "ratio": (achieved / bar) if bar > 0 else None,
+        "pass": bool(achieved <= bar),
+        "reason": None,
+    }
+
+
+def _recompute_cell(cell: dict[str, Any], mse_row: dict[str, Any] | None, reference_untrustworthy_seeds: set[int]) -> dict[str, Any]:
+    """Recomputes one (toy, seed, width) cell's reproduction gap under both the refined and proxy constructions."""
     achieved = abs(cell["control_nll"] - cell["reference_nll"])
+    mse = mse_row["control_held_out_mse"] if mse_row is not None else None
+
+    n_test = _control_cell_n_test(cell["toy"], cell["seed"], cell["width"])
+    sigma_sq_true = _mean_true_sigma_sq(cell["toy"], cell["seed"], n_test)
+
+    primary = _ten_pct_bar(achieved, mse, sigma_sq_true, "true-noise")
+    proxy = _ten_pct_bar(achieved, mse, mse, "proxy-MSE")  # the first-cut construction: sigma_sq := mse itself
+
     row: dict[str, Any] = {
         "toy": cell["toy"],
         "seed": cell["seed"],
@@ -114,27 +188,22 @@ def _recompute_cell(cell: dict[str, Any], mse_row: dict[str, Any] | None) -> dic
         "control_nll": cell["control_nll"],
         "reference_nll": cell["reference_nll"],
         "achieved_per_point_ll_diff": achieved,
+        "control_held_out_mse": mse,
+        "reference_seed_untrustworthy": cell["seed"] in reference_untrustworthy_seeds,
+        "sigma_sq_true": sigma_sq_true,
+        "ten_pct_equivalent_ll_diff": primary["ten_pct_equivalent_ll_diff"],
+        "bar": primary["bar"],
+        "ratio": primary["ratio"],
+        "pass": primary["pass"],
+        "proxy_ten_pct_equivalent_ll_diff": proxy["ten_pct_equivalent_ll_diff"],
+        "proxy_bar": proxy["bar"],
+        "proxy_ratio": proxy["ratio"],
+        "proxy_pass": proxy["pass"],
     }
-
-    mse = mse_row["control_held_out_mse"] if mse_row is not None else None
-    if mse_row is None:
-        reason = "no matching ported_vs_control row for this (toy, seed, width)"
-        row.update(control_held_out_mse=None, ten_pct_equivalent_ll_diff=None, bar=None, ratio=None, pass_=None, reason=reason)
-    elif mse is None or not math.isfinite(mse) or mse <= 0:
-        reason = f"control_held_out_mse={mse!r} is missing/non-positive -- sigma-proxy undefined, conversion ill-defined"
-        row.update(control_held_out_mse=mse, ten_pct_equivalent_ll_diff=None, bar=None, ratio=None, pass_=None, reason=reason)
-    else:
-        ten_pct_equivalent = (_TEN_PCT_CHANGE * mse) / (2.0 * mse)
-        bar = _BAR_FRACTION * ten_pct_equivalent
-        row.update(
-            control_held_out_mse=mse,
-            ten_pct_equivalent_ll_diff=ten_pct_equivalent,
-            bar=bar,
-            ratio=(achieved / bar) if bar > 0 else None,
-            pass_=bool(achieved <= bar),
-        )
-    # JSON output key is "pass" (a reserved word in Python, hence "pass_" internally).
-    row["pass"] = row.pop("pass_")
+    if primary["reason"] is not None:
+        row["reason"] = primary["reason"]
+    if proxy["reason"] is not None:
+        row["proxy_reason"] = proxy["reason"]
     return row
 
 
@@ -149,23 +218,31 @@ def _provenance() -> dict[str, Any]:
         "python_version": sys.version,
         "numpy_version": np.__version__,
         "source_reproduction_json": str(_REPRODUCTION_PATH),
+        "source_w_converged_json": str(_W_CONVERGED_PATH),
     }
 
 
 def build_bar_recheck() -> dict[str, Any]:
-    """Builds the full `bar_recheck.json` payload from `reproduction.json`."""
+    """Builds the full `bar_recheck.json` payload from `reproduction.json` and `w_converged_summary.json`."""
     reproduction = _load(_REPRODUCTION_PATH)
+    reference = _load(_W_CONVERGED_PATH)
+    reference_untrustworthy_seeds = set(reference["untrustworthy_seeds"])
     mse_by_key = _index_mse(reproduction["ported_vs_control"])
 
-    cells = [_recompute_cell(cell, mse_by_key.get((cell["toy"], cell["seed"], cell["width"]))) for cell in reproduction["cells"]]
+    cells = [
+        _recompute_cell(cell, mse_by_key.get((cell["toy"], cell["seed"], cell["width"])), reference_untrustworthy_seeds) for cell in reproduction["cells"]
+    ]
 
     n_ill_defined = sum(1 for c in cells if c["pass"] is None)
     all_pass = n_ill_defined == 0 and all(c["pass"] for c in cells)
+    n_fail_on_trustworthy_seed = sum(1 for c in cells if c["pass"] is False and not c["reference_seed_untrustworthy"])
 
     return {
         "all_pass": all_pass,
         "n_cells": len(cells),
         "n_ill_defined": n_ill_defined,
+        "n_fail_on_trustworthy_seed": n_fail_on_trustworthy_seed,
+        "reference_untrustworthy_seeds": sorted(reference_untrustworthy_seeds),
         "formula": _FORMULA,
         "assumptions": _ASSUMPTIONS,
         "cells": cells,
@@ -183,6 +260,7 @@ def main() -> None:
     print(
         f"[bar_recheck] wrote {_OUTPUT_PATH} -- all_pass={result['all_pass']} "
         f"n_cells={result['n_cells']} n_ill_defined={result['n_ill_defined']} "
+        f"n_fail_on_trustworthy_seed={result['n_fail_on_trustworthy_seed']} "
         f"worst_ratio={worst['ratio']} at (toy={worst['toy']}, seed={worst['seed']}, width={worst['width']})"
     )
 
