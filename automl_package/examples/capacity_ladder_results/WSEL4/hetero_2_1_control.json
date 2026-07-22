@@ -1,0 +1,84 @@
+{
+  "toy": "hetero",
+  "seed": 2,
+  "width": 1,
+  "arm": "control",
+  "held_out_mse": 0.07851142632270876,
+  "train_mse": 0.07974703931716905,
+  "held_out_nll": -0.2667565305363387,
+  "held_out_trajectory": [
+    [
+      500,
+      0.8166090250015259
+    ],
+    [
+      1000,
+      0.8144713044166565
+    ],
+    [
+      1500,
+      0.8147202730178833
+    ],
+    [
+      2000,
+      0.8143505454063416
+    ],
+    [
+      2500,
+      0.8143730759620667
+    ],
+    [
+      3000,
+      0.814386248588562
+    ],
+    [
+      3500,
+      0.8143797516822815
+    ],
+    [
+      4000,
+      0.8143892288208008
+    ],
+    [
+      4500,
+      0.8143770098686218
+    ],
+    [
+      5000,
+      0.8143754005432129
+    ],
+    [
+      5500,
+      0.8143559098243713
+    ],
+    [
+      6000,
+      0.8143065571784973
+    ],
+    [
+      6500,
+      0.8142893314361572
+    ],
+    [
+      7000,
+      0.8144044876098633
+    ]
+  ],
+  "trustworthy": true,
+  "hit_cap": false,
+  "config": {
+    "w_max": 12,
+    "n_train": 1500,
+    "n_test": 500,
+    "lr": 0.01,
+    "val_every": 5,
+    "max_epochs_cap": 40000,
+    "check_every": 500,
+    "patience": 12,
+    "min_delta": 0.002
+  },
+  "provenance": {
+    "driver": "automl_package/examples/width_wsel4.py",
+    "reused_from": "automl_package/examples/converged_width_experiment.py (IndependentWidthNet, unmodified protocol)"
+  }
+}

@@ -1,0 +1,337 @@
+{
+  "bar": 0.02,
+  "n_expected": 36,
+  "n_control_landed": 36,
+  "n_ported_landed": 0,
+  "control_complete": true,
+  "missing_control_cells": [],
+  "control_all_within_bar": true,
+  "positive_control_violation": false,
+  "cells": [
+    {
+      "toy": "hetero",
+      "seed": 0,
+      "width": 1,
+      "control_nll": -0.2876934473756701,
+      "reference_nll": -0.28769345505163074,
+      "relative_error": 2.6681040218580914e-08,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 0,
+      "width": 2,
+      "control_nll": -0.5427882120124996,
+      "reference_nll": -0.5422288255654275,
+      "relative_error": 0.0010316427690610986,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 0,
+      "width": 3,
+      "control_nll": -0.8644195668585598,
+      "reference_nll": -0.8643645602483302,
+      "relative_error": 6.363820633014645e-05,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 0,
+      "width": 4,
+      "control_nll": -1.2960133271217347,
+      "reference_nll": -1.291226978778839,
+      "relative_error": 0.0037068218226190683,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 0,
+      "width": 5,
+      "control_nll": -0.7936505858525634,
+      "reference_nll": -0.7935600355677307,
+      "relative_error": 0.00011410640754840901,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 0,
+      "width": 6,
+      "control_nll": -1.5356899820566177,
+      "reference_nll": -1.5336915639638902,
+      "relative_error": 0.0013030117265307214,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 0,
+      "width": 7,
+      "control_nll": -1.554722897052765,
+      "reference_nll": -1.5546685544252397,
+      "relative_error": 3.4954477834212374e-05,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 0,
+      "width": 8,
+      "control_nll": -1.5435970385074615,
+      "reference_nll": -1.5437692790031432,
+      "relative_error": 0.00011157139737406984,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 0,
+      "width": 9,
+      "control_nll": -1.552731538772583,
+      "reference_nll": -1.5532138249874115,
+      "relative_error": 0.0003105085771638519,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 0,
+      "width": 10,
+      "control_nll": -1.5349332523345947,
+      "reference_nll": -1.5309146575927735,
+      "relative_error": 0.0026249632674740066,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 0,
+      "width": 11,
+      "control_nll": -1.5407926204204558,
+      "reference_nll": -1.5438114819526672,
+      "relative_error": 0.0019554599557654517,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 0,
+      "width": 12,
+      "control_nll": -1.5395978783369064,
+      "reference_nll": -1.5427878119945526,
+      "relative_error": 0.002067642505886862,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 1,
+      "width": 1,
+      "control_nll": -0.3828771724458784,
+      "reference_nll": -0.3828771625338122,
+      "relative_error": 2.5888371357089118e-08,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 1,
+      "width": 2,
+      "control_nll": -0.591999030109495,
+      "reference_nll": -0.5903061914257706,
+      "relative_error": 0.0028677298464933805,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 1,
+      "width": 3,
+      "control_nll": -0.7076275180056691,
+      "reference_nll": -0.7092146579921246,
+      "relative_error": 0.0022378837895801343,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 1,
+      "width": 4,
+      "control_nll": -1.3792118002176286,
+      "reference_nll": -1.3879668765068054,
+      "relative_error": 0.006307842382525032,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 1,
+      "width": 5,
+      "control_nll": -1.077914412394166,
+      "reference_nll": -1.0779395050480962,
+      "relative_error": 2.3278350791220646e-05,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 1,
+      "width": 6,
+      "control_nll": -1.5239456568956375,
+      "reference_nll": -1.524371609568596,
+      "relative_error": 0.0002794283692272946,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 1,
+      "width": 7,
+      "control_nll": -1.4994363780021667,
+      "reference_nll": -1.5282664778232575,
+      "relative_error": 0.018864576459293486,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 1,
+      "width": 8,
+      "control_nll": -1.525731762766838,
+      "reference_nll": -1.52497485268116,
+      "relative_error": 0.0004963426671245498,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 1,
+      "width": 9,
+      "control_nll": -1.518031389117241,
+      "reference_nll": -1.5184856995344163,
+      "relative_error": 0.00029918649699121257,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 1,
+      "width": 10,
+      "control_nll": -1.5245988447666168,
+      "reference_nll": -1.5287363736629487,
+      "relative_error": 0.0027065025517875345,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 1,
+      "width": 11,
+      "control_nll": -1.516915447831154,
+      "reference_nll": -1.5219571788311004,
+      "relative_error": 0.003312662846280132,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 1,
+      "width": 12,
+      "control_nll": -1.5083823432922363,
+      "reference_nll": -1.5287634502649308,
+      "relative_error": 0.013331759710208363,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 2,
+      "width": 1,
+      "control_nll": -0.2667565305363387,
+      "reference_nll": -0.26637657441850754,
+      "relative_error": 0.0014263871312976953,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 2,
+      "width": 2,
+      "control_nll": -0.46939519098773597,
+      "reference_nll": -0.4677497085146606,
+      "relative_error": 0.003517869585204234,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 2,
+      "width": 3,
+      "control_nll": -0.6663109645694494,
+      "reference_nll": -0.6550771286487579,
+      "relative_error": 0.017148875192523706,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 2,
+      "width": 4,
+      "control_nll": -0.7356752415522932,
+      "reference_nll": -0.7368485614806414,
+      "relative_error": 0.00159234880772358,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 2,
+      "width": 5,
+      "control_nll": -1.3788822835683823,
+      "reference_nll": -1.3792175734043122,
+      "relative_error": 0.00024310148188009292,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 2,
+      "width": 6,
+      "control_nll": -1.5197082505226136,
+      "reference_nll": -1.517324571609497,
+      "relative_error": 0.0015709749632450672,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 2,
+      "width": 7,
+      "control_nll": -1.5165390870571136,
+      "reference_nll": -1.5150199298858642,
+      "relative_error": 0.0010027308164605078,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 2,
+      "width": 8,
+      "control_nll": -1.5072989797592162,
+      "reference_nll": -1.5083366500139237,
+      "relative_error": 0.0006879566671652518,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 2,
+      "width": 9,
+      "control_nll": -1.501328190088272,
+      "reference_nll": -1.5036487271785737,
+      "relative_error": 0.0015432707442610933,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 2,
+      "width": 10,
+      "control_nll": -1.5092858023643494,
+      "reference_nll": -1.5096585023403168,
+      "relative_error": 0.0002468770091973996,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 2,
+      "width": 11,
+      "control_nll": -1.508878906726837,
+      "reference_nll": -1.5094588820934296,
+      "relative_error": 0.0003842273370095062,
+      "within_bar": true
+    },
+    {
+      "toy": "hetero",
+      "seed": 2,
+      "width": 12,
+      "control_nll": -1.5083989458084106,
+      "reference_nll": -1.5102480165958405,
+      "relative_error": 0.0012243490917449192,
+      "within_bar": true
+    }
+  ],
+  "ported_vs_control": []
+}
