@@ -52,18 +52,53 @@ both parameter counts, and wall-clock per step within 1.3x `B_HEADS`'. Decision 
 `stage1_winner = A_STOPGRAD` if PRIMARY and ORDERING both pass; else `A_GATES` if it passes both; else
 `B_HEADS`, and `stage2_required = true`.
 
-**Non-goals** (§4's own list): no real data, no transformer, no multi-layer net, no variance fitting, no
-new selection rule, no change to the toy suite, no promotion of any candidate into the package (WSEL-17),
-no new nested-width class, no re-opening of `G-WIDTH = PASS`. Stage 2 (`A_CORRECTIVE`,
-`A_STOPGRAD_DISTILL`, `A_CASCADE_STAGED`) and stage 3 (the 2-finalist tier-3 ladder) are NOT in this
-file's authoring contract -- conditional on `stage2_required` / the stage-1 winner, separate contracts.
+**Stage 2 -- CONDITIONAL, authored here now that `frozen.json` records `stage2_required: true`**
+(`width.md` "Stage 2 -- CONDITIONAL", tier 1 only, 3 arms x 3 seeds = 9 cells). Purpose: separate
+"greedy hurts" from "the moving target hurts" -- under `A_STOPGRAD` each unit fits a predecessor that
+is STILL CHANGING (every optimizer step moves every unit's weight simultaneously), which staged
+boosting never does (each stage trains against a prefix already frozen at convergence).
+
+  - `A_CORRECTIVE` -- `A_STOPGRAD`'s own loss, PLUS: every `_A_CORRECTIVE_INTERVAL` (2000) epochs,
+    `_A_CORRECTIVE_DURATION` (200) optimizer steps on the PLAIN summed loss (no detach, `A_JOINT`'s own
+    loss), then resume stop-gradient training -- same net, same optimizer, no reset. Removes
+    greediness periodically while keeping the moving target. `NestedWidthNet`, no new class; the ONLY
+    new mechanism is `_train_custom_to_convergence`'s optional corrective-phase schedule.
+  - `A_STOPGRAD_DISTILL` -- `A_STOPGRAD`'s own predictions (`stopgrad_all_widths_pred`, reused
+    unchanged, "costs nothing extra per step"), target for every `k < w_max` replaced by
+    `detach(S_{w_max})` (that column's VALUE already equals the plain full-width sum exactly, Step 1's
+    own identity test); `k = w_max` keeps the true target `y`. `NestedWidthNet`, no new class.
+  - `A_CASCADE_STAGED` -- `cascade_width_net.ResidualCascadeNet` + `train_cascade`, ALREADY
+    IMPLEMENTED, reused unchanged except for the sigma-fix port landed alongside this file
+    (`cascade_width_net.StageLoss.SQUARED_ERROR`, additions-only -- see that module's docstring). The
+    literal staged frozen cascade: each block trains against a CONVERGED, FROZEN prefix, no moving
+    target at all -- the arm that isolates whether the moving target (not the greediness) is what hurts
+    `A_STOPGRAD`. TIER 1 ONLY -- `run_cell` raises if invoked at tier 2 (the port's own scope is the
+    constant-sigma `hetero` toy; a tier-2 per-point-weighted cascade objective was never authorized).
+    Has NO shared hidden trunk (each block owns its own `Linear(1,1)`), so `_ordering_statistic`
+    returns `None` for it, same as `INDEPENDENT`; and it carries one EXTRA freedom vs `A_STOPGRAD` -- a
+    per-prefix readout bias instead of ONE shared bias (`cascade_width_net.py:11-14`) -- named in every
+    cell's own JSON via the `cascade_extra_readout_bias_freedom` field (`True` only for this arm) so
+    tables carry the caveat without a lookup.
+
+Stage 2 has no pre-registered pass/fail bar of its own (unlike stage 1) -- it is a diagnostic, read by
+whoever consumes the 9 cells' JSON, not by a decision rule computed here; `summarize()` is unchanged
+beyond automatically picking the new arms up into its existing generic per-(arm, tier) aggregation.
+
+**Non-goals**: no real data, no transformer, no multi-layer net, no variance fitting, no new selection
+rule, no change to the toy suite, no promotion of any candidate into the package (WSEL-17), no new
+nested-width class, no re-opening of `G-WIDTH = PASS`, no stage-2 grid EXECUTION (the root runs the 9
+cells), no stage-3 ladder (the 2-finalist generality check, a separate contract), no stage-2 decision
+rule (diagnostic only, see above), no redesign of the stop-gradient frozen-readout-bias quirk on record
+in `frozen.json`.
 
 Driver CLI contract (root-run grid; this file is never run over the full grid by its author):
-  `--arm {b_heads,a_joint,a_stopgrad,a_gates,independent} --tier {1,2} --seed <int> [--tag TAG]` runs
-  ONE cell, writing its per-cell JSON + `state_dict` immediately.
+  `--arm {b_heads,a_joint,a_stopgrad,a_gates,independent,a_corrective,a_stopgrad_distill,
+  a_cascade_staged} --tier {1,2} --seed <int> [--tag TAG]` runs ONE cell, writing its per-cell JSON +
+  `state_dict` immediately. `a_cascade_staged` only accepts `--tier 1`.
   `--summarize` aggregates every per-cell JSON on disk into `WSEL16/frozen.json`.
-  `--selftest` runs tiny cells for every (arm, tier) combo plus the stop-grad/weighted-loss identity
-  checks -- no real cell is ever run here.
+  `--selftest` runs tiny cells for every (arm, tier) combo (skipping `a_cascade_staged` x tier 2, the
+  one combo `run_cell` refuses) plus the stop-grad/weighted-loss identity checks -- no real cell is
+  ever run here.
 
 Usage:
     AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel16.py --selftest
@@ -93,6 +128,7 @@ _EXAMPLES_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _EXAMPLES_DIR)
 sys.path.insert(0, os.path.dirname(os.path.dirname(_EXAMPLES_DIR)))  # repo root
 
+import cascade_width_net as cascade  # noqa: E402
 import converged_width_experiment as cwe  # noqa: E402
 import convergence as cvg  # noqa: E402
 import kdropout_converged_width_experiment as kce  # noqa: E402
@@ -130,15 +166,24 @@ _HETERO3_NOISY_REGION = 2  # nwn.make_hetero3's region id for the noisy-easy tai
 _SELFTEST_STOPGRAD_LOOP_TOL = 1e-6  # one-pass vs explicit-loop reference, float32 non-associativity slop.
 _SELFTEST_WEIGHTED_LOSS_TOL = 1e-9  # weighted_squared_error vs a hand-computed case, float64 exactness.
 
+# Stage 2's A_CORRECTIVE schedule (`width.md` "Stage 2 -- CONDITIONAL"): stop-gradient epochs between
+# corrective phases, and plain-summed-loss optimizer steps per phase. Neither is w_max-dependent -- both
+# are fixed spec constants, not something needing generalization under §3.10.
+_A_CORRECTIVE_INTERVAL = 2000
+_A_CORRECTIVE_DURATION = 200
+
 
 class Arm(enum.Enum):
-    """WSEL-16 stage-1's five arms (closed set)."""
+    """WSEL-16's eight arms (closed set): five stage-1, three stage-2 (conditional on `stage2_required`)."""
 
     B_HEADS = "b_heads"  # SharedTrunkPerWidthHeadNet -- THE REFERENCE, unchanged.
     A_JOINT = "a_joint"  # NestedWidthNet, plain summed loss -- NEGATIVE CONTROL, must fail.
     A_STOPGRAD = "a_stopgrad"  # NestedWidthNet, stop-gradient loss (this file's only new LOSS, no new class).
     A_GATES = "a_gates"  # width_candidates.MonotoneGateWidthNet -- the only new CLASS.
     INDEPENDENT = "independent"  # IndependentWidthNet -- POSITIVE CONTROL / ceiling.
+    A_CORRECTIVE = "a_corrective"  # STAGE 2: A_STOPGRAD + periodic plain-loss correction. NestedWidthNet, no new class.
+    A_STOPGRAD_DISTILL = "a_stopgrad_distill"  # STAGE 2: A_STOPGRAD's structure, target for k<w_max distilled from S_wmax. NestedWidthNet, no new class.
+    A_CASCADE_STAGED = "a_cascade_staged"  # STAGE 2: cascade_width_net.ResidualCascadeNet + train_cascade, ALREADY IMPLEMENTED. Tier 1 only.
 
 
 class Tier(enum.IntEnum):
@@ -177,15 +222,19 @@ _KCE_ARCH_FOR_CHECKPOINTING: dict[Arm, kce.Arch] = {
 def _build_net(arm: Arm, w_max: int) -> nn.Module:
     """Builds arm's net.
 
-    `A_JOINT` and `A_STOPGRAD` are the SAME class (`NestedWidthNet`) -- only the training loss differs
-    between them; see the module docstring.
+    `A_JOINT`, `A_STOPGRAD`, `A_CORRECTIVE` and `A_STOPGRAD_DISTILL` are all the SAME class
+    (`NestedWidthNet`) -- only the training loss differs between them; see the module docstring.
+    `A_CASCADE_STAGED` is the one arm with a genuinely different net, `cascade_width_net.
+    ResidualCascadeNet` (ALREADY IMPLEMENTED, reused unchanged).
     """
     if arm is Arm.B_HEADS:
         return nwn.SharedTrunkPerWidthHeadNet(w_max=w_max)
-    if arm in (Arm.A_JOINT, Arm.A_STOPGRAD):
+    if arm in (Arm.A_JOINT, Arm.A_STOPGRAD, Arm.A_CORRECTIVE, Arm.A_STOPGRAD_DISTILL):
         return nwn.NestedWidthNet(w_max=w_max)
     if arm is Arm.A_GATES:
         return wc.MonotoneGateWidthNet(w_max=w_max)
+    if arm is Arm.A_CASCADE_STAGED:
+        return cascade.ResidualCascadeNet(w_max=w_max)
     return nwn.IndependentWidthNet(w_max=w_max)
 
 
@@ -195,19 +244,22 @@ def _params_effective(arm: Arm, w_max: int, params_allocated: int) -> int:
     `B_HEADS`: per-width heads mask away input columns `>= k`, so only the `1+2+...+w_max` triangle of
     the `w_max` allocated weight columns per head is ever read at ANY width (`width_wsel15.
     _params_effective_triangle`, reproduced here rather than imported -- that function lives in a driver
-    this task does not touch, `width_wsel15.py`). `A_JOINT`/`A_STOPGRAD`: ONE shared `mean_head`, `w_max`
-    weights, every one of which is read by SOME width -- no masking waste, effective == `w_max`.
-    `A_GATES`: the same `w_max` shared weights plus the ONE gate scalar `nu` (always active, no masking
-    waste either) == `w_max + 1`. `INDEPENDENT`: `w_max` disjoint sub-nets, no sharing/masking at all --
-    effective == allocated.
+    this task does not touch, `width_wsel15.py`). `A_JOINT`/`A_STOPGRAD`/`A_CORRECTIVE`/
+    `A_STOPGRAD_DISTILL`: ONE shared `mean_head`, `w_max` weights, every one of which is read by SOME
+    width -- no masking waste, effective == `w_max` (the loss differs between these four arms, the
+    architecture and its effective-parameter count do not). `A_GATES`: the same `w_max` shared weights
+    plus the ONE gate scalar `nu` (always active, no masking waste either) == `w_max + 1`.
+    `INDEPENDENT`/`A_CASCADE_STAGED`: no sharing or masking at all -- every allocated parameter (`w_max`
+    disjoint sub-nets, or `w_max` disjoint cascade blocks) is read by SOME width/rung -- effective ==
+    allocated.
     """
     if arm is Arm.B_HEADS:
         return w_max * (w_max + 1) // 2
-    if arm in (Arm.A_JOINT, Arm.A_STOPGRAD):
+    if arm in (Arm.A_JOINT, Arm.A_STOPGRAD, Arm.A_CORRECTIVE, Arm.A_STOPGRAD_DISTILL):
         return w_max
     if arm is Arm.A_GATES:
         return w_max + 1
-    return params_allocated  # INDEPENDENT
+    return params_allocated  # INDEPENDENT, A_CASCADE_STAGED
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +326,29 @@ def _make_stopgrad_total_loss_fn(tier: Tier, sigma_tr: torch.Tensor) -> Callable
     return _fn
 
 
+def _make_stopgrad_distill_total_loss_fn(tier: Tier, sigma_tr: torch.Tensor, w_max: int) -> Callable[[nn.Module, list[int], torch.Tensor, torch.Tensor], torch.Tensor]:
+    """`(net, widths, x, y) -> scalar`: `A_STOPGRAD_DISTILL`'s loss -- `A_STOPGRAD`'s structure, target for `k < w_max` replaced by `detach(S_wmax)`.
+
+    Reuses `stopgrad_all_widths_pred` unchanged ("costs nothing extra per step", `width.md` Stage 2):
+    column `w_max-1`'s VALUE already equals the plain (undetached) `S_{w_max}` exactly (Step 1's own
+    identity test, part (a) -- `detach()` changes gradients, not values), so `.detach()`-ing that one
+    column gives the distillation target for free, no second forward pass. `k = w_max` itself keeps the
+    true target `y` (the spec's own carve); every other sampled width regresses toward the frozen
+    full-width prediction instead.
+    """
+
+    def _fn(net: nn.Module, widths: list[int], x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        preds = stopgrad_all_widths_pred(net, x)  # (N, w_max)
+        s_wmax_detached = preds[:, w_max - 1].detach()  # distillation target for every k < w_max
+        cols = [k - 1 for k in widths]
+        sel = preds[:, cols]  # (N, len(widths))
+        targets = torch.stack([y if k == w_max else s_wmax_detached for k in widths], dim=1)
+        sq = (sel - targets) ** 2 / sigma_tr.unsqueeze(1) ** 2 if tier is Tier.TWO else (sel - targets) ** 2
+        return sq.mean(dim=0).sum()
+
+    return _fn
+
+
 def _make_per_width_val_fn(tier: Tier, sigma_val: torch.Tensor) -> Callable[[nn.Module, int, torch.Tensor, torch.Tensor], float]:
     """`(net, k, x, y) -> float`: held-out metric checkpointed per width, ARM-AGNOSTIC.
 
@@ -308,7 +383,8 @@ def _sigma_true_tensor(toy: nwn.Toy, region: np.ndarray, sigma: float, norm: dic
 
 
 # ---------------------------------------------------------------------------
-# Generic trainer -- needed for A_STOPGRAD (any tier) and tier 2 (any arm); see module docstring.
+# Generic trainer -- needed for A_STOPGRAD (any tier), tier 2 (any arm), and STAGE 2's A_CORRECTIVE /
+# A_STOPGRAD_DISTILL (tier 1); see module docstring.
 # ---------------------------------------------------------------------------
 
 
@@ -328,6 +404,9 @@ def _train_custom_to_convergence(
     min_delta: float,
     seed: int,
     independent_checkpointing: bool,
+    corrective_loss_fn: Callable[[nn.Module, list[int], torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+    corrective_interval: int = 0,
+    corrective_duration: int = 0,
 ) -> dict[int, cvg.ConvergenceResult]:
     """Generic SANDWICH-schedule k-dropout trainer, gated by PER-WIDTH held-out convergence.
 
@@ -362,10 +441,22 @@ def _train_custom_to_convergence(
         independent_checkpointing: `True` for `Arm.INDEPENDENT` (disjoint sub-nets restore their OWN
             best state independently, matching `kce._train_kdropout_to_convergence`'s `Arch.INDEPENDENT`
             branch); `False` restores the WHOLE net at its best mean-per-width-validation epoch.
+        corrective_loss_fn: `A_CORRECTIVE`'s only extra mechanism (`width.md` Stage 2): if given, the
+            training loop periodically substitutes THIS loss for `total_loss_fn` on the SAME
+            sandwich-sampled widths, same optimizer, no state reset. `None` (default) reproduces the
+            EXACT prior behavior -- `A_STOPGRAD` and every tier-2 arm's existing call sites pass none of
+            the three `corrective_*` args, so this is byte-identical for them.
+        corrective_interval: epochs of `total_loss_fn` training between corrective phases. Ignored if
+            `corrective_loss_fn` is `None`; required `> 0` otherwise.
+        corrective_duration: consecutive `corrective_loss_fn` steps per phase. Same requirement.
 
     Returns:
         `{width -> ConvergenceResult}`, best weights already restored.
     """
+    if corrective_loss_fn is not None and (corrective_interval <= 0 or corrective_duration <= 0):
+        raise ValueError("corrective_loss_fn requires corrective_interval > 0 and corrective_duration > 0")
+    corrective_block = corrective_interval + corrective_duration  # unused (corrective_loss_fn is None) => never divided by zero below.
+
     opt = torch.optim.Adam(net.parameters(), lr=cwe.LR)
     gen = torch.Generator(device="cpu")
     gen.manual_seed(int(seed))
@@ -385,7 +476,14 @@ def _train_custom_to_convergence(
         if n_mid_draw:
             perm = torch.randperm(len(mid_candidates), generator=gen)[:n_mid_draw]
             widths += [mid_candidates[i] for i in perm.tolist()]
-        total_loss = total_loss_fn(net, widths, x_tr, y_tr)
+        # A_CORRECTIVE's periodic plain-loss phase: epochs [corrective_interval, corrective_block) of
+        # every corrective_block-epoch cycle use corrective_loss_fn instead of total_loss_fn -- "every
+        # corrective_interval epochs [of total_loss_fn], corrective_duration steps of corrective_loss_fn,
+        # then resume" (`width.md` Stage 2's own wording). corrective_loss_fn is None for every OTHER
+        # arm, so `in_corrective_phase` is always False there and this branch never fires.
+        in_corrective_phase = corrective_loss_fn is not None and (epoch - 1) % corrective_block >= corrective_interval
+        step_loss_fn = corrective_loss_fn if in_corrective_phase else total_loss_fn
+        total_loss = step_loss_fn(net, widths, x_tr, y_tr)
         total_loss.backward()
         opt.step()
 
@@ -438,7 +536,7 @@ def _widest_head_from_hidden(net: nn.Module, arm: Arm, h: torch.Tensor) -> torch
     if arm is Arm.A_GATES:
         contrib = h * net.base.mean_head.weight.squeeze(0) * net._gates(h.dtype, h.device)
         return contrib.sum(dim=1, keepdim=True) + net.base.mean_head.bias
-    # A_JOINT, A_STOPGRAD -- plain NestedWidthNet, ONE shared mean_head.
+    # A_JOINT, A_STOPGRAD, A_CORRECTIVE, A_STOPGRAD_DISTILL -- plain NestedWidthNet, ONE shared mean_head.
     return net.mean_head(h)
 
 
@@ -459,12 +557,13 @@ def _ordering_statistic(
     never reimplemented -- that file is read-only for this task) on the SAME three-way FIT/SELECT/REPORT
     carve, so the two tasks' numbers sit on the same statistic.
 
-    Returns `None` for `Arm.INDEPENDENT`: `IndependentWidthNet` has no SHARED hidden trunk (each width
-    is its own disjoint sub-net with its own `Linear(1, k)`), so there is no single hidden vector to
-    ablate a unit in or slice a prefix of -- the diagnostic's premise (a shared-trunk prefix property)
-    does not hold for that architecture.
+    Returns `None` for `Arm.INDEPENDENT` and `Arm.A_CASCADE_STAGED`: neither has a SINGLE SHARED hidden
+    trunk to ablate a unit in or slice a prefix of -- `IndependentWidthNet` is `w_max` disjoint sub-nets,
+    each its own `Linear(1, k)`; `ResidualCascadeNet` is `w_max` disjoint per-block trunks
+    (`cascade_width_net.ResidualCascadeNet.blocks`, each `Linear(1, 1)`). The diagnostic's premise (a
+    shared-trunk prefix property) does not hold for either architecture.
     """
-    if arm is Arm.INDEPENDENT:
+    if arm in (Arm.INDEPENDENT, Arm.A_CASCADE_STAGED):
         return None
     net.eval()
     with torch.no_grad():
@@ -588,6 +687,8 @@ def run_cell(
     check_every: int = DEFAULT_CHECK_EVERY,
     patience: int = DEFAULT_PATIENCE,
     min_delta: float = DEFAULT_MIN_DELTA,
+    corrective_interval: int | None = None,
+    corrective_duration: int | None = None,
 ) -> tuple[dict, dict]:
     """Trains one (arm, tier, seed) cell to per-width convergence, then records every Step-5 field.
 
@@ -595,12 +696,14 @@ def run_cell(
     `width_wsel13.run_cell` / `width_wsel15.run_cell` verbatim -- reimplemented here (not called)
     because this task needs the trained net object directly for the ordering diagnostic, the width
     selectors, and `capacity_accounting`, none of which `run_case` returns. The TRAINING LOOP itself is
-    never hand-rolled per cell: tier-1 non-`A_STOPGRAD` arms go through the EXISTING
-    `kce._train_kdropout_to_convergence`; everything else goes through `_train_custom_to_convergence`
-    (see module docstring for why).
+    never hand-rolled per cell: tier-1 arms among `{B_HEADS, A_JOINT, A_GATES, INDEPENDENT}` go through
+    the EXISTING `kce._train_kdropout_to_convergence`; `A_CASCADE_STAGED` goes through the ALREADY-
+    IMPLEMENTED `cascade.train_cascade` (tier 1 only); everything else (`A_STOPGRAD`/`A_CORRECTIVE`/
+    `A_STOPGRAD_DISTILL` at any tier, and tier 2 for the four kce-trained arms) goes through
+    `_train_custom_to_convergence` (see module docstring for why).
 
     Args:
-        arm: which of the 5 stage-1 arms to train.
+        arm: which of the 8 arms to train (5 stage-1, 3 stage-2).
         tier: which SS3.8 canonical-suite tier (1 = reference, 2 = noisy-easy control).
         seed: RNG seed for this cell (canonical suite: 0, 1, 2).
         w_max: maximum hidden width.
@@ -611,10 +714,21 @@ def run_cell(
         check_every: epochs between per-width held-out checkpoints.
         patience: consecutive flat checkpoints that declare one width converged.
         min_delta: held-out-loss decrease counted as a real improvement.
+        corrective_interval: `A_CORRECTIVE`-only (`width.md` Stage 2); `None` = `_A_CORRECTIVE_INTERVAL`
+            (the real 2000-epoch spec value). Overridable so `--selftest` can exercise the corrective
+            phase inside its tiny epoch budget without touching the real constant.
+        corrective_duration: `A_CORRECTIVE`-only, same override convention; `None` =
+            `_A_CORRECTIVE_DURATION`.
 
     Returns:
         `(case, state_dict)` -- `case` is the JSON-able per-cell record; `state_dict` is the trained
         net's own (already best-checkpoint-restored) parameters.
+
+    Raises:
+        ValueError: `arm is Arm.A_CASCADE_STAGED` and `tier is Tier.TWO` -- the cascade's squared-error
+            stage-loss port (`cascade_width_net.StageLoss.SQUARED_ERROR`) is scoped to tier 1's
+            constant-sigma `hetero` toy only; a tier-2 per-point-weighted cascade objective was never
+            authorized (`width.md` Stage 2: "tier 1 only, 3 arms x 3 seeds").
     """
     cfg = _TIER_CONFIG[tier]
     n_tr = n_train if n_train is not None else cfg.n_train
@@ -644,8 +758,44 @@ def run_cell(
     net = _build_net(arm, w_max)
 
     _train_t0 = time.perf_counter()
-    if arm is Arm.A_STOPGRAD or tier is Tier.TWO:
-        total_loss_fn = _make_stopgrad_total_loss_fn(tier, sigma_tr) if arm is Arm.A_STOPGRAD else _make_standard_total_loss_fn(tier, sigma_tr)
+    if arm is Arm.A_CASCADE_STAGED:
+        if tier is Tier.TWO:
+            raise ValueError(
+                "A_CASCADE_STAGED's squared-error stage-loss port is scoped to tier 1 only "
+                "(width.md Stage 2: 'tier 1 only, 3 arms x 3 seeds') -- tier 2 was never authorized for this arm."
+            )
+        stage_results = cascade.train_cascade(
+            net,
+            x_tr_t,
+            y_tr_t,
+            x_val_t,
+            y_val_t,
+            seed=seed,
+            max_epochs=max_epochs,
+            check_every=check_every,
+            patience=patience,
+            min_delta=min_delta,
+            stage_loss=cascade.StageLoss.SQUARED_ERROR,
+            sigma_true=None,  # tier 1 hetero is constant-sigma -- PLAIN squared error, `width.md` §3.7.
+        )
+        conv = {b: stage_results[b]["conv"] for b in range(1, w_max + 1)}  # stage b IS rung/width b.
+    elif arm is Arm.A_STOPGRAD or arm is Arm.A_STOPGRAD_DISTILL or arm is Arm.A_CORRECTIVE or tier is Tier.TWO:
+        if arm is Arm.A_STOPGRAD_DISTILL:
+            total_loss_fn = _make_stopgrad_distill_total_loss_fn(tier, sigma_tr, w_max)
+            corrective_kwargs = {}
+        elif arm is Arm.A_CORRECTIVE:
+            total_loss_fn = _make_stopgrad_total_loss_fn(tier, sigma_tr)
+            corrective_kwargs = {
+                "corrective_loss_fn": _make_standard_total_loss_fn(tier, sigma_tr),
+                "corrective_interval": corrective_interval if corrective_interval is not None else _A_CORRECTIVE_INTERVAL,
+                "corrective_duration": corrective_duration if corrective_duration is not None else _A_CORRECTIVE_DURATION,
+            }
+        elif arm is Arm.A_STOPGRAD:
+            total_loss_fn = _make_stopgrad_total_loss_fn(tier, sigma_tr)
+            corrective_kwargs = {}
+        else:
+            total_loss_fn = _make_standard_total_loss_fn(tier, sigma_tr)
+            corrective_kwargs = {}
         per_width_val_fn = _make_per_width_val_fn(tier, sigma_val)
         conv = _train_custom_to_convergence(
             net,
@@ -662,6 +812,7 @@ def run_cell(
             min_delta=min_delta,
             seed=seed,
             independent_checkpointing=(arm is Arm.INDEPENDENT),
+            **corrective_kwargs,
         )
     else:
         conv, _best_epoch = kce._train_kdropout_to_convergence(
@@ -744,6 +895,10 @@ def run_cell(
         "selected_width_global": selected_width_global,
         "selected_width_distilled_router": selected_width_distilled_router,
         "training_schedule": nwn.WidthSchedule.SANDWICH.value,
+        # True only for A_CASCADE_STAGED: its per-prefix readout bias (one bias PER BLOCK) is an extra
+        # freedom vs A_STOPGRAD's ONE shared bias (`cascade_width_net.py:11-14`) -- named here so any
+        # table that tabulates the two arms together carries the caveat without a separate lookup.
+        "cascade_extra_readout_bias_freedom": arm is Arm.A_CASCADE_STAGED,
         "provenance": run_provenance(),
     }
     return case, {name: t.detach().clone() for name, t in net.state_dict().items()}
@@ -1030,6 +1185,14 @@ def summarize() -> None:
 
 _SELFTEST_KW = {"w_max": 3, "n_train": 60, "n_test": 40, "max_epochs": 400, "check_every": 50, "patience": 2, "min_delta": 5e-2}
 
+# A_CORRECTIVE-only override: the real spec constants (2000/200) never trigger inside _SELFTEST_KW's
+# 400-epoch budget, which would leave the corrective branch of _train_custom_to_convergence completely
+# unexercised by this wiring check. Tiny values here make it fire a few times within the tiny budget.
+_SELFTEST_CORRECTIVE_KW = {"corrective_interval": 40, "corrective_duration": 10}
+
+# Arms with no SHARED hidden trunk (`_ordering_statistic` returns None for them -- see its docstring).
+_ORDERING_NONE_ARMS = (Arm.INDEPENDENT, Arm.A_CASCADE_STAGED)
+
 _SELFTEST_REQUIRED_KEYS = (
     "convergence",
     "n_widths_trustworthy",
@@ -1048,6 +1211,7 @@ _SELFTEST_REQUIRED_KEYS = (
     "ordering_statistic",
     "selected_width_global",
     "selected_width_distilled_router",
+    "cascade_extra_readout_bias_freedom",
 )
 
 
@@ -1056,16 +1220,21 @@ def run_selftest() -> bool:
     ok = True
     for arm in Arm:
         for tier in Tier:
-            case, _state = run_cell(arm, tier, seed=0, **_SELFTEST_KW)
+            if arm is Arm.A_CASCADE_STAGED and tier is Tier.TWO:
+                continue  # A_CASCADE_STAGED's squared-error port is tier-1-only -- run_cell refuses this combo (width.md Stage 2).
+            kw = dict(_SELFTEST_KW)
+            if arm is Arm.A_CORRECTIVE:
+                kw.update(_SELFTEST_CORRECTIVE_KW)
+            case, _state = run_cell(arm, tier, seed=0, **kw)
             keys_ok = all(key in case for key in _SELFTEST_REQUIRED_KEYS)
             conv_ok = all(len(case["convergence"][k]["trajectory"]) >= 1 for k in range(1, _SELFTEST_KW["w_max"] + 1))
-            ordering_none_iff_independent = (case["ordering_statistic"] is None) == (arm is Arm.INDEPENDENT)
+            ordering_none_as_expected = (case["ordering_statistic"] is None) == (arm in _ORDERING_NONE_ARMS)
             roundtrip = json.loads(json.dumps(_jsonable(case)))
             roundtrip_ok = all(key in roundtrip for key in _SELFTEST_REQUIRED_KEYS)
-            combo_ok = keys_ok and conv_ok and ordering_none_iff_independent and roundtrip_ok
+            combo_ok = keys_ok and conv_ok and ordering_none_as_expected and roundtrip_ok
             print(
                 f"[wsel16 selftest] arm={arm.value} tier={tier.value} keys_present={keys_ok} convergence_recorded={conv_ok} "
-                f"ordering_None_iff_independent={ordering_none_iff_independent} json_roundtrip_ok={roundtrip_ok}  {'PASS' if combo_ok else 'FAIL'}"
+                f"ordering_None_as_expected={ordering_none_as_expected} json_roundtrip_ok={roundtrip_ok}  {'PASS' if combo_ok else 'FAIL'}"
             )
             ok = ok and combo_ok
 
@@ -1111,7 +1280,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selftest", action="store_true", help="Tiny wiring check, then exit.")
     parser.add_argument("--summarize", action="store_true", help="Aggregate every per-cell JSON on disk into WSEL16/frozen.json.")
-    parser.add_argument("--arm", type=str, choices=[a.value for a in Arm], default=None, help="Which of the 5 stage-1 arms this cell trains.")
+    parser.add_argument("--arm", type=str, choices=[a.value for a in Arm], default=None, help="Which of the 8 arms this cell trains (5 stage-1, 3 stage-2).")
     parser.add_argument("--tier", type=int, choices=[t.value for t in Tier], default=None, help="SS3.8 tier (1 = reference, 2 = noisy-easy control).")
     parser.add_argument("--seed", type=int, default=None, help="RNG seed for this cell (canonical suite: 0, 1, 2).")
     parser.add_argument("--tag", type=str, default=None, help="Optional filename suffix (keeps a re-run from clobbering the canonical grid cell).")

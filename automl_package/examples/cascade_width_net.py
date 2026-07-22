@@ -22,6 +22,22 @@ block b permanently (plan §2.3 Lemma 2). This guarantees `NLL_val(rung k)` non-
 rung a valid calibrated model, and rung identity stable forever -- the coherence invariant in its
 guaranteed (weak) form.
 
+**WSEL-16 Stage-2 `A_CASCADE_STAGED` port (`docs/plans/capacity_programme/width.md` Stage 2, §3.7).**
+`train_cascade` fit ONLY the Gaussian NLL until this port: additive log-variance, a LEARNED
+variance head, exactly what §3.7 forbids ("VARIANCE IS FIXED AT THE TRUE VALUE, NEVER LEARNED").
+`StageLoss` (below) is the closed set of per-stage training losses this function accepts:
+`StageLoss.NLL` is the ORIGINAL path, byte-identical; `StageLoss.SQUARED_ERROR` is the new one,
+sigma FIXED at `sigma_true` (a caller-supplied constant or per-point tensor, never fit) --
+`sigma_true=None` collapses it to PLAIN squared error, which is what WSEL-16's tier-1 `hetero` toy
+uses (§3.7: "hetero ... EXACTLY EQUIVALENT to the certified MSE objective"). Under
+`SQUARED_ERROR`, each stage's `logvar_head` is excluded from that restart's optimizer parameter
+list (never just left with a zero gradient) -- its readouts stay at their zero init the whole run,
+matching the "dummy zero log_var" convention every other MSE-only class in this program already
+uses. `param_count`/`executed_flops` are registered for `ResidualCascadeNet` at the bottom of this
+file (needed because `train_cascade` permanently freezes every block once trained -- the generic
+`nn.Module` `param_count` fallback counts only `requires_grad=True` parameters and would read 0 on
+a fully-trained cascade).
+
 Selftest (`--selftest`, no training, random init only) checks five architectural invariants:
   (a) zero-init -> `forward_width(x, k)` is exactly `(0, 0)` for every k (rung-0 = N(0,1) propagates
       through all-zero readouts, matching the constructor's own zero-init).
@@ -43,6 +59,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import enum
 import os
 import sys
 
@@ -56,6 +73,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(_EXAMPLES_DIR)))  # repo root
 import convergence as cvg  # noqa: E402
 import nested_width_net as nwn  # noqa: E402
 
+from automl_package.utils.capacity_accounting import _linear_macs, executed_flops, param_count  # noqa: E402
+
 W_MAX_DEFAULT = 12
 LR_DEFAULT = 1e-2  # plan §4.0: LR 1e-2 Adam everywhere.
 RESTARTS_DEFAULT = 3  # plan §2.3: multi-restart per stage (a single tanh unit is seed-sensitive).
@@ -66,6 +85,13 @@ _PREFIX_PERTURB_TOL = 1e-6
 _STAGE_IDENTITY_TOL = 1e-6
 _FREEZE_GRAD_TOL = 1e-8
 _GARBAGE_SANITY_TOL = 1e-3  # selftest (e): garbage perturbation must actually move the output by more than this
+
+
+class StageLoss(enum.Enum):
+    """Closed set of per-stage training losses `train_cascade` accepts (WSEL-16 Stage-2 port, §3.7)."""
+
+    NLL = "nll"  # ORIGINAL path, byte-identical: additive log-variance, NGBoost's Gaussian NLL.
+    SQUARED_ERROR = "squared_error"  # NEW: sigma FIXED at `sigma_true`, never learned (`width.md` §3.7).
 
 
 def _zero_readouts_(block: nn.ModuleDict) -> None:
@@ -154,6 +180,39 @@ def _stage_nll(
     return nll, s_total
 
 
+def _stage_squared_error(
+    net: ResidualCascadeNet, block_idx: int, mu_prev: torch.Tensor, x: torch.Tensor, y: torch.Tensor, sigma_true: float | torch.Tensor | None
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """One stage's per-example fixed-sigma squared error and its `mu_total`, using the CACHED frozen prefix (no re-run).
+
+    WSEL-16 Stage-2 `A_CASCADE_STAGED` port (`width.md` §3.7 -- sigma FIXED, never learned). Calls
+    `block_contrib` (the SAME fused call `_stage_nll` uses, no second forward pass) but discards its
+    `ds` (log-variance) output -- it never enters this loss's autograd graph, so `logvar_head` gets no
+    gradient regardless of whether the caller's optimizer parameter group still contains it.
+
+    Args:
+        net: the `ResidualCascadeNet` being trained.
+        block_idx: the (0-indexed) block whose stage is training.
+        mu_prev: the CACHED, frozen rung-`(block_idx)` mean prefix, `(N, 1)` (zeros for the first stage).
+        x: this split's standardized inputs, `(N, 1)`.
+        y: this split's standardized targets, `(N,)`.
+        sigma_true: the generator's true noise std, in the SAME standardized scale as `y`
+            (`width_wsel16._sigma_true_tensor`'s convention). `None` skips the division entirely --
+            PLAIN squared error, exactly what tier 1's constant-sigma `hetero` toy needs (§3.7: "hetero
+            ... EXACTLY EQUIVALENT to the certified MSE objective").
+
+    Returns:
+        `(per_example_squared_error, mu_total)` -- `mu_total` lets the caller reuse this for the
+        acceptance-rule readout the way `_stage_nll` exposes `s_total`.
+    """
+    dmu, _ds = net.block_contrib(x, block_idx)
+    mu_total = mu_prev + dmu
+    sq = (mu_total.squeeze(1) - y) ** 2
+    if sigma_true is not None:
+        sq = sq / sigma_true**2
+    return sq, mu_total
+
+
 def train_cascade(
     net: ResidualCascadeNet,
     x_tr: torch.Tensor,
@@ -169,6 +228,8 @@ def train_cascade(
     min_delta: float,
     lr: float = LR_DEFAULT,
     beta_nll: bool = False,
+    stage_loss: StageLoss = StageLoss.NLL,
+    sigma_true: float | torch.Tensor | None = None,
 ) -> dict[int, dict]:
     """Trains the cascade stagewise (plan §2.3): stage b trains ONLY block b against the frozen prefix.
 
@@ -185,7 +246,16 @@ def train_cascade(
     `beta_nll`: if True, the STAGE TRAINING loss (not the held-out val loss, which is always plain
     NLL per §2.5's "the bar never moves") is per-point NLL times `stop_grad(exp(s_total)**0.5)`
     (Seitzer et al. 2022, beta=0.5) -- wired now so the §2.5 escalation trigger is a rerun, not a
-    code change; default off (plain NLL, comparable to every other W battery).
+    code change; default off (plain NLL, comparable to every other W battery). Only defined under
+    `stage_loss=StageLoss.NLL` -- `beta_nll=True` with `stage_loss=SQUARED_ERROR` raises `ValueError`.
+
+    `stage_loss`/`sigma_true` (WSEL-16 Stage-2 `A_CASCADE_STAGED` port, `width.md` §3.7): `stage_loss=
+    StageLoss.SQUARED_ERROR` replaces the per-stage AND the acceptance-rule/held-out metric with the
+    fixed-sigma squared error (`_stage_squared_error`) EVERYWHERE `_stage_nll` was used, including the
+    rung-(b-1) baseline read (`val_nll_prev` -- name kept for the existing `cascade_width_experiment.py`
+    consumer, holds a squared error under this mode, an NLL under the default). Each stage's
+    `logvar_head` is dropped from that restart's own optimizer parameter list under `SQUARED_ERROR`
+    (never just left with a zero gradient) -- see `_stage_squared_error`'s docstring.
 
     Args:
         net: the `ResidualCascadeNet` to train in place.
@@ -207,11 +277,18 @@ def train_cascade(
             `cvg.DEFAULT_MIN_DELTA` per §2.3).
         lr: Adam learning rate (plan §4.0 default 1e-2).
         beta_nll: use the beta-NLL (beta=0.5) STAGE TRAINING loss instead of plain NLL.
+        stage_loss: `StageLoss.NLL` (default, byte-identical to the pre-port behavior) or
+            `StageLoss.SQUARED_ERROR` (WSEL-16 Stage-2 port, §3.7 -- sigma fixed, never learned).
+        sigma_true: only read under `stage_loss=SQUARED_ERROR`; forwarded to `_stage_squared_error`
+            unchanged for both the training split and the held-out split (`None` = plain squared
+            error, no division -- what WSEL-16's constant-sigma tier-1 toy uses).
 
     Returns:
         `{stage b -> {"conv": cvg.ConvergenceResult (winning restart), "accepted": bool,
         "val_nll_prev": float}}` for b = 1..w_max.
     """
+    if beta_nll and stage_loss is not StageLoss.NLL:
+        raise ValueError("beta_nll is an NLL-specific reweighting scheme; not defined for stage_loss=SQUARED_ERROR")
     x_tr = x_tr.reshape(-1, 1)
     x_val = x_val.reshape(-1, 1)
     y_tr = y_tr.reshape(-1)
@@ -230,7 +307,16 @@ def train_cascade(
             else:
                 mu_prev_tr, s_prev_tr = net.forward_width(x_tr, b - 1)
                 mu_prev_val, s_prev_val = net.forward_width(x_val, b - 1)
-            val_nll_prev = float((-nwn.gaussian_log_likelihood(mu_prev_val.squeeze(1), s_prev_val.squeeze(1), y_val)).mean().item())
+            if stage_loss is StageLoss.SQUARED_ERROR:
+                # rung-(b-1)'s OWN squared error -- mu_prev_val already IS that rung's prediction, so
+                # this does NOT go through _stage_squared_error (that helper adds block_idx's, i.e. the
+                # NEXT block's, not-yet-trained contribution on top -- wrong baseline here).
+                sq_prev = (mu_prev_val.squeeze(1) - y_val) ** 2
+                if sigma_true is not None:
+                    sq_prev = sq_prev / sigma_true**2
+                val_nll_prev = float(sq_prev.mean().item())
+            else:
+                val_nll_prev = float((-nwn.gaussian_log_likelihood(mu_prev_val.squeeze(1), s_prev_val.squeeze(1), y_val)).mean().item())
 
         block = net.blocks[block_idx]
         best_result: cvg.ConvergenceResult | None = None
@@ -239,23 +325,31 @@ def train_cascade(
             torch.manual_seed(seed * 1000 + b * 10 + restart)
             block["trunk"] = nn.Linear(1, 1)  # fresh hidden-weight init this restart
             _zero_readouts_(block)
-            opt = torch.optim.Adam(block.parameters(), lr=lr)
+            opt_params = [*block["trunk"].parameters(), *block["mean_head"].parameters()] if stage_loss is StageLoss.SQUARED_ERROR else block.parameters()
+            opt = torch.optim.Adam(opt_params, lr=lr)
 
             def step_fn(
                 block_idx: int = block_idx, opt: torch.optim.Optimizer = opt, mu_prev_tr: torch.Tensor = mu_prev_tr, s_prev_tr: torch.Tensor = s_prev_tr
             ) -> None:
                 opt.zero_grad()
-                nll, s_total = _stage_nll(net, block_idx, mu_prev_tr, s_prev_tr, x_tr, y_tr)
-                if beta_nll:
-                    weight = torch.exp(s_total.squeeze(1)).pow(BETA_NLL_BETA).detach()
-                    loss = (weight * nll).mean()
+                if stage_loss is StageLoss.SQUARED_ERROR:
+                    sq, _mu_total = _stage_squared_error(net, block_idx, mu_prev_tr, x_tr, y_tr, sigma_true)
+                    loss = sq.mean()
                 else:
-                    loss = nll.mean()
+                    nll, s_total = _stage_nll(net, block_idx, mu_prev_tr, s_prev_tr, x_tr, y_tr)
+                    if beta_nll:
+                        weight = torch.exp(s_total.squeeze(1)).pow(BETA_NLL_BETA).detach()
+                        loss = (weight * nll).mean()
+                    else:
+                        loss = nll.mean()
                 loss.backward()
                 opt.step()
 
             def val_loss_fn(block_idx: int = block_idx, mu_prev_val: torch.Tensor = mu_prev_val, s_prev_val: torch.Tensor = s_prev_val) -> float:
                 with torch.no_grad():
+                    if stage_loss is StageLoss.SQUARED_ERROR:
+                        sq, _mu_total = _stage_squared_error(net, block_idx, mu_prev_val, x_val, y_val, sigma_true)
+                        return float(sq.mean().item())
                     nll, _s_total = _stage_nll(net, block_idx, mu_prev_val, s_prev_val, x_val, y_val)
                     return float(nll.mean().item())
 
@@ -274,6 +368,42 @@ def train_cascade(
 
     net.eval()
     return results
+
+
+# ---------------------------------------------------------------------------
+# param_count / executed_flops registrations (WSEL-16 Stage-2 port -- needed so `A_CASCADE_STAGED`
+# can go through `width_wsel16.run_cell`'s existing Step-5 accounting code unchanged).
+# ---------------------------------------------------------------------------
+
+
+@param_count.register(ResidualCascadeNet)
+def _param_count_residual_cascade(net: ResidualCascadeNet, path_filter: str | None = None) -> int:
+    """`ResidualCascadeNet`'s own registration -- NEEDED because `train_cascade` permanently freezes every block once trained.
+
+    `freeze_blocks_below` sets `requires_grad_(False)`; stage `w_max`'s own call
+    (`freeze_blocks_below(w_max)`) freezes indices `0..w_max-1`, i.e. EVERY block, including the last
+    one trained. The generic `nn.Module` fallback (`capacity_accounting._param_count_module`) counts
+    only `requires_grad=True` parameters, so on a fully-trained cascade it would return 0. This
+    registration counts every parameter REGARDLESS of its current `requires_grad` state, honoring
+    `path_filter` identically to the generic implementation.
+    """
+    return sum(p.numel() for name, p in net.named_parameters() if path_filter is None or path_filter not in name)
+
+
+@executed_flops.register(ResidualCascadeNet)
+def _executed_flops_residual_cascade(net: ResidualCascadeNet, config: int) -> int:
+    """Routed rung-`config` MACs: `config` blocks, each `Linear(1,1)` trunk + `Linear(1,1)` mean head.
+
+    Rung k reads blocks `0..k-1` (`forward_width`'s own loop) -- no shared-trunk slicing trick needed,
+    unlike `architectures.py`'s classes, since each block is already sized exactly 1 with nothing
+    shared to slice away. `logvar_head` excluded unconditionally, the same MASTER-Decision-2 convention
+    every other registration in this program uses (`capacity_accounting.py`'s module docstring).
+    """
+    k = config
+    if not (1 <= k <= net.w_max):
+        raise ValueError(f"config={k} out of range [1, {net.w_max}]")
+    per_block_macs = _linear_macs(1, 1) + _linear_macs(1, 1)  # trunk + mean_head
+    return k * per_block_macs
 
 
 # ---------------------------------------------------------------------------
