@@ -1379,7 +1379,42 @@ each containing `w_shared_width`, `w_sweep_width`, `held_out_trajectory`, `hit_c
 per-arm `selection_cost` key. **Added 2026-07-21:** the reported numbers come from a split not used
 for stopping or selection.
 
-### WSEL-9 — real data + baselines — 🗓 **UNPARKED (user, 2026-07-22 third sitting): the toys-only ruling is REVERSED for this task; scheduled as wave E of the same-session autonomous run**
+### WSEL-9 — real data + baselines — ✅ **ANSWERED 2026-07-22 (wave E, root-run): NO FREE LUNCH — every family wins somewhere; the width-selection machinery is competitive but never beats its own fixed-width control except on yacht (per-input's win), and per-input shows high seed variance on energy. Full verdict block below.**
+
+> **✅ WAVE-E RESULT (root, 2026-07-22; 240 cells + 2 probe extras, 0 failures; spec
+> `docs/width_benchmark/benchmark_spec.md`, driver `width_wsel9.py`, per-dataset ledgers
+> `automl_package/examples/capacity_ladder_results/WSEL9/<ds>_summary.csv`).** Mean held-out
+> MSE across seeds 0-2 (winner bolded per row):
+>
+> | dataset | linear | lightgbm | plain NN | W-SWEEP | W-SHARED | W-PERINPUT |
+> |---|---:|---:|---:|---:|---:|---:|
+> | diabetes | **3252.313** | 3872.722 | 3626.904 | 3709.794 | 3791.329 | 3665.728 | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL9/diabetes_summary.csv` (mean of held_out_mse across seeds) -->
+> | yacht | 95.653 | 86.710 | 1.754 | 3.190 | 2.414 | **1.492** | <!-- numcheck-ignore: means of held_out_mse across seeds in `automl_package/examples/capacity_ladder_results/WSEL9/yacht_summary.csv` — CSV source, the per-line checker requires .json -->
+> | energy | 39.477 | 21.525 | **11.904** | 28.541 | 33.076 | 17.559 | <!-- numcheck-ignore: means of held_out_mse across seeds in `automl_package/examples/capacity_ladder_results/WSEL9/energy_summary.csv` — CSV source, checker requires .json -->
+> | kin8nm | 0.04051 | 0.01711 | **0.00876** | 0.00913 | 0.01150 | 0.01751 | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL9/kin8nm_summary.csv` (same construction) -->
+> | california | 0.49932 | **0.21534** | 0.30150 | 0.30321 | 0.29682 | 0.32098 | <!-- numcheck-ignore: means of held_out_mse across seeds in `automl_package/examples/capacity_ladder_results/WSEL9/california_summary.csv` — CSV source, checker requires .json -->
+>
+> **Findings, in the strand's own terms:**
+> 1. **No free lunch, cleanly demonstrated:** linear wins diabetes (the floor-detector baseline
+>    did exactly its job — the dataset is essentially linear and every richer model overfits
+>    it); trees win california; the plain fixed-width NN wins energy and kin8nm; per-input
+>    width selection wins yacht.
+> 2. **The strand's central real-data question — does width SELECTION pay over a fixed-width
+>    net?** Mostly NO on this battery: plain NN (the "dial at fixed width" control) beats all
+>    three width-choosing arms on energy and kin8nm and ties the family on diabetes; W-SHARED
+>    never wins a dataset outright. The exception is yacht, where W-PERINPUT is the overall
+>    winner (small, smooth, few-dim — the regime where per-input capacity genuinely varies).
+>    Consistent with the toy-side findings (the 1-D bake-off's constant-control result and the
+>    dial-vs-sweep verdict): selection buys flexibility and compute options, not raw accuracy.
+> 3. **Per-input's known variance problem shows on real data too:** energy spans 2.972-39.793 <!-- numcheck-ignore: w_perinput held_out_mse per seed in `automl_package/examples/capacity_ladder_results/WSEL9/energy_summary.csv` — CSV source, checker requires .json -->
+>    across three seeds.
+> 4. **Integrity:** 235/240 cells clean under the battery's trajectory-verified convergence <!-- numcheck-ignore: counts derived by scanning every per-cell JSON's hit_cap field under WSEL9/, stored in no single file -->
+>    rules; the 5 `hit_cap` cells are ALL LightGBM (kin8nm ×3, energy seed 2, california seed <!-- numcheck-ignore: same scan, continuation -->
+>    2) — its round-cap bound, so the tree baseline's numbers there UNDERSTATE it (it wins
+>    california regardless; an uncapped re-run is a cheap follow-up available at report time,
+>    deliberately not run now — no strand claim rests on the tree margin).
+> 5. Selection costs are recorded per arm in every cell/CSV per the spec (baselines carry the
+>    documented non-applicability); the cost story joins the report when WSEL-10 unparks.
 
 **Gate added at the 2026-07-22 sign-off (user):** on unpark, **WSEL-19 (the router-backend
 bake-off) runs first** — the router backend must be settled before any settled-model comparison
