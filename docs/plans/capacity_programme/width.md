@@ -1035,7 +1035,26 @@ Ratio < 1 = variant beats the frozen default on routed held-out squared error (v
 only — W-SHARED/W-SWEEP construct no router) is re-run citing `new_default`, into a separate results
 dir so the primary grid's cells are never pooled with re-run cells. **Re-run DONE 2026-07-22 — the
 candidate shows NO end-task gain (slightly worse on the noisy tier at every fraction); see WSEL-6's
-re-run block for the head-to-head and the keep-the-frozen-default recommendation.** No global freeze from this
+re-run block for the head-to-head and the keep-the-frozen-default recommendation.**
+
+> **⛔ USER RULINGS AT THE 2026-07-22 SIGN-OFF REVIEW — router disposition SETTLED, two new
+> binding requirements:**
+> 1. **The frozen default STAYS (32×2, 300 epochs, lr 0.01). `new_default` is NOT adopted** — the
+>    registered sweep verdict stands as recorded, but the discriminating re-run showed no end-task
+>    gain and the user ratified keeping the constant where it is.
+> 2. **Router architecture must be INPUT-SIZE-RELATIVE (user).** The router MLP already infers its
+>    input layer from the data (`routing.py` builds `_CapacityRouterMLP(x_arr.shape[1], ...)`), but
+>    every capacity knob (hidden sizes) is an absolute constant chosen on 1-feature toys. Binding:
+>    any future router-architecture specification is a RULE parameterised by input dimensionality;
+>    the current constants are only that rule's validated instance for 1-D inputs. No task may
+>    freeze new absolute router constants without stating the rule they instantiate.
+> 3. **Regularisation / overfitting avoidance for the router is a FIRST-CLASS REQUIREMENT (user),
+>    currently unmet** — verified in code: `DistilledCapacityRouter._fit_from_targets` is plain
+>    full-batch Adam for a fixed epoch count, no early stopping, no validation split, no weight
+>    decay, no dropout. The re-run's overfitting signature (bigger router worse on 75-point
+>    selection sets) is the motivating evidence. Implementation lands via the router module's
+>    owning strand (`flexnn-package.md` — `routing.py` is outside every WSEL write set); this
+>    strand's studies re-read the constants after any such change per §3.6's feed-forward rule. No global freeze from this
 strand (`flexnn-package.md` FP-5 owns `routing.py`). **WSEL-8 is unaffected: its spec's output
 contract carries `w_shared_width`/`w_sweep_width` only — no router-consuming arm.** Whether
 `new_default` becomes the strand's settled per-dial default is decided at user review with this
