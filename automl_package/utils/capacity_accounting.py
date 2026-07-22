@@ -312,3 +312,120 @@ def sweep_cost(net: object, capacity_grid: Sequence[int], n_train_samples: int, 
         Total MACs (forward plus backward) of training one model per capacity in `capacity_grid`.
     """
     return sum(n_epochs * n_train_samples * executed_flops(net, capacity) * (1 + _BACKWARD_FORWARD_MAC_RATIO) for capacity in capacity_grid)
+
+
+# ---------------------------------------------------------------------------
+# End-to-end selection cost (capacity-programme Task WSEL-5, `docs/plans/capacity_programme/
+# width.md`). The three primitives above each price ONE mechanism in isolation; none of them is a
+# total cost for any of the models width.md Section 1 actually compares (W-SHARED/W-PERINPUT/
+# W-SWEEP, and their `probreg.md` counterparts M1/M3 -- the SAME three mechanisms, family-agnostic,
+# reached through `CapacitySelection.GLOBAL_CHEAP`/`PER_INPUT`/`GLOBAL_SWEEP`, FP-3's one shared
+# enum). The three functions below are named after those enum members rather than any one family's
+# model names, so depth/joint/MoE wire onto them too instead of growing a width-local copy --
+# WSEL-5's doctrine, and the reason this section lives here rather than in a width-specific module.
+#
+# `training_macs` is a REQUIRED, caller-supplied argument to `global_cheap_cost`/`per_input_cost`
+# -- deliberately not derived here, for the same reason `router_fit_cost`'s `hidden` has no
+# default (see above). W-SHARED and W-PERINPUT are read off the SAME already-trained net
+# (width.md Section 1: "training is NOT a variable between those two"), trained under whichever
+# schedule the caller actually ran (sandwich / one-width-per-batch / all-widths-every-step --
+# `width.md` WSEL-14 owns costing the schedule itself and has not yet run), so that net's training
+# cost is a fact about the run that produced it, not a formula this module should assume on its
+# behalf. `global_sweep_cost` takes no such argument: W-SWEEP's training IS `sweep_cost` by
+# construction -- a separate ordinary model per candidate capacity, exactly what that primitive
+# already prices -- so it is derived here instead of passed in.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SelectionCostBreakdown:
+    """End-to-end analytic MAC cost of one capacity-selection model: training plus choosing.
+
+    Both fields share the MAC convention every function in this module uses (forward+backward for
+    training terms, forward-only for read/score terms), so they sum meaningfully into one total --
+    the finite, end-to-end cost WSEL-5 exists to make computable (width.md Section 1: "EACH MODEL
+    IS THE COMPLETE SYSTEM, INCLUDING ITS SELECTION MACHINERY").
+
+    Attributes:
+        training_macs: Cost of training whatever gets trained -- see the `global_cheap_cost`
+            module note for why this is caller-supplied for two of the three mechanisms below.
+        selection_macs: Cost of the mechanism that CHOOSES a capacity given a trained candidate
+            (or candidates) -- one of `router_fit_cost`/`held_out_read_cost`/`sweep_cost`.
+    """
+
+    training_macs: int
+    selection_macs: int
+
+    @property
+    def total_macs(self) -> int:
+        """`training_macs + selection_macs`."""
+        return self.training_macs + self.selection_macs
+
+
+def global_cheap_cost(training_macs: int, net: object, capacity_grid: Sequence[int], n_samples: int) -> SelectionCostBreakdown:
+    """`CapacitySelection.GLOBAL_CHEAP` end-to-end cost (W-SHARED; ProbReg M1).
+
+    The certified net (already trained -- see this section's module note for why `training_macs`
+    is caller-supplied) plus a cheap held-out read: every candidate capacity scored once on the
+    selection set (`held_out_read_cost`), then `cheapest_within_tolerance`
+    (`automl_package/utils/capacity_selection.py`) picks ONE capacity for the whole dataset from
+    the resulting error table. That selection step is bootstrap/statistics arithmetic over an
+    already-computed error table, not a further network evaluation, so it contributes no
+    additional MACs and is not counted here.
+
+    Args:
+        training_macs: MACs already spent training the net (forward+backward, whatever schedule
+            was actually used -- see this section's module note).
+        net: A registered network or shape descriptor -- see `executed_flops`.
+        capacity_grid: Candidate capacities scored on the selection set.
+        n_samples: Held-out selection-set samples.
+
+    Returns:
+        `SelectionCostBreakdown(training_macs, held_out_read_cost(net, capacity_grid, n_samples))`.
+    """
+    return SelectionCostBreakdown(training_macs=training_macs, selection_macs=held_out_read_cost(net, capacity_grid, n_samples))
+
+
+def per_input_cost(training_macs: int, in_dim: int, n_capacities: int, n_samples: int, n_epochs: int, hidden: Sequence[int]) -> SelectionCostBreakdown:
+    """`CapacitySelection.PER_INPUT` end-to-end cost (W-PERINPUT).
+
+    The SAME certified net `global_cheap_cost` reads (`training_macs` is the same number for
+    both, passed by the caller -- see this section's module note) plus a distilled
+    `DistilledCapacityRouter` fit on the selection set (`router_fit_cost`).
+
+    Args:
+        training_macs: MACs already spent training the net -- see this section's module note.
+        in_dim: Router input dimensionality.
+        n_capacities: Size of the capacity grid the router selects over.
+        n_samples: Held-out selection-set samples the router is fit on.
+        n_epochs: Full-batch router training epochs.
+        hidden: The router MLP's hidden-layer sizes -- no default; see `router_fit_cost`.
+
+    Returns:
+        `SelectionCostBreakdown(training_macs, router_fit_cost(in_dim, n_capacities, n_samples, n_epochs, hidden))`.
+    """
+    return SelectionCostBreakdown(training_macs=training_macs, selection_macs=router_fit_cost(in_dim, n_capacities, n_samples, n_epochs, hidden))
+
+
+def global_sweep_cost(net: object, capacity_grid: Sequence[int], n_train_samples: int, n_epochs: int, n_selection_samples: int) -> SelectionCostBreakdown:
+    """`CapacitySelection.GLOBAL_SWEEP` end-to-end cost (W-SWEEP; ProbReg M3) -- the expensive reference.
+
+    A separate ordinary model trained per candidate capacity (`sweep_cost` -- this IS the training
+    cost, not caller-supplied, unlike `global_cheap_cost`/`per_input_cost`: there is no single
+    already-trained shared net here whose cost could be known ahead of this call) plus held-out
+    scoring of every trained candidate to keep the winner (`held_out_read_cost`, the same read
+    mechanism `global_cheap_cost` uses).
+
+    Args:
+        net: A registered network or shape descriptor -- see `executed_flops`.
+        capacity_grid: Candidates, each trained as its own dedicated model.
+        n_train_samples: Training samples per candidate.
+        n_epochs: Full-batch training epochs per candidate.
+        n_selection_samples: Held-out samples each trained candidate is scored on.
+
+    Returns:
+        `SelectionCostBreakdown(sweep_cost(...), held_out_read_cost(...))`.
+    """
+    training_macs = sweep_cost(net, capacity_grid, n_train_samples, n_epochs)
+    selection_macs = held_out_read_cost(net, capacity_grid, n_selection_samples)
+    return SelectionCostBreakdown(training_macs=training_macs, selection_macs=selection_macs)

@@ -16,9 +16,11 @@ Two things must hold, permanently:
    selftest's own style.
 """
 
+import math
 import os
 import sys
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "automl_package", "examples"))
@@ -180,3 +182,81 @@ class TestFlexibleWidthNNRegistration:
 
         for i, width in enumerate(model.widths):
             assert router.costs_[i] == pytest.approx(pkg.executed_flops(model.model, width))
+
+
+class TestEndToEndSelectionCost:
+    """WSEL-5 (`docs/plans/capacity_programme/width.md`): `global_cheap_cost`/`per_input_cost`/
+    `global_sweep_cost` wire width.md Section 1's three models (W-SHARED/W-PERINPUT/W-SWEEP) onto
+    the FP-9 selection-cost primitives (`router_fit_cost`/`held_out_read_cost`/`sweep_cost`), each
+    producing one FINITE total (training + selection) rather than the primitives in isolation.
+    Hand-computed expected values follow this file's own `TestKnownAnswersUnchanged` convention:
+    named locals, not bare literals.
+    """
+
+    def test_global_cheap_cost_hand_computed(self):
+        desc = pkg.MoEShapeDescriptor(d_in=2, expert_hidden=3, n_experts=4)
+        # top_k=1: router(2,4)=8 + expert[(2,3)=6 + (3,1)=3] = 17. top_k=2: 8 + 2*9 = 26.
+        expected_flops_top1 = 2 * 4 + (2 * 3 + 3 * 1)
+        expected_flops_top2 = 2 * 4 + 2 * (2 * 3 + 3 * 1)
+        n_samples = 5
+        expected_selection_macs = n_samples * (expected_flops_top1 + expected_flops_top2)
+        training_macs = 999  # caller-supplied, already-incurred training cost (see module note)
+
+        result = pkg.global_cheap_cost(training_macs, desc, [1, 2], n_samples=n_samples)
+
+        assert result.training_macs == training_macs
+        assert result.selection_macs == expected_selection_macs
+        assert result.total_macs == training_macs + expected_selection_macs
+
+    def test_per_input_cost_hand_computed(self):
+        # in_dim=2 -> hidden=(3,) -> n_capacities=4 MLP: forward = 2*3 + 3*4 = 18 MACs/sample.
+        expected_forward_macs = 2 * 3 + 3 * 4
+        expected_backward_forward_ratio = 2  # grad-input + grad-weight matmuls, each ~1x forward
+        n_samples, n_epochs = 10, 5
+        expected_selection_macs = n_epochs * n_samples * expected_forward_macs * (1 + expected_backward_forward_ratio)
+        training_macs = 123
+
+        result = pkg.per_input_cost(training_macs, in_dim=2, n_capacities=4, n_samples=n_samples, n_epochs=n_epochs, hidden=(3,))
+
+        assert result.training_macs == training_macs
+        assert result.selection_macs == expected_selection_macs
+        assert result.total_macs == training_macs + expected_selection_macs
+
+    def test_global_sweep_cost_hand_computed(self):
+        desc = pkg.MoEShapeDescriptor(d_in=2, expert_hidden=3, n_experts=4)
+        expected_flops_top1 = 2 * 4 + (2 * 3 + 3 * 1)
+        expected_flops_top2 = 2 * 4 + 2 * (2 * 3 + 3 * 1)
+        n_train_samples, n_epochs, backward_forward_ratio = 3, 2, 2
+        expected_training_macs = n_epochs * n_train_samples * (1 + backward_forward_ratio) * (expected_flops_top1 + expected_flops_top2)
+        n_selection_samples = 7
+        expected_selection_macs = n_selection_samples * (expected_flops_top1 + expected_flops_top2)
+
+        result = pkg.global_sweep_cost(desc, [1, 2], n_train_samples=n_train_samples, n_epochs=n_epochs, n_selection_samples=n_selection_samples)
+
+        assert result.training_macs == expected_training_macs
+        assert result.selection_macs == expected_selection_macs
+        assert result.total_macs == expected_training_macs + expected_selection_macs
+
+    def test_all_three_width_models_return_finite_total_cost_including_selection(self):
+        """width.md Section 1's three width models, each costed end-to-end off ONE real `FlexibleWidthNN`."""
+        rng = np.random.default_rng(0)
+        x = rng.normal(size=(40, 1)).astype(np.float32)
+        y = (2.0 * x[:, 0] + rng.normal(scale=0.05, size=40)).astype(np.float32)
+
+        model = FlexibleWidthNN(widths=[2, 4], max_epochs=5)
+        model.fit(x, y)
+        n_train_samples, n_epochs = 40, 5
+        # W-SHARED/W-PERINPUT read off this SAME trained net (width.md Sec.1); `sweep_cost` over
+        # its own widths grid is one legitimate caller-side way to price that training run -- see
+        # `global_cheap_cost`'s module note for why the module itself does not assume this for you.
+        training_macs = pkg.sweep_cost(model.model, model.widths, n_train_samples, n_epochs)
+
+        shared = pkg.global_cheap_cost(training_macs, model.model, model.widths, n_samples=10)
+        perinput = pkg.per_input_cost(training_macs, in_dim=1, n_capacities=len(model.widths), n_samples=10, n_epochs=300, hidden=(32, 32))
+        sweep = pkg.global_sweep_cost(model.model, model.widths, n_train_samples=n_train_samples, n_epochs=n_epochs, n_selection_samples=10)
+
+        for breakdown in (shared, perinput, sweep):
+            assert breakdown.training_macs > 0
+            assert breakdown.selection_macs > 0
+            assert math.isfinite(breakdown.total_macs)
+            assert breakdown.total_macs == breakdown.training_macs + breakdown.selection_macs

@@ -56,13 +56,37 @@ MSE-path convention) and `executed_flops(net, config)` — analytic multiply-add
 programme's architectures: width nets at routed width k (3k+1 pattern — derive per class, do
 not copy), depth nets at routed depth d, MoE at top-k, FlexNN at selected depth. Selftest:
 hand-computed known-answer checks for one small config per family. This module is the ONLY
-source of params/FLOPs numbers in reports (b)/(c) and the strand-4 deploy bars.
+source of params/FLOPs numbers in reports (b)/(c) and the strand-4 deploy bars. **It also owns the
+cost of CHOOSING a capacity** (router fitting, a cheap held-out read, a per-capacity sweep, and
+the end-to-end training-plus-selection total for each of a family's capacity-selection models —
+added by `width.md` WSEL-5; family-agnostic, so depth/joint/MoE draw from the same functions
+rather than growing their own copy).
 
 **S2 note — DONE 2026-07-16:** `param_count`/`executed_flops` built covering `NestedWidthNet`,
 `SharedTrunkPerWidthHeadNet`, `IndependentWidthNet`, `SharedReadoutPerWidthAffineNet`, FlexNN
 (with/without predictor), plus `DepthNetShapeDescriptor`/`MoEShapeDescriptor` for the depth/MoE
 strands. `--selftest` → 18/18 hand-computed known-answer checks PASS (exit 0). Deliverable:
 `automl_package/examples/capacity_accounting.py`.
+
+**S2 update — WSEL-5, 2026-07-22 (`docs/plans/capacity_programme/width.md` WSEL-5):** the module
+moved to `automl_package/utils/capacity_accounting.py` in the interim (`flexnn-package.md` FP-1;
+the examples-side path above is now a re-export shim, unchanged import surface). Pricing a network
+at a fixed capacity (this task's original scope, above) said nothing about the cost of *choosing*
+that capacity — FP-9 landed the three selection-cost primitives (`router_fit_cost`,
+`held_out_read_cost`, `sweep_cost`, `capacity_accounting.py:258,283,300`), and WSEL-5 wires them
+into one FINITE end-to-end total per selection mechanism: `global_cheap_cost`, `per_input_cost`,
+`global_sweep_cost` (`capacity_accounting.py`, added after `sweep_cost`), each returning a
+`SelectionCostBreakdown(training_macs, selection_macs)`. Named after `CapacitySelection`'s
+`GLOBAL_CHEAP`/`PER_INPUT`/`GLOBAL_SWEEP` members (FP-3's one shared enum) rather than any one
+family's model names (W-SHARED/W-PERINPUT/W-SWEEP, ProbReg's M1/M3), so every capacity family
+reuses the same three functions. `global_cheap_cost`/`per_input_cost` take `training_macs` as a
+REQUIRED caller-supplied argument rather than deriving it: W-SHARED and W-PERINPUT are read off
+the SAME already-trained net, trained under whichever schedule actually ran (costing the schedule
+itself is `width.md` WSEL-14's job, unstarted) — this module prices the selection step, not that
+open question. `global_sweep_cost` has no such argument: its training cost IS `sweep_cost`, no
+ambiguity. Tests: `tests/test_capacity_accounting.py::TestEndToEndSelectionCost` (hand-computed
+per mechanism, plus one check that all three width.md Section 1 models return a finite total off
+a real `FlexibleWidthNN`).
 
 ### Task S3: statistics methodology (definition, no code)
 

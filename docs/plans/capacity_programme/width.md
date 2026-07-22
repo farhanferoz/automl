@@ -29,7 +29,8 @@ does, so several tasks below block on it explicitly rather than re-deriving what
   selector + its bootstrap standard-error helper), consumed rather than re-implemented per family.
   **Correction, 2026-07-21:** this line originally read "not yet a landed task as of this writing";
   that was stale even at the time — `flexnn-package.md` records FP-1, FP-3, and FP-9 all
-  **DONE/LANDED 2026-07-20**, the same day this file was drafted. `automl_package/utils/capacity_accounting.py:258,276,298`
+  **DONE/LANDED 2026-07-20**, the same day this file was drafted. `automl_package/utils/capacity_accounting.py:258,283,300`
+  *(line numbers re-verified 2026-07-22 after WSEL-5's additions shifted them)*
   (`router_fit_cost`, `held_out_read_cost`, `sweep_cost`) is FP-9's/FP-1's landed code, merged in
   commit `e3cc52b`. **WSEL-3** depends on it, and the dependency is now satisfied.
 - **`flexnn-package.md` FP-4** — the package width class's shared-training schedule deviates from
