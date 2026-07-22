@@ -1661,6 +1661,28 @@ field in Step 3 and `hit_cap: false`; (4)
 > (Step 3), backgrounded.** Stage-2 arms are NOT in the authoring contract (conditional; separate
 > contract if `stage2_required`). The PS-3 halt ruling (structure.md) is a separate matter and
 > remains pending; it does not gate this task.
+>
+> **AUTHORING LANDED 2026-07-22 (worker report harvested from its transcript; root-verified):**
+> `width_wsel16.py` (driver) · `width_candidates.py` (+`MonotoneGateWidthNet`, +`weighted_squared_error`,
+> both generalized to arbitrary `w_max` per §3.10) · `tests/test_stopgrad_width_loss.py` (identity
+> test with prove-it-fails INSIDE the test — checkable from the repo alone). Root re-ran all three
+> verifications green: pytest 3 passed · full selftest PASS across every arm × tier · ruff clean.
+> **ROOT PRE-GRID CHECK — TRAINER PARITY (a confound the selftest did not cover):** tier-1
+> non-stopgrad arms train on the REAL `kce` trainer; `A_STOPGRAD` and ALL tier-2 cells on the
+> driver's `_train_custom_to_convergence` (the kce trainer cannot express those losses; its file is
+> out of the write set). Verified before any candidate cell: single-step loss IDENTICAL, grads agree
+> at 3e-08 (float32 eps); full-cell A/B — all 12 stop epochs identical, per-width readouts to 2e-07,
+> weight drift 6.7e-05 over 20k steps = accumulated non-associative float noise, five orders below
+> the 10% primary bar. **Mixed-trainer comparisons are SAFE.** Scripts preserved:
+> `automl_package/examples/capacity_ladder_results/REVIEW_2026-07-22/wsel16_trainer_parity.py` +
+> `wsel16_singlestep_probe.py`. <!-- numcheck-ignore: root-measured via the preserved scripts; no JSON artifact exists for a pre-grid check -->
+> **INTERPRETATION CAVEAT ON RECORD BEFORE ANY CANDIDATE CELL RUNS (worker-flagged, spec-literal
+> implementation):** under the stop-gradient loss the shared readout bias sits inside the detached
+> term at EVERY width, so it NEVER receives gradient — frozen at init. If `A_STOPGRAD` misses the
+> primary bar, check this mechanism BEFORE concluding "greedy training fails". Not redesigned
+> mid-flight; the spec's formula is implemented exactly, and the quirk is documented in
+> `stopgrad_all_widths_pred`'s docstring.
+> 🔄 **GRID: controls first (Step 3) launched 2026-07-22 — root-run, backgrounded, sequential.**
 
 **The question, stated once.** Two structures produce a width dial from one shared hidden layer:
 

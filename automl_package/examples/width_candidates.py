@@ -32,16 +32,27 @@ channel recalibration, a different, explicitly out-of-scope question).
 Mean-centred (mean-subtracting) normalisation is explicitly OUT of scope for WSEL-15 -- it needs a
 second cumulative sum and interacts with the head's bias term, moving two things at once; see the
 module docstring of `automl_package/examples/width_wsel15.py`.
+
+**WSEL-16's two additions (`docs/plans/capacity_programme/width.md` ~1553-1587, ~1598-1600; §3.7's
+RESOLUTION UPDATE 2026-07-22 assigns the tier-2 objective to this task).** `MonotoneGateWidthNet` is
+the `A_GATES` stage-1 arm -- the ONLY new architecture WSEL-16 adds (its other four arms are package
+classes or, for `A_STOPGRAD`, a loss-shape change on `NestedWidthNet` with NO new class -- see
+`automl_package/examples/width_wsel16.py`'s module docstring). `weighted_squared_error` is the
+fixed-sigma weighted objective §3.7 requires on tier 2/3 (`(pred - y)^2 / sigma_true(x)^2`, sigma read
+from the toy generator's `region` output, never learned) -- implemented ONCE here per §3.7/§3.9 and
+imported by every driver that needs it.
 """
 
 from __future__ import annotations
 
 import enum
+import math
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as nnf
 
-from automl_package.models.architectures.nested_width_net import W_MAX_DEFAULT, SharedTrunkPerWidthHeadNet
+from automl_package.models.architectures.nested_width_net import W_MAX_DEFAULT, NestedWidthNet, SharedTrunkPerWidthHeadNet
 from automl_package.utils.capacity_accounting import executed_flops
 
 PREFIX_NORM_EPS = 1e-5  # WSEL-15 spec, no discretion: eps inside the sqrt.
@@ -192,3 +203,143 @@ def _executed_flops_prefix_norm(net: PrefixNormWidthNet, config: int) -> int:
     module docstring) counts none of it, same as it never counts bias adds.
     """
     return executed_flops(net.base, config)
+
+
+# ---------------------------------------------------------------------------
+# WSEL-16 `A_GATES` -- a thin monotone-decay wrapper over `NestedWidthNet` (`width.md` ~1579-1587).
+# The ONLY new architecture this task adds (§3.9's reuse inventory); everything else it needs is
+# either a package class or, for `A_STOPGRAD`, a loss-shape change with no new class at all.
+# ---------------------------------------------------------------------------
+
+
+class MonotoneGateWidthNet(nn.Module):
+    """`A_GATES`: `NestedWidthNet` plus ONE learnable scalar that monotonically decays each unit's contribution.
+
+    Same trunk and the SAME shared `mean_head` as `NestedWidthNet` (composition, `self.base = ...`,
+    never a copy -- SS3.9). The only change is the per-unit contribution feeding the width-k running
+    sum: `c_j = g_j * w_j * h_j` instead of `NestedWidthNet`'s plain `w_j * h_j`, with
+    `g_j = exp(-softplus(nu) * (j - 1))` a single learnable scalar `nu`, initialised so `g_{w_max} = 0.5`
+    (`softplus(nu) = ln(2) / (w_max - 1)`, the `w_max=12` case reproducing the spec's literal `g_12 =
+    0.5`). `g_j` is monotonically DECREASING in `j` by construction (a `softplus` keeps its rate
+    positive) -- no penalty term is added to the loss for this (the strand's no-arbitrary-penalty rule,
+    `docs/plans/capacity_programme/width.md` §1); training uses `A_JOINT`'s plain summed loss.
+
+    ⚠️ **This is OUR SIMPLIFICATION of the published monotone-gate mechanism, which derives its gate
+    from a variational bound -- we are not reproducing that derivation, only borrowing the idea that a
+    monotone-decaying per-unit gate might resolve `NestedWidthNet`'s tug-of-war (`shared/
+    width_transformer_port.md` §1). Label it as a simplification wherever this arm is reported.**
+
+    MSE-only, like every class in this module and its base (`log_var` is a dummy zero, never in the
+    loss graph, per `width.md` §3.7).
+    """
+
+    def __init__(self, w_max: int = W_MAX_DEFAULT, activation: type[nn.Module] = nn.Tanh) -> None:
+        """Builds the wrapped `NestedWidthNet` plus the single learnable gate-rate scalar `nu`.
+
+        Args:
+            w_max: maximum hidden width, forwarded to the wrapped net unchanged.
+            activation: hidden-layer nonlinearity class, forwarded to the wrapped net unchanged.
+        """
+        super().__init__()
+        self.base = NestedWidthNet(w_max=w_max, activation=activation)
+        self.w_max = self.base.w_max
+        # softplus(nu) = ln(2) / (w_max - 1) => g_{w_max} = exp(-softplus(nu) * (w_max - 1)) = 0.5.
+        # Inverted via softplus^{-1}(y) = log(expm1(y)) (nu can be negative; expm1 keeps this stable
+        # near y=0, which a w_max large enough to make ln(2)/(w_max-1) small would otherwise erode).
+        target_softplus = math.log(2.0) / (self.w_max - 1)
+        init_nu = math.log(math.expm1(target_softplus))
+        self.nu = nn.Parameter(torch.tensor(init_nu, dtype=torch.float32))
+
+    def hidden(self, x: torch.Tensor) -> torch.Tensor:
+        """`(N, 1) -> (N, w_max)` post-activation hidden representation (the wrapped net's, unchanged)."""
+        return self.base.hidden(x)
+
+    def _gates(self, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
+        """`(w_max,)` monotone-decreasing gate `g_j = exp(-softplus(nu) * (j - 1))`, `j = 1..w_max`."""
+        j_minus_one = torch.arange(self.w_max, dtype=dtype, device=device)  # 0-indexed (j-1) for j=1..w_max
+        return torch.exp(-nnf.softplus(self.nu) * j_minus_one)
+
+    def _gated_contrib(self, h: torch.Tensor) -> torch.Tensor:
+        """`(N, w_max)` gated per-unit contribution `c_j = g_j * w_j * h_j` (pre-prefix-sum/mask)."""
+        return h * self.base.mean_head.weight.squeeze(0) * self._gates(h.dtype, h.device)
+
+    def forward_width(self, x: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """`(mean, log_var)` at one FIXED width `k` (1..w_max): `b + sum_{j<=k} g_j * w_j * h_j`."""
+        if not (1 <= k <= self.w_max):
+            raise ValueError(f"k={k} out of range [1, {self.w_max}]")
+        h = self.hidden(x)
+        mask = torch.zeros_like(h)
+        mask[:, :k] = 1.0
+        mean = (self._gated_contrib(h) * mask).sum(dim=1, keepdim=True) + self.base.mean_head.bias
+        return mean, torch.zeros_like(mean)
+
+    def all_widths_forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """`(mean, log_var)` at every width `k=1..w_max` in ONE pass; column `k-1` is width-k's readout.
+
+        Same cumsum trick as `NestedWidthNet.all_widths_forward`, applied to the GATED contribution
+        instead of the plain one.
+        """
+        h = self.hidden(x)
+        mean_all = torch.cumsum(self._gated_contrib(h), dim=1) + self.base.mean_head.bias
+        return mean_all, torch.zeros_like(mean_all)
+
+    def sampled_widths_forward(self, x: torch.Tensor, widths: list[int]) -> tuple[torch.Tensor, torch.Tensor]:
+        """`(mean, log_var)` for exactly `widths` (order preserved, repeats allowed), trunk+gate evaluated ONCE.
+
+        Uses the SAME explicit-masking formula as `forward_width` (not the cumsum shortcut), matching
+        `NestedWidthNet.sampled_widths_forward`'s bit-for-bit-equivalence reasoning for the k-dropout
+        training loop.
+        """
+        h = self.hidden(x)
+        contrib = self._gated_contrib(h)
+        means = []
+        for k in widths:
+            if not (1 <= k <= self.w_max):
+                raise ValueError(f"k={k} out of range [1, {self.w_max}]")
+            mask = torch.zeros_like(h)
+            mask[:, :k] = 1.0
+            means.append((contrib * mask).sum(dim=1, keepdim=True) + self.base.mean_head.bias)
+        mean_all = torch.cat(means, dim=1)
+        return mean_all, torch.zeros_like(mean_all)
+
+
+@executed_flops.register(MonotoneGateWidthNet)
+def _executed_flops_monotone_gate(net: MonotoneGateWidthNet, config: int) -> int:
+    """Routed width-`config` MACs, reused from the wrapped `NestedWidthNet`'s own registered formula.
+
+    The gate multiply is elementwise (one multiply per unit, not a matmul), so it is excluded under
+    this module's MAC convention -- the same treatment `_executed_flops_prefix_norm` gives the RMS
+    normalisation above.
+    """
+    return executed_flops(net.base, config)
+
+
+# ---------------------------------------------------------------------------
+# WSEL-16 tier-2/3 objective -- the fixed-sigma weighted squared error (`width.md` §3.7, assigned to
+# this task by §3.8's RESOLUTION UPDATE 2026-07-22). Implemented ONCE; every driver imports it.
+# ---------------------------------------------------------------------------
+
+
+def weighted_squared_error(pred: torch.Tensor, y: torch.Tensor, sigma_true: torch.Tensor) -> torch.Tensor:
+    """Fixed-sigma weighted squared error: `(pred - y)^2 / sigma_true(x)^2`, mean-reduced.
+
+    `sigma_true` is read from the toy generator's own `region` output (`width.md` §3.7) -- e.g.
+    `make_hetero3`'s noisy-easy region uses `HETERO3_NOISY_SIGMA`, its other two regions use
+    `HETERO_NOISE_SIGMA` -- NEVER estimated or learned. Up to the constant `1 / (2 * sigma^2)` this is
+    the Gaussian log-likelihood with sigma held at the truth, so on `make_hetero`'s single constant
+    sigma it is exactly proportional to plain MSE (tier 1 uses plain MSE directly for that reason,
+    `width.md` §3.7); on `make_hetero3`'s two-sigma toy it down-weights the noisy region ~100x, which
+    plain MSE does not.
+
+    Args:
+        pred: `(N,)` model prediction at one width.
+        y: `(N,)` target, same scale as `pred`.
+        sigma_true: `(N,)` the generator's true per-point noise std, IN THE SAME SCALE as `y`/`pred` --
+            if the caller trains on standardized targets (this program's convention, `y_std = (y - my)
+            / sy`), `sigma_true` must be `sigma_true_raw / sy`, not the raw generator sigma, since a
+            pure linear rescale of `y` rescales its noise std by the same factor.
+
+    Returns:
+        Scalar mean weighted squared error.
+    """
+    return ((pred - y) ** 2 / sigma_true**2).mean()
