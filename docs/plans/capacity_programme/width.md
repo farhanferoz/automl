@@ -142,6 +142,35 @@ passed. `SharedTrunkPerWidthHeadNet` is the architecture of record. Evidence:
 `docs/width_mse_2026-07-16/verdict_variable_width_mse.md` §10, `width-cert.md:318-328`.
 **This is an architecture result. It certifies none of §1's three models.**
 
+> ⛔ **REVIEW FINDING 2026-07-22 — G-WIDTH's GATE LOGIC DOES NOT RE-DERIVE. USER RULING REQUIRED.**
+> Independent adversarial re-derivation (full report:
+> `automl_package/examples/capacity_ladder_results/REVIEW_2026-07-22/gwidth_rederivation.md`; the two
+> decisive findings root-verified against the raw JSONs before recording). The NUMBERS are faithful
+> (21/21 cited files provenance-clean; the old mislabel history was handled correctly) and the
+> empirical substance stands (floor reached where the ceiling control reaches it; dial separation
+> 12–70 SE). What fails is the GATE AS PRE-REGISTERED:
+> **(a)** the curve-shape quarantine was silently dropped exactly where it failed — BOTH counted
+> seeds of the noisy-easy clause fail it (seed 0 at 3.6× threshold + a missing hard-region drop;
+> seed 2 at 2.5×), leaving ZERO eligible seeds as written, and the pre-registered remediation
+> (add seeds 3/4) never ran; <!-- source: `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse_hetero3_n2250_s0.05_wp3.json` -->
+> **(b)** the small-data corner FAILS fit on 3/3 seeds countable under the plan's own
+> trustworthiness bar (1.52–1.57 vs the 1.25 bar), and the rule's own FAIL branch — "run W8 FIRST,
+> then escalate to user" — was not taken; the "not certifiable" framing rested on a stricter
+> all-widths rule the plan does not prescribe. <!-- source: `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse_n200_s0.05_wp4c.json` -->
+> Also on record: an architecture-specific starved-narrow-width signature visible in cert-era data
+> went unreported (the certified design's rarely-sampled narrow heads sit stale — feeds the
+> WSEL-14/schedule story); one ladder cell misreported three ways; the "5/5" headline contains one
+> inside-noise pass; three cert-cited files were regenerated post-cert (cert-era bytes recoverable
+> at `bb7e9dc` and matching).
+> **STANDING CONSEQUENCES until the user rules:** the PASS is procedurally unsound as written
+> though empirically plausible; **WSEL-3..8 dispatch HELD** (they build on the certified
+> architecture); **WSEL-16 CONTINUES** (its own non-goal: `B_HEADS` is the reference, not a
+> defendant — and its comparison is informative under ANY ruling). **Options prepared for the
+> ruling:** (1) amend the verdict to "PASS with re-derivation caveats" naming both clause failures;
+> (2) run the pre-registered remediation as written (noisy-easy seeds 3/4 + the W8 scan) and
+> re-read the gate mechanically; (3) demote to "architecture of record by evidence-weight; gate
+> void as written". Not decided autonomously — the pre-registered rule names the user as decider.
+
 **Established (MECHANISM, recorded 2026-07-21 after a user discussion — an ACCOUNT, not new evidence).**
 Why the shared readout fails and the per-width readout succeeds is now written down once, so it is not
 re-derived: `shared/width_transformer_port.md` §1. Summary: the summed-over-widths loss asks a single
