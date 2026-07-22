@@ -2496,6 +2496,22 @@ genuine, and only after it exists is anything provably superseded.
   misfires.
 - [ ] **Step 7 — attended deletion.** After sign-off: delete in ONE commit whose body is the manifest.
   `git` history retains every file, so this is recoverable; say so in the commit body.
+  **⛔ SIGN-OFF TAKEN 2026-07-22 (item 6 CLOSED, user — three rulings, execution delegated to the
+  autonomous post-review run's wave C):**
+  1. **Citation-gate scope AMENDED (the headstone finding fixed at the rule):** pure
+     audit/inventory documents — `shared/zero-caller-inventory.md` and any future disposal-audit
+     doc — are EXCLUDED from the citation walk. A mention that nominates a file for disposal is
+     not a dependency. The manifest's c2 column is re-read under this scope at Step-7 execution.
+  2. **DELETE `automl_package/examples/independent_width_experiment.py` +
+     `automl_package/examples/capacity_ladder_results/W_INDEP/w_indep_summary.json`** — superseded
+     by name (`converged_width_experiment.py` docstring), zero genuine importers, unprotected;
+     was blocked solely by ruling 1's defect. Consequence recorded: `hetero_width_experiment.py`
+     loses its only genuine importer and becomes zero-caller, but stays KEEP (fails c4 — no named
+     replacement); a future wave may name one and retire it.
+  3. **DELETE `automl_package/examples/capacity_ladder_results/W_MRL/w_mrl_summary_run1_partial.json`**
+     — partial run superseded by its completed directory-mate, zero references repo-wide; the
+     producer's directory-umbrella protection is ruled NOT to cover this leaf (explicit leaf
+     exemption, recorded here).
 
 **Non-goals:** no deletion of anything failing any one of the four checks. No deletion of gate
 evidence, ever. No behaviour change to any certified class. No new architecture. No merging of
