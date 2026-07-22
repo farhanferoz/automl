@@ -231,7 +231,9 @@ width claim). **`NestedWidthNet` (arch #1) is CLOSED — no further compute (use
   (`grep` for the script name returns zero hits there). The "#3 positive control" used throughout the
   certification is `IndependentWidthNet` trained under the *same cheap joint schedule* as everything
   else — a different object. → **WSEL-4**
-- **(b) same choice.** Never tested. → **WSEL-8**
+- **(b) same choice.** ~~Never tested.~~ **ANSWERED 2026-07-22: NO — 0/3 seeds, the dial network
+  always picks wider (9/11/11 vs the sweep's 7/8/6), as a mechanical consequence of its middle-width
+  quality gap. See the WSEL-8 result block.** → **WSEL-8**
 - **How much data the selection step needs.** Never measured. The selection split is a hardcoded
   50/50 even/odd index carve (`automl_package/examples/kdropout_converged_width_experiment.py:273-276`).
   → **WSEL-6**
@@ -1072,7 +1074,52 @@ exits 0; `python -c "import json; d=json.load(open('automl_package/examples/capa
 exits 0 (the invariant-or-not verdict is a field, not prose); if `d['invariant']` is `False`, the same
 file's `new_default` key is non-null and cited by WSEL-6's re-run.
 
-### WSEL-8 — the W-SHARED ≈ W-SWEEP claim, both halves, on toys
+### WSEL-8 — the W-SHARED ≈ W-SWEEP claim, both halves, on toys — ⛔ **ANSWERED 2026-07-22: BOTH HALVES FAIL. The dial network is NOT ≈ the exhaustive sweep on this toy — 2.6-7.2× worse at matched middle widths, 0/3 agreement on the chosen width, and the disagreement is a mechanical consequence of the quality gap. A FAIL is a finding, not a bug.**
+
+**RESULT: `agreement_rate: 0.0`, quality NOT matched at middle widths** — ledger `automl_package/examples/capacity_ladder_results/WSEL8/frozen.json` (36 sweep cells + control + 3 dial cells, ALL trustworthy, no cap hits after the same-precedent repair; per-cell JSONs in the same directory).
+
+**Integrity chain, in order:** the fresh sweep reproduces WSEL-4's ported reference EXACTLY (36/36, max relative error 0.0000 — deterministic protocol; `automl_package/examples/capacity_ladder_results/WSEL8/wsweep_control.json`), and the two capped cells were the SAME (seed, width) slow-creep cells the data-fraction study repaired — retrained at a raised cap they converged at the identical epoch counts (8983, 6850), capped originals under `automl_package/examples/capacity_ladder_results/WSEL8/capped_at_6000/`. <!-- numcheck-ignore: the two epoch counts live one-per-file in the rebuilt `automl_package/examples/capacity_ladder_results/WSEL8/_cache/*_meta.json` files; 0.0000 is the control file's max relative error -->
+The selection fraction 0.15 was read from the data-fraction study's frozen ledger at runtime with provenance recorded in every cell (`selection.fraction_source`), never hardcoded.
+
+**Half (a) — quality at MATCHED width (REPORT split, mean over 3 seeds, dial/sweep ratio; >1 = dial worse):**
+
+| w | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| ratio | 1.081 | 1.159 | 0.997 | 7.207 | 2.932 | 3.268 | 2.641 | 2.638 | 1.751 | 1.680 | 1.571 | 1.486 | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL8/frozen.json` `quality_at_matched_width[].mean_ratio_shared_over_sweep` -->
+
+Parity at widths 1-3; the dedicated nets sit at the noise floor from width ~6 while the dial
+network's shared trunk cannot serve the middle heads — the premium peaks at width 4 and shrinks
+monotonically toward the widest heads. Consistent with this wave's stage-2 verdict (strict joint
+training is what the cheap structure costs) and the frozen-bias diagnostic (≤2% of it).
+
+**Half (b) — agreement on the chosen width: 0/3, and the dial ALWAYS picks wider:**
+
+| seed | dial pick | sweep pick | dial MSE @ its pick | sweep MSE @ its pick |
+|---|---:|---:|---:|---:|
+| 0 | 9 | 7 | 0.004502 | 0.002848 | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL8/hetero_0.json` -->
+| 1 | 11 | 8 | 0.006105 | 0.002634 | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL8/hetero_1.json` -->
+| 2 | 11 | 6 | 0.003282 | 0.002857 | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL8/hetero_2.json` -->
+
+**Mechanism (visible in the recorded curves, not conjectured):** the dedicated nets' held-out curve
+flattens at ~width 6 (noise floor), so cheapest-within-tolerance stops early; the dial network's own
+per-width curve is still IMPROVING at its widest heads (the least trunk-starved ones), so the SAME
+selection rule, applied honestly to a right-shifted curve, picks wider. The disagreement is half
+(a)'s quality gap expressed through the selector — not a selector defect. No pick was
+ceiling-bound (`ceiling_bound` false everywhere).
+
+**The practical trade recorded with the verdict:** at its own pick the dial network's held-out MSE
+is 1.15-2.32× the sweep's, while selecting wider (more inference compute), in exchange for a
+1.6-2.7× end-to-end selection-cost saving (`selection_cost.total_macs` per arm, per cell — the
+saving is far below the naive 1-vs-12-trainings intuition because the ALL schedule trains every
+width every step anyway). <!-- numcheck-ignore: the per-seed MSE ratios and cost ratios are derived across fields of `automl_package/examples/capacity_ladder_results/WSEL8/hetero_{0,1,2}.json`, stored in no single leaf -->
+
+**What this does NOT refute:** G-WIDTH's certification (the dial's monotone/converged/selects
+behaviour is untouched — this is the first head-to-head against DEDICATED nets); the multi-head
+retention ruling (WSEL-16 compared trainable-cheap structures against the multi-head reference, a
+different question). What it DOES establish: on this toy, "one training that carries every width"
+is not a free replacement for the sweep — it buys ~2× cheaper selection at ~1.1-2.3× worse
+end-task error and a wider, costlier deployed width. Reported prominently for end-of-run user
+review; WSEL-10 (the report) stays parked and reads this ledger when it unparks.
 
 **Files (write set):** `automl_package/examples/width_wsel8.py` (Create) ·
 `automl_package/examples/capacity_ladder_results/WSEL8/`
