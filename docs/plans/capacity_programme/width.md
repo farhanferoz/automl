@@ -1833,6 +1833,37 @@ field in Step 3 and `hit_cap: false`; (4)
 
 > 🔄 **GRID: controls first (Step 3) launched 2026-07-22 — root-run, backgrounded, sequential.**
 >
+> ✅ **STAGE 2 COMPLETE 2026-07-22 (root-run, 9 cells, tier 1, sandwich schedule, seeds 0/1/2;
+> all cells + `frozen.json` re-summarized). THE DIAGNOSTIC ANSWER: GREEDINESS is the binding
+> constraint, NOT the moving target.**
+> - **Corrective (stop-grad + periodic joint bursts) — best single-head recipe, still a PRIMARY
+>   FAIL.** RESULT: full-width held-out MSE 0.089 / 0.193 / 0.098 vs the multi-head reference's 0.024 / 0.031 / 0.028 (`automl_package/examples/capacity_ladder_results/WSEL16/frozen.json`)
+>   — 3.7-6.3x the reference against the 10% bar; ordering retained (rho −0.71/−0.58/−0.33).
+>   ⚠️ Its convergence flags are structurally unreadable: the burst schedule makes the val
+>   trajectory non-monotone BY CONSTRUCTION, so the gate certifies only 2-4/12 widths and flags
+>   4-6/12 "diverged" — while endpoint train ≈ val shows no actual divergence. Recorded as an
+>   instrument-mismatch (the gate was designed for monotone-ish single-loss runs); the primary
+>   verdict does not hinge on it (the ~3.7x best-seed gap dwarfs any reading of the flags).
+> - **Distillation-target — dynamical runaway, clean negative.** Self-referential target (all
+>   narrow widths chase `detach(S_wmax)`, which inflates in response): 12/12 widths diverged on
+>   every seed, fails the TRAIN set itself. RESULT: full-width val 315.541 / 53.679 / 158.210 (`automl_package/examples/capacity_ladder_results/WSEL16/frozen.json`).
+> - **Staged cascade (no moving target at all) — converges PERFECTLY and still fails.** 12/12
+>   widths trustworthy on every seed, train ≈ val, yet RESULT: full-width val 0.209 / 0.189 / 0.337 (`automl_package/examples/capacity_ladder_results/WSEL16/frozen.json`)
+>   — 6-12x the reference. Extra per-prefix readout bias freedom named in every cell JSON.
+> - **Inference: removing the moving target entirely (cascade) does not rescue accuracy; the
+>   only recipe that periodically un-greeds (corrective) is the best single-head result. Strict
+>   importance-ordered training pays multiples of the reference MSE in every recipe tried.**
+>   (Consistent with the frozen-bias diagnostic above: the failure is the training principle,
+>   not an implementation artifact.)
+> - **stage2 winner: NONE — `stage1_winner = b_heads` stands. ⇒ Per the 2026-07-22
+>   selection-studies coupling ruling: NO single-head recipe lands competitive, so WSEL-6/7/8
+>   run MULTI-HEAD ONLY and single-head is recorded as ordering-success / accuracy-failure.**
+> - **Stage 3 (the generality check): NOT RUN — the contrast is EMPTY.** Its spec compares
+>   "B_HEADS and the stage-1/stage-2 winner"; the winner IS B_HEADS, so the two-finalist tier-3
+>   block collapses to a self-comparison. Logged as the reversible default under Decision 32;
+>   batched for user review (if certified-design tier-3 canonical-suite coverage is wanted for
+>   its own sake — e.g. for WSEL-17's supersession argument — it is a cheap standalone launch).
+>
 > **USER RULING 2026-07-22 (selection-studies coupling):** the selection studies' MEASUREMENT tasks
 > (WSEL-6, WSEL-7, WSEL-8) are ARCHITECTURE-PARAMETERISED: they run on the vectorised multi-head
 > AND on any single-head recipe that lands competitive (at or near the 10% primary bar) after
