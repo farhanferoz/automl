@@ -6,8 +6,8 @@
   "d": 2,
   "geometry": "axis",
   "toy": "hetero",
-  "n_train": 1500,
-  "n_train_fallback_applied": false,
+  "n_train": 4000,
+  "n_train_fallback_applied": true,
   "w_max": 12,
   "n_report": 2000,
   "backend_config": {
@@ -18,7 +18,7 @@
     "colsample_bytree": 0.8,
     "early_stopping_rounds": 20,
     "early_stopping_active": true,
-    "best_iteration": 48,
+    "best_iteration": 71,
     "n_classes_observed": 12,
     "n_train_internal": 960,
     "n_val_internal": 240
@@ -26,42 +26,42 @@
   "sizing_rule": null,
   "table_provenance": {
     "reused_from_wsel6": false,
-    "sweep_hit_cap": false,
-    "sweep_trustworthy": true,
+    "sweep_hit_cap": true,
+    "sweep_trustworthy": false,
     "cache_hit": true
   },
   "validity_checks": {
     "identity_holds": true,
-    "fit_status": "void_for_fit",
-    "ratio_to_noise_floor": 1.1549934744834898,
+    "fit_status": "ok",
+    "ratio_to_noise_floor": 1.1082934215664861,
     "calibration_anchor_ratio_to_noise_floor": 1.1278630234301088,
     "routing_status": "ok",
-    "hiddenness_relative_gain": 0.7790039248144182,
+    "hiddenness_relative_gain": 0.5946666080758007,
     "regime_visible": true,
     "floor_width_easy": 5,
-    "floor_width_hard": 12,
-    "practical_floor_gap": 7,
+    "floor_width_hard": 7,
+    "practical_floor_gap": 2,
     "floors_by_fraction": {
       "0.1": {
         "easy": 5,
-        "hard": null
+        "hard": 7
       },
       "0.2": {
         "easy": 5,
-        "hard": 12
+        "hard": 7
       },
       "0.3": {
         "easy": 5,
-        "hard": 10
+        "hard": 7
       }
     },
-    "argmin_width_easy": 10,
-    "argmin_width_hard": 12
+    "argmin_width_easy": 7,
+    "argmin_width_hard": 7
   },
   "provenance": {
-    "timestamp_utc": "2026-07-22T22:31:47+00:00",
+    "timestamp_utc": "2026-07-22T23:20:01+00:00",
     "git": {
-      "commit": "fc512aa765007853e22d5edb0452e877e414566b",
+      "commit": "cf50038399038503afb1eb9b2cbcf283a7ade541",
       "dirty": true
     },
     "python": "3.12.13",
@@ -75,22 +75,22 @@
     },
     "automl_device": "cpu"
   },
-  "routed_held_out_quality": 0.003800612408667803,
-  "mean_deployed_flops": 19.653,
-  "oracle_agreement": 0.223,
-  "mean_routed_width": 6.551,
+  "routed_held_out_quality": 0.0036289705894887447,
+  "mean_deployed_flops": 13.1655,
+  "oracle_agreement": 0.2995,
+  "mean_routed_width": 4.3885,
   "width_distribution": {
-    "1": 186,
-    "2": 43,
-    "3": 184,
-    "4": 92,
-    "5": 202,
-    "6": 221,
-    "7": 456,
-    "8": 146,
-    "9": 15,
-    "10": 152,
-    "11": 77,
-    "12": 226
+    "1": 357,
+    "2": 226,
+    "3": 266,
+    "4": 62,
+    "5": 288,
+    "6": 405,
+    "7": 315,
+    "8": 5,
+    "9": 17,
+    "10": 12,
+    "11": 30,
+    "12": 17
   }
 }

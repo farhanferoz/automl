@@ -6,8 +6,8 @@
   "d": 2,
   "geometry": "axis",
   "toy": "hetero",
-  "n_train": 1500,
-  "n_train_fallback_applied": false,
+  "n_train": 4000,
+  "n_train_fallback_applied": true,
   "w_max": 12,
   "n_report": 2000,
   "backend_config": {
@@ -22,7 +22,7 @@
     "patience": 30,
     "min_delta": 0.0001,
     "max_epochs": 2000,
-    "actual_epochs": 31,
+    "actual_epochs": 36,
     "hit_cap": false,
     "n_train_internal": 240,
     "n_val_internal": 60
@@ -40,42 +40,42 @@
   },
   "table_provenance": {
     "reused_from_wsel6": false,
-    "sweep_hit_cap": false,
-    "sweep_trustworthy": true,
+    "sweep_hit_cap": true,
+    "sweep_trustworthy": false,
     "cache_hit": true
   },
   "validity_checks": {
     "identity_holds": true,
-    "fit_status": "void_for_fit",
-    "ratio_to_noise_floor": 1.306465547531843,
+    "fit_status": "ok",
+    "ratio_to_noise_floor": 1.0399806313216684,
     "calibration_anchor_ratio_to_noise_floor": 1.1278630234301088,
     "routing_status": "ok",
-    "hiddenness_relative_gain": 0.8932437638689413,
-    "regime_visible": false,
-    "floor_width_easy": 5,
-    "floor_width_hard": null,
-    "practical_floor_gap": null,
+    "hiddenness_relative_gain": 0.7734228916242019,
+    "regime_visible": true,
+    "floor_width_easy": 2,
+    "floor_width_hard": 9,
+    "practical_floor_gap": 7,
     "floors_by_fraction": {
       "0.1": {
-        "easy": 10,
+        "easy": 2,
         "hard": null
       },
       "0.2": {
-        "easy": 5,
-        "hard": null
+        "easy": 2,
+        "hard": 9
       },
       "0.3": {
-        "easy": 5,
-        "hard": null
+        "easy": 2,
+        "hard": 9
       }
     },
-    "argmin_width_easy": 12,
-    "argmin_width_hard": 7
+    "argmin_width_easy": 9,
+    "argmin_width_hard": 11
   },
   "provenance": {
-    "timestamp_utc": "2026-07-22T22:37:19+00:00",
+    "timestamp_utc": "2026-07-22T23:20:06+00:00",
     "git": {
-      "commit": "fc512aa765007853e22d5edb0452e877e414566b",
+      "commit": "cf50038399038503afb1eb9b2cbcf283a7ade541",
       "dirty": true
     },
     "python": "3.12.13",
@@ -89,22 +89,22 @@
     },
     "automl_device": "cpu"
   },
-  "routed_held_out_quality": 0.019493285566568375,
-  "mean_deployed_flops": 17.352,
-  "oracle_agreement": 0.102,
-  "mean_routed_width": 5.784,
+  "routed_held_out_quality": 0.006201363634318113,
+  "mean_deployed_flops": 16.3845,
+  "oracle_agreement": 0.1635,
+  "mean_routed_width": 5.4615,
   "width_distribution": {
-    "1": 0,
-    "2": 14,
-    "3": 128,
-    "4": 48,
-    "5": 634,
-    "6": 987,
+    "1": 170,
+    "2": 407,
+    "3": 115,
+    "4": 0,
+    "5": 241,
+    "6": 399,
     "7": 0,
-    "8": 0,
-    "9": 18,
-    "10": 171,
-    "11": 0,
+    "8": 420,
+    "9": 0,
+    "10": 93,
+    "11": 155,
     "12": 0
   }
 }

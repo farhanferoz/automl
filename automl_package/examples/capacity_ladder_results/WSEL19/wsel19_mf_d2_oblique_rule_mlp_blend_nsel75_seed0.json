@@ -6,8 +6,8 @@
   "d": 2,
   "geometry": "oblique",
   "toy": "hetero",
-  "n_train": 1500,
-  "n_train_fallback_applied": false,
+  "n_train": 4000,
+  "n_train_fallback_applied": true,
   "w_max": 12,
   "n_report": 2000,
   "backend_config": {
@@ -22,7 +22,7 @@
     "patience": 30,
     "min_delta": 0.0001,
     "max_epochs": 2000,
-    "actual_epochs": 32,
+    "actual_epochs": 31,
     "hit_cap": false,
     "n_train_internal": 60,
     "n_val_internal": 15
@@ -40,21 +40,21 @@
   },
   "table_provenance": {
     "reused_from_wsel6": false,
-    "sweep_hit_cap": true,
-    "sweep_trustworthy": false,
+    "sweep_hit_cap": false,
+    "sweep_trustworthy": true,
     "cache_hit": true
   },
   "validity_checks": {
     "identity_holds": true,
     "fit_status": "void_for_fit",
-    "ratio_to_noise_floor": 1.2961762957274912,
+    "ratio_to_noise_floor": 1.1325974017381666,
     "calibration_anchor_ratio_to_noise_floor": 1.1278630234301088,
     "routing_status": "ok",
-    "hiddenness_relative_gain": 0.8133910486386664,
-    "regime_visible": false,
+    "hiddenness_relative_gain": 0.6063567896459098,
+    "regime_visible": true,
     "floor_width_easy": 5,
-    "floor_width_hard": null,
-    "practical_floor_gap": null,
+    "floor_width_hard": 9,
+    "practical_floor_gap": 4,
     "floors_by_fraction": {
       "0.1": {
         "easy": 5,
@@ -62,20 +62,20 @@
       },
       "0.2": {
         "easy": 5,
-        "hard": null
+        "hard": 9
       },
       "0.3": {
         "easy": 5,
-        "hard": null
+        "hard": 9
       }
     },
-    "argmin_width_easy": 5,
-    "argmin_width_hard": 5
+    "argmin_width_easy": 12,
+    "argmin_width_hard": 12
   },
   "provenance": {
-    "timestamp_utc": "2026-07-22T22:39:52+00:00",
+    "timestamp_utc": "2026-07-22T23:15:17+00:00",
     "git": {
-      "commit": "fc512aa765007853e22d5edb0452e877e414566b",
+      "commit": "cf50038399038503afb1eb9b2cbcf283a7ade541",
       "dirty": true
     },
     "python": "3.12.13",
@@ -89,9 +89,9 @@
     },
     "automl_device": "cpu"
   },
-  "routed_held_out_quality": 0.026318306103348732,
-  "mean_deployed_flops": 17.969156071384788,
+  "routed_held_out_quality": 0.025317657738924026,
+  "mean_deployed_flops": 17.733080592718093,
   "oracle_agreement": null,
-  "mean_routed_width": 5.989718690461595,
+  "mean_routed_width": 5.911026864239364,
   "width_distribution": null
 }

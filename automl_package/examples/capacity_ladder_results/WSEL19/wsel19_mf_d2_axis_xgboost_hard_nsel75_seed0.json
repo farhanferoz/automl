@@ -6,8 +6,8 @@
   "d": 2,
   "geometry": "axis",
   "toy": "hetero",
-  "n_train": 1500,
-  "n_train_fallback_applied": false,
+  "n_train": 4000,
+  "n_train_fallback_applied": true,
   "w_max": 12,
   "n_report": 2000,
   "backend_config": {
@@ -18,50 +18,50 @@
     "colsample_bytree": 0.8,
     "early_stopping_rounds": 20,
     "early_stopping_active": true,
-    "best_iteration": 72,
-    "n_classes_observed": 11,
+    "best_iteration": 9,
+    "n_classes_observed": 12,
     "n_train_internal": 60,
-    "n_val_internal": 12
+    "n_val_internal": 15
   },
   "sizing_rule": null,
   "table_provenance": {
     "reused_from_wsel6": false,
-    "sweep_hit_cap": false,
-    "sweep_trustworthy": true,
+    "sweep_hit_cap": true,
+    "sweep_trustworthy": false,
     "cache_hit": true
   },
   "validity_checks": {
     "identity_holds": true,
-    "fit_status": "void_for_fit",
-    "ratio_to_noise_floor": 1.1549934744834898,
+    "fit_status": "ok",
+    "ratio_to_noise_floor": 1.1082934215664861,
     "calibration_anchor_ratio_to_noise_floor": 1.1278630234301088,
     "routing_status": "ok",
-    "hiddenness_relative_gain": 0.7790039248144182,
+    "hiddenness_relative_gain": 0.5946666080758007,
     "regime_visible": true,
     "floor_width_easy": 5,
-    "floor_width_hard": 12,
-    "practical_floor_gap": 7,
+    "floor_width_hard": 7,
+    "practical_floor_gap": 2,
     "floors_by_fraction": {
       "0.1": {
         "easy": 5,
-        "hard": null
+        "hard": 7
       },
       "0.2": {
         "easy": 5,
-        "hard": 12
+        "hard": 7
       },
       "0.3": {
         "easy": 5,
-        "hard": 10
+        "hard": 7
       }
     },
-    "argmin_width_easy": 10,
-    "argmin_width_hard": 12
+    "argmin_width_easy": 7,
+    "argmin_width_hard": 7
   },
   "provenance": {
-    "timestamp_utc": "2026-07-22T22:31:35+00:00",
+    "timestamp_utc": "2026-07-22T23:19:50+00:00",
     "git": {
-      "commit": "fc512aa765007853e22d5edb0452e877e414566b",
+      "commit": "cf50038399038503afb1eb9b2cbcf283a7ade541",
       "dirty": true
     },
     "python": "3.12.13",
@@ -75,22 +75,22 @@
     },
     "automl_device": "cpu"
   },
-  "routed_held_out_quality": 0.010011130943894386,
-  "mean_deployed_flops": 20.5875,
-  "oracle_agreement": 0.1335,
-  "mean_routed_width": 6.8625,
+  "routed_held_out_quality": 0.003818203927949071,
+  "mean_deployed_flops": 15.804,
+  "oracle_agreement": 0.1765,
+  "mean_routed_width": 5.268,
   "width_distribution": {
-    "1": 179,
-    "2": 183,
-    "3": 2,
-    "4": 42,
-    "5": 258,
-    "6": 395,
-    "7": 293,
+    "1": 102,
+    "2": 110,
+    "3": 1,
+    "4": 0,
+    "5": 743,
+    "6": 812,
+    "7": 232,
     "8": 0,
     "9": 0,
-    "10": 202,
-    "11": 77,
-    "12": 369
+    "10": 0,
+    "11": 0,
+    "12": 0
   }
 }

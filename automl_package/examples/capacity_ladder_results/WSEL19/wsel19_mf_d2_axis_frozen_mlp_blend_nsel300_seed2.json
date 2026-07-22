@@ -6,8 +6,8 @@
   "d": 2,
   "geometry": "axis",
   "toy": "hetero",
-  "n_train": 1500,
-  "n_train_fallback_applied": false,
+  "n_train": 4000,
+  "n_train_fallback_applied": true,
   "w_max": 12,
   "n_report": 2000,
   "backend_config": {
@@ -24,42 +24,42 @@
   "sizing_rule": null,
   "table_provenance": {
     "reused_from_wsel6": false,
-    "sweep_hit_cap": false,
-    "sweep_trustworthy": true,
+    "sweep_hit_cap": true,
+    "sweep_trustworthy": false,
     "cache_hit": true
   },
   "validity_checks": {
     "identity_holds": true,
-    "fit_status": "void_for_fit",
-    "ratio_to_noise_floor": 1.306465547531843,
+    "fit_status": "ok",
+    "ratio_to_noise_floor": 1.0399806313216684,
     "calibration_anchor_ratio_to_noise_floor": 1.1278630234301088,
     "routing_status": "ok",
-    "hiddenness_relative_gain": 0.8932437638689413,
-    "regime_visible": false,
-    "floor_width_easy": 5,
-    "floor_width_hard": null,
-    "practical_floor_gap": null,
+    "hiddenness_relative_gain": 0.7734228916242019,
+    "regime_visible": true,
+    "floor_width_easy": 2,
+    "floor_width_hard": 9,
+    "practical_floor_gap": 7,
     "floors_by_fraction": {
       "0.1": {
-        "easy": 10,
+        "easy": 2,
         "hard": null
       },
       "0.2": {
-        "easy": 5,
-        "hard": null
+        "easy": 2,
+        "hard": 9
       },
       "0.3": {
-        "easy": 5,
-        "hard": null
+        "easy": 2,
+        "hard": 9
       }
     },
-    "argmin_width_easy": 12,
-    "argmin_width_hard": 7
+    "argmin_width_easy": 9,
+    "argmin_width_hard": 11
   },
   "provenance": {
-    "timestamp_utc": "2026-07-22T22:36:56+00:00",
+    "timestamp_utc": "2026-07-22T23:19:44+00:00",
     "git": {
-      "commit": "fc512aa765007853e22d5edb0452e877e414566b",
+      "commit": "cf50038399038503afb1eb9b2cbcf283a7ade541",
       "dirty": true
     },
     "python": "3.12.13",
@@ -73,9 +73,9 @@
     },
     "automl_device": "cpu"
   },
-  "routed_held_out_quality": 0.012511205859482288,
-  "mean_deployed_flops": 21.7919392084688,
+  "routed_held_out_quality": 0.009583027102053165,
+  "mean_deployed_flops": 18.69839268467157,
   "oracle_agreement": null,
-  "mean_routed_width": 7.263979736156267,
+  "mean_routed_width": 6.232797561557191,
   "width_distribution": null
 }

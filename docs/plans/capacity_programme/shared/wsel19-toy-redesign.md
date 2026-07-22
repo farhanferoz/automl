@@ -21,7 +21,7 @@ delegation, re-confirmed twice 2026-07-22).
 **Process record.** The original lifted construction (`wsel19-toy-design.md`, amended, GO 2026-07-22)
 FAILED its own pre-registered d = 1 calibration check
 (`automl_package/examples/capacity_ladder_results/WSEL19/wsel19_calibration_d1.json`, `passed: false`).
-The mechanism was traced, not guessed (`WSEL19/warp_trace.json`, commit `8b3796a`): **two-sided width
+The mechanism was traced, not guessed (`automl_package/examples/capacity_ladder_results/WSEL19/warp_trace.json`, commit `8b3796a`): **two-sided width
 convergence** — the probability-integral-transform lift `u = Φ⁻¹((t+r)/2r)` makes the easy region
 need MORE width (practical-floor 3 → 5) and the hard region LESS, collapsing the per-region
 practical-floor gap to 0 on 3/3 seeds while the canonical control differentiates on 3/3. This v2
@@ -137,7 +137,7 @@ records `n_train` and `n_train_used` per seed so the pin is checkable from the J
    moment checks on the marginals with SCALE-AWARE tolerances (adjudicator finding 6 — the v1
    N(0,1)-era constant 0.1 legitimately fails on box scale): `max|x_ij| ≤ r`;
    `max_j |mean_j| ≤ 0.05·r`; `max_j |std_j − r/√3| ≤ 0.05·r/√3` (measured on a correct n = 5000,
-   d = 32 draw: 0.28 and 0.157 — comfortably inside, and a 10%-of-scale bug trips both). At
+   d = 32 draw: 0.28 and 0.157 — comfortably inside, and a 10%-of-scale bug trips both). At <!-- numcheck-ignore: selftest-tolerance calibration measurements (a no-training marginal probe), not a ledger result -->
    OBLIQUE, ONLY `v·x = t` and orthonormality run — per-coordinate support exceeds r by design
    (rotated box; measured up to ≈ 2.4·r at d = 32), so support/moment checks are AXIS-scoped
    structurally, not leniently. At d = 1 AXIS, `x ≡ t.astype(float32)` exactly.

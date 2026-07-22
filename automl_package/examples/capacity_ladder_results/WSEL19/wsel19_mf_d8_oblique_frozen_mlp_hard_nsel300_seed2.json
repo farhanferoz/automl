@@ -6,8 +6,8 @@
   "d": 8,
   "geometry": "oblique",
   "toy": "hetero",
-  "n_train": 1500,
-  "n_train_fallback_applied": false,
+  "n_train": 4000,
+  "n_train_fallback_applied": true,
   "w_max": 12,
   "n_report": 2000,
   "backend_config": {
@@ -31,10 +31,10 @@
   "validity_checks": {
     "identity_holds": true,
     "fit_status": "void_for_fit",
-    "ratio_to_noise_floor": 2.552210539579391,
+    "ratio_to_noise_floor": 2.5532511994242664,
     "calibration_anchor_ratio_to_noise_floor": 1.1278630234301088,
     "routing_status": "ok",
-    "hiddenness_relative_gain": 0.7519573372488899,
+    "hiddenness_relative_gain": 0.7188920722861958,
     "regime_visible": false,
     "floor_width_easy": null,
     "floor_width_hard": null,
@@ -53,13 +53,13 @@
         "hard": null
       }
     },
-    "argmin_width_easy": 3,
-    "argmin_width_hard": 10
+    "argmin_width_easy": 5,
+    "argmin_width_hard": 9
   },
   "provenance": {
-    "timestamp_utc": "2026-07-22T22:50:16+00:00",
+    "timestamp_utc": "2026-07-22T23:22:53+00:00",
     "git": {
-      "commit": "fc512aa765007853e22d5edb0452e877e414566b",
+      "commit": "cf50038399038503afb1eb9b2cbcf283a7ade541",
       "dirty": true
     },
     "python": "3.12.13",
@@ -73,22 +73,22 @@
     },
     "automl_device": "cpu"
   },
-  "routed_held_out_quality": 0.02988445572555065,
-  "mean_deployed_flops": 60.2685,
-  "oracle_agreement": 0.232,
-  "mean_routed_width": 6.6965,
+  "routed_held_out_quality": 0.02997535653412342,
+  "mean_deployed_flops": 61.2135,
+  "oracle_agreement": 0.2045,
+  "mean_routed_width": 6.8015,
   "width_distribution": {
-    "1": 119,
-    "2": 245,
-    "3": 234,
-    "4": 109,
-    "5": 84,
-    "6": 102,
-    "7": 137,
-    "8": 75,
-    "9": 75,
-    "10": 703,
-    "11": 54,
-    "12": 63
+    "1": 129,
+    "2": 240,
+    "3": 109,
+    "4": 45,
+    "5": 188,
+    "6": 59,
+    "7": 171,
+    "8": 184,
+    "9": 569,
+    "10": 91,
+    "11": 87,
+    "12": 128
   }
 }

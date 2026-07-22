@@ -6,8 +6,8 @@
   "d": 2,
   "geometry": "axis",
   "toy": "hetero",
-  "n_train": 1500,
-  "n_train_fallback_applied": false,
+  "n_train": 4000,
+  "n_train_fallback_applied": true,
   "w_max": 12,
   "n_report": 2000,
   "backend_config": {
@@ -24,42 +24,42 @@
   "sizing_rule": null,
   "table_provenance": {
     "reused_from_wsel6": false,
-    "sweep_hit_cap": false,
-    "sweep_trustworthy": true,
+    "sweep_hit_cap": true,
+    "sweep_trustworthy": false,
     "cache_hit": true
   },
   "validity_checks": {
     "identity_holds": true,
-    "fit_status": "void_for_fit",
-    "ratio_to_noise_floor": 1.306465547531843,
+    "fit_status": "ok",
+    "ratio_to_noise_floor": 1.0399806313216684,
     "calibration_anchor_ratio_to_noise_floor": 1.1278630234301088,
     "routing_status": "ok",
-    "hiddenness_relative_gain": 0.8932437638689413,
-    "regime_visible": false,
-    "floor_width_easy": 5,
-    "floor_width_hard": null,
-    "practical_floor_gap": null,
+    "hiddenness_relative_gain": 0.7734228916242019,
+    "regime_visible": true,
+    "floor_width_easy": 2,
+    "floor_width_hard": 9,
+    "practical_floor_gap": 7,
     "floors_by_fraction": {
       "0.1": {
-        "easy": 10,
+        "easy": 2,
         "hard": null
       },
       "0.2": {
-        "easy": 5,
-        "hard": null
+        "easy": 2,
+        "hard": 9
       },
       "0.3": {
-        "easy": 5,
-        "hard": null
+        "easy": 2,
+        "hard": 9
       }
     },
-    "argmin_width_easy": 12,
-    "argmin_width_hard": 7
+    "argmin_width_easy": 9,
+    "argmin_width_hard": 11
   },
   "provenance": {
-    "timestamp_utc": "2026-07-22T22:36:33+00:00",
+    "timestamp_utc": "2026-07-22T23:19:22+00:00",
     "git": {
-      "commit": "fc512aa765007853e22d5edb0452e877e414566b",
+      "commit": "cf50038399038503afb1eb9b2cbcf283a7ade541",
       "dirty": true
     },
     "python": "3.12.13",
@@ -73,22 +73,22 @@
     },
     "automl_device": "cpu"
   },
-  "routed_held_out_quality": 0.009792695753276348,
-  "mean_deployed_flops": 22.377,
-  "oracle_agreement": 0.15,
-  "mean_routed_width": 7.459,
+  "routed_held_out_quality": 0.005793675780296326,
+  "mean_deployed_flops": 18.528,
+  "oracle_agreement": 0.163,
+  "mean_routed_width": 6.176,
   "width_distribution": {
-    "1": 103,
-    "2": 67,
-    "3": 152,
-    "4": 74,
-    "5": 115,
-    "6": 311,
-    "7": 198,
-    "8": 101,
-    "9": 165,
-    "10": 305,
-    "11": 149,
-    "12": 260
+    "1": 251,
+    "2": 251,
+    "3": 132,
+    "4": 64,
+    "5": 222,
+    "6": 158,
+    "7": 89,
+    "8": 177,
+    "9": 121,
+    "10": 191,
+    "11": 277,
+    "12": 67
   }
 }

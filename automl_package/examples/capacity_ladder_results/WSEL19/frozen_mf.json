@@ -1,0 +1,509 @@
+{
+  "aggregation_rule": "redesign spec A1: verdict weight iff regime_visible & fit ok & routing ok; level DECIDED iff >= 2/3 seeds verdict-weight",
+  "n_cells": 432,
+  "triples": {
+    "d2_axis_seed0": {
+      "verdict_weight": true,
+      "regime_visible": true,
+      "fit_status": "ok",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 1.108,
+      "practical_floor_gap": 2,
+      "n_train": 4000,
+      "n_train_fallback_applied": true
+    },
+    "d2_axis_seed1": {
+      "verdict_weight": true,
+      "regime_visible": true,
+      "fit_status": "ok",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 1.074,
+      "practical_floor_gap": 4,
+      "n_train": 1500,
+      "n_train_fallback_applied": false
+    },
+    "d2_axis_seed2": {
+      "verdict_weight": true,
+      "regime_visible": true,
+      "fit_status": "ok",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 1.04,
+      "practical_floor_gap": 7,
+      "n_train": 4000,
+      "n_train_fallback_applied": true
+    },
+    "d2_oblique_seed0": {
+      "verdict_weight": false,
+      "regime_visible": true,
+      "fit_status": "void_for_fit",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 1.133,
+      "practical_floor_gap": 4,
+      "n_train": 4000,
+      "n_train_fallback_applied": true
+    },
+    "d2_oblique_seed1": {
+      "verdict_weight": true,
+      "regime_visible": true,
+      "fit_status": "ok",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 1.073,
+      "practical_floor_gap": 8,
+      "n_train": 1500,
+      "n_train_fallback_applied": false
+    },
+    "d2_oblique_seed2": {
+      "verdict_weight": true,
+      "regime_visible": true,
+      "fit_status": "ok",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 1.054,
+      "practical_floor_gap": 10,
+      "n_train": 1500,
+      "n_train_fallback_applied": false
+    },
+    "d8_axis_seed0": {
+      "verdict_weight": false,
+      "regime_visible": false,
+      "fit_status": "void_for_fit",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 26.726,
+      "practical_floor_gap": null,
+      "n_train": 1500,
+      "n_train_fallback_applied": false
+    },
+    "d8_axis_seed1": {
+      "verdict_weight": false,
+      "regime_visible": false,
+      "fit_status": "void_for_fit",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 20.751,
+      "practical_floor_gap": null,
+      "n_train": 1500,
+      "n_train_fallback_applied": false
+    },
+    "d8_axis_seed2": {
+      "verdict_weight": false,
+      "regime_visible": false,
+      "fit_status": "void_for_fit",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 17.835,
+      "practical_floor_gap": null,
+      "n_train": 1500,
+      "n_train_fallback_applied": false
+    },
+    "d8_oblique_seed0": {
+      "verdict_weight": false,
+      "regime_visible": false,
+      "fit_status": "void_for_fit",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 17.889,
+      "practical_floor_gap": null,
+      "n_train": 1500,
+      "n_train_fallback_applied": false
+    },
+    "d8_oblique_seed1": {
+      "verdict_weight": false,
+      "regime_visible": false,
+      "fit_status": "void_for_fit",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 17.83,
+      "practical_floor_gap": null,
+      "n_train": 1500,
+      "n_train_fallback_applied": false
+    },
+    "d8_oblique_seed2": {
+      "verdict_weight": false,
+      "regime_visible": false,
+      "fit_status": "void_for_fit",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 2.553,
+      "practical_floor_gap": null,
+      "n_train": 4000,
+      "n_train_fallback_applied": true
+    },
+    "d32_axis_seed0": {
+      "verdict_weight": false,
+      "regime_visible": false,
+      "fit_status": "void_for_fit",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 26.74,
+      "practical_floor_gap": null,
+      "n_train": 1500,
+      "n_train_fallback_applied": false
+    },
+    "d32_axis_seed1": {
+      "verdict_weight": false,
+      "regime_visible": false,
+      "fit_status": "void_for_fit",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 31.733,
+      "practical_floor_gap": null,
+      "n_train": 1500,
+      "n_train_fallback_applied": false
+    },
+    "d32_axis_seed2": {
+      "verdict_weight": false,
+      "regime_visible": false,
+      "fit_status": "void_for_fit",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 26.994,
+      "practical_floor_gap": null,
+      "n_train": 1500,
+      "n_train_fallback_applied": false
+    },
+    "d32_oblique_seed0": {
+      "verdict_weight": false,
+      "regime_visible": false,
+      "fit_status": "void_for_fit",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 26.74,
+      "practical_floor_gap": null,
+      "n_train": 1500,
+      "n_train_fallback_applied": false
+    },
+    "d32_oblique_seed1": {
+      "verdict_weight": false,
+      "regime_visible": false,
+      "fit_status": "void_for_fit",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 27.391,
+      "practical_floor_gap": null,
+      "n_train": 1500,
+      "n_train_fallback_applied": false
+    },
+    "d32_oblique_seed2": {
+      "verdict_weight": false,
+      "regime_visible": false,
+      "fit_status": "void_for_fit",
+      "routing_status": "ok",
+      "ratio_to_noise_floor": 26.995,
+      "practical_floor_gap": null,
+      "n_train": 1500,
+      "n_train_fallback_applied": false
+    }
+  },
+  "levels": {
+    "d2_axis": {
+      "decided": true,
+      "verdict_weight_seeds": [
+        0,
+        1,
+        2
+      ]
+    },
+    "d2_oblique": {
+      "decided": true,
+      "verdict_weight_seeds": [
+        1,
+        2
+      ]
+    },
+    "d8_axis": {
+      "decided": false,
+      "verdict_weight_seeds": []
+    },
+    "d8_oblique": {
+      "decided": false,
+      "verdict_weight_seeds": []
+    },
+    "d32_axis": {
+      "decided": false,
+      "verdict_weight_seeds": []
+    },
+    "d32_oblique": {
+      "decided": false,
+      "verdict_weight_seeds": []
+    }
+  },
+  "per_group": {
+    "d2:axis:constant:blend:1200": {
+      "routed_held_out_quality_mean": 0.003052916497258893,
+      "mean_deployed_flops_mean": 19.0,
+      "oracle_agreement_mean": null,
+      "n_seeds": 3
+    },
+    "d2:axis:constant:blend:300": {
+      "routed_held_out_quality_mean": 0.003052916497258893,
+      "mean_deployed_flops_mean": 19.0,
+      "oracle_agreement_mean": null,
+      "n_seeds": 3
+    },
+    "d2:axis:constant:blend:75": {
+      "routed_held_out_quality_mean": 0.00273230620177283,
+      "mean_deployed_flops_mean": 22.0,
+      "oracle_agreement_mean": null,
+      "n_seeds": 3
+    },
+    "d2:axis:constant:hard:1200": {
+      "routed_held_out_quality_mean": 0.0030529163777828217,
+      "mean_deployed_flops_mean": 19.0,
+      "oracle_agreement_mean": 0.12316666666666666,
+      "n_seeds": 3
+    },
+    "d2:axis:constant:hard:300": {
+      "routed_held_out_quality_mean": 0.0030529163777828217,
+      "mean_deployed_flops_mean": 19.0,
+      "oracle_agreement_mean": 0.12316666666666666,
+      "n_seeds": 3
+    },
+    "d2:axis:constant:hard:75": {
+      "routed_held_out_quality_mean": 0.002732306175554792,
+      "mean_deployed_flops_mean": 22.0,
+      "oracle_agreement_mean": 0.09200000000000001,
+      "n_seeds": 3
+    },
+    "d2:axis:frozen_mlp:blend:1200": {
+      "routed_held_out_quality_mean": 0.008309191403289637,
+      "mean_deployed_flops_mean": 17.915531511690116,
+      "oracle_agreement_mean": null,
+      "n_seeds": 3
+    },
+    "d2:axis:frozen_mlp:blend:300": {
+      "routed_held_out_quality_mean": 0.007729477249085903,
+      "mean_deployed_flops_mean": 17.612631083776666,
+      "oracle_agreement_mean": null,
+      "n_seeds": 3
+    },
+    "d2:axis:frozen_mlp:blend:75": {
+      "routed_held_out_quality_mean": 0.010030670712391535,
+      "mean_deployed_flops_mean": 18.419330175203594,
+      "oracle_agreement_mean": null,
+      "n_seeds": 3
+    },
+    "d2:axis:frozen_mlp:hard:1200": {
+      "routed_held_out_quality_mean": 0.00402056200740238,
+      "mean_deployed_flops_mean": 15.568,
+      "oracle_agreement_mean": 0.22283333333333333,
+      "n_seeds": 3
+    },
+    "d2:axis:frozen_mlp:hard:300": {
+      "routed_held_out_quality_mean": 0.005977897439152002,
+      "mean_deployed_flops_mean": 16.578500000000002,
+      "oracle_agreement_mean": 0.16533333333333333,
+      "n_seeds": 3
+    },
+    "d2:axis:frozen_mlp:hard:75": {
+      "routed_held_out_quality_mean": 0.00992048221329848,
+      "mean_deployed_flops_mean": 18.397000000000002,
+      "oracle_agreement_mean": 0.1366666666666667,
+      "n_seeds": 3
+    },
+    "d2:axis:rule_mlp:blend:1200": {
+      "routed_held_out_quality_mean": 0.009671840195854505,
+      "mean_deployed_flops_mean": 18.0517225125343,
+      "oracle_agreement_mean": null,
+      "n_seeds": 3
+    },
+    "d2:axis:rule_mlp:blend:300": {
+      "routed_held_out_quality_mean": 0.012413413263857365,
+      "mean_deployed_flops_mean": 18.17715407216863,
+      "oracle_agreement_mean": null,
+      "n_seeds": 3
+    },
+    "d2:axis:rule_mlp:blend:75": {
+      "routed_held_out_quality_mean": 0.021168989439805348,
+      "mean_deployed_flops_mean": 17.788564258974166,
+      "oracle_agreement_mean": null,
+      "n_seeds": 3
+    },
+    "d2:axis:rule_mlp:hard:1200": {
+      "routed_held_out_quality_mean": 0.0042060127792259054,
+      "mean_deployed_flops_mean": 15.0525,
+      "oracle_agreement_mean": 0.208,
+      "n_seeds": 3
+    },
+    "d2:axis:rule_mlp:hard:300": {
+      "routed_held_out_quality_mean": 0.0048535179036358995,
+      "mean_deployed_flops_mean": 16.476,
+      "oracle_agreement_mean": 0.17616666666666667,
+      "n_seeds": 3
+    },
+    "d2:axis:rule_mlp:hard:75": {
+      "routed_held_out_quality_mean": 0.016599486737201612,
+      "mean_deployed_flops_mean": 15.589,
+      "oracle_agreement_mean": 0.13549999999999998,
+      "n_seeds": 3
+    },
+    "d2:axis:xgboost:blend:1200": {
+      "routed_held_out_quality_mean": 0.010410149488899172,
+      "mean_deployed_flops_mean": 17.851591851764592,
+      "oracle_agreement_mean": null,
+      "n_seeds": 3
+    },
+    "d2:axis:xgboost:blend:300": {
+      "routed_held_out_quality_mean": 0.016570767836602874,
+      "mean_deployed_flops_mean": 17.81913365639653,
+      "oracle_agreement_mean": null,
+      "n_seeds": 3
+    },
+    "d2:axis:xgboost:blend:75": {
+      "routed_held_out_quality_mean": 0.019518874524192178,
+      "mean_deployed_flops_mean": 18.2606242051227,
+      "oracle_agreement_mean": null,
+      "n_seeds": 3
+    },
+    "d2:axis:xgboost:hard:1200": {
+      "routed_held_out_quality_mean": 0.0037247103173285723,
+      "mean_deployed_flops_mean": 15.1135,
+      "oracle_agreement_mean": 0.25333333333333335,
+      "n_seeds": 3
+    },
+    "d2:axis:xgboost:hard:300": {
+      "routed_held_out_quality_mean": 0.004682863208775719,
+      "mean_deployed_flops_mean": 15.461,
+      "oracle_agreement_mean": 0.2021666666666667,
+      "n_seeds": 3
+    },
+    "d2:axis:xgboost:hard:75": {
+      "routed_held_out_quality_mean": 0.004290186567232013,
+      "mean_deployed_flops_mean": 17.1305,
+      "oracle_agreement_mean": 0.14983333333333335,
+      "n_seeds": 3
+    },
+    "d2:oblique:constant:blend:1200": {
+      "routed_held_out_quality_mean": 0.0027471599051211468,
+      "mean_deployed_flops_mean": 24.0,
+      "oracle_agreement_mean": null,
+      "n_seeds": 2
+    },
+    "d2:oblique:constant:blend:300": {
+      "routed_held_out_quality_mean": 0.0027471599051211468,
+      "mean_deployed_flops_mean": 24.0,
+      "oracle_agreement_mean": null,
+      "n_seeds": 2
+    },
+    "d2:oblique:constant:blend:75": {
+      "routed_held_out_quality_mean": 0.0027471599051211468,
+      "mean_deployed_flops_mean": 24.0,
+      "oracle_agreement_mean": null,
+      "n_seeds": 2
+    },
+    "d2:oblique:constant:hard:1200": {
+      "routed_held_out_quality_mean": 0.002747159800492227,
+      "mean_deployed_flops_mean": 24.0,
+      "oracle_agreement_mean": 0.0965,
+      "n_seeds": 2
+    },
+    "d2:oblique:constant:hard:300": {
+      "routed_held_out_quality_mean": 0.002747159800492227,
+      "mean_deployed_flops_mean": 24.0,
+      "oracle_agreement_mean": 0.0965,
+      "n_seeds": 2
+    },
+    "d2:oblique:constant:hard:75": {
+      "routed_held_out_quality_mean": 0.002747159800492227,
+      "mean_deployed_flops_mean": 24.0,
+      "oracle_agreement_mean": 0.0965,
+      "n_seeds": 2
+    },
+    "d2:oblique:frozen_mlp:blend:1200": {
+      "routed_held_out_quality_mean": 0.009059510193765163,
+      "mean_deployed_flops_mean": 18.974006647194408,
+      "oracle_agreement_mean": null,
+      "n_seeds": 2
+    },
+    "d2:oblique:frozen_mlp:blend:300": {
+      "routed_held_out_quality_mean": 0.00856682495214045,
+      "mean_deployed_flops_mean": 18.335132234819223,
+      "oracle_agreement_mean": null,
+      "n_seeds": 2
+    },
+    "d2:oblique:frozen_mlp:blend:75": {
+      "routed_held_out_quality_mean": 0.009736341889947653,
+      "mean_deployed_flops_mean": 19.507911843648664,
+      "oracle_agreement_mean": null,
+      "n_seeds": 2
+    },
+    "d2:oblique:frozen_mlp:hard:1200": {
+      "routed_held_out_quality_mean": 0.004396997392177582,
+      "mean_deployed_flops_mean": 17.2635,
+      "oracle_agreement_mean": 0.18025,
+      "n_seeds": 2
+    },
+    "d2:oblique:frozen_mlp:hard:300": {
+      "routed_held_out_quality_mean": 0.008642877917736769,
+      "mean_deployed_flops_mean": 17.475749999999998,
+      "oracle_agreement_mean": 0.151,
+      "n_seeds": 2
+    },
+    "d2:oblique:frozen_mlp:hard:75": {
+      "routed_held_out_quality_mean": 0.010149810230359435,
+      "mean_deployed_flops_mean": 19.43175,
+      "oracle_agreement_mean": 0.1305,
+      "n_seeds": 2
+    },
+    "d2:oblique:rule_mlp:blend:1200": {
+      "routed_held_out_quality_mean": 0.010051932651549578,
+      "mean_deployed_flops_mean": 18.986873849003544,
+      "oracle_agreement_mean": null,
+      "n_seeds": 2
+    },
+    "d2:oblique:rule_mlp:blend:300": {
+      "routed_held_out_quality_mean": 0.015359827084466815,
+      "mean_deployed_flops_mean": 18.61701539491756,
+      "oracle_agreement_mean": null,
+      "n_seeds": 2
+    },
+    "d2:oblique:rule_mlp:blend:75": {
+      "routed_held_out_quality_mean": 0.017986650113016367,
+      "mean_deployed_flops_mean": 17.3222266707742,
+      "oracle_agreement_mean": null,
+      "n_seeds": 2
+    },
+    "d2:oblique:rule_mlp:hard:1200": {
+      "routed_held_out_quality_mean": 0.004529088269919157,
+      "mean_deployed_flops_mean": 16.30125,
+      "oracle_agreement_mean": 0.17575000000000002,
+      "n_seeds": 2
+    },
+    "d2:oblique:rule_mlp:hard:300": {
+      "routed_held_out_quality_mean": 0.005122585222125053,
+      "mean_deployed_flops_mean": 16.4175,
+      "oracle_agreement_mean": 0.14725,
+      "n_seeds": 2
+    },
+    "d2:oblique:rule_mlp:hard:75": {
+      "routed_held_out_quality_mean": 0.007444078801199794,
+      "mean_deployed_flops_mean": 16.959,
+      "oracle_agreement_mean": 0.1305,
+      "n_seeds": 2
+    },
+    "d2:oblique:xgboost:blend:1200": {
+      "routed_held_out_quality_mean": 0.01772092156309843,
+      "mean_deployed_flops_mean": 18.952778649170185,
+      "oracle_agreement_mean": null,
+      "n_seeds": 2
+    },
+    "d2:oblique:xgboost:blend:300": {
+      "routed_held_out_quality_mean": 0.019132217584111925,
+      "mean_deployed_flops_mean": 18.69213473086059,
+      "oracle_agreement_mean": null,
+      "n_seeds": 2
+    },
+    "d2:oblique:xgboost:blend:75": {
+      "routed_held_out_quality_mean": 0.018185119766630925,
+      "mean_deployed_flops_mean": 18.55119772993284,
+      "oracle_agreement_mean": null,
+      "n_seeds": 2
+    },
+    "d2:oblique:xgboost:hard:1200": {
+      "routed_held_out_quality_mean": 0.00974446116015315,
+      "mean_deployed_flops_mean": 16.8315,
+      "oracle_agreement_mean": 0.14024999999999999,
+      "n_seeds": 2
+    },
+    "d2:oblique:xgboost:hard:300": {
+      "routed_held_out_quality_mean": 0.016393859405070543,
+      "mean_deployed_flops_mean": 15.6495,
+      "oracle_agreement_mean": 0.12975,
+      "n_seeds": 2
+    },
+    "d2:oblique:xgboost:hard:75": {
+      "routed_held_out_quality_mean": 0.008286256343126297,
+      "mean_deployed_flops_mean": 20.24625,
+      "oracle_agreement_mean": 0.129,
+      "n_seeds": 2
+    }
+  }
+}

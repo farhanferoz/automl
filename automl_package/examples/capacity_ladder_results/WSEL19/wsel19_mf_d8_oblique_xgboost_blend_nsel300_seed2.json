@@ -6,8 +6,8 @@
   "d": 8,
   "geometry": "oblique",
   "toy": "hetero",
-  "n_train": 1500,
-  "n_train_fallback_applied": false,
+  "n_train": 4000,
+  "n_train_fallback_applied": true,
   "w_max": 12,
   "n_report": 2000,
   "backend_config": {
@@ -18,7 +18,7 @@
     "colsample_bytree": 0.8,
     "early_stopping_rounds": 20,
     "early_stopping_active": true,
-    "best_iteration": 15,
+    "best_iteration": 3,
     "n_classes_observed": 12,
     "n_train_internal": 240,
     "n_val_internal": 60
@@ -33,10 +33,10 @@
   "validity_checks": {
     "identity_holds": true,
     "fit_status": "void_for_fit",
-    "ratio_to_noise_floor": 2.552210539579391,
+    "ratio_to_noise_floor": 2.5532511994242664,
     "calibration_anchor_ratio_to_noise_floor": 1.1278630234301088,
     "routing_status": "ok",
-    "hiddenness_relative_gain": 0.7519573372488899,
+    "hiddenness_relative_gain": 0.7188920722861958,
     "regime_visible": false,
     "floor_width_easy": null,
     "floor_width_hard": null,
@@ -55,13 +55,13 @@
         "hard": null
       }
     },
-    "argmin_width_easy": 3,
-    "argmin_width_hard": 10
+    "argmin_width_easy": 5,
+    "argmin_width_hard": 9
   },
   "provenance": {
-    "timestamp_utc": "2026-07-22T22:51:55+00:00",
+    "timestamp_utc": "2026-07-22T23:24:44+00:00",
     "git": {
-      "commit": "fc512aa765007853e22d5edb0452e877e414566b",
+      "commit": "cf50038399038503afb1eb9b2cbcf283a7ade541",
       "dirty": true
     },
     "python": "3.12.13",
@@ -75,9 +75,9 @@
     },
     "automl_device": "cpu"
   },
-  "routed_held_out_quality": 0.042720284553363214,
-  "mean_deployed_flops": 57.65871928131161,
+  "routed_held_out_quality": 0.04329276896459165,
+  "mean_deployed_flops": 61.62695649969578,
   "oracle_agreement": null,
-  "mean_routed_width": 6.4065243645901795,
+  "mean_routed_width": 6.847439611077308,
   "width_distribution": null
 }

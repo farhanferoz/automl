@@ -6,8 +6,8 @@
   "d": 8,
   "geometry": "oblique",
   "toy": "hetero",
-  "n_train": 1500,
-  "n_train_fallback_applied": false,
+  "n_train": 4000,
+  "n_train_fallback_applied": true,
   "w_max": 12,
   "n_report": 2000,
   "backend_config": {
@@ -22,7 +22,7 @@
     "patience": 30,
     "min_delta": 0.0001,
     "max_epochs": 2000,
-    "actual_epochs": 33,
+    "actual_epochs": 32,
     "hit_cap": false,
     "n_train_internal": 60,
     "n_val_internal": 15
@@ -47,10 +47,10 @@
   "validity_checks": {
     "identity_holds": true,
     "fit_status": "void_for_fit",
-    "ratio_to_noise_floor": 2.552210539579391,
+    "ratio_to_noise_floor": 2.5532511994242664,
     "calibration_anchor_ratio_to_noise_floor": 1.1278630234301088,
     "routing_status": "ok",
-    "hiddenness_relative_gain": 0.7519573372488899,
+    "hiddenness_relative_gain": 0.7188920722861958,
     "regime_visible": false,
     "floor_width_easy": null,
     "floor_width_hard": null,
@@ -69,13 +69,13 @@
         "hard": null
       }
     },
-    "argmin_width_easy": 3,
-    "argmin_width_hard": 10
+    "argmin_width_easy": 5,
+    "argmin_width_hard": 9
   },
   "provenance": {
-    "timestamp_utc": "2026-07-22T22:50:51+00:00",
+    "timestamp_utc": "2026-07-22T23:23:34+00:00",
     "git": {
-      "commit": "fc512aa765007853e22d5edb0452e877e414566b",
+      "commit": "cf50038399038503afb1eb9b2cbcf283a7ade541",
       "dirty": true
     },
     "python": "3.12.13",
@@ -89,22 +89,22 @@
     },
     "automl_device": "cpu"
   },
-  "routed_held_out_quality": 0.030498474836349487,
-  "mean_deployed_flops": 65.6865,
-  "oracle_agreement": 0.2205,
-  "mean_routed_width": 7.2985,
+  "routed_held_out_quality": 0.019848553463816643,
+  "mean_deployed_flops": 57.519,
+  "oracle_agreement": 0.2565,
+  "mean_routed_width": 6.391,
   "width_distribution": {
-    "1": 10,
-    "2": 282,
-    "3": 235,
-    "4": 1,
-    "5": 0,
+    "1": 76,
+    "2": 267,
+    "3": 86,
+    "4": 0,
+    "5": 542,
     "6": 0,
-    "7": 488,
-    "8": 0,
-    "9": 102,
-    "10": 802,
+    "7": 0,
+    "8": 207,
+    "9": 772,
+    "10": 0,
     "11": 0,
-    "12": 80
+    "12": 50
   }
 }
