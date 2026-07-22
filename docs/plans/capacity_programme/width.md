@@ -189,6 +189,14 @@ passed. `SharedTrunkPerWidthHeadNet` is the architecture of record. Evidence:
 >   measurement — valid and quarantined alike — pointing one way (the dial reads difficulty, not
 >   noise). User options: extend seeds beyond the pre-registered 3/4 to seek quorum (itself a
 >   rule amendment); amend to PASS-with-caveats on evidence-weight; or demote.
+>
+> ✅ **USER RULING 2026-07-22: G-WIDTH = PASS WITH CAVEATS (evidence-weight).** Binding caveats,
+> which every downstream consumer carries: (1) the stale-narrow-heads pathology on the noisy-easy
+> variant (3/5 seeds under the sandwich schedule) is a NAMED LIMITATION of the certified
+> architecture; (2) the small-data corner failure is real and UNIVERSAL (ceiling control fails
+> identically) — the architecture is not certified at n=200; (3) the noise-vs-difficulty clause
+> rests on 1 valid seed (passing decisively) + directionally-consistent quarantined seeds, not on
+> its pre-registered quorum. **WSEL-3..8 are UNBLOCKED** (dispatch on the user's go).
 
 **Established (MECHANISM, recorded 2026-07-21 after a user discussion — an ACCOUNT, not new evidence).**
 Why the shared readout fails and the per-width readout succeeds is now written down once, so it is not

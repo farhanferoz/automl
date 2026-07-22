@@ -334,6 +334,16 @@ verify: addendum section exists; gate decision row below is filled with evidence
   rules out. No MASTER.md assertion proved wrong (all W-strand results confirmed the pre-registered
   expectations). Full verdict: `docs/width_mse_2026-07-16/verdict_variable_width_mse.md` §10.
 
+**AMENDED 2026-07-22 — G-WIDTH = PASS WITH CAVEATS (user ruling, after adversarial re-derivation
+found neither clause passed as pre-registered).** The re-derivation
+(`automl_package/examples/capacity_ladder_results/REVIEW_2026-07-22/gwidth_rederivation.md`) and the
+plan-prescribed remediation seeds 3/4 (`…hetero3_n2250_s0.05_wp3s{3,4}.json`) establish: clause (a)'s
+counted seeds were curve-gate-quarantined and the clause now rests on ONE valid seed (a decisive
+pass: noisy-easy expected width 2.31 vs hard 8.34) below its ≥2 quorum; clause (b)'s n200 failure is
+real and universal. Binding caveats of the amended PASS: the stale-narrow-heads pathology (3/5 seeds
+on the noisy-easy variant, named limitation); no certification at n=200; the noise-vs-difficulty
+clause holds on evidence-weight, not quorum. The width.md §2 ⛔ block carries the full record.
+
 ---
 
 ## Done ledger
