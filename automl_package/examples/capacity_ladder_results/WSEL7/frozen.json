@@ -1,0 +1,156 @@
+{
+  "hidden": 64,
+  "depth": 3,
+  "epochs": 600,
+  "lr": 0.01,
+  "invariant": false,
+  "new_default": {
+    "hidden": 64,
+    "depth": 3,
+    "epochs": 600,
+    "lr": 0.01
+  },
+  "any_dimension_pending": false,
+  "per_dimension": {
+    "hidden": {
+      "values": [
+        16,
+        32,
+        64,
+        128
+      ],
+      "n_cells_by_value": {
+        "16": 6,
+        "32": 6,
+        "64": 6,
+        "128": 6
+      },
+      "ratio_to_default_by_value": {
+        "16": 1.0013348191149707,
+        "32": 1.0,
+        "64": 0.9516371906696413,
+        "128": 0.9292956235454435
+      },
+      "frozen_default_value": 32,
+      "default_ratio": 1.0,
+      "best_ratio": 0.9292956235454435,
+      "plateau_rel_tol": 0.05,
+      "invariant": false,
+      "plateau_value": 64
+    },
+    "layers": {
+      "values": [
+        1,
+        2,
+        3
+      ],
+      "n_cells_by_value": {
+        "1": 6,
+        "2": 6,
+        "3": 6
+      },
+      "ratio_to_default_by_value": {
+        "1": 1.0864803062821127,
+        "2": 1.0,
+        "3": 0.9077053051236706
+      },
+      "frozen_default_value": 2,
+      "default_ratio": 1.0,
+      "best_ratio": 0.9077053051236706,
+      "plateau_rel_tol": 0.05,
+      "invariant": false,
+      "plateau_value": 3
+    },
+    "epochs": {
+      "values": [
+        150,
+        300,
+        600
+      ],
+      "n_cells_by_value": {
+        "150": 6,
+        "300": 6,
+        "600": 6
+      },
+      "ratio_to_default_by_value": {
+        "150": 0.9523859405123553,
+        "300": 1.0,
+        "600": 0.9024189911750439
+      },
+      "frozen_default_value": 300,
+      "default_ratio": 1.0,
+      "best_ratio": 0.9024189911750439,
+      "plateau_rel_tol": 0.05,
+      "invariant": false,
+      "plateau_value": 600
+    },
+    "lr": {
+      "values": [
+        0.003,
+        0.01,
+        0.03
+      ],
+      "n_cells_by_value": {
+        "0.003": 6,
+        "0.01": 6,
+        "0.03": 6
+      },
+      "ratio_to_default_by_value": {
+        "0.003": 1.0422206543730521,
+        "0.01": 1.0,
+        "0.03": 0.9884035561737813
+      },
+      "frozen_default_value": 0.01,
+      "default_ratio": 1.0,
+      "best_ratio": 0.9884035561737813,
+      "plateau_rel_tol": 0.05,
+      "invariant": true,
+      "plateau_value": 0.03
+    }
+  },
+  "config": {
+    "w_max": 12,
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "router_tolerance": 0.25,
+    "plateau_rel_tol": 0.05,
+    "router_report_fraction": 0.5,
+    "frozen_default_at_authoring_time": {
+      "hidden": 32,
+      "depth": 2,
+      "epochs": 300,
+      "lr": 0.01
+    },
+    "tier1": {
+      "toy": "hetero",
+      "n_train": 1500,
+      "n_test": 500,
+      "sigma": 0.05
+    },
+    "tier2": {
+      "toy": "hetero3",
+      "n_train": 2250,
+      "n_test": 750
+    }
+  },
+  "provenance": {
+    "timestamp_utc": "2026-07-22T14:08:29+00:00",
+    "git": {
+      "commit": "f3a1c6584cd5cef3a60ed5dfb9d2b18fca4fde05",
+      "dirty": true
+    },
+    "python": "3.12.13",
+    "torch": "2.10.0+xpu",
+    "numpy": "2.4.3",
+    "platform": "Linux-7.1.3-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "threads": {
+      "omp_num_threads": "4",
+      "torch_num_threads": 4,
+      "cpu_count": 22
+    },
+    "automl_device": "cpu"
+  }
+}

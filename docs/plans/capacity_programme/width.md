@@ -949,7 +949,41 @@ tier: sonnet high · scale: dynamic · shape: research · verify:
 exits 0; `ls automl_package/examples/capacity_ladder_results/WSEL6/*.json` shows one file per
 (toy, seed, fraction, arm); a saturation plot file exists under the same results dir.
 
-### WSEL-7 — is the router's architecture right for width?
+### WSEL-7 — is the router's architecture right for width? — ⛔ **ANSWERED 2026-07-22: NOT INVARIANT under the pre-registered rule — with a noise caveat that goes to user review before the new default is treated as settled.**
+
+**RESULT: `invariant: false`, `new_default = {hidden: 64, depth: 3, epochs: 600, lr: 0.01}`** — ledger `automl_package/examples/capacity_ladder_results/WSEL7/frozen.json` (78 cells: 4 dimensions × 13 values total × 2 tiers × 3 seeds; per-cell JSONs in the same directory).
+
+| dimension | frozen default | plateau value | mean ratio at plateau (± SE, 6 cells) | invariant (5% rule) |
+|---|---:|---:|---:|---|
+| hidden | 32 | 64 | 0.9516 ± 0.0355 | FAIL | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL7/frozen.json` -->
+| layers | 2 | 3 | 0.9077 ± 0.0387 | FAIL | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL7/frozen.json` -->
+| epochs | 300 | 600 | 0.9024 ± 0.0503 | FAIL | <!-- numcheck-ignore: mean is `ratio_to_default_by_value['600']` in `automl_package/examples/capacity_ladder_results/WSEL7/frozen.json`; the SE is derived across the six per-cell JSONs, stored in no single file -->
+| lr | 0.01 | — | 0.9884 ± 0.0118 | pass | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL7/frozen.json`; SEs recomputed from the per-cell `quality_ratio_to_default` values -->
+
+Ratio < 1 = variant beats the frozen default on routed held-out squared error (verified in
+`width_wsel7.py`, `quality_ratio_to_default = variant_quality / frozen_default_quality`, lower better).
+
+**Caveats recorded WITH the verdict (root, 2026-07-22 — batched for end-of-run user review):**
+- **The 5% plateau tolerance was worker-chosen at authoring** (module docstring: "retune
+  `_PLATEAU_REL_TOL` if the user wants a tighter or looser bar") and was flagged at authoring for
+  review if leaned on. It is now leaned on. It is the pre-registered bar of record, so the verdict
+  above is NOT re-graded post hoc — but under the twice-standard-error rule (§3.5's own noise-aware
+  rule for the sibling WSEL-6 decision) only **depth** clears, marginally (gap 0.0923 vs 2·SE <!-- numcheck-ignore: gaps and 2·SE values derived across the six per-cell `quality_ratio_to_default` values per dimension under `WSEL7/`, stored in no single file -->
+  0.0774); hidden (0.0484 vs 0.0710) and epochs (0.0976 vs 0.1006) do not. <!-- numcheck-ignore: same derived gaps/2·SE values, continuation of the line above -->
+- **The epochs gain is tier-1-concentrated**: tier-2 cells at 600 epochs are ≈ parity (1.029, 1.016, <!-- numcheck-ignore: the six `quality_ratio_to_default` values live one-per-file in `WSEL7/wsel7_tier{1,2}_seed{0,1,2}_epochs_600.json`; the per-line checker verifies against a single file -->
+  0.972) while tier-1 cells drive the mean (0.744, 0.882, 0.773). Not tier-consistent. <!-- numcheck-ignore: continuation — same six per-cell values -->
+- **`new_default` combines one-factor winners never measured jointly** (each dimension was swept with
+  the others held at the frozen default); the combined 64×3×600 configuration has no cell of its own.
+- **tier-1 seed-0 is a recurring outlier in both directions** across dimensions (e.g. layers-1 ratio
+  1.588, hidden-128 ratio 0.730), consistent with a noisy same-cell default-router baseline. <!-- numcheck-ignore: the two ratios live in different files (`automl_package/examples/capacity_ladder_results/WSEL7/wsel7_tier1_seed0_layers_1.json`, `automl_package/examples/capacity_ladder_results/WSEL7/wsel7_tier1_seed0_hidden_128.json`); the per-line checker verifies against a single file -->
+
+**Consequence, per §3.5 (executed, not reinterpreted):** WSEL-6's router-dependent arm (W-PERINPUT
+only — W-SHARED/W-SWEEP construct no router) is re-run citing `new_default`, into a separate results
+dir so the primary grid's cells are never pooled with re-run cells. No global freeze from this
+strand (`flexnn-package.md` FP-5 owns `routing.py`). **WSEL-8 is unaffected: its spec's output
+contract carries `w_shared_width`/`w_sweep_width` only — no router-consuming arm.** Whether
+`new_default` becomes the strand's settled per-dial default is decided at user review with this
+caveat block and the re-run's outcome on the table.
 
 **Files (write set):** `automl_package/examples/width_wsel7.py` (Create) ·
 `automl_package/examples/capacity_ladder_results/WSEL7/`
