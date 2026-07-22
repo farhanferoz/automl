@@ -13,7 +13,6 @@ automl_package/examples/probreg_benchmark.py
 
 # --- width.md Create targets (parked 2026-07-20, root) ----------------------------------------
 # Each verified: named in a WSEL task's write set and asserted by that task's verify line.
-automl_package/examples/width_wsel8.py                              # WSEL-8
 #
 # The two below belong to WSEL-9, which is ⏸ PARKED by the 2026-07-20 toys-only ruling. Its spec
 # is retained on disk, so it still CITES these paths and the citation gate still sees them --
