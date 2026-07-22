@@ -1143,6 +1143,17 @@ decision-complete spec and the multi-feature toy design spec at that phase witho
 scheduling input from the user; the toy design spec itself still goes to the user for GO before
 anything is built (the standing toy gate — that review is about the toys' design, not about
 timing).
+**Scheduling amendment (user, 2026-07-22 third sitting — "why can't you just do all the work"):
+the post-merge phase BEGINS THE SAME SESSION, as wave D of the autonomous run, immediately
+after the wave-C merge.** Wave D contents, split by what the toy gate actually covers: (D1) the
+root authors the decision-complete bake-off spec + the multi-feature toy DESIGN spec; (D2) the
+bake-off driver is authored (worker contract); (D3) **the 1-D slice of the grid RUNS** — it uses
+only the canonical §3.8 toys and existing selection-set-fraction machinery, so no new toy design
+is involved and the standing toy gate does not apply to it; (D4) the multi-feature slice stays
+GATED on the user's GO of the D1 design spec, which is batched into the end-of-run report — the
+only piece of the width strand's scheduled work that waits for the user. WSEL-9 (toys-only
+ruling) and WSEL-10 (joint-review gate) remain parked by their own user rulings — out of scope
+for this run by the user's explicit clarification.
 
 **Four arms (user-approved 2026-07-22):**
 1. **Frozen recipe** — the current router MLP exactly as shipped (hidden `(32, 32)`, 300
@@ -1263,12 +1274,19 @@ each containing `w_shared_width`, `w_sweep_width`, `held_out_trajectory`, `hit_c
 per-arm `selection_cost` key. **Added 2026-07-21:** the reported numbers come from a split not used
 for stopping or selection.
 
-### WSEL-9 — real data + baselines — ⏸ PARKED (real data deferred; spec retained)
+### WSEL-9 — real data + baselines — 🗓 **UNPARKED (user, 2026-07-22 third sitting): the toys-only ruling is REVERSED for this task; scheduled as wave E of the same-session autonomous run**
 
-**⏸ PARKED, not cut — the spec below is retained verbatim and is not to be deleted.**
 **Gate added at the 2026-07-22 sign-off (user):** on unpark, **WSEL-19 (the router-backend
 bake-off) runs first** — the router backend must be settled before any settled-model comparison
 experiment consumes it.
+**Unpark record (2026-07-22, third sitting):** the user's 2026-07-20 ruling ("width stays
+toys-only", MASTER Decision 3's real-data exemption not extended) is REVERSED by the same
+authority — "let's do #1 & #2 now" in the post-review scheduling discussion, #2 = this task.
+The spec below runs AS RETAINED, no re-scoping. Ordering per the sign-off gate above: wave E,
+after WSEL-19's 1-D slice (wave D) — and if the multi-feature GO is still pending at wave-E
+time, after the 1-D slice alone, since WSEL-9's arms consume the router at the real datasets'
+own dimensionality (the frozen 1-D-validated default until the bake-off rules otherwise; §3.6
+feed-forward applies to any later change).
 **RULING TAKEN 2026-07-20 (user):** `docs/plans/capacity_programme/MASTER.md` Decision 3's real-data
 exemption is **NOT extended to WIDTH**. Width stays **toys-only**. The user's ruling explicitly left
 the door open to a later real-data pass, so this task is parked rather than removed: the spec stays
