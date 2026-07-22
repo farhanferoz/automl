@@ -207,7 +207,11 @@ def _train_all_schedule_weighted_to_convergence(
     weighted objective at all (its `LossType` is `{NLL, MSE}` only, and
     `kdropout_converged_width_experiment.py` is out of this task's write set to extend) -- so this
     reproduces that function's own ALL-schedule branch (deterministic `range(1, w_max + 1)`, no RNG
-    draw, `kdropout_converged_width_experiment.py:293-295`) with the weighted loss substituted in,
+    draw, `kdropout_converged_width_experiment.py:293-295`) with the weighted loss substituted in
+    and ONE deliberate deviation: the joint stop rule requires every width to be SIMULTANEOUSLY
+    trustworthy-flat (or diverged) at the same checkpoint, not merely ever-latched `done` — see the
+    stop-rule comment in the training loop for why the reproduced `all(t.done)` rule stops at a
+    non-stationary point under joint training,
     using `net.all_widths_forward` for a single shared-trunk evaluation per step (the WSEL-12
     vectorisation `SharedTrunkPerWidthHeadNet` already exposes, rather than `w_max` separate
     `forward_width` calls). Checkpointing follows the SAME whole-net-at-best-mean-per-width-val rule
@@ -264,7 +268,19 @@ def _train_all_schedule_weighted_to_convergence(
                 best_mean_val = mean_val
                 best_net_state = {n: t.detach().clone() for n, t in net.state_dict().items()}
             net.train()
-            if all(t.done for t in trackers.values()):
+            # STOP RULE — deliberate deviation from the reproduced kce ALL branch
+            # (`kdropout_converged_width_experiment.py:322`, `all(t.done ...)`), named per SS3.8's
+            # deviation rule. `ConvergenceTracker.done` LATCHES at the first patience-stop, but under
+            # joint ALL-schedule training the shared trunk keeps moving to serve the widths still
+            # training, so an early-latched width's held-out loss drifts and can still be creeping when
+            # the LAST width latches — the 2026-07-22 tier-2 first run stopped exactly there and every
+            # seed came back `still_improving_at_stop=True` -> `trustworthy=False` with `hit_cap=False`
+            # (raising the cap cannot fix a gate-driven stop). Stop instead only when every width's
+            # frozen-now result would already read trustworthy (simultaneously flat over its patience
+            # window) or diverged (flat-high; waiting for a recovery is unbounded and the flag stays
+            # honest either way). The cap remains the safety net: hitting it flags `hit_cap` as before.
+            results_now = {k: t.result(final_epoch=epoch) for k, t in trackers.items()}
+            if all(r.trustworthy or r.diverged for r in results_now.values()):
                 final_epoch = epoch
                 break
 
@@ -758,7 +774,8 @@ def main() -> None:
     if not case["all_widths_trustworthy"]:
         print(
             f"*** DO-NOT-CONCLUDE GUARD: tier={tier.value} seed={args.seed} has widths that did NOT converge "
-            "trustworthily. Raise --max-epochs before drawing any conclusion. ***"
+            "trustworthily. Inspect each width's convergence flags (`hit_cap` -> raise --max-epochs; "
+            "`diverged` -> the run itself is the finding) before drawing any conclusion. ***"
         )
 
     cell_path = _cell_json_path(tier, args.seed, schedule)
