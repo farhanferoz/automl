@@ -123,8 +123,12 @@ import width_candidates as wc  # noqa: E402 -- weighted_squared_error, SS3.7's t
 import width_wsel4 as w4  # noqa: E402 -- PORTED_* ported-arm protocol constants + _replay, reused verbatim (see module docstring)
 
 from automl_package.enums import ActivationFunction, CapacitySelection, TaskType  # noqa: E402
+from automl_package.models.flexnn.routing import (  # noqa: E402 -- WSEL-7 re-run: direct construction with new_default args (wsel7/wsel16's sanctioned pattern)
+    DEFAULT_TOLERANCE,
+    DistilledCapacityRouter,
+)
 from automl_package.models.flexnn.width.model import FlexibleWidthNN  # noqa: E402
-from automl_package.utils.capacity_accounting import global_cheap_cost, held_out_read_cost, per_input_cost, sweep_cost  # noqa: E402
+from automl_package.utils.capacity_accounting import executed_flops, global_cheap_cost, held_out_read_cost, per_input_cost, sweep_cost  # noqa: E402
 from automl_package.utils.capacity_selection import DEFAULT_N_BOOT, cheapest_within_tolerance  # noqa: E402
 from automl_package.utils.run_provenance import run_provenance  # noqa: E402
 
@@ -537,18 +541,44 @@ def _run_w_shared(model: FlexibleWidthNN, meta: dict[str, Any], split: dict[str,
     }
 
 
-def _run_w_perinput(model: FlexibleWidthNN, meta: dict[str, Any], split: dict[str, Any], fraction_pct: int, seed: int) -> dict[str, Any]:
+def _run_w_perinput(
+    model: FlexibleWidthNN, meta: dict[str, Any], split: dict[str, Any], fraction_pct: int, seed: int, router_override: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """W-PERINPUT: `fit_router` on the fraction-limited selection subsample, scored held out.
 
     Router hyperparameters (hidden/epochs/lr) are read back off the FITTED router
     (`model.capacity_router_.hidden`/`.n_epochs`) for the cost accounting, never re-chosen here --
     WSEL-6 does not vary router architecture (WSEL-7's job; SS3.6: the router stays frozen at its
     current defaults until WSEL-7 rules otherwise).
+
+    `router_override` is the ONE sanctioned exception -- the SS3.5-mandated re-run at WSEL-7's
+    `new_default` after its non-invariance verdict (`width.md` WSEL-7 result block, 2026-07-22).
+    When set (`{"hidden": tuple, "epochs": int, "lr": float, "source": path}`), the router is
+    constructed DIRECTLY with those args and fitted through its unmodified public `.fit()` -- the
+    same reuse pattern `width_wsel7.run_cell` and `width_wsel16._distilled_router_selected_width`
+    already use, with eval/cost wiring mirroring `FlexibleWidthNN.fit_router`'s own (per-sample
+    squared error at each fixed width via the public `predict(..., width=k)`, `executed_flops` cost).
+    Everything downstream (labelling tolerance, selection, scoring, cost accounting) is IDENTICAL to
+    the default path -- the router architecture is the single difference. Never combined with the
+    primary results dir: re-run cells land in their own `--results-dir`.
     """
     del seed  # DistilledCapacityRouter.fit's own seeding is unconditional on this class's router-weight init (self.seed), unused here.
     x_sel, y_sel, _region_sel = _selection_subsample(split, fraction_pct)
     x_sel_in = x_sel.reshape(-1, 1).astype(np.float32)
-    model.fit_router(x_sel_in, y_sel)
+    if router_override is None:
+        model.fit_router(x_sel_in, y_sel)
+    else:
+        capacity_grid = [(width,) for width in model.widths]
+
+        def eval_fn(x: np.ndarray, capacity: tuple[int, ...]) -> np.ndarray:
+            return (model.predict(x, filter_data=False, width=capacity[0]) - y_sel) ** 2
+
+        def cost_fn(capacity: tuple[int, ...]) -> float:
+            return float(executed_flops(model.model, capacity[0]))
+
+        router = DistilledCapacityRouter(hidden=tuple(router_override["hidden"]), n_epochs=int(router_override["epochs"]), lr=float(router_override["lr"]), device=model.device)
+        router.fit(eval_fn=eval_fn, x_val=x_sel_in, y_val=y_sel, capacity_grid=capacity_grid, tolerance=DEFAULT_TOLERANCE, cost_fn=cost_fn)
+        model.capacity_router_ = router
     model.capacity_selection = CapacitySelection.PER_INPUT
 
     x_test_in = split["x_test"].reshape(-1, 1).astype(np.float32)
@@ -560,13 +590,22 @@ def _run_w_perinput(model: FlexibleWidthNN, meta: dict[str, Any], split: dict[st
 
     router = model.capacity_router_
     cost = per_input_cost(training_macs=meta["training_macs"], in_dim=1, n_capacities=len(model.widths), n_samples=len(x_sel), n_epochs=router.n_epochs, hidden=router.hidden)
-    return {
+    result = {
         "width_distribution": width_distribution,
         "mean_routed_width": float(np.mean(routed_widths)),
         "held_out_mse": mse,
         "n_selection_used": len(x_sel),
         "cost_macs": {"training_macs": cost.training_macs, "selection_macs": cost.selection_macs, "total_macs": cost.total_macs},
     }
+    if router_override is not None:
+        result["router_config"] = {
+            "hidden": list(router_override["hidden"]),
+            "depth": len(router_override["hidden"]),
+            "epochs": int(router_override["epochs"]),
+            "lr": float(router_override["lr"]),
+            "source": router_override["source"],
+        }
+    return result
 
 
 def _run_w_sweep(models: dict[int, FlexibleWidthNN], metas: dict[int, dict[str, Any]], split: dict[str, Any], fraction_pct: int, seed: int, w_max: int) -> dict[str, Any]:
@@ -620,15 +659,26 @@ def run_cell(
     results_dir: str = RESULTS_DIR,
     n_train: int | None = None,
     n_test: int | None = None,
+    router_override: dict[str, Any] | None = None,
+    cache_dir: str | None = None,
 ) -> dict[str, Any]:
-    """Runs one (tier, seed, fraction, arm) cell: get-or-train, select on the fraction, score held out."""
+    """Runs one (tier, seed, fraction, arm) cell: get-or-train, select on the fraction, score held out.
+
+    `cache_dir`, when set, points the get-or-train step at ANOTHER results dir's `_cache` (the WSEL-7
+    re-run reuses the primary grid's trained nets -- training is independent of both fraction and
+    router config, so retraining them into the re-run dir would be pure waste). Cell JSONs still land
+    in `results_dir`.
+    """
     cfg = _TIER_CONFIG[tier]
     split = _build_split(tier, seed, n_train=n_train, n_test=n_test)
-    train_kwargs = {"max_epochs": max_epochs, "patience": patience, "min_delta": min_delta, "lr": lr, "results_dir": results_dir}
+    train_kwargs = {"max_epochs": max_epochs, "patience": patience, "min_delta": min_delta, "lr": lr, "results_dir": cache_dir or results_dir}
 
     if arm in (Arm.W_SHARED, Arm.W_PERINPUT):
         model, meta, cache_hit = _get_or_train_shared(tier, seed, split, w_max, **train_kwargs)
-        arm_result = _run_w_shared(model, meta, split, fraction_pct, seed) if arm is Arm.W_SHARED else _run_w_perinput(model, meta, split, fraction_pct, seed)
+        if arm is Arm.W_SHARED:
+            arm_result = _run_w_shared(model, meta, split, fraction_pct, seed)
+        else:
+            arm_result = _run_w_perinput(model, meta, split, fraction_pct, seed, router_override=router_override)
         hit_cap, trustworthy, objective = meta["hit_cap"], meta["trustworthy"], meta["objective"]
         training_block = {"trajectory": meta["trajectory"], "actual_epochs": meta["actual_epochs"]}
     else:
@@ -888,6 +938,23 @@ def main() -> None:
     parser.add_argument("--arm", choices=[a.value for a in Arm], default=None, help="Required outside --selftest/--summarize.")
     parser.add_argument("--results-dir", type=str, default=RESULTS_DIR)
     parser.add_argument(
+        "--router-from-wsel7",
+        type=str,
+        default=None,
+        metavar="FROZEN_JSON",
+        help="Path to WSEL-7's frozen.json. Fits the W-PERINPUT router at its `new_default` config instead of the frozen "
+        "defaults -- the SS3.5-mandated re-run after WSEL-7's non-invariance verdict. Requires --arm w_perinput and a "
+        "NON-DEFAULT --results-dir (re-run cells must never pool with the primary grid's).",
+    )
+    parser.add_argument(
+        "--cache-from",
+        type=str,
+        default=None,
+        metavar="RESULTS_DIR",
+        help="Reuse another results dir's `_cache` for the get-or-train step (the re-run reuses the primary grid's "
+        "trained nets; training is independent of fraction and router config). Cell JSONs still land in --results-dir.",
+    )
+    parser.add_argument(
         "--epoch-cap",
         type=int,
         default=w4.PORTED_N_EPOCHS_CAP,
@@ -912,9 +979,28 @@ def main() -> None:
 
     tier = Tier(args.tier)
     arm = Arm(args.arm)
+
+    router_override = None
+    if args.router_from_wsel7 is not None:
+        if arm is not Arm.W_PERINPUT:
+            parser.error("--router-from-wsel7 only applies to --arm w_perinput (the other arms construct no router).")
+        if os.path.abspath(args.results_dir) == os.path.abspath(RESULTS_DIR):
+            parser.error("--router-from-wsel7 requires a NON-DEFAULT --results-dir: re-run cells must never pool with the primary grid's.")
+        with open(args.router_from_wsel7) as f:
+            wsel7_frozen = json.load(f)
+        new_default = wsel7_frozen["new_default"]
+        if new_default is None:
+            parser.error(f"{args.router_from_wsel7} carries new_default=null (invariant verdict) -- there is nothing to re-run at.")
+        router_override = {
+            "hidden": (int(new_default["hidden"]),) * int(new_default["depth"]),
+            "epochs": int(new_default["epochs"]),
+            "lr": float(new_default["lr"]),
+            "source": os.path.abspath(args.router_from_wsel7),
+        }
+
     os.makedirs(args.results_dir, exist_ok=True)
     print(f"[wsel6] tier={tier.value} toy={_TIER_CONFIG[tier].toy.value} seed={args.seed} fraction={args.fraction}% arm={arm.value} w_max={W_MAX}", flush=True)
-    case = run_cell(tier, args.seed, args.fraction, arm, results_dir=args.results_dir, max_epochs=args.epoch_cap)
+    case = run_cell(tier, args.seed, args.fraction, arm, results_dir=args.results_dir, max_epochs=args.epoch_cap, router_override=router_override, cache_dir=args.cache_from)
 
     if not case["trustworthy"]:
         print(
