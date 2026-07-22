@@ -43,6 +43,12 @@ class NestedWidthNet(nn.Module):
 
     `Linear(1 -> w_max)` -> activation -> hidden vector `h`; `mean_head`/`logvar_head` are
     `Linear(w_max -> 1)`. A width-k forward zeros `h[:, k:]` before both readouts.
+
+    Variance status (`width.md` SS3.7, recorded by WSEL-17 Step 3): `logvar_head` is a
+    LEARNED-variance readout from this class's pre-ruling probabilistic lineage. The 2026-07-21
+    user ruling forbids fitting it in any new run -- variance is FIXED at the true generator
+    value, never learned. New runs train MSE or the fixed-sigma weighted objective only; loss
+    selectors that would fit this head (e.g. an NLL loss) are historical-reproduction paths.
     """
 
     def __init__(self, w_max: int = W_MAX_DEFAULT, activation: type[nn.Module] = nn.Tanh) -> None:
@@ -153,6 +159,11 @@ class IndependentWidthNet(nn.Module):
     so it is a drop-in for `sinc_width_experiment._score_all_widths` and for the SANDWICH branch of
     `train_nested_width` (which touches only `net.w_max` and `net.forward_width`) — the ONLY thing
     that changes vs the shared W2 run is shared-vs-independent weights.
+
+    Variance status (`width.md` SS3.7, recorded by WSEL-17 Step 3): the per-width `logvar_head_k`
+    readouts are LEARNED-variance heads from the pre-ruling lineage; fitting them in any new run is
+    forbidden (variance is FIXED at the true generator value, never learned). New runs train MSE or
+    the fixed-sigma weighted objective only.
     """
 
     def __init__(self, w_max: int = W_MAX_DEFAULT, activation: type[nn.Module] = nn.Tanh) -> None:

@@ -2304,6 +2304,14 @@ runs LAST because promoting the wrong class is worse than leaving the mess.
 **Files (write set):** `automl_package/models/architectures/nested_width_net.py` ·
 `automl_package/examples/matryoshka_width_net.py` · `automl_package/examples/width_candidates.py` ·
 `docs/plans/capacity_programme/shared/PROTECTED.tsv` · tests
+**Write-set amendment, 2026-07-22 (root, logged reversible default under the autonomous mandate):**
+this line predates the module reorganisation — `automl_package/models/architectures/nested_width_net.py`
+is now a pure re-export shim and the class bodies live at `automl_package/models/flexnn/width/architectures.py`
+(with `ResidualCascadeNet` at `automl_package/examples/cascade_width_net.py`). The Steps 1-6 worker
+correctly declined to touch those un-named real homes; **Step 3's variance-status docstrings for the
+three undocumented classes (`NestedWidthNet`, `IndependentWidthNet`, `ResidualCascadeNet`) were
+completed by the root across the two real homes** — documentation-only edits, no behaviour change.
+The write set is read as covering the named modules' REAL homes after the reorganisation.
 **⚠️ Write-set overlap:** touches the package architectures module, so it may NOT run beside FP-2's
 successors or WSEL-16. It is last in the strand for that reason too.
 

@@ -109,6 +109,12 @@ class ResidualCascadeNet(nn.Module):
     Block b (0-indexed) is `nn.ModuleDict({"trunk": Linear(1,1), "act": activation(), "mean_head":
     Linear(1,1), "logvar_head": Linear(1,1)})`. Every block's readouts start at exactly zero (trunk
     keeps its default init) so an untrained net's every rung is the N(0,1) marginal -- selftest (a).
+
+    Variance status (`width.md` SS3.7, recorded by WSEL-17 Step 3): per-block `logvar_head`s are
+    LEARNED-variance readouts; `StageLoss.NLL` fits them and is retained for byte-identical
+    reproduction of the historical cascade run ONLY (this module's header names the SS3.7
+    violation it constitutes). New runs use `StageLoss.SQUARED_ERROR` -- sigma FIXED at
+    `sigma_true`, never learned.
     """
 
     def __init__(self, w_max: int = W_MAX_DEFAULT, activation: type[nn.Module] = nn.Tanh) -> None:
