@@ -1342,6 +1342,35 @@ late evening: "why does it need me? I thought we designed it"). Nothing multi-fe
 before a passing verdict; nothing waits on the user. (3) The pre-registration culture worked:
 the failure cost one calibration run (~36 small nets), not a 432-cell grid read as science.
 
+**✅ MECHANISM TRACED (root-dispatched, 2026-07-22 late; `automl_package/examples/capacity_ladder_results/WSEL19/warp_trace.json` + script, commit `8b3796a`): the warp hypothesis is CONFIRMED, refined — TWO-SIDED WIDTH CONVERGENCE.**
+- Verdict basis: practical-floor widths (smallest width whose generator-true error reaches
+  ≤ 0.2 × the noise floor), because raw argmin proved unusable — the true-error curves are
+  genuinely non-monotonic at tiny errors (a methodological finding recorded in the artifact;
+  robustness-checked at 0.1/0.3 fractions). <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/warp_trace.json` (`declared_criteria`) -->
+- Canonical control differentiates on 3/3 seeds (easy practical width 3-5 vs hard 6-8); the
+  lifted construction TIES on 3/3 seeds — both regions converge onto width 5. Easy needs MORE
+  width under the lift, hard needs LESS: the regions converge onto each other, killing the
+  per-input routing signal from both sides. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/warp_trace.json` (`per_seed`, `classification`) -->
+- Cross-check: the trace's lifted argmins reproduce the calibration artifact's own best-width
+  fields exactly on all 3 seeds (pipeline validated bit-for-bit).
+- Confound, read asymmetrically: the two caches differ in effective training size (canonical
+  600 via the carve vs lifted 1200, no carve). <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/warp_trace.json` (`caveats`) -->
+  More data reaches error floors at SMALLER widths, so the easy-side degradation (3 → 5 despite
+  2× data) is UNCONFOUNDED; the hard-side convergence is partially confounded.
+
+**Redesign requirements derived from the trace (BINDING on the redesign spec):**
+- **R1** — the network-visible coordinate along `v` must preserve the canonical coordinate's
+  geometry: no Φ-warp (or any nonlinear reparameterization) between the canonical target's
+  input and what the model sees.
+- **R2** — the calibration protocol pins effective training size EQUAL to the canonical carve,
+  killing the flagged confound at the protocol level.
+- **R3** — the §5.2 differentiation check is operationalized on practical-floor widths (the
+  traced measure), not raw argmin.
+- **R4** — any new construction's axis/oblique distribution-match claim is re-derived from
+  scratch in its ledger (the obvious no-warp candidate — a uniform ridge along `v` with a
+  Gaussian complement — has a known marginal-sniffing asymmetry at axis geometry that the
+  ledger must close, not wave at).
+
 ### WSEL-8 — the W-SHARED ≈ W-SWEEP claim, both halves, on toys — ⛔ **ANSWERED 2026-07-22: BOTH HALVES FAIL. The dial network is NOT ≈ the exhaustive sweep on this toy — 2.6-7.2× worse at matched middle widths, 0/3 agreement on the chosen width, and the disagreement is a mechanical consequence of the quality gap. A FAIL is a finding, not a bug.**
 
 **RESULT: `agreement_rate: 0.0`, quality NOT matched at middle widths** — ledger `automl_package/examples/capacity_ladder_results/WSEL8/frozen.json` (36 sweep cells + control + 3 dial cells, ALL trustworthy, no cap hits after the same-precedent repair; per-cell JSONs in the same directory).
