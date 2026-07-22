@@ -2298,6 +2298,24 @@ field in Step 3 and `hit_cap: false`; (4)
 >   (wave C) `--summarize`, commit results, execute WSEL-17 Step 7 per the signed-off manifest,
 >   then the local merge to master per MASTER's branch protocol. User-only questions are batched
 >   to the end; only irreversible/destructive actions outside the ratified manifest halt.**
+>   **✅ STAGE-3 COVERAGE RUN 2026-07-22 (root, wave B): 36/36 cells landed, 0 launch failures,
+>   `hit_cap` false everywhere — ledger `automl_package/examples/capacity_ladder_results/WSEL16/tier3_summary.json`
+>   (aggregator script beside it; the driver's own `summarize()` predates tier 3).** Protocol
+>   note, recorded not buried: the cells ran the stage-1 SANDWICH comparison protocol (the
+>   driver default and the certification-era protocol); the Decision-31 ALL default governs
+>   future training — an ALL-schedule ladder pass is an option, deliberately NOT scheduled.
+>   **Quality verdict: coverage HOLDS.** The canonical cell reproduces as the (n=1500, σ=0.05)
+>   slice; no cell collapses anywhere on the ladder; seed bands tighten with n (10.92-11.13 <!-- source: `automl_package/examples/capacity_ladder_results/WSEL16/tier3_summary.json` (`mse_over_noise_floor`, n=4000/σ=0.05 cells) -->
+>   MSE-over-noise-floor at n=4000, σ=0.05) and the error approaches the noise floor as noise
+>   dominates (2.84-2.98 at n=4000, σ=0.5). <!-- source: `automl_package/examples/capacity_ladder_results/WSEL16/tier3_summary.json` (`mse_over_noise_floor`, n=4000/σ=0.5 cells) -->
+>   **Integrity, quantified:** the verdict-bearing full-width head is trajectory-certified in
+>   28/36 cells; <!-- source: `automl_package/examples/capacity_ladder_results/WSEL16/tier3_summary.json` + per-cell `convergence['12']` fields -->
+>   6 exceptions are slow-creep "still improving at stop" (converged at plateau granularity),
+>   and 2 (seed 1, n=200, σ ∈ {0.15, 0.5}) are gate-diverged small-data wobble with endpoint
+>   train ≈ held-out and in-family quality (8.03 / 3.72 MSE-over-floor vs same-(n,σ) neighbours
+>   spanning 7.08-17.68) — reported numbers are best-validation snapshots. <!-- numcheck-ignore: the neighbour ranges span multiple per-cell JSONs summarized in tier3_summary.json's cells array -->
+>   Mid-width per-cell readouts from this grid inherit the KNOWN sandwich mid-width-lottery
+>   caveat (WSEL-15) — do not consume mid-width profiles from these cells without it.
 >
 > **USER RULING 2026-07-22 (selection-studies coupling):** the selection studies' MEASUREMENT tasks
 > (WSEL-6, WSEL-7, WSEL-8) are ARCHITECTURE-PARAMETERISED: they run on the vectorised multi-head
