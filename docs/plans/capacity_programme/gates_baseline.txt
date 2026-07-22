@@ -65,7 +65,6 @@ automl_package/examples/capacity_ladder_results/P7/frozen.json      # P7 (verify
 # --- flexnn-package.md FP-11 target tree — LANDED 2026-07-21; all 10 entries REMOVED (shrink-only)
 # The task-zero reorganisation is done and every path exists on disk, so none of them may remain
 # parked here. Retained as a comment so the shrink is auditable, not silent.
-shared/wsel17-cleanup-manifest.tsv                                   # WSEL-17 Step 6 (verify 6)
 docs/plans/capacity_programme/shared/p9-cleanup-manifest.tsv         # probreg.md P9 Step 6 (verify 1)
 shared/p9-cleanup-manifest.tsv                                       # probreg.md P9 Step 6 (relative spelling)
 
