@@ -953,10 +953,31 @@ preserved under `WSEL6/capped_at_6000/` and `WSEL6/_cache/capped_at_6000/`; all 
 `trustworthy: true`. <!-- numcheck-ignore: the four actual-epoch counts live in the four rebuilt `automl_package/examples/capacity_ladder_results/WSEL6/_cache/*_meta.json` files, one per file -->
 **Protocol notes.** Trains the package class on RAW x/y per WSEL-4's vetted ported protocol — name
 this if these numbers ever share a table with the standardizing drivers (wsel13/wsel16). The router
-ran at the CURRENT frozen defaults (`automl_package/models/flexnn/routing.py:57-60`); **the §3.5
-consequence of WSEL-7's non-invariance verdict — re-running the W-PERINPUT cells citing WSEL-7's
-`new_default` into a separate results dir — is still owed** and lands before the frozen fraction is
-treated as settled for the per-input arm at the new router.
+ran at the CURRENT frozen defaults (`automl_package/models/flexnn/routing.py:57-60`).
+
+#### The §3.5-mandated router re-run — DONE 2026-07-22: the candidate router shows NO end-task gain
+
+**RESULT: 30/30 W-PERINPUT cells re-run at WSEL-7's `new_default` (64×3, 600 epochs, lr 0.01), all trustworthy, zero guards** — ledger `automl_package/examples/capacity_ladder_results/WSEL6_RERUN_ROUTER/frozen.json` (per-cell JSONs + `saturation.png` in the same directory; each cell records `router_config` with `source` = WSEL-7's frozen.json; nets reused read-only from the primary grid's cache — training is identical by construction, the router is the single difference).
+
+Head-to-head, mean held-out MSE across seeds, candidate/frozen ratio (>1 = candidate WORSE):
+
+| tier | 5% | 10% | 15% | 25% | 40% |
+|---|---:|---:|---:|---:|---:|
+| 1 (hetero) | 1.129 | 1.122 | 1.013 | 1.031 | 0.903 | <!-- numcheck-ignore: ratios of seed-means derived across the per-cell `held_out_mse` values in `automl_package/examples/capacity_ladder_results/WSEL6/` and `automl_package/examples/capacity_ladder_results/WSEL6_RERUN_ROUTER/`, stored in no single file -->
+| 2 (hetero3) | 1.036 | 1.083 | 1.018 | 1.014 | 1.026 | <!-- numcheck-ignore: same derived ratios, noisy tier -->
+
+- **On the noisy tier the candidate is consistently slightly worse (5 of 5 fractions), on the easy
+  tier mixed** (worse at small fractions — consistent with a ~3.6× bigger router overfitting a small
+  selection subsample — parity mid-range, better only at the largest fraction). **There is no
+  fraction at which the candidate improves the noisy tier, and adoption would need evidence of
+  improvement.**
+- **Recommendation carried to the user review alongside WSEL-7's caveat block: KEEP the frozen
+  default (32×2, 300 epochs).** WSEL-7's plateau gain on router-fit quality ratios does not
+  transfer to the end-task decision that actually consumes the constant. This is the discriminating
+  experiment the caveats asked for, not a re-grade of WSEL-7's registered verdict.
+- The primary grid's frozen constants (`fraction: 0.15`, no arm data-limited) remain the binding
+  §3.6 values; the re-run's own arm-only summarize (both per-input pairs saturating at the smallest
+  swept fraction on a flatter, slightly worse curve) is a labelled sibling readout, never pooled.
 
 **Files (write set):** `automl_package/examples/width_wsel6.py` (Create) ·
 `automl_package/examples/capacity_ladder_results/WSEL6/`
@@ -1010,7 +1031,9 @@ Ratio < 1 = variant beats the frozen default on routed held-out squared error (v
 
 **Consequence, per §3.5 (executed, not reinterpreted):** WSEL-6's router-dependent arm (W-PERINPUT
 only — W-SHARED/W-SWEEP construct no router) is re-run citing `new_default`, into a separate results
-dir so the primary grid's cells are never pooled with re-run cells. No global freeze from this
+dir so the primary grid's cells are never pooled with re-run cells. **Re-run DONE 2026-07-22 — the
+candidate shows NO end-task gain (slightly worse on the noisy tier at every fraction); see WSEL-6's
+re-run block for the head-to-head and the keep-the-frozen-default recommendation.** No global freeze from this
 strand (`flexnn-package.md` FP-5 owns `routing.py`). **WSEL-8 is unaffected: its spec's output
 contract carries `w_shared_width`/`w_sweep_width` only — no router-consuming arm.** Whether
 `new_default` becomes the strand's settled per-dial default is decided at user review with this
