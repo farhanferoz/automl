@@ -1029,6 +1029,29 @@ remaining live half of Decision 21.
 
 ---
 
+#### WSEL-11 re-run — REVIEWED 2026-07-22 (independent adversarial review): CLEAN — the verdict stands
+
+- Re-derived bit-exact from the 9 raw cells (the aggregate is faithful); fixed-sigma objective
+  verified in code AND in all 9 provenance blocks; convergence/trust flags clean on all 108
+  width-cells; stopping and selection splits disjoint; per-width AdamW correctly scoped; ONE
+  bootstrap-SE-calibrated selection rule across every cell — which rules out the
+  coarse-dial-guarantees-a-null failure mode by construction.
+- **CAVEAT THAT MUST TRAVEL TO THE REPORT (WSEL-10): the null has BOUNDED POWER.** At the selected
+  widths, the λ=1e-2 effect is <2% — an order of magnitude below the plateau's natural 10-17%
+  width-to-width jitter that the tolerance rule absorbs. The grid is NOT inert: at the elbow (w=4),
+  λ=1e-2 moves seed 2's held-out MSE +35% (0.00379 → 0.00512) and shifts its convergence regime
+  (stop 33500 → 23500). <!-- source: `automl_package/examples/capacity_ladder_results/WSEL11/rerun/wsel11_mse_lam0.01_seed2.json` vs `automl_package/examples/capacity_ladder_results/WSEL11/rerun/wsel11_mse_lam0.0_seed2.json` -->
+  "Regularisation does not move the selection" is true AND weaker than it reads — the report must
+  carry the elbow-vs-plateau effect-size contrast, or the null will be over-read.
+- Cosmetic, recorded, no action: §3.7's "excluded from the optimiser" is functionally true
+  (grad=None ⇒ AdamW skips) but not literal (the spread head's params sit in the list, untouched);
+  the 9 cells ran on a dirty tree (ancestor `fd80b39e` of landing `cd9d0e9`), so exact driver bytes
+  are not mechanically provable — internal consistency was re-verified instead.
+- Persistence gap, noted for FUTURE drivers (not retrofitted into in-flight contracts): the
+  per-sample error table the bootstrap-SE selection reads is not persisted (column means only), so
+  the selection call cannot be bit-re-derived offline. Drivers authored after this date should
+  persist what their selection rule reads.
+
 ### WSEL-11 — the DISCARDED first run — ⛔ **RESULTS DISCARDED — RUN ON A FORBIDDEN OBJECTIVE (variance fitting). The verdict below is VOID.**
 
 **Why it is void.** The run trained on the **Gaussian negative log-likelihood** —
@@ -1240,6 +1263,31 @@ for every width against
 `automl_package/examples/capacity_ladder_results/W_KDROPOUT_CONVERGED/w_kdropout_converged_summary_shared_trunk_mse.json`;
 (3) the before/after wall-clock is reported, with `OMP_NUM_THREADS=4` pinned on both sides (thread
 count moves this metric by up to ~5% — `shared/fp5-stale-reference-finding.md`).
+
+#### WSEL-12 — REVIEWED 2026-07-22 (independent adversarial review): CLEAN on correctness — two weakens-tier findings, both now discharged on disk
+
+- **Equivalence verified BEYOND the landed test's coverage:** repeat draws (uniform samples WITH
+  replacement can duplicate a width in one step — untested by the landed test), heavy repeats, and
+  the full ALL schedule, across all 3 shared-trunk architectures × both losses × 3 seeds — forward
+  loss bit-identical, float64 gradient max-err ≤ 4e-16. <!-- numcheck-ignore: reviewer-measured via the preserved script, no JSON exists; script = `automl_package/examples/capacity_ladder_results/REVIEW_2026-07-22/equivalence_check.py` -->
+  `IndependentWidthNet` correctly falls through to the untouched per-width loop. Ledger A/B
+  (`ratio_to_floor`, stop epochs, trust flags) verified against both JSONs; the pre-fix ledger is
+  byte-preserved; `cd9d0e9` → `0fba726` is a clean single-commit A/B.
+- **Weakens 1 — the spec's own "prove-it-fails: show that" was satisfied in PROSE ONLY** (the
+  asserted-not-shown class). The reviewer independently reproduced it (an off-by-one mask mutant:
+  7 targeted failures, unmutated architectures stay green). The reproduction scripts are now ON
+  DISK — `automl_package/examples/capacity_ladder_results/REVIEW_2026-07-22/` — so the
+  demonstration is checkable from the repo alone.
+- **Weakens 2 — `trunk_evals_per_step` is an asserted FORMULA, not a measured counter, and no test
+  covers it.** Its SANDWICH branch hand-mirrors the training loop's draw logic — correct today,
+  silently wrong the day the draw changes. Every value on disk today verified correct. **Queued
+  hygiene (WSEL-17 candidate): derive it from one source or pin it with a counter test.**
+- **Scope caveat for anyone quoting the fix:** "the trunk is computed once per step" is a
+  K-DROPOUT-DRIVER claim. `train_nested_width` (`nested_width_net.py`) still recomputes the trunk
+  per width and serves the sinc/hetero/independent drivers — legitimately outside WSEL-12's write
+  set, still unfixed. Never quote the fix as codebase-wide.
+- Knock-on check: all 15 WSEL-14 and 9 WSEL-15 cells provenance-descend from the fix commit — the
+  cross-arm cost comparisons are uncontaminated.
 
 ### WSEL-13 — is the induced importance ordering real? — ⛔ **ANSWERED 2026-07-21: NO. `ordering_holds: false`, 0 of 3 seeds, and the correlation runs the OPPOSITE way. A FAIL is a finding, not a bug.**
 
