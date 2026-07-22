@@ -4,9 +4,14 @@ The certified width design's whole mechanistic account — and the argument that
 transformer (`docs/plans/capacity_programme/shared/width_transformer_port.md` SS1-SS2) — rests on one
 property nobody has measured: because hidden unit `j` only receives gradient from widths `k >= j`,
 importance should DECREASE with unit index. This driver trains the certified `SharedTrunkPerWidthHeadNet`
-(k-dropout sandwich schedule, MSE loss, `automl_package.examples.kdropout_converged_width_experiment.
-_train_kdropout_to_convergence`, imported not reimplemented) on the SS3.8 canonical toy suite (tier 1 +
-tier 2, per WSEL-13's ROOT ruling), then runs two non-circular diagnostics on the frozen trunk:
+on the SS3.8 canonical toy suite (tier 1 + tier 2, per WSEL-13's ROOT ruling), then runs two non-circular
+diagnostics on the frozen trunk. The two tiers train under DIFFERENT schedules and objectives (RE-
+AUTHORIZED 2026-07-22, `width.md` SS3.8): tier 1 is k-dropout SANDWICH schedule, plain MSE loss
+(`automl_package.examples.kdropout_converged_width_experiment._train_kdropout_to_convergence`, imported
+not reimplemented); tier 2 is the ALL schedule (every width, every step) under the fixed-sigma weighted
+squared error (SS3.7, `width_candidates.weighted_squared_error`), via this module's own
+`_train_all_schedule_weighted_to_convergence` — every per-cell JSON records which (`training_schedule`,
+`objective`) so a table mixing the two never hides it.
 
   Step 2 (single-unit ablation): zero one hidden unit at a time in the width-`w_max` head's input,
   read the MSE increase on the REPORT split. `importance_j` should decrease with `j`.
@@ -37,6 +42,7 @@ Driver CLI contract (root-run grid; this file is never run over the full grid by
 Usage:
     AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel13.py --selftest
     AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel13.py --tier 1 --seed 0
+    AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel13.py --tier 2 --seed 0
     AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel13.py --summarize
 """
 
@@ -44,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import enum
+import importlib
 import json
 import math
 import os
@@ -63,6 +70,7 @@ import converged_width_experiment as cwe  # noqa: E402
 import convergence as cvg  # noqa: E402
 import kdropout_converged_width_experiment as kce  # noqa: E402
 import nested_width_net as nwn  # noqa: E402
+import width_candidates as wc  # noqa: E402
 
 from automl_package.utils.run_provenance import run_provenance  # noqa: E402
 
@@ -115,7 +123,7 @@ _TIER_CONFIG: dict[Tier, _TierConfig] = {
 
 
 def _assert_tier_objective_available(tier: Tier) -> None:
-    """Refuse a tier whose sanctioned objective is not implemented yet (ROOT ruling 2026-07-21).
+    """Refuse a tier whose sanctioned objective is not importable (ROOT ruling 2026-07-21; RE-AUTHORIZED 2026-07-22).
 
     SS3.7 fixes sigma at the generator's true value on EVERY tier, but the two tiers need DIFFERENT
     objectives to do it. Tier 1's `hetero` toy has one constant sigma, so plain MSE is exactly
@@ -123,23 +131,147 @@ def _assert_tier_objective_available(tier: Tier) -> None:
     WEIGHTED squared error, `(pred - y)**2 / sigma_true(x)**2`, which down-weights the noisy region
     100x -- `width.md:377-379` states outright that this is NOT the same objective as plain MSE.
 
-    That weighted loss must be implemented ONCE in `automl_package/examples/width_candidates.py` and
-    imported (SS3.7, SS3.9 -- never re-derived per driver). **That module does not exist yet: WSEL-15
-    creates it** (`width.md:1248`). So tier 2 is not runnable at its own spec today, and the tier-2
-    row of SS3.8's assignment table carries an unstated dependency on WSEL-15.
+    That weighted loss is implemented ONCE, in `automl_package/examples/width_candidates.py`
+    (`weighted_squared_error`), and imported (SS3.7, SS3.9 -- never re-derived per driver). It landed
+    with WSEL-16's authoring and WSEL-13 tier 2 was separately RE-AUTHORIZED 2026-07-22
+    (`width.md` SS3.8's RESOLUTION UPDATE / RE-AUTHORIZED paragraphs) -- so this guard no longer
+    refuses tier 2 unconditionally. It still refuses MECHANICALLY: tier 2 proceeds only if
+    `weighted_squared_error` actually imports right now, so a future revert or breakage of
+    `width_candidates.py` fails loudly here rather than silently falling through to plain MSE. `run_cell`
+    itself has no plain-MSE branch for tier 2 to fall into -- see `_train_all_schedule_weighted_to_convergence`,
+    which is the ONLY trainer tier 2 ever calls, hardcoded to the weighted objective with no toggle.
 
     This raises rather than silently running tier 2 under plain MSE. Such a cell would be measured on
     an objective the plan explicitly calls incomparable to what the noisy-easy control exists to
     measure -- and it would look exactly like a valid result. That failure mode is what voided
     WSEL-11's first run.
     """
-    if tier is not Tier.ONE:
+    if tier is Tier.ONE:
+        return
+    try:
+        module = importlib.import_module("automl_package.examples.width_candidates")
+        if not hasattr(module, "weighted_squared_error"):
+            raise ImportError("width_candidates imports but has no weighted_squared_error attribute")
+    except ImportError as exc:
         raise SystemExit(
-            f"WSEL-13 tier {tier.value} is BLOCKED: its sanctioned objective is the fixed-sigma weighted "
-            "squared error, which lives in automl_package/examples/width_candidates.py (created by WSEL-15, "
-            "not yet on disk). Running it under plain MSE would silently measure the wrong objective. "
-            "Run tier 1 now; tier 2 unblocks when WSEL-15 lands."
-        )
+            f"WSEL-13 tier {tier.value} is BLOCKED: its sanctioned objective, `weighted_squared_error`, "
+            f"failed to import from automl_package.examples.width_candidates ({exc}). Running it under "
+            "plain MSE would silently measure the wrong objective. Fix the import before running tier 2."
+        ) from exc
+
+
+_HETERO3_NOISY_REGION = 2  # nwn.make_hetero3's region id for the noisy-easy tail (HETERO3_NOISY_SIGMA).
+
+
+def _sigma_true_tensor(toy: nwn.Toy, region: np.ndarray, sigma: float, norm: dict) -> torch.Tensor:
+    """Per-point TRUE noise sigma (`width.md` SS3.7), IN STANDARDIZED-y UNITS (`/ norm["sy"]`) -- never estimated, never learned.
+
+    `hetero`: `sigma` (the toy's own constant) everywhere -- both regions share it. `hetero3`: region 2
+    (noisy-easy) is `HETERO3_NOISY_SIGMA`, regions 0/1 are `HETERO_NOISE_SIGMA` -- read from the
+    generator's own `region` output, never re-derived by thresholding `x`. A pure linear rescale of `y`
+    (`y_std = (y - my) / sy`) rescales its noise std by the same factor `sy`, so `sigma_true` must be
+    divided by it too or the weighted loss trains on a mismatched scale.
+
+    Mirrors `width_wsel16._sigma_true_tensor` (`automl_package/examples/width_wsel16.py:369`) exactly,
+    reimplemented locally rather than imported: `width_wsel16.py` imports THIS module
+    (`import width_wsel13 as w13`, for the OLS/greedy ordering helpers), so importing back would be
+    circular.
+    """
+    if toy is nwn.Toy.HETERO3:
+        sigma_raw = np.where(region == _HETERO3_NOISY_REGION, nwn.HETERO3_NOISY_SIGMA, nwn.HETERO_NOISE_SIGMA)
+    else:
+        sigma_raw = np.full(region.shape, sigma, dtype=np.float64)
+    return torch.as_tensor(sigma_raw / norm["sy"], dtype=torch.float32)
+
+
+def _train_all_schedule_weighted_to_convergence(
+    net: nwn.SharedTrunkPerWidthHeadNet,
+    x_tr: torch.Tensor,
+    y_tr: torch.Tensor,
+    x_val: torch.Tensor,
+    y_val: torch.Tensor,
+    sigma_tr: torch.Tensor,
+    sigma_val: torch.Tensor,
+    *,
+    w_max: int,
+    max_epochs: int,
+    check_every: int,
+    patience: int,
+    min_delta: float,
+) -> dict[int, cvg.ConvergenceResult]:
+    """Tier-2-ONLY trainer: `WidthSchedule.ALL`, every width every step, under the SS3.7 fixed-sigma weighted squared error; gated by PER-WIDTH held-out convergence.
+
+    Tier 1 keeps training through `kce._train_kdropout_to_convergence` under the certified SANDWICH
+    schedule, unchanged (see `run_cell`). Tier 2's RE-AUTHORIZED spec (`width.md` SS3.8 "RE-AUTHORIZED
+    2026-07-22") trains under ALL instead, and `kce._train_kdropout_to_convergence` cannot express the
+    weighted objective at all (its `LossType` is `{NLL, MSE}` only, and
+    `kdropout_converged_width_experiment.py` is out of this task's write set to extend) -- so this
+    reproduces that function's own ALL-schedule branch (deterministic `range(1, w_max + 1)`, no RNG
+    draw, `kdropout_converged_width_experiment.py:293-295`) with the weighted loss substituted in,
+    using `net.all_widths_forward` for a single shared-trunk evaluation per step (the WSEL-12
+    vectorisation `SharedTrunkPerWidthHeadNet` already exposes, rather than `w_max` separate
+    `forward_width` calls). Checkpointing follows the SAME whole-net-at-best-mean-per-width-val rule
+    `kce._train_kdropout_to_convergence` uses for `Arch.SHARED_TRUNK` (not per-width independent
+    restoration -- this class has one shared trunk, restoring one width's best state would clobber
+    another's).
+
+    There is deliberately no `loss` or `total_loss_fn` parameter: tier 2 always trains on
+    `wc.weighted_squared_error`, never plain squared error -- no branch here could silently fall back
+    to it (the purpose `_assert_tier_objective_available` exists to guard).
+
+    Args:
+        net: a `SharedTrunkPerWidthHeadNet` to train in place.
+        x_tr: standardized training inputs, shape `(N, 1)`.
+        y_tr: standardized training targets, shape `(N,)`.
+        x_val: standardized held-out inputs used only for convergence monitoring.
+        y_val: standardized held-out targets used only for convergence monitoring.
+        sigma_tr: per-training-point true noise sigma (standardized-y units), same length as `y_tr`.
+        sigma_val: per-val-point true noise sigma (standardized-y units), same length as `y_val`.
+        w_max: maximum hidden width (the largest prefix the net can express).
+        max_epochs: safety cap on optimizer steps (== epochs; full-batch).
+        check_every: epochs between per-width held-out checkpoints.
+        patience: consecutive flat checkpoints that declare one width converged.
+        min_delta: held-out-loss decrease counted as a real improvement.
+
+    Returns:
+        `{width -> ConvergenceResult}`, best weights already restored.
+    """
+    opt = torch.optim.Adam(net.parameters(), lr=cwe.LR)
+    trackers = {k: cvg.ConvergenceTracker(patience=patience, min_delta=min_delta) for k in range(1, w_max + 1)}
+    best_mean_val = math.inf
+    best_net_state: dict | None = None
+
+    net.train()
+    final_epoch = max_epochs
+    for epoch in range(1, max_epochs + 1):
+        opt.zero_grad()
+        mean_all, _logvar_all = net.all_widths_forward(x_tr)  # (N, w_max); ALL schedule -- every width, every step.
+        total_loss = torch.zeros((), device=x_tr.device)
+        for k in range(1, w_max + 1):
+            total_loss = total_loss + wc.weighted_squared_error(mean_all[:, k - 1], y_tr, sigma_tr)
+        total_loss.backward()
+        opt.step()
+
+        if epoch % check_every == 0:
+            net.eval()
+            with torch.no_grad():
+                mean_val_all, _ = net.all_widths_forward(x_val)
+                per_width_val = {k: float(wc.weighted_squared_error(mean_val_all[:, k - 1], y_val, sigma_val).item()) for k in range(1, w_max + 1)}
+            for k, v in per_width_val.items():
+                trackers[k].update(epoch, v)
+            mean_val = sum(per_width_val.values()) / w_max
+            if mean_val < best_mean_val:
+                best_mean_val = mean_val
+                best_net_state = {n: t.detach().clone() for n, t in net.state_dict().items()}
+            net.train()
+            if all(t.done for t in trackers.values()):
+                final_epoch = epoch
+                break
+
+    if best_net_state is not None:
+        net.load_state_dict(best_net_state)
+    net.eval()
+    return {k: trackers[k].result(final_epoch=final_epoch) for k in range(1, w_max + 1)}
 
 
 def _fit_ols(h: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -192,23 +324,31 @@ def run_cell(
 ) -> tuple[dict, dict]:
     """Runs one (tier, seed) cell: trains to convergence, then Step 2 + Step 3. Returns `(case, state_dict)`.
 
-    Data prep mirrors `kdropout_converged_width_experiment.run_case` verbatim for `arch=SHARED_TRUNK,
-    loss=MSE, schedule=SANDWICH` (the only combination this task runs) -- reimplemented here rather than
-    calling `run_case` because this task needs the trained net object and the held-out test set directly
-    (for the ablation/OLS diagnostics), neither of which `run_case` returns. The TRAINING LOOP itself is
-    never reimplemented: `_train_kdropout_to_convergence` is imported and called as-is.
+    Data prep mirrors `kdropout_converged_width_experiment.run_case` verbatim for `arch=SHARED_TRUNK`
+    (the only architecture this task runs) -- reimplemented here rather than calling `run_case` because
+    this task needs the trained net object and the held-out test set directly (for the ablation/OLS
+    diagnostics), neither of which `run_case` returns.
+
+    Tier 1 (`loss=MSE`, `schedule=SANDWICH` by default): the TRAINING LOOP itself is never
+    reimplemented -- `_train_kdropout_to_convergence` is imported and called as-is, `schedule`
+    overridable for the nested-vs-sandwich ablation this task's `--schedule` flag exists for.
+
+    Tier 2 (RE-AUTHORIZED `width.md` SS3.8): trains under `WidthSchedule.ALL` on the fixed-sigma
+    weighted objective (SS3.7) -- neither expressible through `_train_kdropout_to_convergence`
+    (`LossType` has no weighted member), so `_train_all_schedule_weighted_to_convergence` (this module)
+    is called instead. `schedule` is IGNORED for tier 2 -- ALL is mandatory, not a choice (see `main`).
     """
     cfg = _TIER_CONFIG[tier]
     if cfg.toy is nwn.Toy.HETERO3:
-        x_tr, y_tr, _reg_tr = nwn.make_hetero3(cfg.n_train, seed)
+        x_tr, y_tr, region_tr = nwn.make_hetero3(cfg.n_train, seed)
         x_te, y_te, _reg_te = nwn.make_hetero3(cfg.n_test, seed + 500)
     else:
-        x_tr, y_tr, _reg_tr = nwn.make_hetero(cfg.n_train, seed, sigma=cfg.sigma)
+        x_tr, y_tr, region_tr = nwn.make_hetero(cfg.n_train, seed, sigma=cfg.sigma)
         x_te, y_te, _reg_te = nwn.make_hetero(cfg.n_test, seed + 500, sigma=cfg.sigma)
 
     # Same phase-1 train/val carve as the k-dropout battery (rest = train, every VAL_EVERY-th = val).
     p1_idx = np.arange(0, cfg.n_train, 2)
-    x_p1, y_p1 = x_tr[p1_idx], y_tr[p1_idx]
+    x_p1, y_p1, region_p1 = x_tr[p1_idx], y_tr[p1_idx], region_tr[p1_idx]
     val_mask = (np.arange(len(x_p1)) % cwe.VAL_EVERY) == 0
     norm = cwe._standardize_fit(x_p1[~val_mask], y_p1[~val_mask])
     x_tr_t, y_tr_t = cwe._to_std_tensors(x_p1[~val_mask], y_p1[~val_mask], norm)
@@ -216,21 +356,43 @@ def run_cell(
 
     torch.manual_seed(seed)
     net = nwn.SharedTrunkPerWidthHeadNet(w_max=w_max)
-    conv, _best_mean_val_epoch = kce._train_kdropout_to_convergence(
-        net,
-        x_tr_t,
-        y_tr_t,
-        x_val_t,
-        y_val_t,
-        arch=ARCH,
-        loss=LOSS,
-        max_epochs=max_epochs,
-        check_every=check_every,
-        patience=patience,
-        min_delta=min_delta,
-        seed=seed,
-        schedule=schedule,
-    )
+    if tier is Tier.TWO:
+        effective_schedule = nwn.WidthSchedule.ALL
+        objective = "weighted_squared_error"
+        sigma_tr = _sigma_true_tensor(cfg.toy, region_p1[~val_mask], cfg.sigma, norm)
+        sigma_val = _sigma_true_tensor(cfg.toy, region_p1[val_mask], cfg.sigma, norm)
+        conv = _train_all_schedule_weighted_to_convergence(
+            net,
+            x_tr_t,
+            y_tr_t,
+            x_val_t,
+            y_val_t,
+            sigma_tr,
+            sigma_val,
+            w_max=w_max,
+            max_epochs=max_epochs,
+            check_every=check_every,
+            patience=patience,
+            min_delta=min_delta,
+        )
+    else:
+        effective_schedule = schedule
+        objective = LOSS.value  # "mse" -- exactly equivalent to the fixed-sigma likelihood on tier 1's constant sigma (SS3.7).
+        conv, _best_mean_val_epoch = kce._train_kdropout_to_convergence(
+            net,
+            x_tr_t,
+            y_tr_t,
+            x_val_t,
+            y_val_t,
+            arch=ARCH,
+            loss=LOSS,
+            max_epochs=max_epochs,
+            check_every=check_every,
+            patience=patience,
+            min_delta=min_delta,
+            seed=seed,
+            schedule=schedule,
+        )
     n_trustworthy = sum(1 for r in conv.values() if r.trustworthy)
     all_trustworthy = n_trustworthy == w_max
 
@@ -311,7 +473,8 @@ def run_cell(
             "kendall_tau_greedy_vs_index": {"tau": float(kendall_res.statistic), "p": float(kendall_res.pvalue)},
             "mean_relative_prefix_gap": mean_relative_prefix_gap,
         },
-        "training_schedule": schedule.value,
+        "training_schedule": effective_schedule.value,  # tier 2 is always "all" (RE-AUTHORIZED, width.md SS3.8); tier 1 reads --schedule.
+        "objective": objective,  # "mse" (tier 1) or "weighted_squared_error" (tier 2) -- machine-readable per the RE-AUTHORIZED labelling requirement.
         "provenance": run_provenance(),
     }
     return case, {name: t.detach().clone() for name, t in net.state_dict().items()}
@@ -326,6 +489,19 @@ def _schedule_suffix(schedule: nwn.WidthSchedule) -> str:
     is additive.
     """
     return "" if schedule is SCHEDULE else f"_{schedule.value}"
+
+
+def _canonical_schedule_for_tier(tier: Tier) -> nwn.WidthSchedule:
+    """Which schedule a CANONICAL cell of this tier was (or will be) trained under -- for filenames.
+
+    Tier 1 trains under the certified SANDWICH schedule by default (`SCHEDULE`), overridable via
+    `--schedule` for the nested-vs-sandwich ablation this task also runs -- callers wanting a specific
+    tier-1 alternate-schedule file pass their own `schedule` to `_cell_json_path`/`_state_path` directly,
+    bypassing this helper. Tier 2 is fixed at ALL by the RE-AUTHORIZED ruling (`width.md` SS3.8) -- not
+    a user choice -- so its canonical (and only) on-disk schedule is always ALL, regardless of what
+    `--schedule` defaults to.
+    """
+    return nwn.WidthSchedule.ALL if tier is Tier.TWO else SCHEDULE
 
 
 def _cell_json_path(tier: Tier, seed: int, schedule: nwn.WidthSchedule = SCHEDULE) -> str:
@@ -375,6 +551,39 @@ def run_selftest() -> bool:
     print(f"[wsel13 selftest] (step3) greedy picks unit 0 first, order matches index: order={greedy_order} tau={tau:.3g}  {'PASS' if greedy_ok else 'FAIL'}")
 
     ok = conv_ok and ordering_ok and greedy_ok
+
+    # Tier-2 wiring (RE-AUTHORIZED, width.md SS3.8): the weighted objective actually engages, and the
+    # ALL schedule -- not sandwich -- is what tier-2 training sees. No real cell is run beyond the tiny
+    # w_max=2 toy below.
+    #
+    # (a) formula engagement: two points with an IDENTICAL residual (1.0) but different true sigma --
+    # `weighted_squared_error` must differ from plain MSE by EXACTLY `mean(1/sigma**2)` (the down-
+    # weighting factor SS3.7 exists to apply), proving this module calls the real formula, not a copy.
+    pred = torch.tensor([2.0, 2.0])
+    y_target = torch.tensor([1.0, 1.0])  # residual = 1.0 at both points
+    sigma_quiet, sigma_noisy = nwn.HETERO_NOISE_SIGMA, nwn.HETERO3_NOISY_SIGMA
+    sigma_true = torch.tensor([sigma_quiet, sigma_noisy])
+    weighted = wc.weighted_squared_error(pred, y_target, sigma_true)
+    plain = ((pred - y_target) ** 2).mean()
+    expected_ratio = float(torch.mean(1.0 / sigma_true**2))
+    actual_ratio = float(weighted / plain)
+    engagement_ok = math.isclose(actual_ratio, expected_ratio, rel_tol=1e-5)
+    print(f"[wsel13 selftest] (tier2 wiring a) weighted/plain={actual_ratio:.6g} expected={expected_ratio:.6g}  {'PASS' if engagement_ok else 'FAIL'}")
+
+    # (b) a real (tiny) tier-2 cell records ALL as its training schedule and the weighted objective by
+    # name -- proves the cell that actually trains sees both, not just that the formula above works.
+    torch.manual_seed(0)
+    case_tier2, _state_tier2 = run_cell(Tier.TWO, seed=0, w_max=w_max, max_epochs=3000, check_every=100, patience=3, min_delta=2e-3)
+    conv_ok_tier2 = all(len(case_tier2["convergence"][k]["trajectory"]) >= 1 for k in (1, 2))
+    schedule_ok = case_tier2["training_schedule"] == nwn.WidthSchedule.ALL.value
+    objective_ok = case_tier2["objective"] == "weighted_squared_error"
+    wiring_ok = conv_ok_tier2 and schedule_ok and objective_ok
+    print(
+        f"[wsel13 selftest] (tier2 wiring b) schedule={case_tier2['training_schedule']!r} "
+        f"objective={case_tier2['objective']!r} convergence recorded={conv_ok_tier2}  {'PASS' if wiring_ok else 'FAIL'}"
+    )
+
+    ok = ok and engagement_ok and wiring_ok
     print(f"[wsel13 selftest] {'PASS' if ok else 'FAIL'}")
     return ok
 
@@ -384,7 +593,7 @@ def summarize() -> None:
     per_tier: dict[Tier, dict[int, dict]] = {Tier.ONE: {}, Tier.TWO: {}}
     for tier in Tier:
         for seed in SEEDS:
-            path = _cell_json_path(tier, seed)
+            path = _cell_json_path(tier, seed, _canonical_schedule_for_tier(tier))
             if os.path.exists(path):
                 with open(path) as f:
                     per_tier[tier][seed] = json.load(f)
@@ -452,11 +661,17 @@ def summarize() -> None:
             "n_train": _TIER_CONFIG[Tier.ONE].n_train,
             "n_test": _TIER_CONFIG[Tier.ONE].n_test,
             "sigma": _TIER_CONFIG[Tier.ONE].sigma,
+            "schedule": SCHEDULE.value,
+            "objective": LOSS.value,
         },
         "tier2": {
             "toy": _TIER_CONFIG[Tier.TWO].toy.value,
             "n_train": _TIER_CONFIG[Tier.TWO].n_train,
             "n_test": _TIER_CONFIG[Tier.TWO].n_test,
+            # RE-AUTHORIZED 2026-07-22 (width.md SS3.8): tier 2 trains under ALL, not the tier-1 SANDWICH
+            # default -- named explicitly here since this config block tabulates both tiers together.
+            "schedule": nwn.WidthSchedule.ALL.value,
+            "objective": "weighted_squared_error",
         },
         "heldout_fit_fraction": _HELDOUT_FIT_FRACTION,
         "heldout_select_report_split": _HELDOUT_SELECT_REPORT_SPLIT,
@@ -495,12 +710,14 @@ def main() -> None:
     parser.add_argument(
         "--schedule", type=str, choices=[s.value for s in nwn.WidthSchedule], default=SCHEDULE.value,
         help=(
-            "Which width-training schedule to train under. "
+            "TIER 1 ONLY -- which width-training schedule to train under. "
             "'sandwich' (default, the CERTIFIED one) trains the narrowest AND the widest every step plus 2 random "
             "middles -- so the widest trains every step and the LAST unit is never starved. "
             "'nested' draws ONE width per example per pass, so the last unit trains ~1/w_max of the time. "
             "The decreasing-importance prediction is derived for the 'nested' case; running both is what separates "
-            "'the mechanism does not exist' from 'our schedule trains the asymmetry away'."
+            "'the mechanism does not exist' from 'our schedule trains the asymmetry away'. "
+            "Not selectable for tier 2, which is fixed at 'all' by the RE-AUTHORIZED ruling (width.md SS3.8) -- "
+            "passing anything but the default alongside --tier 2 is a hard error."
         ),
     )
     parser.add_argument("--seed", type=int, default=None, help="RNG seed for this cell (canonical suite: 0, 1, 2).")
@@ -520,9 +737,19 @@ def main() -> None:
 
     tier = Tier(args.tier)
     _assert_tier_objective_available(tier)
+    if tier is Tier.TWO and args.schedule != SCHEDULE.value:
+        parser.error(
+            f"--schedule is fixed at {nwn.WidthSchedule.ALL.value!r} for tier 2 (RE-AUTHORIZED, width.md SS3.8) "
+            "and is not user-selectable; omit --schedule for a tier-2 cell."
+        )
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    print(f"[wsel13] tier={tier.value} toy={_TIER_CONFIG[tier].toy.value} seed={args.seed} w_max={W_MAX} arch={ARCH.value} loss={LOSS.value}", flush=True)
-    schedule = nwn.WidthSchedule(args.schedule)
+    schedule = nwn.WidthSchedule.ALL if tier is Tier.TWO else nwn.WidthSchedule(args.schedule)
+    objective_label = LOSS.value if tier is Tier.ONE else "weighted_squared_error"
+    print(
+        f"[wsel13] tier={tier.value} toy={_TIER_CONFIG[tier].toy.value} seed={args.seed} w_max={W_MAX} "
+        f"arch={ARCH.value} schedule={schedule.value} objective={objective_label}",
+        flush=True,
+    )
     case, state_dict = run_cell(
         tier, args.seed, max_epochs=args.max_epochs, check_every=args.check_every,
         patience=args.patience, min_delta=args.min_delta, schedule=schedule,
