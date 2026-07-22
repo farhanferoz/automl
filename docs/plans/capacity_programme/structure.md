@@ -24,7 +24,7 @@ resumes at the first wave not marked ✅ — never re-dispatches a ✅ wave.
 | **0.5** | merge `capacity/wave-1` → master | ✅ **complete 2026-07-21** — fast-forward `fd80b39..d66d74c` (13 commits, 0 divergence). Full suite gate first: **431 passed / 2 failed / 1 skipped**, the 2 being the pre-accepted pair (+5 vs the pre-Wave-A baseline = the new tests). Ongoing work moved to branch `capacity/wave-2`. | — |
 | **A** | PS-A1 ∥ PS-A2 | ✅ **complete 2026-07-21** — both reviewed clean (spec ✅ / quality approved, 0 Critical, 0 Important on each) | **PS-A1 = `25fcf9a`** (+ root hardening: `head_spread` lacked the string coercion every other enum kwarg in that `__init__` has, so a string would have matched none of the `is` branches and silently behaved as `PER_INPUT`). **PS-A2 = `d9a8cd9`** driver + **`d66d74c`** (D1 made explicitly inapplicable to no-fitted-spread arms rather than accidentally so). Reviewers independently re-ran selftest/ruff and hand-checked the D2 comparison SIGN — an inversion there would have silently selected the WORST arm. 4 Minor findings in the ledger for the final review. |
 | **B** | PS-1 trunk grid | ✅ **complete 2026-07-21** — 160/160 cells (10 arms × 4 toys × k{2,6} × seeds{0,1}), all readable, no duplicates, primary metric present on every cell. 20 cells hit the 300-epoch cap and were re-run once at 600 per §2; **one did not converge even then** and is excluded from D2 per D-PS-5. **Winner = `ce × fixed_shared × mixture`, decided by D4, NOT by a measured win** — see the evidence note below. | `automl_package/examples/capacity_ladder_results/PS1/frozen.json` · `automl_package/examples/capacity_ladder_results/PS1/ps1_decision.json` · originals of the capped cells kept under `automl_package/examples/capacity_ladder_results/PS1/capped_at_300/` so the re-run is auditable against what it replaced |
-| **C** | PS-2 patch audit | ⬜ | — |
+| **C** | PS-2 patch audit | ✅ **complete 2026-07-22** — 144 cells (4 distinct arms × 4 toys × k{2,3,6} × seeds{0,1,2}; k=3 added on user authorisation, D-PS-8). 24 cells hit the 300-epoch cap; all 24 converged on the locked 600-epoch re-run (0 excluded). **Verdict: NO patch is kept — winner = trunk W with every patch off**, by D4 (no arm dominated the k=2 D2 pool). Boundary loses decisively at k=2 (−0.19 toy_a, −0.37 toy_b), so the repaired path is not a spurious winner. **Caveat, for the memo: at k=3, middle-class ON modestly BEATS off (3/4 toys, +0.087 on the reference toy_b) — but the k=2-locked D2 readout is structurally blind to it. See the PS-2 evidence note.** <!-- numcheck-ignore: the decimals here are cross-cell seed-mean DIFFS (mc_on−mc_off, boundary−winner), not values stored in any single cell; authoritative source = the PS2 cells + frozen.json. --> | `automl_package/examples/capacity_ladder_results/PS2/ps2_decision.json` · `frozen.json` · `inapplicable_arms.json` · capped originals under `PS2/capped_at_300/` |
 | **D** | PS-3 head battery | ⬜ | — |
 | **E** | PS-4 certification → ⛔ user gate | ⬜ | — |
 
@@ -49,6 +49,72 @@ resumes at the first wave not marked ✅ — never re-dispatches a ✅ wave.
   instead of it showing up only as a quietly smaller `n_seeds`. One cell is affected
   (`ce × all_constant × mixture`, `toy_a`, k=2, seed 1). **A rule that is recorded but not wired to
   the code that consumes it is not a rule** — the same defect class as D-PS-1 and D-PS-4.
+- **D-PS-6 — PS-2's boundary arm, as locked, cannot be constructed; it runs as `HARDSIGMOID`.**
+  §3's ledger prescribes `PENALTY` when the winner's spread is `fixed_shared` — which it is — while
+  noting in the same breath that `PENALTY × PROBABILISTIC` raises by design. Verified empirically:
+  the constructor raises `ValueError` for `PENALTY` and succeeds for `HARDSIGMOID`. The arm as
+  written would therefore have contributed zero cells and silently dropped the boundary patch from
+  the audit. It runs as `HARDSIGMOID`, which is exactly what the raise's own message prescribes.
+- **D-PS-7 — at this winner, PS-2's "all patches off" arm is DEGENERATE with its "middle-class off"
+  arm, and is run once rather than twice.** `ordering=auto` resolves to `ordering_constraint_weight
+  = 0.0` for the winner (verified: `CE_STOP_GRAD` + `FIXED_SIGMA_MIXTURE` is not the sanctioned
+  `(recipe, GAUSSIAN_LTV, REGRESSION_ONLY)` triple that turns ordering on), so "W with all patches
+  off" and "W with middle-class flipped off" resolve to identical kwargs. Running both would place
+  two identical arms in the D2 pool; since an arm cannot beat its own twin, `_dominant` would be
+  unsatisfiable and **PS-2 would fall to the D4 tie-break by construction** — a non-result wearing
+  the costume of a decision, the same failure shape D-PS-1 and the PS-1 evidence note describe.
+  4 distinct arms run (96 cells); the keep rule's "all-off ties W ⇒ drop all patches" clause reads
+  the middle-class-off cells. The two applicability-skipped arms (`anchored`, `monotonic` — the
+  plan's own spread≠`per_input` rule) are recorded in `automl_package/examples/capacity_ladder_results/PS2/inapplicable_arms.json`, not run.
+
+- **D-PS-8 — the middle-class factor is INERT at every k the plan pinned; the USER authorised adding
+  an odd k (2026-07-21, live).** §4.2 pins k ∈ {2, 6}, both EVEN. A head is the middle class only
+  where `i == middle_point` with `middle_point = (n_classes - 1) / 2`
+  (`automl_package/models/common/regression_heads.py:311`), which at even k is a half-integer no
+  integer index can equal ⇒ `constrain_middle_class` does nothing. This was not inferred from the
+  code alone: at k=2 and k=6 all 24 matched `winner` vs `middleclass_off` cells came back
+  **byte-identical in their entire `final` block**. So factor #7 was unfalsifiable as designed — and
+  it was also inert throughout **PS-1**, whose every cell ran at even k with the constraint nominally
+  ON. **k = 3 added to PS-2** (smallest odd k; between truth-scale 2 and over-capacity 6). Measured
+  after the fact, the fix works: at k=3, **12 of 12** matched pairs DIFFER, while k=2 and k=6 remain
+  12-of-12 identical. Scope was kept deliberately narrow: **the locked D2 readout stays at k = 2**
+  (D-PS-2 untouched); the middle-class comparison is read at k=3 as a separately labelled result,
+  because a patch can only be judged where it is defined. Evidence:
+  `automl_package/examples/capacity_ladder_results/PS2/ps2_decision.json`.
+- **D-PS-9 — HARDSIGMOID boundary constraints were BROKEN IN THE LIBRARY, not just unrunnable in the
+  plan; fixed at source with tests (`f6ae824`).** `SeparateHeadsRegressionModule.forward` passed the
+  whole (n_classes, 2) boundary table to every head, while `_apply_boundary_constraints` reads dim 0
+  as a broadcastable batch axis — so head `i` broadcast `n_classes` bounds against a batch of means
+  and raised unless `n_classes == batch_size`. All 24 boundary cells failed on first launch. The
+  quieter half: where the shapes DID coincide, every head was constrained by the wrong class's rows.
+  Boundary regularization is off by default and had **no test anywhere**, which is why PS-2 was the
+  first thing in the programme to exercise it. Verified that this cannot have contaminated any
+  landed cell: `boundaries` is passed **only** under `HARDSIGMOID`
+  (`automl_package/models/probabilistic_regression.py:832-837`), so every other cell received `None`
+  and the changed line is a no-op for them. Full suite after the fix: **443 passed / 2 failed /
+  1 skipped**, the 2 being the pre-accepted pair, the +12 vs the 431 baseline fully accounted for by
+  three new test files. ⚠️ **For the memo: the boundary arm's numbers are FIRST-LIGHT data from a
+  code path repaired the same day. If that arm wins, treat it as grounds for suspicion, not a
+  finding.**
+
+**⚠️ PS-2 EVIDENCE NOTE — carry into the PS-4 memo.** Source:
+`automl_package/examples/capacity_ladder_results/PS2/ps2_decision.json` + the k=3 cells.
+
+1. **PS-2 kept no patch; the winner is the trunk with every patch OFF, decided by D4, not by D2.**
+   No arm dominated the k=2 survivor pool (`primary_winner: null`, `decided_by: "d4_tiebreak"`),
+   so D4's "patches OFF" preference selected it. The same underdetermination the PS-1 note flagged.
+2. **The middle-class patch is a genuine blind spot of the locked decision.** D2 is locked to k=2
+   (D-PS-2), and the patch is provably inert at even k (D-PS-8) — so `winner` and `middleclass_off`
+   are IDENTICAL twins in the k=2 pool, and the automated decision cannot distinguish them. The one
+   k where it *is* active, k=3, shows middle-class ON modestly AHEAD (better on 3/4 toys; <!-- numcheck-ignore: cross-cell seed-mean diff (mc_on−mc_off) at k=3, not a stored cell value; source = the PS2 k=3 cells. -->
+   +0.087 on the reference toy_b, the rest within ±0.01). This is not strong enough to overturn anything and <!-- numcheck-ignore: same derived-diff figures as the line above; source = the PS2 k=3 cells. -->
+   the locked rule is deliberately left unchanged, but the honest statement for the memo is: **the
+   audit dropped middle-class by preference at a k where it does nothing, while the only evidence of
+   what it does points the other way.** If the certified structure is ever used at odd k, revisit.
+3. **The boundary patch (first-light after the library fix) loses cleanly** — worse than the winner
+   on all four toys at k=2, decisively on toy_a (−0.19) and toy_b (−0.37). <!-- numcheck-ignore: cross-cell seed-mean diff (boundary−winner) at k=2, not a stored cell value; source = the PS2 k=2 cells. --> The concern in D-PS-9
+   (that a freshly-repaired path might produce a suspicious win) did not materialise; it is dropped
+   on its merits.
 
 **⚠️ PS-1 EVIDENCE NOTE — carry this verbatim into the PS-4 memo; it constrains how the trunk
 winner may be described.** Both facts below are the locked rules firing exactly as written; neither

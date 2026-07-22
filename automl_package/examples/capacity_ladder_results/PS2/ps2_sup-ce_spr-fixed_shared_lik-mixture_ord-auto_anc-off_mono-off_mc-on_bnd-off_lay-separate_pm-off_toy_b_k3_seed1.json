@@ -1,0 +1,437 @@
+{
+  "arm": {
+    "supervision": "ce",
+    "spread": "fixed_shared",
+    "likelihood": "mixture",
+    "patches": {
+      "ordering": "auto",
+      "anchored": "off",
+      "monotonic": "off",
+      "middle_class": "on",
+      "boundary": "off"
+    },
+    "layout": "separate"
+  },
+  "param_match": "off",
+  "hidden_size_used": null,
+  "toy": "toy_b",
+  "k": 3,
+  "seed": 1,
+  "sigma_toy": 0.3,
+  "resolved_kwargs": {
+    "input_size": 1,
+    "n_classes": 3,
+    "max_n_classes_for_probabilistic_path": 3,
+    "n_classes_selection_method": "none",
+    "n_epochs": 300,
+    "learning_rate": 0.01,
+    "early_stopping_rounds": null,
+    "validation_fraction": 0.2,
+    "test_fraction": 0.0,
+    "batch_size": 64,
+    "random_seed": 1,
+    "calculate_feature_importance": false,
+    "uncertainty_method": "constant",
+    "prob_reg_loss_type": "fixed_sigma_mixture",
+    "fixed_sigma_train": 0.3,
+    "optimization_strategy": "ce_stop_grad",
+    "allow_retired_capacity_selection": true,
+    "use_anchored_heads": false,
+    "use_monotonic_constraints": false,
+    "constrain_middle_class": true,
+    "boundary_regularization_method": "none",
+    "regression_strategy": "separate_heads"
+  },
+  "allow_retired_recorded": true,
+  "provenance": {
+    "timestamp_utc": "2026-07-21T21:13:30+00:00",
+    "git": {
+      "commit": "f6ae8243b4b3b2d1739810c0b1fd5698523dc17b",
+      "dirty": true
+    },
+    "python": "3.12.13",
+    "torch": "2.10.0+xpu",
+    "numpy": "2.4.3",
+    "platform": "Linux-7.1.3-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "threads": {
+      "omp_num_threads": "4",
+      "torch_num_threads": 4,
+      "cpu_count": 22
+    },
+    "automl_device": "cpu"
+  },
+  "trajectory": [
+    {
+      "epoch": 0,
+      "train_nll_own": 1.6706069707870483,
+      "heldout_nll_own": 1.6880125999450684,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.3971884548664093,
+        "max": 0.46572205424308777
+      },
+      "ordering_violations": 2
+    },
+    {
+      "epoch": 10,
+      "train_nll_own": 1.4684898853302002,
+      "heldout_nll_own": 1.546858310699463,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5916181802749634,
+        "max": 0.7566408514976501
+      },
+      "ordering_violations": 1
+    },
+    {
+      "epoch": 20,
+      "train_nll_own": 1.2266958951950073,
+      "heldout_nll_own": 1.304211974143982,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.575944185256958,
+        "max": 0.6936637163162231
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 30,
+      "train_nll_own": 1.160313606262207,
+      "heldout_nll_own": 1.2498277425765991,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5925483703613281,
+        "max": 0.7064465284347534
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 40,
+      "train_nll_own": 1.1495155096054077,
+      "heldout_nll_own": 1.2300463914871216,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5675910711288452,
+        "max": 0.6590977311134338
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 50,
+      "train_nll_own": 1.1534632444381714,
+      "heldout_nll_own": 1.2357579469680786,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5757203102111816,
+        "max": 0.638954222202301
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 60,
+      "train_nll_own": 1.1489567756652832,
+      "heldout_nll_own": 1.2099297046661377,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5682089924812317,
+        "max": 0.6297298669815063
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 70,
+      "train_nll_own": 1.1288297176361084,
+      "heldout_nll_own": 1.2109369039535522,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5756166577339172,
+        "max": 0.6637221574783325
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 80,
+      "train_nll_own": 1.120639443397522,
+      "heldout_nll_own": 1.1962119340896606,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5839423537254333,
+        "max": 0.6695181727409363
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 90,
+      "train_nll_own": 1.1279298067092896,
+      "heldout_nll_own": 1.2398862838745117,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5928261280059814,
+        "max": 0.6899804472923279
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 100,
+      "train_nll_own": 1.1215205192565918,
+      "heldout_nll_own": 1.1801364421844482,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5802672505378723,
+        "max": 0.6719039678573608
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 110,
+      "train_nll_own": 1.095486044883728,
+      "heldout_nll_own": 1.1814558506011963,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5780830979347229,
+        "max": 0.6648700833320618
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 120,
+      "train_nll_own": 1.091872215270996,
+      "heldout_nll_own": 1.1903308629989624,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5879345536231995,
+        "max": 0.6828730702400208
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 130,
+      "train_nll_own": 1.0885810852050781,
+      "heldout_nll_own": 1.1858162879943848,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5877454876899719,
+        "max": 0.6804424524307251
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 140,
+      "train_nll_own": 1.078540563583374,
+      "heldout_nll_own": 1.1909215450286865,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5946111083030701,
+        "max": 0.7010689377784729
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 150,
+      "train_nll_own": 1.080021619796753,
+      "heldout_nll_own": 1.1655060052871704,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5754382610321045,
+        "max": 0.6726564764976501
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 160,
+      "train_nll_own": 1.1449999809265137,
+      "heldout_nll_own": 1.23015558719635,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5929428339004517,
+        "max": 0.6957643032073975
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 170,
+      "train_nll_own": 1.0843498706817627,
+      "heldout_nll_own": 1.2158139944076538,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5979470610618591,
+        "max": 0.7145842909812927
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 180,
+      "train_nll_own": 1.0931986570358276,
+      "heldout_nll_own": 1.205450415611267,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.608842670917511,
+        "max": 0.7234243750572205
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 190,
+      "train_nll_own": 1.0683199167251587,
+      "heldout_nll_own": 1.194061517715454,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.600694477558136,
+        "max": 0.7304157018661499
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 200,
+      "train_nll_own": 1.0597543716430664,
+      "heldout_nll_own": 1.1657191514968872,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5835666656494141,
+        "max": 0.708014190196991
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 210,
+      "train_nll_own": 1.0842572450637817,
+      "heldout_nll_own": 1.1898612976074219,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.596537709236145,
+        "max": 0.7226693630218506
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 220,
+      "train_nll_own": 1.0749939680099487,
+      "heldout_nll_own": 1.2026525735855103,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.5920400619506836,
+        "max": 0.7140548825263977
+      },
+      "ordering_violations": 0
+    },
+    {
+      "epoch": 230,
+      "train_nll_own": 1.0952696800231934,
+      "heldout_nll_own": 1.204079270362854,
+      "per_class_sigma": {
+        "min": 0.3,
+        "median": 0.3,
+        "max": 0.3
+      },
+      "classifier_max_prob": {
+        "mean": 0.6072371006011963,
+        "max": 0.7302398085594177
+      },
+      "ordering_violations": 0
+    }
+  ],
+  "final": {
+    "heldout_nll_own": null,
+    "heldout_fixed_sigma_mll": -1.204079270362854,
+    "rmse": 0.7073328495025635,
+    "coverage_1sigma": 0.19333332777023315,
+    "coverage_2sigma": 0.5133333206176758,
+    "min_sigma_ratio": 0.4469588158220047,
+    "slice_accuracy": 0.55,
+    "hit_cap": false,
+    "converged": true,
+    "params_count": 518
+  }
+}

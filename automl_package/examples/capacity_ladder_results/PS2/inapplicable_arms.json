@@ -1,0 +1,38 @@
+{
+  "stage": 2,
+  "note": "PS-2 locks 7 arms off the PS-1 trunk winner. Three of them produce no cells at this winner. They are recorded here rather than silently omitted, so the certification memo can account for all 7. See structure.md section 0, D-PS-6 and D-PS-7.",
+  "trunk_winner": {
+    "supervision": "ce",
+    "spread": "fixed_shared",
+    "likelihood": "mixture",
+    "patches": {"ordering": "auto", "anchored": "off", "monotonic": "off", "middle_class": "on", "boundary": "off"},
+    "layout": "separate",
+    "resolved_ordering_constraint_weight": 0.0
+  },
+  "arms_run": [
+    {"label": "winner", "ordering": "auto", "anchored": "off", "monotonic": "off", "middle_class": "on", "boundary": "off"},
+    {"label": "ordering_on", "ordering": "on", "anchored": "off", "monotonic": "off", "middle_class": "on", "boundary": "off"},
+    {"label": "middleclass_off", "ordering": "auto", "anchored": "off", "monotonic": "off", "middle_class": "off", "boundary": "off"},
+    {"label": "boundary_hardsigmoid", "ordering": "auto", "anchored": "off", "monotonic": "off", "middle_class": "on", "boundary": "hardsigmoid"}
+  ],
+  "arms_not_run": [
+    {
+      "label": "anchored_on",
+      "disposition": "inapplicable",
+      "reason": "The plan's own applicability rule: anchored heads are an arm only when the winner's spread is per_input. This winner's spread is fixed_shared.",
+      "authority": "structure.md section 3, factor 5; section 5 PS-2 arm list"
+    },
+    {
+      "label": "monotonic_on",
+      "disposition": "inapplicable",
+      "reason": "Same applicability rule as anchored_on: monotonic head slopes are an arm only when the winner's spread is per_input.",
+      "authority": "structure.md section 3, factor 6; section 5 PS-2 arm list"
+    },
+    {
+      "label": "all_patches_off",
+      "disposition": "degenerate_with_middleclass_off",
+      "reason": "ordering=auto resolves to ordering_constraint_weight 0.0 at this winner, so 'all patches off' and 'middle-class flipped off' are the same resolved kwargs. Running both would place two identical arms in the D2 pool; an arm cannot beat its own twin, so _dominant would be unsatisfiable and PS-2 would fall to the D4 tie-break by construction. Run once; the keep rule's 'all-off ties W' clause reads the middleclass_off cells.",
+      "authority": "structure.md section 0, D-PS-7"
+    }
+  ]
+}
