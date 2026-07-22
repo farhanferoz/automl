@@ -1114,11 +1114,20 @@ exits 0; `python -c "import json; d=json.load(open('automl_package/examples/capa
 exits 0 (the invariant-or-not verdict is a field, not prose); if `d['invariant']` is `False`, the same
 file's `new_default` key is non-null and cited by WSEL-6's re-run.
 
-### WSEL-19 — the router-backend bake-off — ⏸ **RATIFIED AT THE 2026-07-22 SIGN-OFF, NOT SCHEDULED (post-merge work; writing the decision-complete spec is a ROOT action on scheduling)**
+### WSEL-19 — the router-backend bake-off — 🗓 **RATIFIED AT THE 2026-07-22 SIGN-OFF; SCHEDULED (user, same day): HEAD OF THE POST-MERGE PHASE — runs before any settled-model comparison experiment that consumes the router**
 
 **Question:** what should the distilled router BE? This is WSEL-7 rulings 2/3/5/6 turned into an
 experiment: the input-size-relative architecture requirement and the first-class regularisation
 requirement are decided empirically by a backend comparison, not by fiat.
+
+**Scheduling (user ruling, 2026-07-22 second sitting — "schedule it without me"):** runs at the
+head of the post-merge phase, BEFORE the settled-model comparison experiments that would consume
+the router — the width strand's three-chooser battery (WSEL-9, on unpark) and the ProbReg
+M1/M2/M3 selection studies (`probreg.md`, on unpark) alike. The root writes the
+decision-complete spec and the multi-feature toy design spec at that phase without further
+scheduling input from the user; the toy design spec itself still goes to the user for GO before
+anything is built (the standing toy gate — that review is about the toys' design, not about
+timing).
 
 **Four arms (user-approved 2026-07-22):**
 1. **Frozen recipe** — the current router MLP exactly as shipped (hidden `(32, 32)`, 300
@@ -1242,6 +1251,9 @@ for stopping or selection.
 ### WSEL-9 — real data + baselines — ⏸ PARKED (real data deferred; spec retained)
 
 **⏸ PARKED, not cut — the spec below is retained verbatim and is not to be deleted.**
+**Gate added at the 2026-07-22 sign-off (user):** on unpark, **WSEL-19 (the router-backend
+bake-off) runs first** — the router backend must be settled before any settled-model comparison
+experiment consumes it.
 **RULING TAKEN 2026-07-20 (user):** `docs/plans/capacity_programme/MASTER.md` Decision 3's real-data
 exemption is **NOT extended to WIDTH**. Width stays **toys-only**. The user's ruling explicitly left
 the door open to a later real-data pass, so this task is parked rather than removed: the spec stays
@@ -2309,7 +2321,7 @@ candidate cell exists; (4) every JSON under
 `hit_cap: false`; (5)
 `automl_package/examples/capacity_ladder_results/WSEL16/frozen.json` carries every field in Step 6.
 
-### WSEL-18 — vectorise the multi-head readout (user ruling 2026-07-22: FIRST in the multi-head queue) — ✅ **DONE 2026-07-22, root-verified; benchmark outcome MIXED (see below)**
+### WSEL-18 — vectorise the multi-head readout (user ruling 2026-07-22: FIRST in the multi-head queue) — ✅ **DONE 2026-07-22, root-verified; benchmark outcome MIXED — RATIFIED at the 2026-07-22 sign-off: ALL stays the default (see below)**
 
 > **LANDED 2026-07-22 (worker-authored, every verify line re-run at the root, prove-it-fails
 > ceremony re-run against the committed state — mask dropped → 2 loud failures → restored →
@@ -2328,6 +2340,12 @@ candidate cell exists; (4) every JSON under
 > are untouched** (never-less-accurate + 6x lower mid-width variance stand); only the "cost
 > premium is an implementation artifact" clause is now HALF-true: dispatch yes, coverage no.
 > ALL remains the default per the ruling; this note corrects the cost rationale's scope.
+> **RATIFIED at the 2026-07-22 sign-off (item 2 CLOSED, user): ALL STAYS THE DEFAULT — the
+> accuracy/variance grounds carry the ruling on their own, and the ~21% coverage premium is
+> accepted as the honest price of training every width every step. The user re-affirmed §3.10 in
+> the same ruling: 12 widths is this benchmark's sample point, never a design constant — real
+> problems may use a different width count entirely (even ~100), so the premium is reported WITH
+> its scaling law, never as a fixed number.**
 > Stage-3's multi-head cells are UNGATED (the fused mode is available and verified). The ALL-schedule cost premium is per-head bookkeeping (12 separate tensors each paying
 forward/backward/optimizer dispatch — the WSEL-14 cost probe's attribution), not arithmetic. Fusing
 the heads into ONE lower-triangular-masked `(w_max, w_max)` weight tensor + bias vector removes it.
