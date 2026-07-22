@@ -1,0 +1,98 @@
+{
+  "task": "WSEL-16 frozen-bias diagnostic",
+  "arm": "a_stopgrad",
+  "tier": 1,
+  "per_seed": {
+    "0": {
+      "bias_init": -0.16851136088371277,
+      "bias_saved": -0.16851136088371277,
+      "frozen_at_init": true,
+      "bias_repair_delta": -0.08225809782743454,
+      "full_width_val_mse_landed_reference": 0.5143980979919434,
+      "full_width_val_mse_before_repair": 0.5143980979919434,
+      "full_width_val_mse_after_repair": 0.5046672224998474,
+      "b_heads_full_width_val_mse": 0.024037670344114304,
+      "rel_gap_to_b_heads_before": 20.399665218301628,
+      "rel_gap_to_b_heads_after": 19.994847473786773,
+      "val_mse_after_repair_by_width": {
+        "1": 0.7588968276977539,
+        "2": 0.7151906490325928,
+        "3": 0.687197744846344,
+        "4": 0.6643443703651428,
+        "5": 0.5722023248672485,
+        "6": 0.566615879535675,
+        "7": 0.5217599272727966,
+        "8": 0.503058135509491,
+        "9": 0.5029590129852295,
+        "10": 0.49646231532096863,
+        "11": 0.5038380026817322,
+        "12": 0.5046672224998474
+      },
+      "reproduces_landed_value": true
+    },
+    "1": {
+      "bias_init": 0.25348901748657227,
+      "bias_saved": 0.25348901748657227,
+      "frozen_at_init": true,
+      "bias_repair_delta": -0.08155075460672379,
+      "full_width_val_mse_landed_reference": 0.5060398578643799,
+      "full_width_val_mse_before_repair": 0.5060398578643799,
+      "full_width_val_mse_after_repair": 0.5053757429122925,
+      "b_heads_full_width_val_mse": 0.030796518549323082,
+      "rel_gap_to_b_heads_before": 15.431722860293988,
+      "rel_gap_to_b_heads_after": 15.410158248988207,
+      "val_mse_after_repair_by_width": {
+        "1": 0.778564453125,
+        "2": 0.7370941638946533,
+        "3": 0.7339186072349548,
+        "4": 0.6101110577583313,
+        "5": 0.5964949131011963,
+        "6": 0.5512609481811523,
+        "7": 0.5292074084281921,
+        "8": 0.5130128264427185,
+        "9": 0.5172619223594666,
+        "10": 0.517074465751648,
+        "11": 0.5171760320663452,
+        "12": 0.5053757429122925
+      },
+      "reproduces_landed_value": true
+    },
+    "2": {
+      "bias_init": 0.12686796486377716,
+      "bias_saved": 0.12686796486377716,
+      "frozen_at_init": true,
+      "bias_repair_delta": -0.024722766131162643,
+      "full_width_val_mse_landed_reference": 0.45924800634384155,
+      "full_width_val_mse_before_repair": 0.45924800634384155,
+      "full_width_val_mse_after_repair": 0.45593059062957764,
+      "b_heads_full_width_val_mse": 0.028489189222455025,
+      "rel_gap_to_b_heads_before": 15.120079892686618,
+      "rel_gap_to_b_heads_after": 15.003635170853357,
+      "val_mse_after_repair_by_width": {
+        "1": 0.7849013805389404,
+        "2": 0.6903442144393921,
+        "3": 0.6596923470497131,
+        "4": 0.5898393392562866,
+        "5": 0.5822525024414062,
+        "6": 0.5500292181968689,
+        "7": 0.5536571145057678,
+        "8": 0.49616146087646484,
+        "9": 0.4649641513824463,
+        "10": 0.4645634889602661,
+        "11": 0.455077201128006,
+        "12": 0.45593059062957764
+      },
+      "reproduces_landed_value": true
+    }
+  },
+  "summary": {
+    "all_seeds_frozen_at_init": true,
+    "all_seeds_reproduce_landed_value": true,
+    "fraction_of_gap_to_b_heads_closed_by_bias_repair": {
+      "0": 0.019844332746778104,
+      "1": 0.0013974208519040854,
+      "2": 0.007701329798500911
+    },
+    "reading": "If fraction_of_gap... is near 0 the frozen bias does NOT explain the accuracy failure (a scalar offset cannot fake capacity) and greedy training remains the live explanation; near 1 means the failure is an artifact of the spec-literal stop-grad implementation."
+  }
+}

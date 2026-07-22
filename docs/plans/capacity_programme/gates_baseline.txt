@@ -10,7 +10,6 @@ automl_package/examples/probreg_benchmark.py
 # Each verified before parking: marked `(new)` in a named task's `Files (write set)` line AND
 # consumed by that task's verify command, so none is a typo. Task ownership recorded so the entry
 # can be removed the moment the artifact lands.
-docs/plans/capacity_programme/shared/fp4-schedule-deviation.md      # FP-4 (write set L694)
 
 # --- width.md Create targets (parked 2026-07-20, root) ----------------------------------------
 # Each verified: named in a WSEL task's write set and asserted by that task's verify line.

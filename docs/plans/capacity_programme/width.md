@@ -60,7 +60,13 @@ this same class. **W-SHARED and W-PERINPUT may not be read off it until FP-4 rul
 material or immaterial** — see WSEL-3's and WSEL-4's deps in §4, and the cross-plan dependencies note
 above. If FP-4 finds it MATERIAL, this paragraph's "under its certified joint width-dial schedule"
 claim is false for the package port and must be re-argued together with the "not a confound"
-argument below.
+argument below. ✅ **RESOLVED 2026-07-22 (root): FP-4 graded MATERIAL as pre-registered (two-sided
+per-seed variance, not systematic degradation), and the remedy is superseded by MASTER Decision 31
+— the ALL schedule is the programme default, so the shipping class runs the ratified default.
+W-SHARED and W-PERINPUT may be read off it; the binding residue is Decision 31's per-arm schedule
+label wherever ALL-trained and sandwich-trained numbers share a table. Numbers + verbatim bar:
+`docs/plans/capacity_programme/shared/fp4-schedule-deviation.md`. The single-difference rule
+between W-SHARED and W-PERINPUT is untouched (both still read the SAME trained network).**
 
 ⚠️ **W-SWEEP DOES NOT USE WIDTH-DROPOUT (user ruling, 2026-07-20). Each of its per-width models is
 trained ORDINARILY at its own fixed width** — that is what "a network dedicated to that width"
@@ -1816,6 +1822,15 @@ field in Step 3 and `hit_cap: false`; (4)
 > primary bar, check this mechanism BEFORE concluding "greedy training fails". Not redesigned
 > mid-flight; the spec's formula is implemented exactly, and the quirk is documented in
 > `stopgrad_all_widths_pred`'s docstring.
+> ✅ **FROZEN-BIAS DIAGNOSTIC RUN 2026-07-22 (root, before interpreting the stage-1 accuracy
+> failure): the mechanism is REAL but does NOT explain the failure.** The saved readout bias is
+> bit-for-bit at its init value on 3/3 tier-1 seeds (proving zero gradient from disk), yet a
+> closed-form 1-dof bias refit on the train split closes at most ~2% of the full-width gap to the
+> multi-head reference on any seed — a scalar offset cannot fake capacity. Greedy training remains
+> the live explanation; stage 2's arms (which separate greedy from moving-target) are the right
+> probe. Artifact: `automl_package/examples/capacity_ladder_results/WSEL16/frozen_bias_diag.json`
+> (script beside it, reproduces the landed full-width MSEs exactly before repairing). <!-- numcheck-ignore: the ~2% is a rounded readback of the cited diagnostic JSON's fraction_of_gap fields -->
+
 > 🔄 **GRID: controls first (Step 3) launched 2026-07-22 — root-run, backgrounded, sequential.**
 >
 > **USER RULING 2026-07-22 (selection-studies coupling):** the selection studies' MEASUREMENT tasks

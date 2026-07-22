@@ -917,7 +917,18 @@ non-caller-facing prediction path for the five bookkeeping call sites (`base.py:
 **verify:** new tests green, then revert the base-class extraction, show the CV test FAIL, restore;
 `grep -n "inspect.signature" automl_package/models/flexible_width_network.py` returns nothing.
 
-### FP-4 — resolve the package width class's schedule deviation
+### FP-4 — resolve the package width class's schedule deviation — ✅ **RESOLVED 2026-07-22 (root, autonomous run)**
+
+> **RESOLUTION 2026-07-22:** graded **MATERIAL** under the pre-registered bar (per-seed 2% clause
+> fails two-sided on seeds 0/2; paired clause passes), on the WSEL-14 schedule arms — the identical
+> pre-registered comparison, tags `wsel14_sandwich`/`wsel14_b12` substituting `fp4_sandwich`/
+> `fp4_sumall` (same driver, same cell, matched seeds; the sandwich arm is bit-identical to the
+> certified reference on all 3 seeds). **The MATERIAL remedy ("bring the class onto the certified
+> schedule") is SUPERSEDED by MASTER Decision 31**: the ALL schedule is the programme default, so
+> the class's sum-all schedule IS the ratified default — no code change; the residue of the grade
+> is the binding per-arm schedule label wherever mixed-schedule numbers are tabulated. Numbers,
+> verbatim bar, and consequences: `docs/plans/capacity_programme/shared/fp4-schedule-deviation.md`.
+> `width.md` §1's read-off warning is discharged; WSEL-3/WSEL-4/WSEL-8 unblocked on this dep.
 
 **Files (write set):** `automl_package/models/flexible_width_network.py` ·
 `docs/plans/capacity_programme/shared/fp4-schedule-deviation.md` (new)
