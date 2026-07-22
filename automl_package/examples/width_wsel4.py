@@ -74,7 +74,7 @@ import convergence as cvg  # noqa: E402
 import nested_width_net as nwn  # noqa: E402
 import sinc_width_experiment as sw  # noqa: E402 — reused verbatim: _score_all_widths (NLL), _score_all_widths_mse, _jsonable
 
-from automl_package.enums import CapacitySelection, TaskType  # noqa: E402
+from automl_package.enums import ActivationFunction, CapacitySelection, TaskType  # noqa: E402
 from automl_package.models.flexnn.width.model import FlexibleWidthNN  # noqa: E402 — imported at its HEAD location, not the WSEL-3-owned shim
 from automl_package.utils.pytorch_utils import get_device  # noqa: E402
 
@@ -95,10 +95,17 @@ CONTROL_MAX_EPOCHS_DEFAULT = 40000
 # that file already established `FlexibleWidthNN` trains stably on raw (unstandardized) x/y at
 # these values, so WSEL-4 reuses them as ITS protocol default rather than guessing new ones.
 PORTED_LR_DEFAULT = 0.01
-PORTED_N_EPOCHS_CAP = 1500
+# Cap and batch regime RE-PINNED 2026-07-22 (root, Decision-16 escalation, one documented rung each):
+# the inherited calibration (cap 1500, mini-batch 64) under-fit the TRAIN set at widths >= 6 —
+# mini-batch gradient noise floored the fit at ~2.4x the control's level (a like-for-like confound:
+# the control protocol is FULL-batch), and full batch needs a larger epoch budget (probe at cap 1500
+# hit the cap mid-descent; cap 6000 converged to 1.18x control with train at the noise floor).
+# Probe artifacts: scratchpad probe_fullbatch_cap{1500,6000}.json; superseded mini-batch cells
+# retained under WSEL4/tanh_minibatch_run/.
+PORTED_N_EPOCHS_CAP = 6000
 PORTED_PATIENCE = 60
 PORTED_MIN_DELTA = 1e-4
-PORTED_BATCH_SIZE = 64
+PORTED_BATCH_SIZE = 1_000_000_000  # >= any n_train => ONE batch per epoch (full-batch, the control's regime)
 
 # Selftest-only: the escalation-ladder values exercised once to prove the knobs are wired (§ run_selftest).
 _SELFTEST_GRAD_CLIP_NORM = 1.0
@@ -388,6 +395,12 @@ def _run_ported_cell(args: argparse.Namespace) -> dict[str, Any]:
         random_seed=args.seed,
         calculate_feature_importance=False,
         capacity_selection=CapacitySelection.FIXED,
+        # Tanh, NOT the class's ReLU default: the control arm's width classes are Tanh
+        # (`automl_package/models/flexnn/width/architectures.py:48`), and `width.md` §1's confound
+        # doctrine forbids an arm differing from its comparator in more than one respect. The first
+        # ported run (ReLU, retained under `WSEL4/relu_confounded_run/`) under-fit the TRAIN set at
+        # every width >= 4 (ratios up to 24x vs control) — activation was the second difference.
+        activation=ActivationFunction.TANH,
     )
 
     escalated = args.grad_clip_norm > 0 or args.warmup_epochs > 0 or args.init_scheme is not InitScheme.DEFAULT

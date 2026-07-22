@@ -831,7 +831,27 @@ whose held-out curve is flat beyond width *w* and asserts the selector returns *
 a second test asserts the returned width is stable under a reshuffle of the selection set;
 `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_flexible_width_network.py -q` exits 0.
 
-### WSEL-4 — make W-SWEEP a usable reference — 🔄 **CONTROL HALF DONE 2026-07-22 (root-verified); ported half running**
+### WSEL-4 — make W-SWEEP a usable reference — ✅ **DONE 2026-07-22 (root-verified, both halves)**
+
+> **PORTED HALF DONE 2026-07-22.** The package-class per-width sweep (36 cells, seeds 0/1/2) is the
+> go-forward W-SWEEP reference: every cell converged (`hit_cap: false`; two cells needed a raised
+> cap, re-run and clean), and the ported/control held-out-MSE ratio spans 0.66–1.18 across the
+> ladder — at the noise floor wherever the control reaches it, and up to ~16x BETTER at the
+> mid-width cells where the historical control sat in a plateau (consistent with the reference's
+> own quarantine flags). Table: `automl_package/examples/capacity_ladder_results/WSEL4/reproduction.json`
+> (`ported_vs_control`).
+> **TWO CONFOUNDS were caught and removed before the reference was accepted — both are §1
+> single-difference violations the inherited calibration smuggled in, and both runs are retained
+> on disk as records, never to be tabulated:**
+> 1. **Activation** — the package class defaults to ReLU; the control classes are Tanh. As-run,
+>    the ported arm under-fit the TRAIN set at every width ≥ 4 (up to 24x vs control). Fixed by
+>    pinning Tanh in the driver. Record: `automl_package/examples/capacity_ladder_results/WSEL4/relu_confounded_run/`.
+> 2. **Batch regime** — the inherited calibration trains mini-batch (64, shuffled); the control is
+>    full-batch. The mini-batch noise floored the fit ~2.4x above the control at w ≥ 6. Fixed by
+>    full-batch + a 6000-epoch cap (the probe at the old 1500 cap capped mid-descent). Probes in
+>    the session scratchpad; superseded cells: `automl_package/examples/capacity_ladder_results/WSEL4/tanh_minibatch_run/`.
+> The final protocol is pinned as the DRIVER DEFAULT (constants block, with the rationale in
+> comments), so an unflagged re-run reproduces the reference.
 
 > **CONTROL REPRODUCTION PASSED 2026-07-22 — 36/36 cells within the 2% bar** (max rel err 1.9e-2;
 > `automl_package/examples/capacity_ladder_results/WSEL4/reproduction.json`). Two spec-vs-disk
