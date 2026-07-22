@@ -830,7 +830,24 @@ whose held-out curve is flat beyond width *w* and asserts the selector returns *
 a second test asserts the returned width is stable under a reshuffle of the selection set;
 `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_flexible_width_network.py -q` exits 0.
 
-### WSEL-4 — make W-SWEEP a usable reference
+### WSEL-4 — make W-SWEEP a usable reference — 🔄 **CONTROL HALF DONE 2026-07-22 (root-verified); ported half running**
+
+> **CONTROL REPRODUCTION PASSED 2026-07-22 — 36/36 cells within the 2% bar** (max rel err 1.9e-2;
+> `automl_package/examples/capacity_ladder_results/WSEL4/reproduction.json`). Two spec-vs-disk
+> corrections, discovered in execution and taken as logged reversible defaults (Decision 32):
+> 1. **The anchor is the recorded per-width LOG-LIKELIHOOD, not an MSE** — the reference
+>    (`automl_package/examples/capacity_ladder_results/W_CONVERGED/w_converged_summary.json`)
+>    carries no MSE anywhere (verified: the file contains no `mse` key); this spec's "reported
+>    MSE" was written from memory of an artifact that never recorded one. Same 2% bar, applied to
+>    the only number the reference actually holds. `held_out_mse` is a NEW field the driver
+>    introduces for both arms going forward (no historical anchor exists for it).
+> 2. **The blanket `hit_cap: false` verify clause fails on exactly one cell — (seed 1, width 4)
+>    — because the REFERENCE ITSELF capped there** (`converged: false, hit_cap: true` at epoch
+>    40000 in the historical summary). The port reproduces that cell to 0.63% INCLUDING the
+>    cap-hit; a port that "fixed" it would not be a port. 35/36 satisfy the clause as written.
+> 3. **Carry-forward caveat:** the reference's own `untrustworthy_seeds: [0, 1]` means some
+>    historical cells are not trajectory-certified; reproduction of their numbers validates the
+>    DRIVER, and WSEL-8's quality half must not lean on those specific reference cells.
 
 **Files (write set):** `automl_package/examples/width_wsel4.py` (Create) ·
 `automl_package/examples/capacity_ladder_results/WSEL4/`
