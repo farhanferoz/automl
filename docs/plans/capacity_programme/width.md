@@ -1150,8 +1150,13 @@ root authors the decision-complete bake-off spec + the multi-feature toy DESIGN 
 bake-off driver is authored (worker contract); (D3) **the 1-D slice of the grid RUNS** — it uses
 only the canonical §3.8 toys and existing selection-set-fraction machinery, so no new toy design
 is involved and the standing toy gate does not apply to it; (D4) the multi-feature slice stays
-GATED on the user's GO of the D1 design spec, which is batched into the end-of-run report — the
-only piece of the width strand's scheduled work that waits for the user. WSEL-9 (toys-only
+GATED on the D1 design spec's GO — **delegated (user, 2026-07-22 fourth sitting: "you do a
+final review of these & tell me if its a go"): the ROOT renders the go/no-go after an
+independent adversarial review of the spec (adjudicator pass) and records the verdict + any
+amendments here; the user is informed, not awaited.** Related same-sitting escalation: the
+item-4 bar recompute returned 5/36 failures under a noise-variance PROXY; a refinement to the
+generator-TRUE noise variance (more faithful to the ratified formula, no retraining) is in
+flight, with reference-untrustworthy-seed annotation; merge stays halted until its verdict. WSEL-9 (toys-only
 ruling) and WSEL-10 (joint-review gate) remain parked by their own user rulings — out of scope
 for this run by the user's explicit clarification.
 
