@@ -1776,6 +1776,10 @@ field in Step 3 and `hit_cap: false`; (4)
   6. Integrity: 14/14 cells converged under the cap; one cell (b, seed 3) has width 2 untrustworthy —
      not verdict-bearing (mid-width claims are lottery-labelled anyway; wide-end conclusions hold
      with and without it, checked both ways).
+- ⏸ **PARKED (user, 2026-07-22): all further normalisation work** — the two spec-excluded variants
+  (mean-centred/true LayerNorm; the width-independent normaliser, literature still unsurveyed) stay
+  closed until after the pending architecture work settles which width architecture is best and how
+  it compares. Reopen deliberately then; do not fold into any current task.
 
 ### WSEL-16 — the architecture comparison: can the CHEAP structure be trained to work? — 🔄 **IN PROGRESS 2026-07-22**
 
