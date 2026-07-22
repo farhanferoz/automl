@@ -1,35 +1,40 @@
-"""Matryoshka width net — the fallback arm: shared trunk, per-rung DEDICATED readout heads.
+"""Thin re-export shim -- `MatryoshkaWidthNet` IS the certified `SharedTrunkPerWidthHeadNet`.
 
-(`docs/plans/width_dial_2026-07-11/cascade_execution_plan_2026-07-11.md` §2.7, §2.8, §4.2)
+WSEL-17 Step 1 (`docs/plans/capacity_programme/width.md` ~2292-2301, §3.9 finding 1) measured the
+§3.9 duplicate pair by construction, not by taste: this file's per-rung dedicated head
+(`Linear(k -> 1)` reading the raw prefix `h[:, :k]`) and `SharedTrunkPerWidthHeadNet`'s per-width
+head (`Linear(w_max -> 1)` reading a MASKED hidden vector, columns `>= k` zeroed) compute the SAME
+function -- the certified head's `w_max - k` extra weight columns can never influence a width-`k`
+output, because the input they would multiply is already zero. **They differ ONLY in nominal
+parameter count**, which `params_effective` (§3.9) already accounts for. Proof, including the
+prove-it-fails direction: `tests/test_matryoshka_equivalence.py`.
 
-Shared trunk `Linear(1 -> w_max) -> tanh` gives `h(x) in R^{w_max}`; for EACH rung `k = 1..w_max` a
-DEDICATED pair of heads `mean_head_k, logvar_head_k = Linear(k -> 1)` reads off the prefix
-`h[:, :k]`. This removes `nested_width_net.NestedWidthNet`'s shared-readout entanglement -- the
-mechanism Matryoshka Representation Learning's (Kusupati et al. 2022) no-degradation result rides
-on -- but it does NOT give the shared trunk's hidden units stable identity or ordering: every rung's
-gradient hits the trunk jointly, forever. So the coherence-invariant scorecard here is: (2)
-self-contained partially fixed (each rung has its own readout basis), (1)/(3) stable-identity /
-importance-ordering NOT fixed (plan §2.8 table) -- which is exactly why this is the FALLBACK arm and
-the comparison to `cascade_width_net.ResidualCascadeNet` is informative: it isolates whether frozen
-identity + guaranteed ordering matter beyond readout disentanglement alone.
+Consolidation lands HERE: this module no longer defines its own architecture.
+`MatryoshkaWidthNet` is now the certified class itself, re-exported under its historical name so
+`cascade_width_experiment.py`'s `mwn.MatryoshkaWidthNet(w_max=w_max)` /
+`mwn.train_matryoshka(net, ...)` calls keep resolving unchanged -- the `automl_package/examples/
+convergence.py` precedent: move the logic, leave the shim, do not rewrite callers. (A shim over a
+`PROTECTED.tsv` path is explicitly sanctioned there -- rule 2: "a shim is not a deletion".)
 
-`train_matryoshka` (module-level, below) trains ALL rungs JOINTLY with ONE optimizer: every step,
-the loss is the UNWEIGHTED SUM of all `w_max` rungs' mean Gaussian NLL (MRL's per-rung relative-
-importance weights `c_m` are an unexplored dial here -- plan §2.7 pre-registers uniform `c_k = 1`).
-Convergence is gated PER RUNG (`convergence.ConvergenceTracker`, one per rung, mirroring
-`kdropout_converged_width_experiment._train_kdropout_to_convergence`'s joint-training loop shape);
-the loop stops once every rung's tracker has flattened or the safety cap is hit. Because the trunk is
-SHARED across rungs (unlike `IndependentWidthNet`'s disjoint per-width sub-nets), per-rung weight
-restoration is ill-defined -- there is only ONE net. Instead a single extra tracker watches the
-SUMMED val NLL across all rungs and snapshots the WHOLE net's `state_dict` on improvement; that
-best-joint snapshot is restored at the end (`"best_restore": "joint_sum"`, recorded by the driver so
-the comparability caveat vs the disjoint W batteries stays explicit).
+`train_matryoshka` (module-level, below) is UNCHANGED example-script protocol, not duplicated
+architecture: the joint all-rungs training loop (one optimizer, unweighted summed loss over every
+rung, per-rung `ConvergenceTracker`) is not the thing Step 1 found duplicated -- only the class was.
+It stays on the examples side for the same reason `automl_package/models/flexnn/width/
+architectures.py`'s module docstring keeps `train_nested_width` there: "experiment protocol, not
+library architecture."
 
-Selftest (`--selftest`, no training, random init only):
-  (a) rung-k output is invariant to perturbing trunk hidden units `>= k` AND any OTHER rung's heads
-      (`!= k`) -- the two independence properties a per-rung-head architecture must have.
-  (b) `all_widths_forward` agrees with the per-k `forward_width` loop (tol 1e-5).
-  (c) `all_widths_forward` returns finite `(mean, log_var)` of shape `(N, w_max)` for both heads.
+**Variance status (§3.7 / WSEL-17 Step 3):** inherited from `SharedTrunkPerWidthHeadNet` -- `log_var`
+is a dummy zero, never in the loss graph, so this class provably CANNOT fit a variance.
+`train_matryoshka`'s Gaussian-NLL loss therefore reduces to a fixed-unit-variance objective (a
+constant-scale reparametrisation of MSE), never a learned one -- it satisfies §3.7 trivially, the
+same way the certified class's own docstring already records.
+
+The old per-rung selftest (`_assert_prefix_invariance` etc.) tested THIS module's now-deleted
+duplicate architecture (it referenced `logvar_heads`, a per-rung head pair `SharedTrunkPerWidthHeadNet`
+does not have -- MSE-only, one dummy-zero `log_var`, not a second head). That coverage is superseded
+by `tests/test_matryoshka_equivalence.py` (the equivalence proof) and the certified class's own
+existing tests (`tests/test_fused_heads_equivalence.py`, `tests/test_flexible_width_network.py`).
+`--selftest` below is now a minimal alias/smoke check, not an architecture proof.
 
 Usage:
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/matryoshka_width_net.py --selftest
@@ -42,7 +47,6 @@ import os
 import sys
 
 import torch
-import torch.nn as nn
 
 _EXAMPLES_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _EXAMPLES_DIR)
@@ -51,61 +55,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(_EXAMPLES_DIR)))  # repo root
 import convergence as cvg  # noqa: E402
 import nested_width_net as nwn  # noqa: E402
 
+from automl_package.models.architectures.nested_width_net import SharedTrunkPerWidthHeadNet  # noqa: E402
+
+MatryoshkaWidthNet = SharedTrunkPerWidthHeadNet
+
+__all__ = ["MatryoshkaWidthNet", "train_matryoshka"]
+
 W_MAX_DEFAULT = 12
 LR_DEFAULT = 1e-2  # plan §4.0: LR 1e-2 Adam everywhere.
-
-_PREFIX_PERTURB_TOL = 1e-6
-_CONSISTENCY_TOL = 1e-5
-_PERTURB_SCALE = 5.0
-
-
-class MatryoshkaWidthNet(nn.Module):
-    """Shared `Linear(1 -> w_max)` trunk, tanh, with `w_max` DEDICATED `(mean, log_var)` head pairs.
-
-    Rung k's heads are `Linear(k -> 1)`, reading only the first `k` trunk hidden units -- so every
-    rung is still a valid prefix (cheap prefix inference), but unlike `NestedWidthNet` each rung owns
-    its OWN readout parameters instead of sharing one `Linear(w_max -> 1)`.
-    """
-
-    def __init__(self, w_max: int = W_MAX_DEFAULT, activation: type[nn.Module] = nn.Tanh) -> None:
-        """Builds the shared trunk plus `w_max` dedicated `(mean_head_k, logvar_head_k)` pairs.
-
-        Args:
-            w_max: maximum hidden width / largest rung.
-            activation: hidden-layer nonlinearity class (instantiated with no args); tanh per the
-                plan's fixed hyperparameter (§4.0).
-        """
-        super().__init__()
-        self.w_max = int(w_max)
-        self.trunk = nn.Linear(1, self.w_max)
-        self.act = activation()
-        self.mean_heads = nn.ModuleList(nn.Linear(k, 1) for k in range(1, self.w_max + 1))
-        self.logvar_heads = nn.ModuleList(nn.Linear(k, 1) for k in range(1, self.w_max + 1))
-
-    def hidden(self, x: torch.Tensor) -> torch.Tensor:
-        """`(N, 1) -> (N, w_max)` post-activation hidden representation (the trunk's full output)."""
-        return self.act(self.trunk(x))
-
-    def forward_width(self, x: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
-        """`(mean, log_var)` at rung `k` (1..w_max) via rung k's OWN dedicated head pair, each `(N, 1)`."""
-        if not (1 <= k <= self.w_max):
-            raise ValueError(f"k={k} out of range [1, {self.w_max}]")
-        h = self.hidden(x)[:, :k]
-        return self.mean_heads[k - 1](h), self.logvar_heads[k - 1](h)
-
-    def all_widths_forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """`(mean, log_var)` at every rung `k=1..w_max`, each shape `(N, w_max)`.
-
-        No cumsum trick (unlike `NestedWidthNet`/`ResidualCascadeNet`) -- each rung's heads are
-        independent parameters, not a linear function of a shared readout, so this is `w_max` small
-        `(k -> 1)` matmuls, one per rung.
-        """
-        means, logvars = [], []
-        for k in range(1, self.w_max + 1):
-            mean_k, logvar_k = self.forward_width(x, k)
-            means.append(mean_k)
-            logvars.append(logvar_k)
-        return torch.cat(means, dim=1), torch.cat(logvars, dim=1)
 
 
 def train_matryoshka(
@@ -129,7 +86,8 @@ def train_matryoshka(
     ill-defined because the trunk is shared, unlike `IndependentWidthNet`'s disjoint sub-nets).
 
     Args:
-        net: the `MatryoshkaWidthNet` to train in place.
+        net: the `MatryoshkaWidthNet` (the certified `SharedTrunkPerWidthHeadNet`, re-exported under
+            this historical name) to train in place.
         x_tr: standardized training inputs.
         y_tr: standardized training targets.
         x_val: standardized held-out inputs, used only for convergence monitoring.
@@ -190,94 +148,30 @@ def train_matryoshka(
 
 
 # ---------------------------------------------------------------------------
-# Selftest -- random-init only, no training. MUST pass before any real read.
+# Selftest -- minimal alias/smoke check now that the architecture proof lives in
+# tests/test_matryoshka_equivalence.py. Random init only, no training.
 # ---------------------------------------------------------------------------
 
 
-def _assert_prefix_invariance(net: MatryoshkaWidthNet, x: torch.Tensor) -> tuple[bool, float]:
-    """(a) rung-k output invariant to perturbing trunk hidden units >= k AND any other rung's heads."""
-    ok_all = True
-    max_err = 0.0
-    for k in range(1, net.w_max + 1):
-        with torch.no_grad():
-            mean0, logvar0 = net.forward_width(x, k)
-
-        trunk_w_orig = net.trunk.weight.detach().clone()
-        trunk_b_orig = net.trunk.bias.detach().clone()
-        other = [j for j in range(net.w_max) if j != k - 1]
-        head_snapshots = {
-            j: (
-                net.mean_heads[j].weight.detach().clone(),
-                net.mean_heads[j].bias.detach().clone(),
-                net.logvar_heads[j].weight.detach().clone(),
-                net.logvar_heads[j].bias.detach().clone(),
-            )
-            for j in other
-        }
-
-        with torch.no_grad():
-            if k < net.w_max:
-                net.trunk.weight[k:, :] += torch.randn_like(net.trunk.weight[k:, :]) * _PERTURB_SCALE
-                net.trunk.bias[k:] += torch.randn_like(net.trunk.bias[k:]) * _PERTURB_SCALE
-            for j in other:
-                net.mean_heads[j].weight += torch.randn_like(net.mean_heads[j].weight) * _PERTURB_SCALE
-                net.mean_heads[j].bias += torch.randn_like(net.mean_heads[j].bias) * _PERTURB_SCALE
-                net.logvar_heads[j].weight += torch.randn_like(net.logvar_heads[j].weight) * _PERTURB_SCALE
-                net.logvar_heads[j].bias += torch.randn_like(net.logvar_heads[j].bias) * _PERTURB_SCALE
-            mean1, logvar1 = net.forward_width(x, k)
-            net.trunk.weight.copy_(trunk_w_orig)
-            net.trunk.bias.copy_(trunk_b_orig)
-            for j, (mw, mb, lw, lb) in head_snapshots.items():
-                net.mean_heads[j].weight.copy_(mw)
-                net.mean_heads[j].bias.copy_(mb)
-                net.logvar_heads[j].weight.copy_(lw)
-                net.logvar_heads[j].bias.copy_(lb)
-
-        err = max((mean0 - mean1).abs().max().item(), (logvar0 - logvar1).abs().max().item())
-        max_err = max(max_err, err)
-        ok_all = ok_all and (err < _PREFIX_PERTURB_TOL)
-    return ok_all, max_err
-
-
-def _assert_all_widths_consistency(net: MatryoshkaWidthNet, x: torch.Tensor) -> tuple[bool, float]:
-    """(b) all_widths_forward agrees with the per-k forward_width loop (tol 1e-5)."""
-    with torch.no_grad():
-        mean_all, logvar_all = net.all_widths_forward(x)
-    max_err = 0.0
-    for k in range(1, net.w_max + 1):
-        with torch.no_grad():
-            mean_k, logvar_k = net.forward_width(x, k)
-        err = max((mean_all[:, k - 1 : k] - mean_k).abs().max().item(), (logvar_all[:, k - 1 : k] - logvar_k).abs().max().item())
-        max_err = max(max_err, err)
-    return max_err < _CONSISTENCY_TOL, max_err
-
-
-def _assert_finite_shapes(net: MatryoshkaWidthNet, x: torch.Tensor) -> bool:
-    """(c) all_widths_forward returns finite (N, w_max) for both heads."""
-    with torch.no_grad():
-        mean_all, logvar_all = net.all_widths_forward(x)
-    ok_shape = tuple(mean_all.shape) == (x.shape[0], net.w_max) and tuple(logvar_all.shape) == (x.shape[0], net.w_max)
-    ok_finite = bool(torch.isfinite(mean_all).all()) and bool(torch.isfinite(logvar_all).all())
-    return ok_shape and ok_finite
-
-
 def run_selftest() -> bool:
-    """Runs all three no-training checks on a randomly-initialized net and prints PASS/FAIL."""
+    """Confirms the re-export alias resolves and produces finite output.
+
+    The equivalence proof itself lives in `tests/test_matryoshka_equivalence.py` (including its
+    prove-it-fails direction).
+    """
+    ok = MatryoshkaWidthNet is SharedTrunkPerWidthHeadNet
+    print(f"[matryoshka selftest] (a) MatryoshkaWidthNet is the certified SharedTrunkPerWidthHeadNet: {'PASS' if ok else 'FAIL'}")
+
     torch.manual_seed(0)
     net = MatryoshkaWidthNet(w_max=6)
     net.eval()
     x = torch.randn(37, 1)
+    with torch.no_grad():
+        mean_all, logvar_all = net.all_widths_forward(x)
+    ok_finite = bool(torch.isfinite(mean_all).all()) and bool(torch.isfinite(logvar_all).all())
+    print(f"[matryoshka selftest] (b) all_widths_forward finite: {'PASS' if ok_finite else 'FAIL'}")
 
-    ok_a, err_a = _assert_prefix_invariance(net, x)
-    print(f"[matryoshka selftest] (a) prefix invariance (trunk>=k, heads!=k): max_abs_err={err_a:.3e} (tol={_PREFIX_PERTURB_TOL:.0e})  {'PASS' if ok_a else 'FAIL'}")
-
-    ok_b, err_b = _assert_all_widths_consistency(net, x)
-    print(f"[matryoshka selftest] (b) all-widths vs per-k consistency: max_abs_err={err_b:.3e} (tol={_CONSISTENCY_TOL:.0e})  {'PASS' if ok_b else 'FAIL'}")
-
-    ok_c = _assert_finite_shapes(net, x)
-    print(f"[matryoshka selftest] (c) all-widths shape/finite: {'PASS' if ok_c else 'FAIL'}")
-
-    ok = ok_a and ok_b and ok_c
+    ok = ok and ok_finite
     print(f"[matryoshka selftest] {'PASS' if ok else 'FAIL'}")
     return ok
 
@@ -285,7 +179,7 @@ def run_selftest() -> bool:
 def main() -> None:
     """Parses args and runs the selftest, or prints help (this module has no standalone real-run mode)."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--selftest", action="store_true", help="No-training known-answer checks of the per-rung-head architecture.")
+    parser.add_argument("--selftest", action="store_true", help="Minimal alias/smoke check -- see tests/test_matryoshka_equivalence.py for the architecture proof.")
     args = parser.parse_args()
     if args.selftest:
         sys.exit(0 if run_selftest() else 1)
