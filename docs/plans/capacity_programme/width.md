@@ -1335,10 +1335,12 @@ first step of any redesign.
 
 **Consequences, recorded:** (1) the bake-off verdict currently rests on the 1-D slice alone;
 the input-size-relative half of rulings 2/5 and ruling 6's decisive d ∈ {8, 32} test remain
-OPEN. (2) A redesigned lift is a NEW toy design → the standing toy gate applies (written spec,
-adversarial review, user GO) — batched into the end-of-run report; nothing multi-feature runs
-before it. (3) The pre-registration culture worked: the failure cost one calibration run
-(~36 small nets), not a 432-cell grid read as science.
+OPEN. (2) A redesigned lift goes through the SAME gate process as the original — written spec +
+independent adversarial review — with the go/no-go RENDERED BY THE ROOT under the standing
+delegation above ("the user is informed, not awaited"; re-confirmed by the user 2026-07-22
+late evening: "why does it need me? I thought we designed it"). Nothing multi-feature runs
+before a passing verdict; nothing waits on the user. (3) The pre-registration culture worked:
+the failure cost one calibration run (~36 small nets), not a 432-cell grid read as science.
 
 ### WSEL-8 — the W-SHARED ≈ W-SWEEP claim, both halves, on toys — ⛔ **ANSWERED 2026-07-22: BOTH HALVES FAIL. The dial network is NOT ≈ the exhaustive sweep on this toy — 2.6-7.2× worse at matched middle widths, 0/3 agreement on the chosen width, and the disagreement is a mechanical consequence of the quality gap. A FAIL is a finding, not a bug.**
 
