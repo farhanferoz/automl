@@ -105,26 +105,84 @@ re-introducing the same over-parameterisation ruling 3 exists to fix. Defined fo
 
 **Non-goals (authoring contract):** no edits to `routing.py`/`width_wsel6.py`/`width_wsel7.py`/any
 plan doc; no grid beyond the one real smoke cell (the root runs the grid, backgrounded); no
-tolerance sweep (MASTER Decision 18); no multi-feature cells (gated on the toy-design spec's GO,
-`shared/wsel19-toy-design.md`).
+tolerance sweep (MASTER Decision 18).
+
+**Multi-feature extension (GO rendered, `shared/wsel19-toy-design.md` amended spec).** `--dim
+{1,2,8,32} --geometry {axis,oblique}` (required together; both omitted => the 1-D slice above,
+byte-identical) route a cell through `width_wsel19_toys` (`wt` below) instead of the 1-D sweep
+cache. The per-width error table comes from `w_max` dedicated `FlexibleWidthNN(widths=(k,))` nets
+-- the SAME certified PORTED-arm protocol `width_wsel6.py`/`width_wsel4.py` use -- trained fresh
+per `(d, geometry, seed[, n_train])` on `wt.make_hetero_multifeature`'s data (`_get_or_build_mf_
+models`). No package change was needed for this: `FlexibleWidthNN`/`FlexibleWidthNNModule` already
+infer `input_size` from the training data's own column count at `_fit_single` time
+(`base_pytorch.py:124-125`, confirmed at authoring time, not assumed) -- `automl_package/models/
+flexnn/width/architectures.py`'s separate `in_dim` generalization (already landed) is the record
+of the same §2b requirement for the raw research classes and is not what this driver's per-width
+sweep calls.
+
+The §5 validity checks run IN ORDER and are recorded in every multi-feature cell JSON's
+`validity_checks` block:
+  1. **Identity (§5.1):** `wt.identity_holds` at a fixed check size -- asserts, does not gate
+     (holds by construction; a `False` here means the construction itself is broken, so it raises
+     rather than being recorded as a soft status).
+  2. **d=1 calibration cell (§5.2):** `--calibrate` runs the SAME per-width sweep at `d=1,
+     geometry=axis` (the canonical anchor -- a flagged choice, see `run_calibration`) across every
+     canonical seed, asserts the canonical regime structure (different best widths in the easy vs
+     width-hungry region) survives the probability-integral-transform lift, and writes the gating
+     artifact (`wsel19_calibration_d1.json`). Every multi-feature cell (`_load_calibration_or_
+     refuse`) REFUSES (raises) unless this artifact exists and `passed=True` -- a hard gate, unlike
+     checks 1/3/4/5 below, which are recorded, not refused on.
+  3. **Fit gate (§5.3/F6):** the cell's best-fixed-width held-out MSE, as a multiple of the noise
+     floor (`HETERO_NOISE_SIGMA**2`), must not exceed the calibration artifact's own worst-seed
+     ratio (anchor-relative, no new constant) -- `fit_status: ok` or `void_for_fit`. `--n-train-
+     fallback` reruns the SAME cell at the §3b pre-authorized `n_train=4000` instead of the
+     canonical 1500 (an explicit flag, never automatic).
+  4. **Hidden-ness falsifier (§5.4/F4):** the true-error oracle (`(pred_w(x) - h(t))**2`, `h`
+     `nested_width_net.make_hetero`'s own noise-free signal, evaluated on the untouched `t` --
+     never a noisy single draw) must beat the best FIXED width by >= 10% of the latter's true
+     error on the report set -- `routing_status: ok` or `void_for_routing`.
+  5. **Regime visibility (§5.5):** the per-width TRUE-error table must prefer different widths in
+     the easy (`region=0`) vs width-hungry (`region=1`) report subsets -- `regime_visible`.
+
+Backends/modes/readouts are UNCHANGED from the 1-D slice (`_fit_backend`/`_score_hard`/
+`_score_blend`, already `in_dim`-parametrized) -- the multi-feature extension only had to fix each
+backend's internal `x.reshape(-1, 1)` (hardcoded to a scalar column) to `routing._as_capacity_
+input` (already `in_dim`-generic, imported rather than re-derived) and add the data-provisioning
+and §5-check layer above. Backend 2's sizing rule now genuinely varies with `d` (`_rule_sized_
+hidden`), recorded in `sizing_rule` as before.
+
+Non-goals (multi-feature authoring contract): no edits to `architectures.py`/`width_wsel19_toys.
+py`/any plan doc; no real multi-feature grid beyond one smoke cell (the root runs the grid,
+backgrounded); no `--summarize` change (multi-feature cell filenames are disjoint from the 1-D
+glob it reads, by construction -- aggregating the multi-feature grid is the root's job).
 
 Driver CLI contract (root-run grid; this file is never run over the full grid by its author):
   `--backend {frozen_mlp,rule_mlp,xgboost,constant} --mode {hard,blend} --n-sel {75,300,1200}
-  --seed <int>` runs ONE cell, writing its per-cell JSON immediately (and, on a cache miss for that
-  seed's sweep, the shared per-width error tables).
-  `--summarize` aggregates every per-cell JSON on disk into `WSEL19/frozen.json`.
+  --seed <int>` runs ONE 1-D cell, writing its per-cell JSON immediately (and, on a cache miss for
+  that seed's sweep, the shared per-width error tables).
+  `--dim {1,2,8,32} --geometry {axis,oblique}` alongside the four args above runs ONE multi-feature
+  cell instead (`run_cell_multifeature`); `--n-train-fallback` optionally applies the §3b F6
+  fallback. REFUSES unless `--calibrate` has already been run (see above).
+  `--calibrate` runs the d=1 calibration cell, writes the gating artifact, and exits.
+  `--summarize` aggregates every 1-D per-cell JSON on disk into `WSEL19/frozen.json`.
   `--selftest` runs a tiny end-to-end check in a temp dir (small `w_max`, tiny selection pool, all
-  four backends x both modes) and asserts the sweep cache is built once and reused -- no real cell
-  is ever run here, and nothing is written under this task's real results directory.
-  `--tag` appends a suffix to a cell's own JSON filename (never to the shared sweep cache) --
-  intended for a throwaway verification cell that gets deleted afterward without touching any
-  shared artifact a later real cell would want to reuse.
+  four backends x both modes, PLUS the multi-feature identity/calibration-gate/cell wiring) and
+  asserts the sweep cache is built once and reused -- no real cell is ever run here, and nothing is
+  written under this task's real results directory.
+  `--tag` appends a suffix to a cell's own JSON filename (never to any shared cache) -- intended
+  for a throwaway verification cell that gets deleted afterward without touching any shared
+  artifact a later real cell would want to reuse.
 
 Usage:
     AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel19.py --selftest
     AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel19.py --backend frozen_mlp --mode hard --n-sel 300 --seed 0
     AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel19.py --backend xgboost --mode blend --n-sel 75 --seed 1
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/width_wsel19.py --summarize
+    AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel19.py --calibrate
+    AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel19.py \
+        --backend rule_mlp --mode hard --n-sel 300 --seed 0 --dim 8 --geometry oblique
+    AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python automl_package/examples/width_wsel19.py \
+        --backend rule_mlp --mode hard --n-sel 300 --seed 0 --dim 32 --geometry axis --n-train-fallback
 """
 
 from __future__ import annotations
@@ -154,16 +212,20 @@ import converged_width_experiment as cwe  # noqa: E402 -- VAL_EVERY, the interna
 import nested_width_net as nwn  # noqa: E402 -- make_hetero, the canonical tier-1 toy
 import width_wsel4 as w4  # noqa: E402 -- PORTED_* ported-arm protocol constants, reused verbatim (see module docstring)
 import width_wsel6 as w6  # noqa: E402 -- Tier/_TIER_CONFIG/_build_split/_get_or_train/_load_cached_model/_sweep_cache_paths, reused verbatim
+import width_wsel19_toys as wt  # noqa: E402 -- multi-feature construction: Geometry, TRAIN_N/REPORT_N, make_*_split, identity_holds
 
+from automl_package.enums import ActivationFunction, CapacitySelection, TaskType  # noqa: E402
 from automl_package.models.flexnn.routing import (  # noqa: E402
     DEFAULT_HIDDEN,
     DEFAULT_LR,
     DEFAULT_N_EPOCHS,
     DEFAULT_TOLERANCE,
     DistilledCapacityRouter,
+    _as_capacity_input,
     _CapacityRouterMLP,
     _cheapest_within_tolerance_labels,
 )
+from automl_package.models.flexnn.width.model import FlexibleWidthNN  # noqa: E402
 from automl_package.utils.capacity_accounting import executed_flops  # noqa: E402
 from automl_package.utils.run_provenance import run_provenance  # noqa: E402
 
@@ -176,6 +238,21 @@ N_SEL_VALUES = (75, 300, 1200)  # toy-design spec SS3: 75 = starved regime, 1200
 
 _SELECTION_POOL_SEED_OFFSET = 1000  # the third disjoint make_hetero draw this task needs -- see module docstring.
 _REPORT_SEED_OFFSET = 500  # this strand's universal disjoint-test-draw convention (module docstring).
+
+# ---------------------------------------------------------------------------
+# Multi-feature extension constants (toy-design spec §2b/§3b/§5, amended -- GO rendered).
+# ---------------------------------------------------------------------------
+
+_MF_DIM_CHOICES = (1, *wt.D_GRID)  # 1 (the calibration/anchor dimension) + the toy-design's own d-grid (2, 8, 32).
+_MF_CACHE_DIRNAME = "_mf_cache"
+_MF_N_TRAIN_FALLBACK = 4000  # §3b F6: the pre-authorized fallback n_train (a §3.8 ladder value), an EXPLICIT flag only.
+_IDENTITY_CHECK_N = 500  # §5.1: any n proves the by-construction identity; a fixed, modest size keeps the check cheap.
+_CALIBRATION_D = 1  # §5.2's anchor dimension.
+_CALIBRATION_GEOMETRY = wt.Geometry.AXIS  # the canonical d=1 geometry -- v=e_1 is the closest thing to a no-op reparametrization; flagged choice, see run_calibration.
+_CALIBRATION_FILENAME = "wsel19_calibration_d1.json"
+_HIDDENNESS_MIN_RELATIVE_GAIN = 0.10  # §5.4/F4: the oracle must beat the best FIXED width by >= 10% of the latter's true error.
+_HETERO_EASY_REGION = 0  # nwn.make_hetero's region id for x < 0 (the flat-easy branch).
+_HETERO_HARD_REGION = 1  # nwn.make_hetero's region id for x >= 0 (the width-hungry sine branch).
 
 # Arm 2 (rule_mlp): sizing rule + regularised-training hyperparameters (chosen defaults, flagged
 # for review like every other chosen default in this strand -- see module docstring).
@@ -215,6 +292,20 @@ class Mode(enum.Enum):
 
     HARD = "hard"  # argmax route: one width per input.
     BLEND = "blend"  # probability-weighted: every width contributes, cost reported next to quality.
+
+
+class FitStatus(enum.Enum):
+    """§5.3/F6 fit-gate verdict for one multi-feature `(d, geometry, seed)` cell -- closed set, recorded not refused on."""
+
+    OK = "ok"
+    VOID_FOR_FIT = "void_for_fit"
+
+
+class RoutingStatus(enum.Enum):
+    """§5.4/F4 hidden-ness-falsifier verdict -- closed set, recorded not refused on."""
+
+    OK = "ok"
+    VOID_FOR_ROUTING = "void_for_routing"
 
 
 def _rule_sized_hidden(in_dim: int) -> tuple[int, int]:
@@ -450,7 +541,7 @@ def _fit_frozen_mlp(x_sel: np.ndarray, y_sel: np.ndarray, error_table_sel: np.nd
     router.fit(eval_fn=eval_fn, x_val=x_sel, y_val=y_sel, capacity_grid=capacity_grid, tolerance=DEFAULT_TOLERANCE, cost_fn=cost_fn)
 
     def route_proba(x: np.ndarray) -> np.ndarray:
-        x_arr = x.reshape(-1, 1).astype(np.float32)
+        x_arr = _as_capacity_input(x)
         with torch.no_grad():
             logits = router.router_(torch.as_tensor(x_arr, dtype=torch.float32, device=router.device))
         return nnf.softmax(logits, dim=1).cpu().numpy()
@@ -467,7 +558,7 @@ def _fit_rule_mlp(x_sel: np.ndarray, error_table_sel: np.ndarray, seed: int, w_m
     """Backend 2: input-relative hidden size, early stopping + mild weight decay, no dropout (ruling 6)."""
     hidden = _rule_sized_hidden(in_dim)
     labels = _cheapest_within_tolerance_labels(error_table_sel, tolerance=DEFAULT_TOLERANCE)
-    x_arr = x_sel.reshape(-1, 1).astype(np.float32)
+    x_arr = _as_capacity_input(x_sel)
     n = len(x_arr)
     val_mask = (np.arange(n) % _INTERNAL_VAL_EVERY) == 0
 
@@ -505,13 +596,13 @@ def _fit_rule_mlp(x_sel: np.ndarray, error_table_sel: np.ndarray, seed: int, w_m
     net.eval()
 
     def route_index(x: np.ndarray) -> np.ndarray:
-        x_arr2 = x.reshape(-1, 1).astype(np.float32)
+        x_arr2 = _as_capacity_input(x)
         with torch.no_grad():
             logits = net(torch.as_tensor(x_arr2, dtype=torch.float32))
         return logits.argmax(dim=1).cpu().numpy()
 
     def route_proba(x: np.ndarray) -> np.ndarray:
-        x_arr2 = x.reshape(-1, 1).astype(np.float32)
+        x_arr2 = _as_capacity_input(x)
         with torch.no_grad():
             logits = net(torch.as_tensor(x_arr2, dtype=torch.float32))
         return nnf.softmax(logits, dim=1).cpu().numpy()
@@ -558,7 +649,7 @@ def _fit_xgboost(x_sel: np.ndarray, error_table_sel: np.ndarray, seed: int, w_ma
     on a single-class fit (which XGBoost itself rejects).
     """
     labels = _cheapest_within_tolerance_labels(error_table_sel, tolerance=DEFAULT_TOLERANCE)
-    x_arr = x_sel.reshape(-1, 1).astype(np.float32)
+    x_arr = _as_capacity_input(x_sel)
     n = len(x_arr)
     val_mask = (np.arange(n) % _INTERNAL_VAL_EVERY) == 0  # SAME internal split as rule_mlp (D1 spec).
     x_tr, y_tr_raw = x_arr[~val_mask], labels[~val_mask]
@@ -611,11 +702,11 @@ def _fit_xgboost(x_sel: np.ndarray, error_table_sel: np.ndarray, seed: int, w_ma
         clf.fit(x_tr, y_tr)
 
     def route_index(x: np.ndarray) -> np.ndarray:
-        dense_idx = clf.predict(x.reshape(-1, 1).astype(np.float32))
+        dense_idx = clf.predict(_as_capacity_input(x))
         return train_classes[dense_idx]
 
     def route_proba(x: np.ndarray) -> np.ndarray:
-        proba_dense = clf.predict_proba(x.reshape(-1, 1).astype(np.float32))  # (N, len(train_classes)), column i == dense class i.
+        proba_dense = clf.predict_proba(_as_capacity_input(x))  # (N, len(train_classes)), column i == dense class i.
         proba_full = np.zeros((len(x), w_max), dtype=np.float64)
         proba_full[:, train_classes] = proba_dense  # dense class i IS train_classes[i] -- direct placement.
         return proba_full
@@ -775,6 +866,385 @@ def _cell_json_path(results_dir: str, backend: Backend, mode: Mode, n_sel: int, 
 
 
 # ---------------------------------------------------------------------------
+# Multi-feature extension (toy-design spec §2b/§3b/§5, amended -- GO rendered, see module
+# docstring). The expensive part -- w_max dedicated per-width nets, trained fresh per (d,
+# geometry, seed[, n_train]) and cached to disk -- mirrors `_SweepCache`/`_get_or_build_sweep_
+# cache` above in shape, but built on `FlexibleWidthNN` directly (the SAME PORTED-arm protocol
+# width_wsel6.py uses) rather than reusing WSEL6's 1-D-only cache.
+# ---------------------------------------------------------------------------
+
+
+def _mf_new_model(in_dim: int, width: int, seed: int, *, max_epochs: int, patience: int, lr: float) -> FlexibleWidthNN:
+    """One dedicated single-width `FlexibleWidthNN`, `width_wsel6._new_model`'s PORTED-arm protocol verbatim, generalized to `in_dim`.
+
+    No package change is needed for this: `FlexibleWidthNN`/`FlexibleWidthNNModule` already infer
+    `input_size` from the training data's own column count at `_fit_single` time (`automl_package/
+    models/base_pytorch.py:124-125`, confirmed by direct read and a live check at authoring time,
+    not assumed) -- `input_size=in_dim` here is only what an unfitted instance reports before that
+    inference runs.
+    """
+    return FlexibleWidthNN(
+        input_size=in_dim,
+        output_size=1,
+        task_type=TaskType.REGRESSION,
+        widths=(width,),
+        learning_rate=lr,
+        n_epochs=max_epochs,
+        early_stopping_rounds=patience,
+        batch_size=w4.PORTED_BATCH_SIZE,
+        random_seed=seed,
+        calculate_feature_importance=False,
+        capacity_selection=CapacitySelection.FIXED,
+        activation=ActivationFunction.TANH,  # width_wsel4.py's confound-doctrine finding, reused verbatim (width_wsel6.py module docstring).
+    )
+
+
+def _mf_train_one_width(
+    in_dim: int, width: int, seed: int, x_tr: np.ndarray, y_tr: np.ndarray, x_val: np.ndarray, y_val: np.ndarray, *, max_epochs: int, patience: int, lr: float
+) -> tuple[FlexibleWidthNN, list[float]]:
+    """Trains one dedicated width-`width` `FlexibleWidthNN` via the `_fit_single` bypass.
+
+    `width_wsel6._train_tier1`'s exact pattern (tier-1 hetero's built-in MSE criterion IS SS3.7's
+    fixed-sigma likelihood on this toy's single constant sigma; no hetero3/weighted-loss cells here
+    per the toy-design spec's own non-goals).
+    """
+    model = _mf_new_model(in_dim, width, seed, max_epochs=max_epochs, patience=patience, lr=lr)
+    _best_epoch, val_loss_history = model._fit_single(x_tr, y_tr, x_val=x_val, y_val=y_val)
+    return model, val_loss_history
+
+
+def _mf_model_cache_paths(results_dir: str, d: int, geometry: wt.Geometry, seed: int, n_train: int, width: int) -> tuple[str, str]:
+    base = os.path.join(results_dir, _MF_CACHE_DIRNAME)
+    os.makedirs(base, exist_ok=True)
+    tag = f"d{d}_{geometry.value}_seed{seed}_ntrain{n_train}_w{width}"
+    return os.path.join(base, f"{tag}.pt"), os.path.join(base, f"{tag}_meta.json")
+
+
+def _mf_load_cached_model(in_dim: int, width: int, seed: int, state_path: str, *, max_epochs: int, patience: int, lr: float) -> FlexibleWidthNN:
+    """Rebuilds a multi-feature `FlexibleWidthNN`'s module and loads a previously-cached `state_dict` back into it."""
+    model = _mf_new_model(in_dim, width, seed, max_epochs=max_epochs, patience=patience, lr=lr)
+    model.input_size = in_dim
+    model.build_model()
+    model.model.load_state_dict(torch.load(state_path, map_location=model.device))
+    model.model.eval()
+    return model
+
+
+def _mf_get_or_train_one_width(
+    in_dim: int,
+    width: int,
+    seed: int,
+    x_tr: np.ndarray,
+    y_tr: np.ndarray,
+    x_val: np.ndarray,
+    y_val: np.ndarray,
+    state_path: str,
+    meta_path: str,
+    *,
+    max_epochs: int,
+    patience: int,
+    min_delta: float,
+    lr: float,
+) -> tuple[FlexibleWidthNN, dict[str, Any], bool]:
+    """Get-or-train ONE multi-feature width-`width` net, cached at `state_path`/`meta_path` (mirrors `width_wsel6._get_or_train`)."""
+    if os.path.exists(state_path) and os.path.exists(meta_path):
+        model = _mf_load_cached_model(in_dim, width, seed, state_path, max_epochs=max_epochs, patience=patience, lr=lr)
+        with open(meta_path) as f:
+            meta = json.load(f)
+        return model, meta, True
+
+    model, val_loss_history = _mf_train_one_width(in_dim, width, seed, x_tr, y_tr, x_val, y_val, max_epochs=max_epochs, patience=patience, lr=lr)
+    replay = w4._replay(val_loss_history, patience, min_delta)
+    hit_cap = bool(len(val_loss_history) >= max_epochs)
+    trustworthy = bool(replay.trustworthy and not hit_cap)
+    meta = {
+        "trajectory": replay.summary()["trajectory"],
+        "actual_epochs": len(val_loss_history),
+        "n_train_used": len(x_tr),
+        "trustworthy": trustworthy,
+        "hit_cap": hit_cap,
+        "objective": "mse",
+    }
+    torch.save(model.model.state_dict(), state_path)
+    with open(meta_path, "w") as f:
+        json.dump(_jsonable(meta), f)
+    return model, meta, False
+
+
+def _get_or_build_mf_models(
+    seed: int,
+    d: int,
+    geometry: wt.Geometry,
+    *,
+    w_max: int = W_MAX,
+    n_train: int | None = None,
+    results_dir: str = RESULTS_DIR,
+    max_epochs: int = w4.PORTED_N_EPOCHS_CAP,
+    patience: int = w4.PORTED_PATIENCE,
+    min_delta: float = w4.PORTED_MIN_DELTA,
+    lr: float = w4.PORTED_LR_DEFAULT,
+) -> tuple[dict[int, FlexibleWidthNN], dict[int, dict[str, Any]], bool, int]:
+    """The §2b/§3b multi-feature twin of `width_wsel6._get_or_train_sweep_all`.
+
+    `w_max` dedicated single-width nets, trained ONCE per (d, geometry, seed, n_train) on the FULL
+    independent training draw (`wt.make_hetero_multifeature` at the cell's own base seed -- no
+    p1/p2 carve; §3b/C8: selection is never a carve of training), cached to disk under
+    `results_dir/_mf_cache/`.
+
+    Returns:
+        `(models, metas, all_cache_hit, n_train)` -- `n_train` is the ACTUAL value used (the §3b
+        canonical 1500 unless the caller passed an explicit override, e.g. the F6 fallback).
+    """
+    n_train = wt.TRAIN_N if n_train is None else n_train
+    x_tr_full, y_tr_full, _region_tr, _t_tr = wt.make_hetero_multifeature(n_train, seed, d, geometry)
+    val_mask = (np.arange(n_train) % _INTERNAL_VAL_EVERY) == 0
+    x_tr, y_tr = x_tr_full[~val_mask], y_tr_full[~val_mask]
+    x_val, y_val = x_tr_full[val_mask], y_tr_full[val_mask]
+
+    models: dict[int, FlexibleWidthNN] = {}
+    metas: dict[int, dict[str, Any]] = {}
+    all_cache_hit = True
+    for width in range(1, w_max + 1):
+        state_path, meta_path = _mf_model_cache_paths(results_dir, d, geometry, seed, n_train, width)
+        model, meta, cache_hit = _mf_get_or_train_one_width(
+            d, width, seed, x_tr, y_tr, x_val, y_val, state_path, meta_path, max_epochs=max_epochs, patience=patience, min_delta=min_delta, lr=lr
+        )
+        models[width], metas[width] = model, meta
+        all_cache_hit = all_cache_hit and cache_hit
+    return models, metas, all_cache_hit, n_train
+
+
+def _mf_error_table(models: dict[int, FlexibleWidthNN], x: np.ndarray, y: np.ndarray, w_max: int) -> np.ndarray:
+    """`(n, w_max)` per-sample squared error against `y`, one column per width -- the held-out (noisy-target) table every backend trains/scores against."""
+    return np.stack([(models[w].predict(x, filter_data=False, width=w) - y) ** 2 for w in range(1, w_max + 1)], axis=1)
+
+
+def _hetero_h(t: np.ndarray, r: float = nwn.HETERO_R_DEFAULT) -> np.ndarray:
+    """The generator-TRUE, noise-free hetero signal `h(t)`.
+
+    `nested_width_net.make_hetero`'s own `y_signal` formula (`nested_width_net.py:175`), verbatim,
+    evaluated on the untouched `t` (never re-derived from a noisy `y`). §5.4/F4's oracle-optimism
+    fix needs exactly this: the oracle must be graded against the TRUE signal, never a single noisy
+    draw (whose row-minima reward selection-on-noise, F4's own finding).
+    """
+    return np.where(t < 0, (0.5 / r) * t, 0.5 * np.sin(t)).astype(np.float32)
+
+
+def _regime_prefers_different_widths(true_error_table: np.ndarray, region: np.ndarray) -> tuple[bool, int, int]:
+    """§5.2/§5.5: does the per-width TRUE-error table prefer a different width in the easy vs width-hungry region?
+
+    Args:
+        true_error_table: `(n, w_max)` per-sample `(pred_w(x) - h(t))**2`.
+        region: `(n,)` int array, `nwn.make_hetero`'s own region id (0 = easy, 1 = hard), untouched by the §2 lift.
+
+    Returns:
+        `(regime_visible, best_width_easy, best_width_hard)` -- widths are 1-based.
+    """
+    best_easy = int(np.argmin(true_error_table[region == _HETERO_EASY_REGION].mean(axis=0))) + 1
+    best_hard = int(np.argmin(true_error_table[region == _HETERO_HARD_REGION].mean(axis=0))) + 1
+    return best_easy != best_hard, best_easy, best_hard
+
+
+def _calibration_path(results_dir: str) -> str:
+    return os.path.join(results_dir, _CALIBRATION_FILENAME)
+
+
+def _load_calibration_or_refuse(results_dir: str) -> dict[str, Any]:
+    """§5.2 gate: every multi-feature cell REFUSES (raises) unless the calibration artifact exists and passed."""
+    path = _calibration_path(results_dir)
+    if not os.path.exists(path):
+        raise RuntimeError(f"multi-feature cell refused (§5.2 gate): no calibration artifact at {path} -- run --calibrate first.")
+    with open(path) as f:
+        calibration = json.load(f)
+    if not calibration.get("passed", False):
+        raise RuntimeError(
+            f"multi-feature cell refused (§5.2 gate): calibration artifact at {path} did not pass -- "
+            "the d=1 calibration cell must reproduce the canonical regime structure before any multi-feature cell may run."
+        )
+    return calibration
+
+
+def run_calibration(
+    *, w_max: int = W_MAX, seeds: tuple[int, ...] = SEEDS, n_train: int | None = None, results_dir: str = RESULTS_DIR
+) -> dict[str, Any]:
+    """§5.2: the d=1 calibration cell, gating every multi-feature cell.
+
+    Runs the SAME multi-feature per-width sweep at `d=1, geometry=axis` (the canonical anchor:
+    `v=e_1` is the closest thing to a no-op reparametrization of the 1-D construction, a flagged
+    choice like every other chosen default in this strand), for every canonical seed. Asserts the
+    canonical qualitative regime structure (different best widths in the easy vs width-hungry
+    region) survives the probability-integral-transform lift BEFORE any multi-feature (d>1) cell
+    may run, and writes the anchor every such cell's fit gate (§5.3) reads
+    (`_load_calibration_or_refuse`).
+
+    The anchor (`anchor_ratio_to_noise_floor`) is the MAXIMUM best-fixed-width-held-out-MSE /
+    noise-floor ratio across the calibration seeds -- the worst-case d=1 fit quality, not a mean or
+    a single seed, so a later multi-feature cell is graded against the loosest defensible 1-D
+    reference rather than amplifying calibration seed noise into a spurious fit-gate failure. No
+    new constant is introduced (F6: "anchor-relative, no new arbitrary constant") -- the ratio
+    itself IS the bar, with no added tolerance multiplier.
+    """
+    noise_floor = float(nwn.HETERO_NOISE_SIGMA**2)
+    per_seed: dict[str, Any] = {}
+    ratios: list[float] = []
+    regime_flags: list[bool] = []
+    trustworthy_flags: list[bool] = []
+
+    for seed in seeds:
+        models, metas, _cache_hit, n_train_used = _get_or_build_mf_models(seed, _CALIBRATION_D, _CALIBRATION_GEOMETRY, w_max=w_max, n_train=n_train, results_dir=results_dir)
+        x_report, y_report, region_report, t_report = wt.make_report_split(seed, _CALIBRATION_D, _CALIBRATION_GEOMETRY)
+        error_table_report = _mf_error_table(models, x_report, y_report, w_max)
+        h_report = _hetero_h(t_report)
+        true_error_table = np.stack([(models[w].predict(x_report, filter_data=False, width=w) - h_report) ** 2 for w in range(1, w_max + 1)], axis=1)
+
+        best_fixed_mse = float(error_table_report.mean(axis=0).min())
+        ratio = best_fixed_mse / noise_floor
+        regime_visible, best_easy, best_hard = _regime_prefers_different_widths(true_error_table, region_report)
+        seed_trustworthy = all(metas[w]["trustworthy"] for w in range(1, w_max + 1))
+
+        ratios.append(ratio)
+        regime_flags.append(regime_visible)
+        trustworthy_flags.append(seed_trustworthy)
+        per_seed[str(seed)] = {
+            "best_fixed_held_out_mse": best_fixed_mse,
+            "ratio_to_noise_floor": ratio,
+            "regime_visible": regime_visible,
+            "best_width_easy": best_easy,
+            "best_width_hard": best_hard,
+            "trustworthy": seed_trustworthy,
+            "n_train": n_train_used,
+        }
+
+    anchor_ratio = float(max(ratios))
+    regime_visible_all = bool(all(regime_flags))
+    all_trustworthy = bool(all(trustworthy_flags))
+    passed = regime_visible_all and all_trustworthy
+
+    out = {
+        "d": _CALIBRATION_D,
+        "geometry": _CALIBRATION_GEOMETRY.value,
+        "seeds": list(seeds),
+        "per_seed": per_seed,
+        "anchor_ratio_to_noise_floor": anchor_ratio,
+        "regime_visible_all_seeds": regime_visible_all,
+        "all_trustworthy": all_trustworthy,
+        "passed": passed,
+        "noise_floor": noise_floor,
+        "w_max": w_max,
+        "provenance": run_provenance(),
+    }
+    os.makedirs(results_dir, exist_ok=True)
+    path = _calibration_path(results_dir)
+    with open(path, "w") as f:
+        json.dump(_jsonable(out), f, indent=2)
+    print(f"wrote {path}  passed={passed}  anchor_ratio_to_noise_floor={anchor_ratio:.4g}")
+    return out
+
+
+def run_cell_multifeature(
+    backend: Backend,
+    mode: Mode,
+    n_sel: int,
+    seed: int,
+    d: int,
+    geometry: wt.Geometry,
+    *,
+    w_max: int = W_MAX,
+    n_train: int | None = None,
+    n_train_fallback: bool = False,
+    fallback_n_train: int = _MF_N_TRAIN_FALLBACK,
+    results_dir: str = RESULTS_DIR,
+) -> dict[str, Any]:
+    """Runs one multi-feature (backend, mode, n_sel, seed, d, geometry) cell.
+
+    The §5 validity checks run IN ORDER and are recorded in `validity_checks`, BEFORE the backend
+    verdict below (§5's own ordering requirement) -- see module docstring for what each one means.
+
+    `n_train` is a direct size override for `--selftest`'s tiny toys only (mirrors `run_cell`'s own
+    `n_train`/`n_test` params -- no CLI flag, since the toy-design spec exposes only the binary F6
+    fallback as a first-class knob). `n_train_fallback=True` uses `fallback_n_train` (the §3b F6
+    pre-authorized 4000 by default -- overridable so `--selftest` can exercise the flag's wiring at
+    a tiny size instead) and takes precedence over an explicit `n_train` if both are somehow given.
+    """
+    calibration = _load_calibration_or_refuse(results_dir)  # §5.2 -- REFUSES (raises) if missing/failed.
+
+    identity_ok = wt.identity_holds(_IDENTITY_CHECK_N, seed, d, geometry)  # §5.1 -- holds by construction; a False here is a real defect.
+    if not identity_ok:
+        raise RuntimeError(f"§5.1 identity check FAILED at d={d} geometry={geometry.value} seed={seed} -- the multi-feature construction itself is broken.")
+
+    n_train_arg = fallback_n_train if n_train_fallback else n_train
+    models, metas, cache_hit, n_train_used = _get_or_build_mf_models(seed, d, geometry, w_max=w_max, n_train=n_train_arg, results_dir=results_dir)
+
+    x_report, y_report, region_report, t_report = wt.make_report_split(seed, d, geometry)
+    x_sel, y_sel, _region_sel, _t_sel = wt.make_selection_split(seed, d, geometry, n_sel)
+
+    error_table_report = _mf_error_table(models, x_report, y_report, w_max)
+    error_table_sel = _mf_error_table(models, x_sel, y_sel, w_max)
+    flops_by_width = [float(executed_flops(models[w].model, w)) for w in range(1, w_max + 1)]
+
+    # §5.3/F6 fit gate -- anchor-relative to the d=1 calibration cell, no new constant.
+    noise_floor = float(nwn.HETERO_NOISE_SIGMA**2)
+    best_fixed_held_out_mse = float(error_table_report.mean(axis=0).min())
+    ratio_to_noise_floor = best_fixed_held_out_mse / noise_floor
+    fit_status = FitStatus.OK if ratio_to_noise_floor <= calibration["anchor_ratio_to_noise_floor"] else FitStatus.VOID_FOR_FIT
+
+    # §5.4/F4 hidden-ness falsifier -- true-error oracle vs best FIXED width, both against h(t), never noisy y.
+    h_report = _hetero_h(t_report)
+    true_error_table_report = np.stack([(models[w].predict(x_report, filter_data=False, width=w) - h_report) ** 2 for w in range(1, w_max + 1)], axis=1)
+    oracle_true_mean = float(true_error_table_report.min(axis=1).mean())
+    best_fixed_true_mean = float(true_error_table_report.mean(axis=0).min())
+    relative_gain = (best_fixed_true_mean - oracle_true_mean) / best_fixed_true_mean if best_fixed_true_mean > 0 else 0.0
+    routing_status = RoutingStatus.OK if relative_gain >= _HIDDENNESS_MIN_RELATIVE_GAIN else RoutingStatus.VOID_FOR_ROUTING
+
+    # §5.5 regime visibility, off the SAME true-error table.
+    regime_visible, best_width_easy, best_width_hard = _regime_prefers_different_widths(true_error_table_report, region_report)
+
+    fitted = _fit_backend(backend, x_sel, y_sel, error_table_sel, flops_by_width, seed, w_max, d)
+    readout = _SCORERS[mode](fitted, x_report, error_table_report, flops_by_width, w_max)
+
+    case = {
+        "backend": backend.value,
+        "mode": mode.value,
+        "n_sel": n_sel,
+        "seed": seed,
+        "d": d,
+        "geometry": geometry.value,
+        "toy": nwn.Toy.HETERO.value,
+        "n_train": n_train_used,
+        "n_train_fallback_applied": bool(n_train_fallback),
+        "w_max": w_max,
+        "n_report": len(x_report),
+        "backend_config": fitted.config,
+        "sizing_rule": fitted.sizing_rule,
+        "table_provenance": {
+            "reused_from_wsel6": False,
+            "sweep_hit_cap": any(metas[w]["hit_cap"] for w in range(1, w_max + 1)),
+            "sweep_trustworthy": all(metas[w]["trustworthy"] for w in range(1, w_max + 1)),
+            "cache_hit": bool(cache_hit),
+        },
+        "validity_checks": {
+            "identity_holds": identity_ok,
+            "fit_status": fit_status.value,
+            "ratio_to_noise_floor": ratio_to_noise_floor,
+            "calibration_anchor_ratio_to_noise_floor": calibration["anchor_ratio_to_noise_floor"],
+            "routing_status": routing_status.value,
+            "hiddenness_relative_gain": relative_gain,
+            "regime_visible": regime_visible,
+            "best_width_easy": best_width_easy,
+            "best_width_hard": best_width_hard,
+        },
+        "provenance": run_provenance(),
+    }
+    case.update(readout)
+    return case
+
+
+def _mf_cell_json_path(results_dir: str, d: int, geometry: wt.Geometry, backend: Backend, mode: Mode, n_sel: int, seed: int, tag: str | None = None) -> str:
+    suffix = f"_{tag}" if tag else ""
+    return os.path.join(results_dir, f"wsel19_mf_d{d}_{geometry.value}_{backend.value}_{mode.value}_nsel{n_sel}_seed{seed}{suffix}.json")
+
+
+# ---------------------------------------------------------------------------
 # --summarize -- aggregates every per-cell JSON on disk into WSEL19/frozen.json. No verdict is
 # invented here: the D1 spec asks for an aggregate, not a plateau/invariance read (unlike WSEL-6/7,
 # which specify one) -- mean +/- SE per (backend, mode, n_sel) across present seeds, transparently.
@@ -842,6 +1312,7 @@ def summarize(results_dir: str = RESULTS_DIR) -> None:
 # ---------------------------------------------------------------------------
 
 _SELFTEST_KW = {"w_max": 3, "n_train": 60, "n_test": 30}
+_SELFTEST_MF_D = 2  # the multi-feature selftest's own tiny d (both geometries) -- distinct from the d in {1, 8} identity-only checks.
 
 _SELFTEST_REQUIRED_KEYS = (
     "backend",
@@ -920,6 +1391,58 @@ def run_selftest() -> bool:
         summarize_ok = "per_group" in frozen and frozen["n_cells_present"] >= len(Backend) * len(Mode)
         print(f"[wsel19 selftest] summarize: n_cells_present={frozen.get('n_cells_present')}  {'PASS' if summarize_ok else 'FAIL'}")
         ok = ok and summarize_ok
+
+        # --- Multi-feature extension: identity at d in {1, 8} (both geometries), the calibration
+        # gate REFUSING before the artifact exists, a tiny --calibrate run, and a tiny end-to-end
+        # multi-feature cell at d=2, both geometries (reduced sizes throughout). ---
+        for d_check in (1, 8):
+            for geometry in wt.Geometry:
+                identity_ok = wt.identity_holds(200, seed, d_check, geometry)
+                ok = ok and identity_ok
+                print(f"[wsel19 selftest] mf identity d={d_check} geometry={geometry.value}  {'PASS' if identity_ok else 'FAIL'}")
+
+        try:
+            _load_calibration_or_refuse(tmp_dir)
+            gate_refused = False
+        except RuntimeError:
+            gate_refused = True
+        print(f"[wsel19 selftest] mf calibration gate refuses before artifact exists: {gate_refused}  {'PASS' if gate_refused else 'FAIL'}")
+        ok = ok and gate_refused
+
+        calibration = run_calibration(w_max=3, seeds=(seed,), n_train=40, results_dir=tmp_dir)
+        calibration_ok = "passed" in calibration and "anchor_ratio_to_noise_floor" in calibration and math.isfinite(calibration["anchor_ratio_to_noise_floor"])
+        anchor = calibration.get("anchor_ratio_to_noise_floor")
+        print(f"[wsel19 selftest] mf calibration: passed={calibration.get('passed')} anchor={anchor:.4g}  {'PASS' if calibration_ok else 'FAIL'}")
+        ok = ok and calibration_ok
+
+        # A w_max=3/n_train=40 toy is too tiny to reliably reproduce real regime structure (that is
+        # a SCIENCE property of the real d=1 grid, checked at real scale by the root, not a wiring
+        # property) -- overwrite with a synthetic PASSING fixture so the downstream gate-consumption
+        # wiring (_load_calibration_or_refuse -> run_cell_multifeature) is exercised deterministically.
+        with open(_calibration_path(tmp_dir), "w") as f:
+            json.dump({**calibration, "passed": True, "regime_visible_all_seeds": True, "all_trustworthy": True}, f)
+
+        mf_d = _SELFTEST_MF_D
+        mf_n_train = 40  # tiny -- keeps the wiring check fast; the real 1500/4000 sizes are the root's grid, not this check.
+        for geometry in wt.Geometry:
+            mf_case = run_cell_multifeature(Backend.FROZEN_MLP, Mode.HARD, n_sel=20, seed=seed, d=mf_d, geometry=geometry, w_max=3, n_train=mf_n_train, results_dir=tmp_dir)
+            mf_keys_ok = "validity_checks" in mf_case and mf_case["d"] == mf_d and mf_case["geometry"] == geometry.value and mf_case["n_train"] == mf_n_train
+            mf_finite_ok = math.isfinite(mf_case["routed_held_out_quality"])
+            mf_ok = mf_keys_ok and mf_finite_ok
+            ok = ok and mf_ok
+            print(
+                f"[wsel19 selftest] mf cell d={mf_d} geometry={geometry.value} quality={mf_case['routed_held_out_quality']:.4g} "
+                f"fit_status={mf_case['validity_checks']['fit_status']} routing_status={mf_case['validity_checks']['routing_status']}  {'PASS' if mf_ok else 'FAIL'}"
+            )
+
+        # n_train_fallback threads through and is recorded -- `fallback_n_train` overrides the real
+        # §3b F6 value (4000, exercised at real scale by the root) with a tiny size for this check.
+        mf_fallback_case = run_cell_multifeature(
+            Backend.CONSTANT, Mode.HARD, n_sel=20, seed=seed, d=mf_d, geometry=wt.Geometry.AXIS, w_max=3, results_dir=tmp_dir, n_train_fallback=True, fallback_n_train=mf_n_train
+        )
+        fallback_ok = mf_fallback_case["n_train_fallback_applied"] is True and mf_fallback_case["n_train"] == mf_n_train
+        print(f"[wsel19 selftest] mf n-train-fallback recorded: n_train={mf_fallback_case['n_train']}  {'PASS' if fallback_ok else 'FAIL'}")
+        ok = ok and fallback_ok
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -933,38 +1456,68 @@ def run_selftest() -> bool:
 
 
 def main() -> None:
-    """Parses args and dispatches to `--selftest` / `--summarize` / one real `--backend`/`--mode`/`--n-sel`/`--seed` cell."""
+    """Parses args and dispatches to a mode flag or one real 1-D or multi-feature cell.
+
+    `--selftest` / `--summarize` / `--calibrate`, or one real 1-D or multi-feature (`--dim`/
+    `--geometry`) cell.
+    """
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--selftest", action="store_true", help="Tiny wiring check in a temp dir, then exit.")
-    parser.add_argument("--summarize", action="store_true", help="Aggregate every per-cell JSON on disk into WSEL19/frozen.json.")
+    parser.add_argument("--summarize", action="store_true", help="Aggregate every 1-D per-cell JSON on disk into WSEL19/frozen.json.")
+    parser.add_argument("--calibrate", action="store_true", help="Run the §5.2 d=1 calibration cell, write the gating artifact, and exit.")
     parser.add_argument("--backend", choices=[b.value for b in Backend], default=None)
     parser.add_argument("--mode", choices=[m.value for m in Mode], default=None)
     parser.add_argument("--n-sel", type=int, choices=list(N_SEL_VALUES), default=None)
     parser.add_argument("--seed", type=int, default=None, help="RNG seed for this cell (canonical suite: 0, 1, 2).")
     parser.add_argument(
+        "--dim", type=int, choices=list(_MF_DIM_CHOICES), default=None, help="Multi-feature input dimension. Requires --geometry; both omitted => the 1-D slice."
+    )
+    parser.add_argument("--geometry", choices=[g.value for g in wt.Geometry], default=None, help="Multi-feature geometry of v. Requires --dim.")
+    parser.add_argument(
+        "--n-train-fallback",
+        action="store_true",
+        help="§3b F6 pre-authorized fallback: raise this cell's n_train to 4000 (only meaningful after a VOID_FOR_FIT verdict at the canonical 1500). Requires --dim/--geometry.",
+    )
+    parser.add_argument(
         "--tag",
         type=str,
         default=None,
-        help="Suffix for this cell's OWN JSON filename only (never the shared sweep cache) -- for a throwaway verification cell.",
+        help="Suffix for this cell's OWN JSON filename only (never any shared cache) -- for a throwaway verification cell.",
     )
     parser.add_argument("--results-dir", type=str, default=RESULTS_DIR)
     args = parser.parse_args()
 
-    if args.selftest and args.summarize:
-        parser.error("--selftest and --summarize are mutually exclusive.")
+    if sum([args.selftest, args.summarize, args.calibrate]) > 1:
+        parser.error("--selftest, --summarize and --calibrate are mutually exclusive.")
     if args.selftest:
         sys.exit(0 if run_selftest() else 1)
     if args.summarize:
         summarize(results_dir=args.results_dir)
         return
+    if args.calibrate:
+        run_calibration(results_dir=args.results_dir)
+        return
+
+    if (args.dim is None) != (args.geometry is None):
+        parser.error("--dim and --geometry must be given together (or both omitted for the existing 1-D slice).")
+    if args.n_train_fallback and args.dim is None:
+        parser.error("--n-train-fallback only applies to a multi-feature cell (--dim/--geometry).")
     if args.backend is None or args.mode is None or args.n_sel is None or args.seed is None:
-        parser.error("--backend, --mode, --n-sel and --seed are all required for a real cell (or pass --selftest / --summarize).")
+        parser.error("--backend, --mode, --n-sel and --seed are all required for a real cell (or pass --selftest / --summarize / --calibrate).")
 
     backend = Backend(args.backend)
     mode = Mode(args.mode)
     os.makedirs(args.results_dir, exist_ok=True)
-    print(f"[wsel19] backend={backend.value} mode={mode.value} n_sel={args.n_sel} seed={args.seed}", flush=True)
-    case = run_cell(backend, mode, args.n_sel, args.seed, results_dir=args.results_dir)
+
+    if args.dim is not None:
+        geometry = wt.Geometry(args.geometry)
+        print(f"[wsel19 mf] backend={backend.value} mode={mode.value} n_sel={args.n_sel} seed={args.seed} d={args.dim} geometry={geometry.value}", flush=True)
+        case = run_cell_multifeature(backend, mode, args.n_sel, args.seed, args.dim, geometry, results_dir=args.results_dir, n_train_fallback=args.n_train_fallback)
+        cell_path = _mf_cell_json_path(args.results_dir, args.dim, geometry, backend, mode, args.n_sel, args.seed, tag=args.tag)
+    else:
+        print(f"[wsel19] backend={backend.value} mode={mode.value} n_sel={args.n_sel} seed={args.seed}", flush=True)
+        case = run_cell(backend, mode, args.n_sel, args.seed, results_dir=args.results_dir)
+        cell_path = _cell_json_path(args.results_dir, backend, mode, args.n_sel, args.seed, tag=args.tag)
 
     if not case["table_provenance"]["sweep_trustworthy"]:
         print(
@@ -973,7 +1526,6 @@ def main() -> None:
             f"{case['table_provenance']['sweep_hit_cap']}). ***"
         )
 
-    cell_path = _cell_json_path(args.results_dir, backend, mode, args.n_sel, args.seed, tag=args.tag)
     with open(cell_path, "w") as f:
         json.dump(_jsonable(case), f, indent=2)
     print(

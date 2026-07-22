@@ -1303,6 +1303,43 @@ edits to `routing.py`, `width_wsel7.py`, `width_wsel6.py`, or any plan doc; no t
 - No backend/default change lands from this slice (FP-5.b binds; the slice MEASURES). The
   multi-feature slice + this anchor together produce the bake-off verdict.
 
+#### WSEL-19 multi-feature slice — ⛔ **CALIBRATION GATE FIRED 2026-07-22: the lifted toy construction FAILS its own pre-registered d=1 check. The 432-cell grid did NOT run — exactly as the amended spec's §5.2 gate is designed to ensure. Toy redesign required; batched for user review.**
+
+**The driver extension itself LANDED** (root-applied via the write-set-guard handoff protocol —
+the worker built and verified against a scratchpad copy; the root re-ran every verify against
+the real path: selftest PASS incl. all multi-feature checks, ruff clean, the input-dim
+equivalence suite 9/9, `--summarize` still aggregates the real 72 1-D cells unchanged). 1-D
+behavior is byte-identical; multi-feature cells mechanically REFUSE to run while the
+calibration artifact records `passed: false`.
+
+**The calibration verdict** (real scale: w_max=12, n_train=1500, axis geometry, seeds 0-2;
+artifact `automl_package/examples/capacity_ladder_results/WSEL19/wsel19_calibration_d1.json`):
+
+| seed | best-fixed MSE/floor | best width (easy) | best width (hard) | regime visible | trustworthy |
+|---|---:|---:|---:|---|---|
+| 0 | 1.123 | 12 | 12 | NO | yes | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/wsel19_calibration_d1.json` -->
+| 1 | 1.041 | 6 | 6 | NO | yes | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/wsel19_calibration_d1.json` -->
+| 2 | 1.015 | 5 | 9 | yes | NO | <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/wsel19_calibration_d1.json` -->
+
+Two of three seeds show NO best-width differentiation between the easy and width-hungry
+regions; the one seed that differentiates fails per-width convergence trust. Fit quality is
+fine (all seeds within 1.2% - 12.3% of the noise floor) — the construction fits; it just no
+longer carries the regime structure. <!-- numcheck-ignore: the percentages restate the table's ratio column (same artifact) -->
+
+**Mechanism hypothesis (UNVERIFIED — trace before any redesign):** the amended spec's own §2
+warp caveat (adjudicator finding F3): the inverse-CDF lift makes the model see the easy
+region's flat-linear target through a sigmoid-like reparameterization, plausibly destroying
+its easy/cheap character so every region wants width. The worker flagged this as the likely
+explanation, explicitly NOT as a verified diagnosis; per-width prediction-curve tracing is the
+first step of any redesign.
+
+**Consequences, recorded:** (1) the bake-off verdict currently rests on the 1-D slice alone;
+the input-size-relative half of rulings 2/5 and ruling 6's decisive d ∈ {8, 32} test remain
+OPEN. (2) A redesigned lift is a NEW toy design → the standing toy gate applies (written spec,
+adversarial review, user GO) — batched into the end-of-run report; nothing multi-feature runs
+before it. (3) The pre-registration culture worked: the failure cost one calibration run
+(~36 small nets), not a 432-cell grid read as science.
+
 ### WSEL-8 — the W-SHARED ≈ W-SWEEP claim, both halves, on toys — ⛔ **ANSWERED 2026-07-22: BOTH HALVES FAIL. The dial network is NOT ≈ the exhaustive sweep on this toy — 2.6-7.2× worse at matched middle widths, 0/3 agreement on the chosen width, and the disagreement is a mechanical consequence of the quality gap. A FAIL is a finding, not a bug.**
 
 **RESULT: `agreement_rate: 0.0`, quality NOT matched at middle widths** — ledger `automl_package/examples/capacity_ladder_results/WSEL8/frozen.json` (36 sweep cells + control + 3 dial cells, ALL trustworthy, no cap hits after the same-precedent repair; per-cell JSONs in the same directory).
