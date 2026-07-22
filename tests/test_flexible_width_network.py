@@ -274,6 +274,98 @@ class TestFlexibleWidthNNRouting:
             assert router.costs_[i] == pytest.approx(executed_flops(model.model, width))
 
 
+class TestFlexibleWidthNNGlobalCheap:
+    """`fit_global_selector()` + `predict()` under `CapacitySelection.GLOBAL_CHEAP` -- capacity-programme
+    Task WSEL-3 (W-SHARED): ONE width for the whole dataset, picked by feeding a held-out per-width
+    error curve to the shared `cheapest_within_tolerance` selector (`automl_package/utils/
+    capacity_selection.py`) at twice a bootstrap standard error. Never re-implemented here.
+    """
+
+    GLOBAL_CHEAP_WIDTHS = (2, 4, 6, 8, 10, 12)
+    _FLAT_BEYOND_INDEX_3 = np.array([10.0, 5.0, 2.0, 1.0, 1.0, 1.0])  # flexnn-package.md FP-9's own known-answer curve
+
+    @classmethod
+    def _stub_flat_beyond_index_3(cls, model, n_selection=200, noise=0.01, seed=0):
+        """Monkeypatches `_per_sample_error_at_width` with a KNOWN per-width error curve, flat
+        beyond index 3 -- the exact curve shape `flexnn-package.md` FP-9's own known-answer test
+        uses for `cheapest_within_tolerance` -- so this test exercises WSEL-3's plumbing (does it
+        build the error table and call the shared selector correctly?) against a known answer,
+        rather than a trained net's noisy curve, whose flatness point cannot be controlled.
+
+        Each row's error also depends on its OWN identity (`x`'s value, an integer row index cast
+        to float), not just its width -- required so `test_selection_stable_under_reshuffle_of_
+        selection_set` checks the returned width is unchanged under a genuine reshuffle of the
+        selection rows, not merely under a reshuffle the stub happens to ignore.
+
+        Returns an `(x_sel, y_sel)` pair the stub understands (`y_sel` is unused by it).
+        """
+        assert len(cls._FLAT_BEYOND_INDEX_3) == len(model.widths)
+        rng = np.random.default_rng(seed)
+        row_noise = rng.normal(0, noise, size=n_selection)
+
+        def fake_error(x, y, width):  # noqa: ARG001 -- y unused, kept to match _per_sample_error_at_width's signature
+            row_idx = x[:, 0].astype(int)
+            width_idx = model.widths.index(width)
+            return cls._FLAT_BEYOND_INDEX_3[width_idx] + row_noise[row_idx]
+
+        model._per_sample_error_at_width = fake_error
+        x_sel = np.arange(n_selection, dtype=np.float32).reshape(-1, 1)
+        y_sel = np.zeros(n_selection, dtype=np.float32)
+        return x_sel, y_sel
+
+    def test_flat_beyond_width_selects_cheapest_not_argmin(self):
+        model = _make_width_model(widths=self.GLOBAL_CHEAP_WIDTHS, capacity_selection=CapacitySelection.GLOBAL_CHEAP, n_epochs=1)
+        x_train, y_train = np.zeros((20, 1), dtype=np.float32), np.zeros(20, dtype=np.float32)
+        model.fit(x_train, y_train)
+        x_sel, y_sel = self._stub_flat_beyond_index_3(model)
+
+        selected = model.fit_global_selector(x_sel, y_sel, seed=0)
+
+        assert selected == model.widths[3]
+        assert selected != model.widths[-1]  # argmin would pick the LAST (most expensive) tied width
+        assert model.selected_width_ == selected
+
+    def test_selection_stable_under_reshuffle_of_selection_set(self):
+        model = _make_width_model(widths=self.GLOBAL_CHEAP_WIDTHS, capacity_selection=CapacitySelection.GLOBAL_CHEAP, n_epochs=1)
+        x_train, y_train = np.zeros((20, 1), dtype=np.float32), np.zeros(20, dtype=np.float32)
+        model.fit(x_train, y_train)
+        x_sel, y_sel = self._stub_flat_beyond_index_3(model)
+
+        selected_original = model.fit_global_selector(x_sel, y_sel, seed=0)
+
+        rng = np.random.default_rng(123)
+        perm = rng.permutation(len(x_sel))
+        selected_reshuffled = model.fit_global_selector(x_sel[perm], y_sel[perm], seed=0)
+
+        assert selected_reshuffled == selected_original
+
+    def test_predict_shape_and_no_nan(self, simple_linear_data):
+        x, y = simple_linear_data
+        model = _make_width_model(capacity_selection=CapacitySelection.GLOBAL_CHEAP)
+        model.fit(x, y)
+        model.fit_global_selector(x, y)
+
+        y_pred = model.predict(x)
+        assert y_pred.shape == (len(x),)
+        assert not np.any(np.isnan(y_pred))
+        assert model.selected_width_ in model.widths
+
+    def test_predict_without_selector_raises(self, simple_linear_data):
+        x, y = simple_linear_data
+        model = _make_width_model(n_epochs=1, capacity_selection=CapacitySelection.GLOBAL_CHEAP)
+        model.fit(x, y)
+        with pytest.raises(RuntimeError, match="fit_global_selector"):
+            model.predict(x)
+
+    def test_predict_rejects_explicit_width(self, simple_linear_data):
+        x, y = simple_linear_data
+        model = _make_width_model(n_epochs=1, capacity_selection=CapacitySelection.GLOBAL_CHEAP)
+        model.fit(x, y)
+        model.fit_global_selector(x, y)
+        with pytest.raises(ValueError, match="GLOBAL_CHEAP"):
+            model.predict(x, width=model.widths[0])
+
+
 class TestFlexibleWidthNNPredictUncertainty:
     """WD1: `predict_uncertainty` must be correct for every `uncertainty_method`, or raise.
 

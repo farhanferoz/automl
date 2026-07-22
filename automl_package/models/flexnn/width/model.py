@@ -27,6 +27,15 @@ path to take. Only MSE (regression) and CE/BCE (classification) tasks are suppor
 `FlexibleHiddenLayersNN.build_model`'s task_type/output_size criterion-selection dispatch
 (`automl_package/models/flexible_neural_network.py`); its PROBABILISTIC branch is intentionally
 out of scope for this port (Task F2 spec).
+
+`capacity_selection=CapacitySelection.GLOBAL_CHEAP` (W-SHARED, capacity-programme Task WSEL-3) is
+the same two-call shape: call `fit_global_selector(x_val, y_val)` after `.fit()`, then plain
+`predict(x)` -- no caller flag. It scores every configured width's held-out error on `(x_val,
+y_val)` and hands that curve to the shared `cheapest_within_tolerance` selector
+(`automl_package/utils/capacity_selection.py`) at twice a bootstrap standard error (`width.md`
+Section 1's global-arm selection rule; MASTER Decision 18) -- picking ONE width for the whole
+dataset, not per input. Do not confuse this with `PER_INPUT`: that labels every row independently
+via `DistilledCapacityRouter`; this reads one held-out curve and returns a single index.
 """
 
 from collections.abc import Callable
@@ -40,6 +49,7 @@ from automl_package.enums import ActivationFunction, CapacitySelection, Explaine
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.flexnn.routing import DEFAULT_TOLERANCE, DistilledCapacityRouter
 from automl_package.utils.capacity_accounting import _linear_macs, executed_flops
+from automl_package.utils.capacity_selection import DEFAULT_N_BOOT, cheapest_within_tolerance
 from automl_package.utils.convergence import DEFAULT_PATIENCE, ConvergenceTracker
 from automl_package.utils.numerics import calculate_binned_stats
 from automl_package.utils.pytorch_utils import get_activation_function_map
@@ -255,9 +265,14 @@ class FlexibleWidthNN(PyTorchModelBase):
         omitted (FP-3.b.4); this override predicts at `max(self.widths)` instead, via
         `_predict_at_explicit_width` -- same "internal bookkeeping, not the public API" shape as
         `_fit_residual_std` above. Under `PER_INPUT`, `predict()` needs no width, so this just
-        delegates to it.
+        delegates to it. Under `GLOBAL_CHEAP` (WSEL-3), this predicts at `max(self.widths)` too,
+        UNCONDITIONALLY -- this bookkeeping path runs from inside `.fit()`'s own CV/HPO machinery,
+        strictly before `fit_global_selector()`'s second call could have happened, so no
+        `selected_width_` exists yet; matches `ProbabilisticRegressionModel._predict_for_scoring`'s
+        identical ruling for its own `GLOBAL_CHEAP` case (an unselected forward, not the caller
+        gate).
         """
-        if self.capacity_selection == CapacitySelection.FIXED:
+        if self.capacity_selection in (CapacitySelection.FIXED, CapacitySelection.GLOBAL_CHEAP):
             return self._predict_at_explicit_width(x, filter_data=filter_data, width=max(self.widths))
         return self.predict(x, filter_data=filter_data)
 
@@ -269,11 +284,13 @@ class FlexibleWidthNN(PyTorchModelBase):
             filter_data: Whether to filter input columns to those seen at fit time.
             width: Which configured width to predict at, under `CapacitySelection.FIXED` (the
                 default). Must be given explicitly -- no implicit default to the largest
-                configured width. Must be omitted under `CapacitySelection.PER_INPUT`; the fitted
-                router chooses per input instead.
+                configured width. Must be omitted under `CapacitySelection.PER_INPUT` and
+                `CapacitySelection.GLOBAL_CHEAP`; both choose the width themselves.
 
         Under `CapacitySelection.PER_INPUT`, routes with a `DistilledCapacityRouter` fitted via
         `fit_router()` -- no caller flag needed (capacity-programme Task FP-3; MASTER Decision 13).
+        Under `CapacitySelection.GLOBAL_CHEAP` (W-SHARED, WSEL-3), predicts at the ONE width
+        `fit_global_selector()` chose for the whole dataset -- also no caller flag needed.
         """
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
@@ -283,6 +300,12 @@ class FlexibleWidthNN(PyTorchModelBase):
                 raise ValueError("width must not be passed under CapacitySelection.PER_INPUT: the fitted router chooses per input.")
             if getattr(self, "capacity_router_", None) is None:
                 raise RuntimeError("No router fitted; call fit_router() before predict() under CapacitySelection.PER_INPUT.")
+        elif self.capacity_selection == CapacitySelection.GLOBAL_CHEAP:
+            if width is not None:
+                raise ValueError("width must not be passed under CapacitySelection.GLOBAL_CHEAP: fit_global_selector() already chose one for the whole dataset.")
+            if getattr(self, "selected_width_", None) is None:
+                raise RuntimeError("No width selected; call fit_global_selector() before predict() under CapacitySelection.GLOBAL_CHEAP.")
+            width = self.selected_width_
         else:
             if width is None:
                 raise ValueError("width must be specified under CapacitySelection.FIXED (no implicit default to the largest configured width).")
@@ -304,6 +327,34 @@ class FlexibleWidthNN(PyTorchModelBase):
                 final_output = self.model.forward_width(x_tensor, width)
         return self._predictions_from_output(final_output)
 
+    def _per_sample_error_at_width(self, x: np.ndarray, y: np.ndarray, width: int) -> np.ndarray:
+        """Per-sample held-out error at ONE width: squared error (regression) or 0/1 error (classification).
+
+        Shared scoring primitive behind both selection mechanisms this class exposes -- `fit_router`'s
+        per-input `eval_fn` (`CapacitySelection.PER_INPUT`) and `fit_global_selector`'s held-out error
+        curve (`CapacitySelection.GLOBAL_CHEAP`, WSEL-3) -- so the two selectors agree on what "error
+        at a width" means and neither re-derives it.
+
+        Args:
+            x: `(N, in_dim)` inputs.
+            y: `(N,)` targets, already `np.asarray`'d by the caller.
+            width: one of `self.widths`.
+
+        Returns:
+            `(N,)` per-sample error at `width`, lower is better.
+        """
+        x_tensor = torch.tensor(x, dtype=torch.float32, device=self.device)
+        self.model.eval()
+        with torch.no_grad():
+            raw_output = self.model.forward_width(x_tensor, width)
+        if self.task_type == TaskType.CLASSIFICATION:
+            if self.output_size == 1:
+                pred = (torch.sigmoid(raw_output) > _BINARY_CLASSIFICATION_THRESHOLD).float().squeeze(1).cpu().numpy()
+            else:
+                pred = torch.argmax(raw_output, dim=1).float().cpu().numpy()
+            return (pred != y).astype(np.float64)
+        return (raw_output.squeeze(1).cpu().numpy() - y) ** 2
+
     def fit_router(
         self,
         x_val: np.ndarray,
@@ -315,8 +366,8 @@ class FlexibleWidthNN(PyTorchModelBase):
         """Fits a `DistilledCapacityRouter` post-hoc for `predict()` under `CapacitySelection.PER_INPUT`.
 
         Same pattern as `FlexibleHiddenLayersNN.fit_router` (capacity-programme Task F3): `eval_fn`
-        forces every sample through a fixed width via `FlexibleWidthNNModule.forward_width` and
-        scores it against `y_val` with squared error (regression) or 0/1 error (classification).
+        forces every sample through a fixed width via `_per_sample_error_at_width` and scores it
+        against `y_val` with squared error (regression) or 0/1 error (classification).
 
         Args:
             x_val: held-out inputs.
@@ -339,18 +390,7 @@ class FlexibleWidthNN(PyTorchModelBase):
         y_val_arr = np.asarray(y_val)
 
         def eval_fn(x: np.ndarray, capacity: tuple[int, ...]) -> np.ndarray:
-            width = capacity[0]
-            x_tensor = torch.tensor(x, dtype=torch.float32, device=self.device)
-            self.model.eval()
-            with torch.no_grad():
-                raw_output = self.model.forward_width(x_tensor, width)
-            if self.task_type == TaskType.CLASSIFICATION:
-                if self.output_size == 1:
-                    pred = (torch.sigmoid(raw_output) > _BINARY_CLASSIFICATION_THRESHOLD).float().squeeze(1).cpu().numpy()
-                else:
-                    pred = torch.argmax(raw_output, dim=1).float().cpu().numpy()
-                return (pred != y_val_arr).astype(np.float64)
-            return (raw_output.squeeze(1).cpu().numpy() - y_val_arr) ** 2
+            return self._per_sample_error_at_width(x, y_val_arr, capacity[0])
 
         if cost_fn is None:
 
@@ -361,6 +401,66 @@ class FlexibleWidthNN(PyTorchModelBase):
         router.fit(eval_fn=eval_fn, x_val=x_val, y_val=y_val, capacity_grid=capacity_grid, tolerance=tolerance, cost_fn=cost_fn)
         self.capacity_router_ = router
         return router
+
+    def fit_global_selector(
+        self,
+        x_val: np.ndarray,
+        y_val: np.ndarray,
+        n_boot: int = DEFAULT_N_BOOT,
+        seed: int | None = None,
+    ) -> int:
+        """Picks ONE width for the whole dataset (W-SHARED, capacity-programme Task WSEL-3).
+
+        Scores every configured width on the held-out `(x_val, y_val)` selection set via
+        `_per_sample_error_at_width` (the same scoring primitive `fit_router` uses), then feeds the
+        resulting `(N, len(self.widths))` held-out error curve to the shared
+        `automl_package.utils.capacity_selection.cheapest_within_tolerance` selector -- the smallest
+        width whose held-out error is not meaningfully worse than the best width's, "meaningfully" =
+        exceeding twice a bootstrap-estimated standard error (`width.md` Section 1's global-arm
+        selection rule; MASTER Decision 18). Neither the tolerance rule nor its bootstrap
+        standard-error estimator is re-derived here -- both are imported from FP-9's shared module,
+        per WSEL-3's own doctrine.
+
+        Stores the chosen width as `self.selected_width_`; `predict()` then uses it with no caller
+        flag under `CapacitySelection.GLOBAL_CHEAP`, mirroring `fit_router()`'s two-call
+        `CapacitySelection.PER_INPUT` pattern -- call this AFTER `.fit()`, on a selection set
+        disjoint from what `.fit()` trained on.
+
+        Args:
+            x_val: held-out inputs, disjoint from `fit()`'s training data.
+            y_val: held-out targets.
+            n_boot: bootstrap resamples for the selection rule's paired-difference standard-error
+                estimate (see `cheapest_within_tolerance`).
+            seed: RNG seed for the bootstrap resample -- determinism. Defaults to `self.random_seed`
+                (or `0` if unset), matching `ProbabilisticRegressionModel.fit_global_selector`'s
+                convention for the same selection rule.
+
+        Returns:
+            The selected width (also stored as `self.selected_width_`, and the full curve as
+            `self.global_selector_curve_`).
+
+        Raises:
+            RuntimeError: the model has not been fitted yet.
+        """
+        if self.model is None:
+            raise RuntimeError("Model has not been fitted yet.")
+
+        x_arr = x_val.values if hasattr(x_val, "values") else np.asarray(x_val)
+        y_val_arr = np.asarray(y_val)
+        error_table = np.stack([self._per_sample_error_at_width(x_arr, y_val_arr, width) for width in self.widths], axis=1)
+
+        resolved_seed = seed if seed is not None else (self.random_seed or 0)
+        idx = cheapest_within_tolerance(error_table, n_boot=n_boot, seed=resolved_seed)
+        selected_width = self.widths[idx]
+
+        self.selected_width_ = selected_width
+        self.global_selector_curve_ = {
+            "widths": list(self.widths),
+            "mean_error": error_table.mean(axis=0).tolist(),
+            "n_selection": len(y_val_arr),
+            "selected_width": selected_width,
+        }
+        return selected_width
 
     def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates prediction uncertainty for regression (fixed width, WD1).
