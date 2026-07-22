@@ -1986,9 +1986,26 @@ candidate cell exists; (4) every JSON under
 `hit_cap: false`; (5)
 `automl_package/examples/capacity_ladder_results/WSEL16/frozen.json` carries every field in Step 6.
 
-### WSEL-18 — vectorise the multi-head readout (user ruling 2026-07-22: FIRST in the multi-head queue)
+### WSEL-18 — vectorise the multi-head readout (user ruling 2026-07-22: FIRST in the multi-head queue) — ✅ **DONE 2026-07-22, root-verified; benchmark outcome MIXED (see below)**
 
-**Why.** The ALL-schedule cost premium is per-head bookkeeping (12 separate tensors each paying
+> **LANDED 2026-07-22 (worker-authored, every verify line re-run at the root, prove-it-fails
+> ceremony re-run against the committed state — mask dropped → 2 loud failures → restored →
+> 21/21).** Fused mode on `SharedTrunkPerWidthHeadNet` behind a constructor flag (default OFF;
+> 44 tests across the three suites touching the class confirm unfused paths unchanged); hard
+> error on fused + any schedule other than ALL; equivalence exact (values float32-exact, grads at
+> float64 tolerance, masked entries pinned EXACTLY zero after 200 real optimizer steps).
+>
+> ⚠️ **THE ACCEPTANCE BENCHMARK PARTIALLY FAILS THE "dominance, no decision" PREMISE — batched
+> for user review (Decision 32 item 2 sweep).** The premise verified: fusion removes the
+> per-tensor dispatch/bookkeeping premium (~2.3x vs unfused ALL, consistent with the WSEL-14
+> cost probe's attribution). The premise NOT fully borne out: RESULT: fused ALL 1.697 ms/step vs per-head sandwich 1.404 ms/step (ratio 0.827) on the canonical cell — `automl_package/examples/capacity_ladder_results/WSEL18/bench.json` —
+> i.e. after fusion a **~21% per-step premium remains, and it is ARITHMETIC (training w_max
+> widths vs the sandwich's 4), not bookkeeping** — fusion cannot remove it, and it grows with
+> `w_max` (coverage-vs-cost trade at scale, §3.10). **Decision 31's accuracy/variance grounds
+> are untouched** (never-less-accurate + 6x lower mid-width variance stand); only the "cost
+> premium is an implementation artifact" clause is now HALF-true: dispatch yes, coverage no.
+> ALL remains the default per the ruling; this note corrects the cost rationale's scope.
+> Stage-3's multi-head cells are UNGATED (the fused mode is available and verified). The ALL-schedule cost premium is per-head bookkeeping (12 separate tensors each paying
 forward/backward/optimizer dispatch — the WSEL-14 cost probe's attribution), not arithmetic. Fusing
 the heads into ONE lower-triangular-masked `(w_max, w_max)` weight tensor + bias vector removes it.
 Under the ALL schedule the fusion is MATHEMATICALLY EXACT: every head receives gradient every step,

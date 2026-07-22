@@ -13,7 +13,6 @@ automl_package/examples/probreg_benchmark.py
 
 # --- width.md Create targets (parked 2026-07-20, root) ----------------------------------------
 # Each verified: named in a WSEL task's write set and asserted by that task's verify line.
-automl_package/examples/width_wsel4.py                              # WSEL-4
 automl_package/examples/width_wsel6.py                              # WSEL-6
 automl_package/examples/capacity_ladder_results/WSEL6/frozen.json   # WSEL-6 (verify test -f L433)
 automl_package/examples/width_wsel7.py                              # WSEL-7
@@ -86,5 +85,3 @@ automl_package/examples/probreg_p11.py                                # P11
 # Each verified: named in a PS task's Files line AND consumed by that task's verify command.
 # Remove each entry the moment the artifact lands.
 docs/plans/capacity_programme/shared/ps-certification-memo.md       # PS-4 (memo)
-tests/test_fused_heads_equivalence.py                                # WSEL-18 write set (verify, pytest)
-automl_package/examples/capacity_ladder_results/WSEL18/bench.json    # WSEL-18 acceptance benchmark (verify)
