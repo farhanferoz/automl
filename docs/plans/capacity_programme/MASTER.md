@@ -651,6 +651,23 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     WSEL-15" though `width_candidates.py` + the weighted loss are long landed; the deferral may
     stand, the *reason* must be re-derived).
 
+36. **THE SELECTION-POLICY RULING (user, 2026-07-23, post-wave — answers WSEL-24's batched
+    question).** **Objective-matched rule + dual reporting.** The fielded GLOBAL width-selection
+    rule becomes a stated function of the deployment objective: accuracy-scored contexts field
+    the accuracy-optimal pick; efficiency-scored contexts field cheapest-within-tolerance
+    (smallest sufficient). Every battery table reports BOTH picks side by side with their
+    accuracy and compute cost — both read off the recorded held-out curves, zero retraining.
+    **Default when the caller states no objective: SMALLEST-SUFFICIENT** (the programme's own
+    question; conservative on compute), the accuracy-optimal pick one documented flag away.
+    Rationale on record: WSEL-24 showed neither single rule is universally right (the mismatch
+    is genuine, not a defect); accuracy-argmin-everywhere was REJECTED because raw argmin is
+    exactly the rule that overshoots on small noisy selection sets — WSEL-24's causally
+    demonstrated small-data failure mode. Flows into: **(i)** WSEL-10's battery-section framing
+    (dual-pick tables, objective stated per context — bullet added in its block); **(ii)**
+    WSEL-6-R's real-data success criterion (selection is graded against the pick matching the
+    stated objective, both objectives reported); **(iii)** the library's documented default.
+    Implementation travels through the owning tasks — the ruling itself changes no rule code.
+
 ## Rules (cache discipline)
 
 ⚠️ **THE NUMBERS GATE IS PARTIAL — strengthen it before the next planning round.**

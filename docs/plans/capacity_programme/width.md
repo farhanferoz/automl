@@ -685,7 +685,7 @@ and must land before WSEL-8 reads its numbers.)*
 (second sitting; all items walked incl. the normalisation re-pass and the WSEL-16/17
 walkthrough). DISPATCH AUTHORIZED from this commit.** Order:
 **WSEL-24 ✅ DONE 2026-07-23** (verdict in its block: selection_set_size on the small datasets —
-causal; rule_objective_mismatch on the large — policy, batched for the user; NO re-sequencing
+causal; rule_objective_mismatch on the large — policy, RULED: Decision 36, objective-matched + dual report; NO re-sequencing
 forced; WSEL-22(c) stays dormant) → in parallel by disjoint write sets **(dispatched at harvest,
 2026-07-23)**: WSEL-20 (partial diff in the session scratchpad, `wsel20-partial-work.patch`) ∥
 WSEL-22(a) (+ the WSEL-9 uncapped LightGBM cells, zero/tiny compute; *the WSEL-15 affine re-grade
@@ -1544,7 +1544,7 @@ or the law inherits the sweep's cost and the replacement economics are circular.
 on a shared trunk carry the same false equal-variance assertion); recorded here for depth's
 unpark — depth's parked plans are NOT edited from this task.
 
-### WSEL-24 — the selection post-mortem: a winning width should exist — did SELECTION throw it away? — ✅ **ANSWERED 2026-07-23: YES a winning width existed on ALL FIVE datasets, and selection lost it on all five. The cause SPLITS cleanly by selection-set size: small datasets → underpowered selection (causally demonstrated); large datasets → the rule answering "smallest sufficient" where the battery scores "most accurate" (a POLICY question, batched for the user).**
+### WSEL-24 — the selection post-mortem: a winning width should exist — did SELECTION throw it away? — ✅ **ANSWERED 2026-07-23: YES a winning width existed on ALL FIVE datasets, and selection lost it on all five. The cause SPLITS cleanly by selection-set size: small datasets → underpowered selection (causally demonstrated); large datasets → the rule answering "smallest sufficient" where the battery scores "most accurate" (a POLICY question — ✅ RULED 2026-07-23: objective-matched rule + dual reporting, MASTER Decision 36).**
 
 > ✅ **HARVESTED 2026-07-23 (worker-run; root re-verified: ruff clean, `--selftest` PASS, ledger
 > loads with all three verdict fields per dataset, write set exactly the declared driver + ledger).**
@@ -1568,8 +1568,10 @@ unpark — depth's parked plans are NOT edited from this task.
 > **Consequences applied at harvest:** (1) **WSEL-6's real-data selection-fraction half REOPENS as
 > WSEL-6-R** (wave line, §4) — the frozen 15% was validated on toys only and is now causally
 > demonstrated underpowered at real-data selection sizes ≤ ~100. (2) The kin8nm/california finding
-> is a selection-POLICY question (which rule to field per deployment context) — ⛔ **BATCHED FOR THE
-> USER**; no task may re-aim the rule at the battery's objective without that ruling. (3) **No
+> is a selection-POLICY question (which rule to field per deployment context) — ✅ **RULED by the
+> user 2026-07-23 (MASTER Decision 36): objective-matched rule + dual reporting; default =
+> smallest-sufficient when no objective is stated.** The re-aim ban dissolves into the ruling:
+> the fielded rule follows the STATED deployment objective, never a silent re-aim. (3) **No
 > re-sequencing** of the parallel trio — dispatched at harvest.
 
 **The fact to attribute.** WSEL-9: W-SWEEP wins no dataset and loses to the plain fixed-width
@@ -2137,6 +2139,14 @@ sections ahead of the comparison, because they are what license its settings:
   practice without real-data confirmation), or **real-data-confirmed** (the battery or a product
   dataset agrees). No verdict ships without its class; the generator-true oracle may appear as a
   validation instrument, never as an adoption criterion.
+- **Selection-policy framing (user ruling 2026-07-23, MASTER Decision 36) — BINDING on the
+  battery section:** the fielded selection rule is a stated function of the deployment objective
+  (accuracy-scored → accuracy-optimal pick; efficiency-scored → smallest-sufficient; library
+  default = smallest-sufficient). Every battery table reports BOTH picks side by side with their
+  accuracy and compute cost (both read off the recorded held-out curves — no retraining), and
+  the recorded "selection lost on all five" outcome is framed per WSEL-24's causal split
+  (small-data selection starvation vs the designed accuracy-for-compute trade), never as a
+  single undifferentiated loss.
 
 **Honesty clauses, binding:** report W-SWEEP's full cost next to its accuracy (the efficiency claim
 is a ratio and this is its denominator); state every constant the battery ran under and which study
