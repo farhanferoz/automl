@@ -1256,7 +1256,24 @@ levels for a third-level key and could never have passed; see the harvest note a
 the review completes before ANY execution; the worker's partial diff is preserved in the session
 scratchpad (`wsel20-partial-work.patch`) for the orchestration wave to reuse or discard.
 
-### WSEL-21 — the d ≥ 8 training-protocol escalation — 🗓 **SCHEDULED (user, 2026-07-23 review sitting): the strand's one open compute item; blocks FP-13's trigger evaluation; turns the report's d ≥ 8 claims from OPEN to decided (either way)**
+### WSEL-21 — the d ≥ 8 training-protocol escalation — 🔄 **RUNG (i) DONE 2026-07-23: spec authored (worker), adversarially read (root) — GO issued with one required amendment. Rung (ii) authoring dispatched.**
+
+> ✅ **RUNG (i) HARVESTED 2026-07-23.** Spec: `shared/wsel21-escalation.md` (worker-authored;
+> write set exactly that one file). Root verification before the read: the pinned graduation
+> anchor matches the v2 gate's own definition (top-level = anchor-block value in
+> `automl_package/examples/capacity_ladder_results/WSEL19/wsel19_calibration_d1.json` — NOT the
+> regime block's, which a careless pin would have grabbed); both named build hazards confirmed
+> in `automl_package/examples/width_wsel19.py` (hardcoded `batch_size` at :917; `cache_tag`
+> param exists at :939, so the collision fix is parameter-threading only). **Adversarial-read
+> verdict (spec §9): GO — ladder A/B/C/D, single-difference between consecutive rungs, fit-gate
+> graduation bar on the designated d=8 axis seed-2 cell, failure branch a done-state — with ONE
+> required amendment: rung C's cosine horizon as written (over max_epochs=6000) never engages
+> before patience stops training (~epochs 217–552 recorded); amended to
+> T_max = 3 × rung-B's median stopping epoch. Two minor findings recorded there too (the
+> most-sensitive-cell screen is a heuristic, quotable only as economy; the ledger's baseline
+> trustworthy field must be READ from the cache metas, not assumed).**
+> Next: rung (ii) authoring contract dispatched (flag threading + per-rung cache_tag + ledger
+> writer; NO runs); then the ROOT runs rungs A→B(→C→D) backgrounded on the calibration cell.
 
 **Why.** The multi-feature bake-off's d ∈ {8, 32} levels are honestly voided: the vetted full-batch
 sweep protocol stalls within tens of steps (best-fixed error 17.8–31.7× the noise floor — the v2
