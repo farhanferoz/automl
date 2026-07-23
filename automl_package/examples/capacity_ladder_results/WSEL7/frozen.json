@@ -4,6 +4,7 @@
   "epochs": 600,
   "lr": 0.01,
   "invariant": false,
+  "invariant_5pct_historical": false,
   "new_default": {
     "hidden": 64,
     "depth": 3,
@@ -36,7 +37,15 @@
       "best_ratio": 0.9292956235454435,
       "plateau_rel_tol": 0.05,
       "invariant": false,
-      "plateau_value": 64
+      "plateau_value": 64,
+      "n_cells_at_plateau": 6,
+      "mean_ratio_at_plateau": 0.9516371906696413,
+      "gap_to_default_at_plateau": 0.04836280933035875,
+      "se_at_plateau": 0.03552588123371778,
+      "twice_se_at_plateau": 0.07105176246743557,
+      "invariance_se_multiplier": 2.0,
+      "clears_2se_bar": false,
+      "invariant_2se": true
     },
     "layers": {
       "values": [
@@ -59,7 +68,15 @@
       "best_ratio": 0.9077053051236706,
       "plateau_rel_tol": 0.05,
       "invariant": false,
-      "plateau_value": 3
+      "plateau_value": 3,
+      "n_cells_at_plateau": 6,
+      "mean_ratio_at_plateau": 0.9077053051236706,
+      "gap_to_default_at_plateau": 0.09229469487632935,
+      "se_at_plateau": 0.0387024710995625,
+      "twice_se_at_plateau": 0.077404942199125,
+      "invariance_se_multiplier": 2.0,
+      "clears_2se_bar": true,
+      "invariant_2se": false
     },
     "epochs": {
       "values": [
@@ -82,7 +99,15 @@
       "best_ratio": 0.9024189911750439,
       "plateau_rel_tol": 0.05,
       "invariant": false,
-      "plateau_value": 600
+      "plateau_value": 600,
+      "n_cells_at_plateau": 6,
+      "mean_ratio_at_plateau": 0.9024189911750439,
+      "gap_to_default_at_plateau": 0.09758100882495613,
+      "se_at_plateau": 0.05029032393357786,
+      "twice_se_at_plateau": 0.10058064786715572,
+      "invariance_se_multiplier": 2.0,
+      "clears_2se_bar": false,
+      "invariant_2se": true
     },
     "lr": {
       "values": [
@@ -105,7 +130,49 @@
       "best_ratio": 0.9884035561737813,
       "plateau_rel_tol": 0.05,
       "invariant": true,
-      "plateau_value": 0.03
+      "plateau_value": 0.03,
+      "n_cells_at_plateau": 6,
+      "mean_ratio_at_plateau": 0.9884035561737813,
+      "gap_to_default_at_plateau": 0.011596443826218716,
+      "se_at_plateau": 0.011762542265312224,
+      "twice_se_at_plateau": 0.02352508453062445,
+      "invariance_se_multiplier": 2.0,
+      "clears_2se_bar": false,
+      "invariant_2se": true
+    }
+  },
+  "per_dimension_2se": {
+    "hidden": {
+      "plateau_value": 64,
+      "mean_ratio": 0.9516371906696413,
+      "gap": 0.04836280933035875,
+      "se": 0.03552588123371778,
+      "twice_se": 0.07105176246743557,
+      "clears": false
+    },
+    "layers": {
+      "plateau_value": 3,
+      "mean_ratio": 0.9077053051236706,
+      "gap": 0.09229469487632935,
+      "se": 0.0387024710995625,
+      "twice_se": 0.077404942199125,
+      "clears": true
+    },
+    "epochs": {
+      "plateau_value": 600,
+      "mean_ratio": 0.9024189911750439,
+      "gap": 0.09758100882495613,
+      "se": 0.05029032393357786,
+      "twice_se": 0.10058064786715572,
+      "clears": false
+    },
+    "lr": {
+      "plateau_value": 0.03,
+      "mean_ratio": 0.9884035561737813,
+      "gap": 0.011596443826218716,
+      "se": 0.011762542265312224,
+      "twice_se": 0.02352508453062445,
+      "clears": false
     }
   },
   "config": {
@@ -117,6 +184,7 @@
     ],
     "router_tolerance": 0.25,
     "plateau_rel_tol": 0.05,
+    "invariance_se_multiplier": 2.0,
     "router_report_fraction": 0.5,
     "frozen_default_at_authoring_time": {
       "hidden": 32,
@@ -137,9 +205,9 @@
     }
   },
   "provenance": {
-    "timestamp_utc": "2026-07-22T14:08:29+00:00",
+    "timestamp_utc": "2026-07-23T13:10:38+00:00",
     "git": {
-      "commit": "f3a1c6584cd5cef3a60ed5dfb9d2b18fca4fde05",
+      "commit": "a873abe73947725eb99014d18cefd3003246b42a",
       "dirty": true
     },
     "python": "3.12.13",

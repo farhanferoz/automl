@@ -1070,6 +1070,14 @@ exits 0; `ls automl_package/examples/capacity_ladder_results/WSEL6/*.json` shows
 
 ### WSEL-7 — is the router's architecture right for width? — ⛔ **ANSWERED 2026-07-22: NOT INVARIANT under the pre-registered rule. REVIEWED & CLOSED at the 2026-07-22 sign-off: the frozen default STAYS; six user rulings recorded below; the follow-on experiment is WSEL-19.**
 
+> 📐 **RE-GRADED 2026-07-23 under the noise-aware 2·SE rule (WSEL-20; root-applied at harvest;
+> ledger regenerated in place with every original leaf preserved).** The NOT-INVARIANT headline
+> **stands but NARROWS to depth alone**: layers' plateau gap exceeds its noise band while hidden
+> and epochs land WITHIN theirs (epochs borderline) and lr was invariant under both rules — per-dimension numbers in the harvest note of the WSEL-20 block and in `automl_package/examples/capacity_ladder_results/WSEL7/frozen.json` (`per_dimension.*.gap_to_default_at_plateau` vs `twice_se_at_plateau`).
+> `invariant` (field of record) = false under 2·SE; the flat-5% grading survives as
+> `invariant_5pct_historical`, never overwritten. The frozen default STAYS — the sign-off ruling
+> is unchanged; WSEL-10's router section reads THIS grading.
+
 **RESULT: `invariant: false`, `new_default = {hidden: 64, depth: 3, epochs: 600, lr: 0.01}`** — ledger `automl_package/examples/capacity_ladder_results/WSEL7/frozen.json` (78 cells: 4 dimensions × 13 values total × 2 tiers × 3 seeds; per-cell JSONs in the same directory).
 
 | dimension | frozen default | plateau value | mean ratio at plateau (± SE, 6 cells) | invariant (5% rule) |
@@ -1196,7 +1204,19 @@ exits 0; `python -c "import json; d=json.load(open('automl_package/examples/capa
 exits 0 (the invariant-or-not verdict is a field, not prose); if `d['invariant']` is `False`, the same
 file's `new_default` key is non-null and cited by WSEL-6's re-run.
 
-### WSEL-20 — adopt the noise-aware (2·SE) invariance rule — 🗓 **SCHEDULED (user directive, 2026-07-23 review sitting): pre-report; blocks WSEL-10's router section**
+### WSEL-20 — adopt the noise-aware (2·SE) invariance rule — ✅ **DONE 2026-07-23 (worker-built, root-harvested from disk): WSEL-7 re-graded — the NOT-INVARIANT headline STANDS but NARROWS to depth alone; hidden/epochs deviations were inside noise. WSEL-10's router section unblocked.**
+
+> ✅ **HARVEST NOTE (root, 2026-07-23).** The worker (`wsel20-regrade-worker-2`) went idle without
+> delivering its report — the known named-teammate report failure; the work was harvested from
+> DISK per doctrine, not re-dispatched. Root verification: ruff clean · `--selftest` PASS ·
+> leaf-preservation diff against the committed original ledger: **0 leaf paths missing, 0 values
+> changed except provenance timestamp/commit** · `new_default` byte-identical. Re-graded verdict
+> (per dimension, gap vs its 2·SE band): layers 0.0923 > 0.0774 NOT invariant; hidden 0.0484 < 0.0711 invariant; epochs 0.0976 < 0.1006 invariant (borderline, recorded as such); lr invariant under both rules; field-of-record `invariant` = false. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL7/frozen.json` -->
+> **ROOT CATCH, recorded per the no-guessed-citations rule: the verify one-liner this block
+> originally carried was WRONG AS WRITTEN** — it asserted `ratio_to_default_by_value` within the
+> top two key levels, but that key lived at the THIRD level in the ORIGINAL ledger too, so the
+> command could never have passed even before the change. The check below is the corrected,
+> recursive form (dated); the failure was the check's, not the work's.
 
 **Why.** WSEL-7's caveat block computed the noise-aware grading and left it as prose. The user
 ruled that insufficient ("adopt it, test it, validate it"): one statistical rule for the strand,
@@ -1228,8 +1248,10 @@ addendum); no edit to `routing.py`; no new toy cells.
 *Orchestration:* parallel: yes (disjoint write set) · deps: none (all inputs on disk) · tier:
 sonnet high · scale: static · shape: execution · verify:
 `OMP_NUM_THREADS=4 AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/width_wsel7.py --selftest` PASS;
-`python -c "import json; d=json.load(open('automl_package/examples/capacity_ladder_results/WSEL7/frozen.json')); assert {'invariant','invariant_5pct_historical','ratio_to_default_by_value','new_default'} <= set(d) | set().union(*[set(v) for v in d.values() if isinstance(v, dict)]), sorted(d)"`
-exits 0; `AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest docs/plans/capacity_programme/ -q` green.
+`python -c "import json; ks=set(); walk=lambda o: [ks.add(k) or walk(v) for k,v in o.items()] if isinstance(o,dict) else None; walk(json.load(open('automl_package/examples/capacity_ladder_results/WSEL7/frozen.json'))); assert {'invariant','invariant_5pct_historical','ratio_to_default_by_value','new_default'} <= ks, sorted(ks)"`
+exits 0 *(corrected 2026-07-23 at harvest — the original one-liner searched only the top two key
+levels for a third-level key and could never have passed; see the harvest note above)*;
+`AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest docs/plans/capacity_programme/ -q` green.
 **Execution note (user, 2026-07-23):** a first dispatch was recalled mid-run when the user ruled
 the review completes before ANY execution; the worker's partial diff is preserved in the session
 scratchpad (`wsel20-partial-work.patch`) for the orchestration wave to reuse or discard.

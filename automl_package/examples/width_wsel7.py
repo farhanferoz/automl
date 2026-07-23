@@ -67,9 +67,20 @@ construction). The dimension is INVARIANT iff the frozen default's own ratio is 
 other swept value beats the default by more than the tolerance. If NOT invariant, `plateau_value` is
 the smallest value (ascending capacity order for hidden/layers/epochs; best-ratio order for lr, which
 has no capacity ordering) whose ratio is within tolerance of the best -- SS3.5's "smallest
-configuration that reaches the plateau." The strand-level `invariant` flag is the AND over all four
-dimensions; `new_default` (non-null iff `invariant` is false) combines each non-invariant dimension's
-own `plateau_value` with the frozen default's value on every dimension that stayed invariant.
+configuration that reaches the plateau." `new_default` combines each dimension whose 5%-rule
+`invariant` is false with its own `plateau_value`, and the frozen default's value on every dimension
+that stayed invariant under the 5% rule -- unaffected by WSEL-20 below (`width.md`'s WSEL-20 (d):
+`new_default` keeps the 5%-rule population it always had).
+
+**WSEL-20 -- the noise-aware (2*SE) invariance rule (`width.md`, "adopt the noise-aware (2*SE)
+invariance rule").** The strand-level `invariant` field -- the field of record WSEL-7's own verify
+line asserts -- is graded a second way at the SAME `plateau_value`: a dimension's plateau gap to the
+frozen default (`1.0 - mean_ratio_at_plateau`, since the default's own ratio is 1.0 by construction)
+must exceed `_INVARIANCE_SE_MULTIPLIER` (2) standard errors of that mean, across the plateau value's
+own cells, before the dimension counts as failing invariance; below that bar the gap is noise, not a
+real gain. `invariant` is now the AND of every dimension's `invariant_2se`. The original 5%-rule
+verdict survives unrenamed per dimension and rolls up into the new top-level `invariant_5pct_historical`
+field, so neither grading overwrites the other.
 
 **Non-goals:** no per-dataset tuning of the router, ever; no change to the labelling rule or its
 tolerance; no edits to `routing.py` / any shared router module; no single-head (running-sum prefix)
@@ -141,6 +152,16 @@ _ROUTER_REPORT_FRACTION = 0.5
 # Chosen default (retune for a tighter/looser bar): a swept value "reaches the plateau" once its
 # ratio-to-best is within this fraction.
 _PLATEAU_REL_TOL = 0.05
+
+# WSEL-20 (`docs/plans/capacity_programme/width.md`, "adopt the noise-aware (2*SE) invariance rule"):
+# the plateau value's mean-ratio gap to the frozen default (ratio 1.0 by construction) must exceed
+# this many standard errors of that mean before it counts as a statistically significant improvement
+# -- i.e. before the dimension FAILS invariance. Below the bar, the gap is noise, not a real gain.
+_INVARIANCE_SE_MULTIPLIER = 2.0
+
+# A standard error needs at least two cells (ddof=1); below that the significance call is undefined
+# and treated conservatively as "not significant" rather than raising.
+_MIN_CELLS_FOR_SE = 2
 
 
 class Tier(enum.IntEnum):
@@ -494,15 +515,27 @@ def _cell_json_path(results_dir: str, tier: Tier, seed: int, dimension: Dimensio
 
 
 def _dimension_verdict(dimension: Dimension, per_value_cells: dict[float, dict]) -> dict:
-    """Invariance + plateau read for one swept dimension (`width.md` SS3.5's WSEL-7 branch; module docstring)."""
+    """Invariance + plateau read for one swept dimension (`width.md` SS3.5's WSEL-7 branch; module docstring).
+
+    Grades the plateau value two ways. `invariant` (unchanged key, 5% pre-registered tolerance bar)
+    stays exactly as authored -- it still drives `new_default`'s population, per WSEL-20 (d)'s
+    "keep populating it exactly as today". WSEL-20 adds the noise-aware read at the SAME plateau
+    value: `gap_to_default_at_plateau` (the mean ratio's distance from the frozen default's own
+    ratio of 1.0) vs `twice_se_at_plateau` (`_INVARIANCE_SE_MULTIPLIER` * the standard error of that
+    mean across the value's cells) -- `clears_2se_bar`/`invariant_2se` is the strand's new field-of-
+    record grading (`docs/plans/capacity_programme/width.md`, "WSEL-20").
+    """
     values = _DIMENSION_VALUES[dimension]
     ratio_by_value: dict[float, float] = {}
+    ratios_by_value: dict[float, list[float]] = {}
     n_cells_by_value: dict[float, int] = {}
     for v in values:
         cells = per_value_cells.get(v, {})
         n_cells_by_value[v] = len(cells)
         if cells:
-            ratio_by_value[v] = float(np.mean([c["quality_ratio_to_default"] for c in cells.values()]))
+            cell_ratios = [c["quality_ratio_to_default"] for c in cells.values()]
+            ratios_by_value[v] = cell_ratios
+            ratio_by_value[v] = float(np.mean(cell_ratios))
 
     if not ratio_by_value:
         return {"values": list(values), "n_cells_by_value": n_cells_by_value, "status": "no cells on disk yet"}
@@ -517,6 +550,20 @@ def _dimension_verdict(dimension: Dimension, per_value_cells: dict[float, dict])
     else:
         plateau_value = next(v for v in sorted(ratio_by_value) if ratio_by_value[v] <= best_ratio * (1.0 + _PLATEAU_REL_TOL))
 
+    # WSEL-20: noise-aware grading at the SAME plateau value -- gap to the frozen default (ratio 1.0
+    # by construction, since the default-config cell is always scored against itself) vs twice the
+    # standard error of the mean across that value's cells.
+    plateau_ratios = ratios_by_value[plateau_value]
+    n_cells_at_plateau = len(plateau_ratios)
+    mean_ratio_at_plateau = float(np.mean(plateau_ratios))
+    gap_to_default_at_plateau = 1.0 - mean_ratio_at_plateau
+    # Undefined with < 2 cells (never a crash) -- NaN comparisons are always False, so `clears_2se_bar`
+    # below conservatively reads as "not significant" rather than raising.
+    se_at_plateau = float(np.std(plateau_ratios, ddof=1) / math.sqrt(n_cells_at_plateau)) if n_cells_at_plateau >= _MIN_CELLS_FOR_SE else math.nan
+    twice_se_at_plateau = _INVARIANCE_SE_MULTIPLIER * se_at_plateau
+    clears_2se_bar = gap_to_default_at_plateau > twice_se_at_plateau
+    invariant_2se = not clears_2se_bar
+
     return {
         "values": list(values),
         "n_cells_by_value": n_cells_by_value,
@@ -527,6 +574,14 @@ def _dimension_verdict(dimension: Dimension, per_value_cells: dict[float, dict])
         "plateau_rel_tol": _PLATEAU_REL_TOL,
         "invariant": invariant,
         "plateau_value": plateau_value,
+        "n_cells_at_plateau": n_cells_at_plateau,
+        "mean_ratio_at_plateau": mean_ratio_at_plateau,
+        "gap_to_default_at_plateau": gap_to_default_at_plateau,
+        "se_at_plateau": se_at_plateau,
+        "twice_se_at_plateau": twice_se_at_plateau,
+        "invariance_se_multiplier": _INVARIANCE_SE_MULTIPLIER,
+        "clears_2se_bar": clears_2se_bar,
+        "invariant_2se": invariant_2se,
     }
 
 
@@ -534,10 +589,20 @@ _NEW_DEFAULT_KEY_FOR_DIMENSION = {Dimension.HIDDEN: "hidden", Dimension.LAYERS: 
 
 
 def summarize(results_dir: str = RESULTS_DIR) -> None:
-    """Aggregates every per-cell JSON on disk into `WSEL7/frozen.json`. Does not train or fit anything."""
+    """Aggregates every per-cell JSON on disk into `WSEL7/frozen.json`. Does not train or fit anything.
+
+    WSEL-20 (`docs/plans/capacity_programme/width.md`): `invariant` -- the field of record WSEL-7's
+    own verify line asserts -- is now graded under the noise-aware 2*SE rule (AND of every
+    dimension's `invariant_2se`). The pre-registered 5% grading is retained, never overwritten, as
+    `invariant_5pct_historical`. `new_default`'s population keeps using the 5% per-dimension read
+    (WSEL-20 (d): "keep populating it exactly as today" -- it is history, ruling 1 already declined
+    adoption), so its value is unaffected by this change.
+    """
     per_dimension_summary: dict[str, dict] = {}
+    per_dimension_2se: dict[str, dict] = {}
     new_default = {"hidden": DEFAULT_HIDDEN[0], "depth": len(DEFAULT_HIDDEN), "epochs": DEFAULT_N_EPOCHS, "lr": DEFAULT_LR}
-    any_noninvariant = False
+    any_noninvariant_5pct = False
+    any_clears_2se = False
     any_pending = False
 
     for dimension in Dimension:
@@ -557,24 +622,38 @@ def summarize(results_dir: str = RESULTS_DIR) -> None:
             any_pending = True
             continue
         if not verdict["invariant"]:
-            any_noninvariant = True
+            any_noninvariant_5pct = True
             new_default[_NEW_DEFAULT_KEY_FOR_DIMENSION[dimension]] = verdict["plateau_value"]
+        if verdict["clears_2se_bar"]:
+            any_clears_2se = True
+        per_dimension_2se[dimension.value] = {
+            "plateau_value": verdict["plateau_value"],
+            "mean_ratio": verdict["mean_ratio_at_plateau"],
+            "gap": verdict["gap_to_default_at_plateau"],
+            "se": verdict["se_at_plateau"],
+            "twice_se": verdict["twice_se_at_plateau"],
+            "clears": verdict["clears_2se_bar"],
+        }
 
-    invariant = not any_noninvariant
+    invariant_5pct_historical = not any_noninvariant_5pct
+    invariant = not any_clears_2se  # WSEL-20: the field of record is now the noise-aware 2*SE grading.
     out = {
         "hidden": DEFAULT_HIDDEN[0] if invariant else new_default["hidden"],
         "depth": len(DEFAULT_HIDDEN) if invariant else new_default["depth"],
         "epochs": DEFAULT_N_EPOCHS if invariant else new_default["epochs"],
         "lr": DEFAULT_LR if invariant else new_default["lr"],
         "invariant": invariant,
+        "invariant_5pct_historical": invariant_5pct_historical,
         "new_default": None if invariant else new_default,
         "any_dimension_pending": any_pending,
         "per_dimension": per_dimension_summary,
+        "per_dimension_2se": per_dimension_2se,
         "config": {
             "w_max": W_MAX,
             "seeds": list(SEEDS),
             "router_tolerance": DEFAULT_TOLERANCE,
             "plateau_rel_tol": _PLATEAU_REL_TOL,
+            "invariance_se_multiplier": _INVARIANCE_SE_MULTIPLIER,
             "router_report_fraction": _ROUTER_REPORT_FRACTION,
             "frozen_default_at_authoring_time": {"hidden": DEFAULT_HIDDEN[0], "depth": len(DEFAULT_HIDDEN), "epochs": DEFAULT_N_EPOCHS, "lr": DEFAULT_LR},
             "tier1": {
@@ -592,7 +671,10 @@ def summarize(results_dir: str = RESULTS_DIR) -> None:
     with open(path, "w") as f:
         json.dump(_jsonable(out), f, indent=2)
     print(f"wrote {path}")
-    print(f"invariant={invariant}  new_default={new_default if not invariant else None}  any_dimension_pending={any_pending}")
+    print(
+        f"invariant={invariant} (2*SE, field of record)  invariant_5pct_historical={invariant_5pct_historical}  "
+        f"new_default={new_default if not invariant else None}  any_dimension_pending={any_pending}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -655,12 +737,33 @@ def run_selftest() -> bool:
         print(f"[wsel7 selftest] tier-2 ALL-schedule / weighted-objective wiring: {tier2_ok}  {'PASS' if tier2_ok else 'FAIL'}")
         ok = ok and tier2_ok
 
-        # --summarize: the SS3.6 frozen-constants artifact's required keys.
+        # Persist each case's per-cell JSON exactly as main() would, so --summarize's aggregation path
+        # (both the 5% grading and WSEL-20's 2*SE grading) is exercised against real cells on disk,
+        # not just the vacuous "no cells on disk yet" branch.
+        for (tier_c, seed_c, dim_c, val_c), case in {
+            (tier, seed, Dimension.HIDDEN, 16): case1,
+            (tier, seed, Dimension.EPOCHS, 150): case2,
+            (tier, seed, Dimension.HIDDEN, DEFAULT_HIDDEN[0]): case_default,
+            (Tier.TWO, 0, Dimension.LR, 3e-3): case_tier2,
+        }.items():
+            with open(_cell_json_path(tmp_dir, tier_c, seed_c, dim_c, val_c), "w") as f:
+                json.dump(_jsonable(case), f, indent=2)
+
+        # --summarize: the SS3.6 frozen-constants artifact's required keys, incl. WSEL-20's 2*SE fields.
         summarize(results_dir=tmp_dir)
         with open(os.path.join(tmp_dir, "frozen.json")) as f:
             frozen = json.load(f)
-        frozen_keys_ok = {"hidden", "depth", "epochs", "lr"} <= frozen.keys() and "invariant" in frozen
-        print(f"[wsel7 selftest] frozen.json required keys present: {frozen_keys_ok}  {'PASS' if frozen_keys_ok else 'FAIL'}")
+        top_level_ok = {"hidden", "depth", "epochs", "lr", "invariant", "invariant_5pct_historical", "new_default", "per_dimension_2se"} <= frozen.keys()
+        per_dim_2se_ok = bool(frozen["per_dimension_2se"]) and all(
+            {"plateau_value", "mean_ratio", "gap", "se", "twice_se", "clears"} <= entry.keys() for entry in frozen["per_dimension_2se"].values()
+        )
+        per_dim_ok = all(
+            {"invariant_2se", "clears_2se_bar", "gap_to_default_at_plateau", "se_at_plateau"} <= v.keys()
+            for v in frozen["per_dimension"].values()
+            if v.get("status") != "no cells on disk yet"
+        )
+        frozen_keys_ok = top_level_ok and per_dim_2se_ok and per_dim_ok
+        print(f"[wsel7 selftest] frozen.json required keys present (incl. WSEL-20 2*SE fields): {frozen_keys_ok}  {'PASS' if frozen_keys_ok else 'FAIL'}")
         ok = ok and frozen_keys_ok
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
