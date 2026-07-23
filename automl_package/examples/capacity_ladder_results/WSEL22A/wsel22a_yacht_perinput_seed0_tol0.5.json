@@ -1,0 +1,64 @@
+{
+  "slice": "wsel9_yacht_perinput_proxy",
+  "seed": 0,
+  "tolerance": 0.5,
+  "error_table_source": "w_sweep_dedicated_nets_proxy",
+  "is_actual_w_perinput_mechanism": false,
+  "label_churn": {
+    "tolerance": 0.5,
+    "baseline_tolerance": 0.25,
+    "n_rows": 37,
+    "n_churned": 1,
+    "churn_fraction": 0.02702702702702703,
+    "mean_label_shift": -0.10810810810810811
+  },
+  "proxy_mean_routed_width": 5.758064516129032,
+  "proxy_width_distribution": {
+    "1": 10,
+    "2": 3,
+    "3": 12,
+    "4": 0,
+    "5": 9,
+    "6": 2,
+    "7": 6,
+    "8": 6,
+    "9": 1,
+    "10": 3,
+    "11": 1,
+    "12": 9
+  },
+  "proxy_mean_deployed_flops": 40.306451612903224,
+  "held_out_mse": null,
+  "accuracy_recomputable": false,
+  "mechanism_caveat": "the real W-PERINPUT router trains on the JOINTLY-TRAINED dial net's OWN per-width predictions (_run_dial_cell's model.fit_router, model the dial net), and neither that net's weights nor its SELECT-split error table were ever cached -- so the true per-input router cannot be relabeled or refit at all. This cell's error table comes from yacht_{seed}_w_sweep_{k}.json's select_squared_error instead -- the INDEPENDENTLY-TRAINED dedicated-net family (WSEL-8: 2.6-7.2x BETTER than the dial net at matched middle widths), a different model. Every field below is therefore a PROXY answering 'how tolerance-sensitive is the cheapest-within-tolerance rule on yacht's real held-out error landscape', NOT 'does the actual W-PERINPUT win survive this tolerance' -- that question is unanswerable from cached artifacts. held_out_mse is additionally None because no per-sample TEST-split prediction was ever cached for the dial net at any width (only the aggregate scalar in yacht_{seed}_dial.json).",
+  "router_config": {
+    "hidden": [
+      32,
+      32
+    ],
+    "depth": 2,
+    "epochs": 300,
+    "lr": 0.01,
+    "weight_decay": 0.0,
+    "early_stopping": false,
+    "tolerance": 0.5
+  },
+  "n_selection_used": 37,
+  "provenance": {
+    "timestamp_utc": "2026-07-23T14:02:50+00:00",
+    "git": {
+      "commit": "e1a9b137f41ca71fa88a9aa66c0066eea114942a",
+      "dirty": true
+    },
+    "python": "3.12.13",
+    "torch": "2.10.0+xpu",
+    "numpy": "2.4.3",
+    "platform": "Linux-7.1.3-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "threads": {
+      "omp_num_threads": "4",
+      "torch_num_threads": 4,
+      "cpu_count": 22
+    },
+    "automl_device": "cpu"
+  }
+}

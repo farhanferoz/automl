@@ -84,4 +84,3 @@ docs/plans/capacity_programme/shared/ps-certification-memo.md       # PS-4 (memo
 # --- width.md WSEL-19 D1 Create targets (wave D, root 2026-07-22) ------------------------------
 # The bake-off driver + its aggregate ledger. Created by the D2 authoring contract / the root's
 # slice runs. Remove each entry the moment the artifact lands.
-automl_package/examples/capacity_ladder_results/WSEL19/wsel21_escalation_ledger.json

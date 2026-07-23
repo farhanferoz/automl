@@ -692,7 +692,9 @@ WSEL-22(a) (+ the WSEL-9 uncapped LightGBM cells, zero/tiny compute; *the WSEL-1
 was struck from this slot — user parking ruling 2026-07-23, see the WSEL-15 FOLLOW-UP block*) ∥
 WSEL-21 spec ∥ the Decision-33(vi) plan-hygiene pass (chunk 1 landed `f8b7f72`; remaining chunks
 after their reader tasks harvest) → **WSEL-6-R (NEW — fired by WSEL-24's causal verdict: the
-real-data selection-fraction reopen; spec-gated, dispatches after the trio harvests)** ∥ WSEL-23
+real-data selection-fraction reopen; spec-gated, dispatches after the trio harvests; its spec
+MUST include: cache the dial net's SELECT-split error table whenever yacht per-input cells are
+regenerated — the WSEL-22(a) catch)** ∥ WSEL-23
 candidate specs (adversarial read each) → WSEL-23 grids → WSEL-10 LAST (its replacement-claim
 section gated on WSEL-23's end-state; transfer ledger + arbiter reference required).
 `flexnn-package.md` FP-13 stays CONDITIONAL on WSEL-21's outcome.
@@ -1309,7 +1311,41 @@ re-run of decided levels; no router-default changes (FP-5.b binds).
 dynamic · shape: research · verify: plan gates green; decided-level ledger entries bit-stable
 under re-aggregation; every rung's verdict a ledger field, not prose.
 
-### WSEL-22 — an OBJECTIVE labelling tolerance — 🗓 **SCHEDULED (user, 2026-07-23 review sitting): §1's pre-registered trigger has FIRED — the reviewer leaned on the 0.25**
+### WSEL-22 — an OBJECTIVE labelling tolerance — 🔄 **(a) DONE 2026-07-23: the flat 0.25 is now MEASURED — no recorded verdict flips unconditionally; the constant-router headline is tolerance-robust everywhere; secondary findings wobble at the extremes, oblique worst. (b) spec authoring WARRANTED by the observed sensitivity. One root-grade catch: the REAL yacht per-input question is unanswerable from cache.**
+
+> ✅ **(a) HARVESTED 2026-07-23 (worker-run; root re-verified: ruff clean, selftest PASS, and the
+> headline re-derived from the ledger directly — all 9 constant-router-control findings hold at
+> ALL four tolerances; 15 of 45 tracked findings differ from the 0.25 grading somewhere, always
+> at extremes and concentrated in d=2 OBLIQUE).** Ledger
+> `automl_package/examples/capacity_ladder_results/WSEL22A/frozen.json` (288 1-D + 480 d=2
+> relabel-refit cells behind it; zero per-width retraining, cache-presence guarded in code).
+> - **Faithfulness anchor:** the τ=0.25 refits reproduce WSEL-19's own cached numbers (1-D
+>   constant backend, n_sel=1200, 3-seed mean 0.002956 vs recorded ≈0.00296) — the pipeline is
+>   validated against the record, not merely self-consistent. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL22A/frozen.json` (`per_group_1d`) -->
+> - **Label churn vs 0.25:** 10.3% (τ=0.05) / 7.5% (τ=0.10) / 9.6% (τ=0.50); tighter tolerance
+>   routes WIDER (≈15-20% more deployed FLOPs at τ=0.05 on the 1-D frozen backend). <!-- source: `automl_package/examples/capacity_ladder_results/WSEL22A/frozen.json` (`per_group_1d` churn/flops aggregates) -->
+> - **Caveat now attached to the oblique-75 family (see the WSEL-19 verdict block):** those
+>   geometry-conditional findings are ALSO tolerance-fragile (several flip at 2-4 of 4
+>   tolerances); the axis-leg starved-cell finding holds at all four.
+> - **(b) trigger evaluation (root):** (a) shows bounded-but-real verdict sensitivity →
+>   authoring the σ-anchored (b) spec is WARRANTED; adoption still gated on (a)-sensitivity OR
+>   oracle-agreement per the clause above. Scheduled into the next authoring batch.
+> - **⚠️ ROOT-GRADE CATCH (worker-found, prominently recorded): the REAL yacht per-input
+>   sensitivity question CANNOT be answered from cached artifacts.** The recorded per-input win
+>   trained its router on the JOINTLY-TRAINED dial net's own per-sample error table
+>   (`fit_router` → `_per_sample_error_at_width`), and neither that table nor the dial net's
+>   weights were ever cached under WSEL9/ — only the independently-trained sweep nets' tables
+>   exist there, a DIFFERENT model family (2.6-7.2× apart at matched middle widths per the
+>   dial-vs-sweep protocol). The worker's first pass substituted one for the other, caught it,
+>   and relabelled every yacht output `_proxy` / `is_actual_w_perinput_mechanism: false` with a
+>   `mechanism_caveat` in every cell — the proxy measures the labelling rule's tolerance
+>   sensitivity on yacht's error landscape (routed width 5.8→6.4 across τ, 3.6-7.2% churn per
+>   step) and may NOT be cited as the win surviving or failing the band question.
+>   **Consequence recorded at WSEL-6-R: whenever yacht per-input cells are next regenerated,
+>   the dial net's SELECT-split error table MUST be cached at run time** (cheap; the alternative
+>   is one dial retrain, out of (a)'s scope by its own non-goals).
+> - **Riding item (WSEL-9 uncapped LightGBM): DONE** — verdict in the WSEL-9 block's addendum;
+>   the cap was real, never load-bearing.
 
 **Why.** The per-input labelling band (`DEFAULT_TOLERANCE = 0.25`,
 `automl_package/models/flexnn/routing.py:75`) is inherited, never measured; the user's review
@@ -1368,7 +1404,10 @@ called it arbitrary and too large. §1's own clause pre-registered exactly this 
   arm; WSEL-9's per-input arm. Feasibility per readout: hard-routing re-reads need only the
   cached error tables; BLEND re-evaluation needs per-width predictions — cached state dicts
   exist locally (never committed), so blend re-eval is local-machine-feasible without
-  retraining, and (a)'s ledger states that dependency.
+  retraining, and (a)'s ledger states that dependency. **SCOPE CORRECTION 2026-07-23 (found by
+  (a)'s worker, root-graded): this feasibility claim is TRUE for the bake-off's d=2 cache
+  (`WSEL19/_mf_cache/*.pt` exists) but FALSE for WSEL-9's yacht per-input arm — no dial-net
+  weights or error table were ever cached under WSEL9/; see the (a) harvest note above.**
 - **Untouched by construction:** WSEL-8 (output contract carries `w_shared_width`/`w_sweep_width`
   only — no router-consuming arm); the global arms' selection rule is untouched **by (a)/(b)**
   (already noise-aware 2·SE — a different rule for a different problem, §1) **but is (c)'s subject
@@ -1810,6 +1849,12 @@ the build authority for the multi-feature slice; build proceeds on `capacity/wav
 
 #### WSEL-19 multi-feature v2 VERDICT — ✅ RUN 2026-07-23 (rotated-box construction; spec `shared/wsel19-toy-redesign.md`; ledger `automl_package/examples/capacity_ladder_results/WSEL19/frozen_mf.json`; aggregator `mf_aggregate.py` beside it)
 
+> ⚠️ **TOLERANCE-FRAGILITY CAVEAT ADDED 2026-07-23 (WSEL-22(a) sweep):** the OBLIQUE
+> starved-cell/backend comparisons below are tolerance-fragile on top of being
+> geometry-conditional — several flip at 2-4 of the 4 swept labelling tolerances, while the
+> AXIS-leg equivalents hold at all four; the constant-router headline holds everywhere.
+> Consume oblique-75/300 backend findings only with BOTH caveats. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL22A/frozen.json` (`verdict_stability`) -->
+
 **Calibration (two-block, gate GREEN).** The regime block at the R2-pinned 600-effective
 differentiates 2/3 seeds (the traced measure's own majority bar; seed 1's hard region misses the
 0.2-fraction floor on the report split); the anchor block at the grid's own 1200-effective
@@ -1928,6 +1973,14 @@ per-arm `selection_cost` key. **Added 2026-07-21:** the reported numbers come fr
 for stopping or selection.
 
 ### WSEL-9 — real data + baselines — ✅ **ANSWERED 2026-07-22 (wave E, root-run): NO FREE LUNCH — every family wins somewhere; the width-selection machinery is competitive but never beats its own fixed-width control except on yacht (per-input's win), and per-input shows high seed variance on energy. Full verdict block below.**
+
+> ✅ **UNCAPPED LIGHTGBM ADDENDUM 2026-07-23 (the promoted 5 capped cells, re-run cap-free):**
+> the cap was REAL (all 5 cells improve, −0.5% to −5.8%, early stopping now settles at 253-317
+> trees under a 3000 cap) and NEVER LOAD-BEARING — no baseline ranking in the battery changes
+> (LightGBM's california win was already decisive; the plain NN's energy/kin8nm wins stay
+> decisive). New cells beside the originals as `<dataset>_<seed>_lightgbm_uncapped.json` under
+> `automl_package/examples/capacity_ladder_results/WSEL9/`; originals preserved as gate
+> evidence. The published baseline table now cites the uncapped numbers. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL22A/frozen.json` (`uncapped_lightgbm`) -->
 
 > **✅ WAVE-E RESULT (root, 2026-07-22; 240 cells + 2 probe extras, 0 failures; spec
 > `docs/width_benchmark/benchmark_spec.md`, driver `width_wsel9.py`, per-dataset ledgers
