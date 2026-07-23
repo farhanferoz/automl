@@ -1330,7 +1330,7 @@ re-run of decided levels; no router-default changes (FP-5.b binds).
 dynamic · shape: research · verify: plan gates green; decided-level ledger entries bit-stable
 under re-aggregation; every rung's verdict a ledger field, not prose.
 
-### WSEL-22 — an OBJECTIVE labelling tolerance — 🔄 **(a) DONE 2026-07-23: the flat 0.25 is now MEASURED — no recorded verdict flips unconditionally; the constant-router headline is tolerance-robust everywhere; secondary findings wobble at the extremes, oblique worst. (b) spec authoring WARRANTED by the observed sensitivity. One root-grade catch: the REAL yacht per-input question is unanswerable from cache.**
+### WSEL-22 — an OBJECTIVE labelling tolerance — ✅ **(a) DONE 2026-07-23: the flat 0.25 is now MEASURED — no recorded verdict flips unconditionally; the constant-router headline is tolerance-robust everywhere; secondary findings wobble at the extremes, oblique worst. (b) EVALUATED 2026-07-23: NOT ADOPTED — the σ-anchored band failed the win-only oracle gate at all five confidence levels; flat 0.25 stays the default, now measured against a principled alternative. (c) stays DORMANT. One root-grade catch: the REAL yacht per-input question is unanswerable from cache.**
 
 > ✅ **(a) HARVESTED 2026-07-23 (worker-run; root re-verified: ruff clean, selftest PASS, and the
 > headline re-derived from the ledger directly — all 9 constant-router-control findings hold at
@@ -1365,6 +1365,25 @@ under re-aggregation; every rung's verdict a ledger field, not prose.
 >   is one dial retrain, out of (a)'s scope by its own non-goals).
 > - **Riding item (WSEL-9 uncapped LightGBM): DONE** — verdict in the WSEL-9 block's addendum;
 >   the cap was real, never load-bearing.
+
+> ✅ **(b) EVALUATED 2026-07-23 (root-run grid off the ratified spec
+> `shared/wsel22b-sigma-anchored-band.md`; driver `automl_package/examples/width_wsel22b.py`;
+> ledger `automl_package/examples/capacity_ladder_results/WSEL22B/frozen.json` — 8 oracle +
+> 192 impact cells, 0 failures): NOT ADOPTED.** The σ-anchored band failed the win-only gate at
+> ALL FIVE swept confidence levels with one consistent structure: a near-ceiling gain on
+> self-consistency-under-noise (pooled M1 diff +0.730 <!-- source: `automl_package/examples/capacity_ladder_results/WSEL22B/frozen.json` (`oracle_agreement_win_by_confidence."0.95".pooled_m1_diff`) -->)
+> bought with a real LOSS on truth-tracking (pooled M2 diff −0.083 <!-- source: `automl_package/examples/capacity_ladder_results/WSEL22B/frozen.json` (`oracle_agreement_win_by_confidence."0.95".pooled_m2_diff`) -->,
+> beyond 2·SE, with per-group losses in every decided group — same file, `per_group_diff`)
+> — the degenerate-looseness mode the spec's amended two-metric protocol (§5.2) was built to
+> catch: the absolute `σ²·χ²` budget dwarfs per-row error spreads on easy rows, accepts nearly
+> every width, routes cheap, and self-agrees. The A1 coverage diagnostic measured the
+> derivation's own stated limit: empirical coverage EXCEEDS nominal everywhere (0.986 at the 0.95 level <!-- source: `automl_package/examples/capacity_ladder_results/WSEL22B/frozen.json` (`a1_coverage_by_cell`) -->)
+> — the row-best is min-selection-deflated, not a pure noise draw (A1/A2 as flagged). Flat 0.25
+> remains the default in BOTH domains, no longer merely inherited: it now carries a measured
+> comparison against a principled alternative. The descriptive impact table (what σ labels would
+> have flipped) is in the ledger and reopens NOTHING (not adopted). Spec §10's pre-registered
+> "loses" branch is the recorded done-state; the report cites this ledger wherever the band's
+> arbitrariness was previously the open caveat.
 
 **Why.** The per-input labelling band (`DEFAULT_TOLERANCE = 0.25`,
 `automl_package/models/flexnn/routing.py:77`) is inherited, never measured; the user's review
