@@ -1367,7 +1367,7 @@ under re-aggregation; every rung's verdict a ledger field, not prose.
 >   the cap was real, never load-bearing.
 
 **Why.** The per-input labelling band (`DEFAULT_TOLERANCE = 0.25`,
-`automl_package/models/flexnn/routing.py:75`) is inherited, never measured; the user's review
+`automl_package/models/flexnn/routing.py:77`) is inherited, never measured; the user's review
 called it arbitrary and too large. §1's own clause pre-registered exactly this trigger and remedy.
 
 **Spec, two parts:**
