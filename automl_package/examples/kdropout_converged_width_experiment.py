@@ -31,6 +31,15 @@ MSE on the mean output (`logvar_head` untouched). MSE runs are scored with a sep
 friends) instead of the LL-based bars. `--loss nll --arch independent` reproduces the pre-existing
 path bit-for-bit (no longer the CLI defaults -- pass both flags explicitly).
 
+WSEL-23 candidate 1 extension (`docs/plans/capacity_programme/shared/wsel23-candidate1-derived-weighting.md`):
+`--loss weighted` multiplies each width's MSE term by a frozen per-width weight `w_k = (sigma2 +
+a2(w_max)) / (sigma2 + a2(k))` before summing, where `a2(w) = A * w**-p` is the declared approximation-
+deficit law pinned by `width_wsel23_candidate1_pin.py --pin` into `--a2-law-path`'s `a2_law.json`
+(default `capacity_ladder_results/WSEL23/a2_law.json`). Scored with the SAME MSE-based bars as
+`--loss mse` (the weighting changes only the training gradient, never the held-out scoring). Every
+existing NLL/MSE call site stays byte-identical: the weight threaded through `_width_loss`/
+`_loss_from_readout`/`_sampled_widths_total_loss` defaults to `1.0`, a no-op.
+
 Usage:
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/kdropout_converged_width_experiment.py --selftest
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/kdropout_converged_width_experiment.py --smoke
@@ -38,6 +47,7 @@ Usage:
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/kdropout_converged_width_experiment.py --smoke --arch affine_seam --loss mse
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/kdropout_converged_width_experiment.py --config 0
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/kdropout_converged_width_experiment.py            # all seeds
+    AUTOML_DEVICE=cpu ~/dev/.venv/bin/python automl_package/examples/kdropout_converged_width_experiment.py --arch shared_trunk --loss weighted --schedule all --tag wsel23c1
 """
 
 from __future__ import annotations
@@ -67,6 +77,9 @@ from automl_package.utils.pytorch_utils import get_device  # noqa: E402
 from automl_package.utils.run_provenance import run_provenance  # noqa: E402
 
 RESULTS_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "W_KDROPOUT_CONVERGED")
+# WSEL-23 candidate 1's frozen weight-law artifact (`width_wsel23_candidate1_pin.py --pin` writes it;
+# `--loss weighted` reads it) -- default location under that candidate's own results directory (§6).
+_WSEL23_A2_LAW_DEFAULT = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "WSEL23", "a2_law.json")
 
 # Regime reused verbatim from the separate-training battery so the two summaries are directly comparable.
 SEEDS = cwe.SEEDS
@@ -111,6 +124,19 @@ class LossType(enum.Enum):
 
     NLL = "nll"  # Gaussian NLL, old default -- unchanged bit-for-bit.
     MSE = "mse"  # Mean squared error of the mean output; `logvar_head` untouched/unused.
+    WEIGHTED = "weighted"  # WSEL-23 candidate 1: MSE weighted by the frozen a2_law.json per-width table (weight=1.0 is a no-op, byte-identical to MSE).
+
+
+def _weight_for(loss: LossType, weight_table: dict[int, float] | None, k: int) -> float:
+    """Per-width training weight for width `k` under `loss` (WSEL-23 candidate 1, `width.md:1468-1487`).
+
+    `1.0` (a no-op) unless `loss is LossType.WEIGHTED` AND a `weight_table` was actually supplied --
+    this is the single choke point that keeps every existing NLL/MSE call site byte-identical: they
+    never pass a `weight_table`, so this always returns `1.0` for them.
+    """
+    if loss is LossType.WEIGHTED and weight_table is not None:
+        return weight_table[k]
+    return 1.0
 
 
 def _width_loss(
@@ -119,31 +145,45 @@ def _width_loss(
     k: int,
     x_t: torch.Tensor,
     y_t: torch.Tensor,
+    weight: float = 1.0,
 ) -> torch.Tensor:
-    """Dispatches to the NLL (`converged_width_experiment._width_nll`, old default) or MSE (`nested_width_net._width_mse`) per-width loss."""
+    """Dispatches to the NLL, MSE, or WEIGHTED per-width loss.
+
+    NLL (`converged_width_experiment._width_nll`, old default), MSE (`nested_width_net._width_mse`),
+    or WEIGHTED (WSEL-23 candidate 1: `weight * _width_mse`). `weight` defaults to `1.0` -- a no-op
+    for every existing NLL/MSE call site, and for a WEIGHTED call with no real per-width weight (e.g.
+    the convergence-monitoring checkpoint, which always wants PLAIN held-out MSE regardless of the
+    training loss -- see `width.md`'s "min_delta stays meaningful without re-tuning" reasoning,
+    `wsel23-candidate1-derived-weighting.md` §3.4).
+    """
     if loss is LossType.NLL:
         return cwe._width_nll(net, k, x_t, y_t)
     if loss is LossType.MSE:
         return nwn._width_mse(net, k, x_t, y_t)
+    if loss is LossType.WEIGHTED:
+        return weight * nwn._width_mse(net, k, x_t, y_t)
     raise ValueError(f"unknown loss: {loss!r}")
 
 
-def _loss_from_readout(loss: LossType, mean: torch.Tensor, log_var: torch.Tensor, y_t: torch.Tensor) -> torch.Tensor:
-    """Applies `_width_loss`'s NLL/MSE formula to an ALREADY-computed `(mean, log_var)` readout.
+def _loss_from_readout(loss: LossType, mean: torch.Tensor, log_var: torch.Tensor, y_t: torch.Tensor, weight: float = 1.0) -> torch.Tensor:
+    """Applies `_width_loss`'s NLL/MSE/WEIGHTED formula to an ALREADY-computed `(mean, log_var)` readout.
 
     `_width_loss` computes the readout itself via `net.forward_width(x_t, k)`, which is exactly the
     per-width trunk recompute WSEL-12 removes for shared-trunk architectures. `_sampled_widths_total_loss`
     calls this once per sampled width off a SINGLE `net.sampled_widths_forward(x_t, widths)` call instead.
-    Same formulas as `cwe._width_nll` (NLL) / `nwn._width_mse` (MSE) -- those two functions cannot be
-    reused directly here because they take `(net, k)` and always redo the forward internally; neither
-    lives in this task's write set to refactor their signature (`converged_width_experiment.py` is out
-    of scope entirely, and `nested_width_net.py`'s `_width_mse` is called from other sites unchanged).
+    Same formulas as `cwe._width_nll` (NLL) / `nwn._width_mse` (MSE, also WEIGHTED's base term) -- those
+    two functions cannot be reused directly here because they take `(net, k)` and always redo the
+    forward internally; neither lives in this task's write set to refactor their signature
+    (`converged_width_experiment.py` is out of scope entirely, and `nested_width_net.py`'s `_width_mse`
+    is called from other sites unchanged). `weight` defaults to `1.0`, a no-op -- see `_width_loss`.
     """
     if loss is LossType.NLL:
         ll = nwn.gaussian_log_likelihood(mean.squeeze(1), log_var.squeeze(1), y_t)
         return -ll.mean()
     if loss is LossType.MSE:
         return ((mean.squeeze(1) - y_t) ** 2).mean()
+    if loss is LossType.WEIGHTED:
+        return weight * ((mean.squeeze(1) - y_t) ** 2).mean()
     raise ValueError(f"unknown loss: {loss!r}")
 
 
@@ -153,26 +193,85 @@ def _sampled_widths_total_loss(
     widths: list[int],
     x_t: torch.Tensor,
     y_t: torch.Tensor,
+    weight_table: dict[int, float] | None = None,
 ) -> torch.Tensor:
-    """Sum of `_width_loss(loss, net, k, x_t, y_t)` over `widths`.
+    """Sum of `_width_loss(loss, net, k, x_t, y_t, weight=_weight_for(loss, weight_table, k))` over `widths`.
 
     Bit-for-bit equivalent to the old `for k in widths: total += _width_loss(...)` accumulation
-    (`tests/test_nested_width_single_trunk.py`). WSEL-12: for shared-trunk architectures (`NestedWidthNet`, `SharedTrunkPerWidthHeadNet`,
+    (`tests/test_nested_width_single_trunk.py`) whenever `weight_table` is `None` (the default) --
+    `_weight_for` then returns `1.0` for every width regardless of `loss`, a no-op. WSEL-12: for
+    shared-trunk architectures (`NestedWidthNet`, `SharedTrunkPerWidthHeadNet`,
     `SharedReadoutPerWidthAffineNet`, all of which expose `sampled_widths_forward`) this evaluates the
     trunk ONCE regardless of `len(widths)`, instead of once per width as the naive per-k loop does.
     `IndependentWidthNet` has no shared trunk (`sampled_widths_forward` absent) -- there is nothing to
     reuse there, so it keeps the unchanged per-k loop.
+
+    `weight_table` (WSEL-23 candidate 1, `width.md:1468-1487`) is the per-width training weight, `{k:
+    weight}` for `k` in `1..w_max`, read from a frozen `a2_law.json` (`a2_weight_table`). `None`
+    (the default) or `loss is not LossType.WEIGHTED` -- every width weights `1.0`, a no-op.
     """
     if hasattr(net, "sampled_widths_forward"):
         mean_all, logvar_all = net.sampled_widths_forward(x_t, widths)
         total = torch.zeros((), device=x_t.device)
-        for i in range(len(widths)):
-            total = total + _loss_from_readout(loss, mean_all[:, i : i + 1], logvar_all[:, i : i + 1], y_t)
+        for i, k in enumerate(widths):
+            total = total + _loss_from_readout(loss, mean_all[:, i : i + 1], logvar_all[:, i : i + 1], y_t, weight=_weight_for(loss, weight_table, k))
         return total
     total = torch.zeros((), device=x_t.device)
     for k in widths:
-        total = total + _width_loss(loss, net, k, x_t, y_t)
+        total = total + _width_loss(loss, net, k, x_t, y_t, weight=_weight_for(loss, weight_table, k))
     return total
+
+
+def a2_of_w(a2_law: dict, w: int) -> float:
+    """Evaluates the frozen approximation-deficit law `a2(w) = A * w**-p` (WSEL-23 candidate 1 §3.2/§3.4).
+
+    `a2_law` is whatever `width_wsel23_candidate1_pin.py --pin` froze into `a2_law.json`: at minimum
+    `{"A": ..., "p": ..., "sigma2": ...}`. `A`/`p` are read from it, never re-derived here -- this
+    module trains against the frozen law, it does not fit one (`width.md:1477-1478`: "instantiated
+    once and FROZEN").
+    """
+    return float(a2_law["A"]) * float(w) ** (-float(a2_law["p"]))
+
+
+def a2_weight_table(a2_law: dict, w_max: int) -> dict[int, float]:
+    """Per-width training weight `w_k = (sigma2 + a2(w_max)) / (sigma2 + a2(k))` for `k` in `1..w_max`.
+
+    Re-derives the widest-head-anchored normalization (§3.4) AT THIS CALL's `w_max`, rather than
+    slicing a table baked for a different `w_max` -- the §3.5 `w_max'=6` generalization probe reuses
+    the SAME frozen `(A, p, sigma2)` with NO refitting, but its OWN widest head (`w=6`) must land at
+    weight `1.0`, which only re-anchoring here achieves (a table sliced down from a `w_max=12` table
+    would anchor `w=6` at that table's `w=6` weight, not `1.0` -- the wrong quantity for a `w_max=6`
+    run, where `w=6` IS the widest head).
+    """
+    sigma2 = float(a2_law["sigma2"])
+    a2_wmax = a2_of_w(a2_law, w_max)
+    return {k: (sigma2 + a2_wmax) / (sigma2 + a2_of_w(a2_law, k)) for k in range(1, w_max + 1)}
+
+
+def load_a2_law(path: str) -> dict:
+    """Reads the frozen `(A, p, sigma2)` config artifact `--loss weighted` requires (§3.4).
+
+    Fails loudly -- no silent `weight=1.0` fallback -- if the file is missing or malformed: a missing
+    pin would otherwise silently train the UNWEIGHTED objective under a `weighted`-labelled result,
+    exactly the kind of stale-provenance defect `docs/plans/capacity_programme/shared/
+    fp5-stale-reference-finding.md` records against.
+    """
+    if not os.path.isfile(path):
+        raise FileNotFoundError(
+            f"--loss weighted requires a frozen a2_law.json at {path!r} (WSEL-23 candidate 1 §3.4) -- "
+            "run `width_wsel23_candidate1_pin.py --pin` first."
+        )
+    with open(path) as f:
+        a2_law = json.load(f)
+    missing = [key for key in ("A", "p", "sigma2") if key not in a2_law]
+    if missing:
+        raise ValueError(f"a2_law.json at {path!r} is missing required key(s) {missing}")
+    return a2_law
+
+
+def _resolve_a2_law_path(a2_law_path_arg: str | None) -> str:
+    """`--a2-law-path` override if given, else this module's default (`_WSEL23_A2_LAW_DEFAULT`)."""
+    return a2_law_path_arg if a2_law_path_arg is not None else _WSEL23_A2_LAW_DEFAULT
 
 
 def _trunk_evals_per_step(
@@ -215,6 +314,7 @@ def _train_kdropout_to_convergence(
     seed: int,
     schedule: nwn.WidthSchedule = nwn.WidthSchedule.SANDWICH,
     uniform_draw_n: int = _DEFAULT_UNIFORM_SCHEDULE_DRAW_N,
+    weight_table: dict[int, float] | None = None,
 ) -> tuple[dict[int, cvg.ConvergenceResult], int | None]:
     """One joint k-dropout run (SANDWICH default), gated by PER-WIDTH held-out convergence.
 
@@ -254,6 +354,13 @@ def _train_kdropout_to_convergence(
         uniform_draw_n: widths drawn per step under `WidthSchedule.UNIFORM` (ignored otherwise); the
             bunch-size axis WSEL-14 turns into a real parameter (`--uniform-draw-n`, default
             `_DEFAULT_UNIFORM_SCHEDULE_DRAW_N=4`, byte-identical to the old hardcoded value).
+        weight_table: WSEL-23 candidate 1 per-width TRAINING weight (`a2_weight_table`), applied only
+            when `loss is LossType.WEIGHTED` (`_weight_for`). `None` (default) is a no-op for every
+            other `loss` and reproduces plain MSE even under `LossType.WEIGHTED`. Only the training
+            step's `_sampled_widths_total_loss` call reads it -- the per-width held-out checkpoint
+            below always calls `_width_loss` with NO weight (defaults to `1.0`), so convergence is
+            monitored on PLAIN MSE regardless of `loss`, keeping `min_delta` meaningful without
+            re-tuning it (`wsel23-candidate1-derived-weighting.md` §3.4).
 
     Returns:
         `({width -> ConvergenceResult}, best_mean_val_epoch)`. Best weights are already restored (per
@@ -298,13 +405,15 @@ def _train_kdropout_to_convergence(
             if n_mid_draw:
                 perm = torch.randperm(len(mid_candidates), generator=gen)[:n_mid_draw]
                 widths += [mid_candidates[i] for i in perm.tolist()]
-        total_loss = _sampled_widths_total_loss(loss, net, widths, x_tr, y_tr)
+        total_loss = _sampled_widths_total_loss(loss, net, widths, x_tr, y_tr, weight_table=weight_table)
         total_loss.backward()
         opt.step()
 
         if epoch % check_every == 0:
             net.eval()
             with torch.no_grad():
+                # No `weight=` passed here (defaults to 1.0): convergence is always monitored on PLAIN
+                # held-out MSE, even under `loss=LossType.WEIGHTED` -- see this function's docstring.
                 per_width_val = {k: float(_width_loss(loss, net, k, x_val, y_val).item()) for k in range(1, w_max + 1)}
             if arch is Arch.INDEPENDENT:
                 for k, v in per_width_val.items():
@@ -373,13 +482,17 @@ def run_case(
     router_hidden_mult: float = 1.0,
     uniform_draw_n: int = _DEFAULT_UNIFORM_SCHEDULE_DRAW_N,
     fused_heads: bool = False,
+    weight_table: dict[int, float] | None = None,
 ) -> dict:
     """Trains the k-dropout net to per-width convergence, then scores the frozen net for the pre-registered bars.
 
     `loss=LossType.NLL` reproduces the pre-existing path bit-for-bit (LL-based construction/recovery/
-    deploy bars, reused verbatim from `sinc_width_experiment`). `loss=LossType.MSE` scores an MSE table
-    instead and reads the width-MSE program's fit/curve-shape/dial/deploy bars
-    (`sinc_width_experiment`'s `_mse`-suffixed twins) plus a report-only soft-target sensitivity arm.
+    deploy bars, reused verbatim from `sinc_width_experiment`). `loss=LossType.MSE`/`LossType.WEIGHTED`
+    both score an MSE table instead and read the width-MSE program's fit/curve-shape/dial/deploy bars
+    (`sinc_width_experiment`'s `_mse`-suffixed twins) plus a report-only soft-target sensitivity arm --
+    the weighting (WSEL-23 candidate 1) changes only the TRAINING gradient (`weight_table`, read by
+    `_train_kdropout_to_convergence`), never the held-out scoring, which stays the plain MSE every
+    other MSE-family run uses.
 
     `toy=nwn.Toy.HETERO` (default) is the 2-region WP-2/WP-4 toy at common-mode noise `sigma` (WP-4
     sweeps `sigma`, so `floor_hard = sigma**2`). `toy=nwn.Toy.HETERO3` (WP-3) adds a noisy-easy third
@@ -390,6 +503,10 @@ def run_case(
     `fused_heads` (WSEL-18, default off): use `SharedTrunkPerWidthHeadNet`'s fused readout instead of
     its per-width `mean_heads`. Refused (`_validate_fused_heads`) unless `arch=Arch.SHARED_TRUNK` and
     `schedule=WidthSchedule.ALL` -- fusion is only mathematically exact there (see class docstring).
+
+    `weight_table` (WSEL-23 candidate 1, default `None`): per-width training weight, read only when
+    `loss is LossType.WEIGHTED` (`_weight_for`); `None` (the default, including under every other
+    `loss`) is a no-op. Recorded on the returned `case` for provenance.
     """
     _validate_fused_heads(arch, schedule, fused_heads=fused_heads)
     if toy is nwn.Toy.HETERO3:
@@ -422,8 +539,9 @@ def run_case(
     else:
         net = nwn.SharedReadoutPerWidthAffineNet(w_max=w_max)
     # WSEL-12 cost instrumentation (Step 3): wall-clock wraps ONLY the training call itself, unchanged
-    # otherwise -- `_train_kdropout_to_convergence`'s own signature/return contract is untouched, since
-    # other in-flight work on this branch imports it.
+    # otherwise -- `_train_kdropout_to_convergence`'s existing signature/return contract is untouched
+    # (WSEL-23's `weight_table` is a new KEYWORD-ONLY param with a `None` default appended at the end,
+    # so every other in-flight caller of this function, none of which passes it, is unaffected).
     _train_t0 = time.perf_counter()
     conv, best_mean_val_epoch = _train_kdropout_to_convergence(
         net,
@@ -440,6 +558,7 @@ def run_case(
         seed=seed,
         schedule=schedule,
         uniform_draw_n=uniform_draw_n,
+        weight_table=weight_table,
     )
     train_wall_clock_s = time.perf_counter() - _train_t0
     # W6: the deploy router's hidden sizes, scaled off the ck6 default (mult 1.0 reproduces it exactly).
@@ -475,6 +594,10 @@ def run_case(
         "executed_flops_by_width": {k: executed_flops(net, k) for k in range(1, w_max + 1)},
         "train_mse_by_width": train_mse_by_width,
         "held_out_mse_by_width": held_out_mse_by_width,
+        # WSEL-23 candidate 1 (additive only -- no key above this line changed): the per-width training
+        # weight actually applied (None unless loss=weighted and a real table was supplied), recorded so
+        # a landed cell is reproducible without re-reading whatever a2_law.json happened to be on disk.
+        "weight_table": weight_table,
     }
 
     if loss is LossType.NLL:
@@ -786,6 +909,13 @@ def main() -> None:
         "Default off (existing paths byte-identical). Requires --arch shared_trunk and --schedule all; refused otherwise "
         "(fusion is only mathematically exact under ALL -- see architectures.py's class docstring).",
     )
+    parser.add_argument(
+        "--a2-law-path",
+        type=str,
+        default=None,
+        help="WSEL-23 candidate 1: frozen a2_law.json path, read only when --loss weighted (default: "
+        "capacity_ladder_results/WSEL23/a2_law.json; run width_wsel23_candidate1_pin.py --pin first).",
+    )
     args = parser.parse_args()
 
     if args.selftest:
@@ -814,6 +944,13 @@ def main() -> None:
 
     results_dir = _resolve_results_dir(args.results_dir)
 
+    # WSEL-23 candidate 1: fail fast, before building data for any seed (the `_validate_fused_heads`
+    # pattern above) -- a missing pin must never silently degrade `--loss weighted` to unweighted MSE.
+    weight_table: dict[int, float] | None = None
+    if loss is LossType.WEIGHTED:
+        a2_law = load_a2_law(_resolve_a2_law_path(args.a2_law_path))
+        weight_table = a2_weight_table(a2_law, w_max)
+
     print(
         f"[kdropout-converged] device={device} arch={arch.value} loss={loss.value} toy={toy.value} sigma={sigma:g} "
         f"seeds={seeds} w_max={w_max} n_train={n_train} n_test={n_test} max_epochs_cap={max_epochs} check_every={args.check_every} "
@@ -829,6 +966,7 @@ def main() -> None:
             seed, w_max, n_train, n_test, max_epochs, device,
             arch=arch, loss=loss, check_every=args.check_every, patience=args.patience, min_delta=args.min_delta, toy=toy, sigma=sigma,
             schedule=schedule, router_hidden_mult=args.router_hidden_mult, uniform_draw_n=args.uniform_draw_n, fused_heads=fused_heads,
+            weight_table=weight_table,
         )
         per_case.append(case)
         if loss is LossType.NLL:
@@ -868,6 +1006,9 @@ def main() -> None:
                 "check_every": args.check_every,
                 "patience": args.patience,
                 "min_delta": args.min_delta,
+                # WSEL-23 candidate 1 (additive only): which a2_law.json this run actually read, None
+                # unless loss=weighted (per_case[*]["weight_table"] already carries the resolved table).
+                "a2_law_path": _resolve_a2_law_path(args.a2_law_path) if loss is LossType.WEIGHTED else None,
                 # WSEL-12 cost instrumentation (Step 3, additive only -- no key above this line changed):
                 # per-seed training wall clock, index-aligned with "seeds" above, and the trunk-eval count
                 # one training STEP pays (constant across seeds for one config: same arch/schedule/w_max).
