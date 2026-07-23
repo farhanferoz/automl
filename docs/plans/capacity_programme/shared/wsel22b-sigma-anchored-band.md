@@ -200,9 +200,11 @@ library):
 **Default: `c = 0.95`.** Justification (stated once, not re-derived per cell): it is the same
 nominal confidence level as the already-ratified 2·SE global-rule band (MASTER Decision 33(i),
 `width.md` WSEL-20 block) — the two "noise-aware" bands this programme now has sit on one shared
-convention. The evaluation protocol in §5-6 sweeps all four listed `c` values against the SAME
-decided cells (a) already swept at its four `τ` values, mirroring (a)'s own sweep-not-single-point
-design so that confidence-level sensitivity is measured, not assumed away.
+convention. The evaluation protocol in §5-6 sweeps all FIVE listed `c` values (the table's full set — this
+sentence originally said "four", a miscount of the document's own 5-row table, caught by the
+driver builder and corrected at harvest) against the SAME decided cells (a) already swept at its
+four `τ` values, mirroring (a)'s own sweep-not-single-point design so that confidence-level
+sensitivity is measured, not assumed away.
 
 ## 4. Adoption gate — literal text, and a flagged ambiguity
 
@@ -546,3 +548,15 @@ single oracle, and the per-row A1 coverage diagnostic. Next step per the wave li
 builds `automl_package/examples/width_wsel22b.py` <!-- citecheck-ignore: forward reference -- Create target of the driver task --> against §9
 <!-- citecheck-ignore: forward reference -- Create target of the driver task -->; the ROOT runs
 the evaluation grid backgrounded.
+
+**Driver-build reconciliation (root, 2026-07-23 harvest — the driver is BUILT and root-verified:
+selftest 7/7, ruff clean, plan gates green, and the import chain proven free of the concurrently
+edited training driver by a live import check).** The builder's three flagged resolutions are
+RATIFIED: (1) all FIVE confidence levels swept (§3's "four" was this document's own miscount,
+corrected above); (2) each impact cell fits once and lands BOTH hard+blend outputs per
+`width_wsel22a.py`'s established convention — `--mode` selects stdout, not computation (halves
+the grid's training compute at zero coverage loss); (3) the win criterion's "not worse on the
+OTHER metric" is implemented as "neither metric worse by >2·SE" — a conservative superset,
+identical whenever exactly one metric clears condition 1. M1's implementation is confirmed
+faithful to the §5.2 amendment: rule-on-noisy-table vs rule-on-true-table agreement, no fitted
+backend anywhere in the metric.
