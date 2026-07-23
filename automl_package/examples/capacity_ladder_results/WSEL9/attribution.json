@@ -1,0 +1,498 @@
+{
+  "diabetes": {
+    "winning_width_exists": true,
+    "selection_lost_it": true,
+    "dominant_cause": "selection_set_size",
+    "n_selection_used": 53,
+    "data_carve_consistent": true,
+    "aggregate_mean_test_mse": {
+      "oracle_best": 3190.1549479166665,
+      "select_argmin": 3268.2899576822915,
+      "actual_pick": 3709.7941080729165,
+      "plain_nn": 3626.9036458333335
+    },
+    "magnitudes": {
+      "selection_noise_mse_forfeited": 78.135009765625,
+      "band_mse_forfeited": 441.504150390625,
+      "total_mse_forfeited": 519.63916015625,
+      "gap_vs_plain_mse": 82.89046223958303,
+      "gap_vs_plain_relative_pct": 2.2854332602634595,
+      "per_seed_relative_gap_pct": [
+        -9.926490983534897,
+        6.336655239126822,
+        9.380392369075548
+      ],
+      "per_seed_relative_gap_std_pct": 8.475520341726721
+    },
+    "per_seed": {
+      "0": {
+        "oracle_best_width": 1,
+        "oracle_best_test_mse": 3028.52734375,
+        "select_argmin_width": 9,
+        "select_argmin_test_mse": 3043.628662109375,
+        "actual_pick_width": 1,
+        "actual_pick_test_mse": 3028.52734375,
+        "plain_nn_test_mse": 3362.2841796875,
+        "band_picks_by_se_multiple": {
+          "0.0": 9,
+          "1.0": 1,
+          "2.0": 1,
+          "3.0": 1,
+          "4.0": 1,
+          "6.0": 1,
+          "10.0": 1
+        },
+        "n_selection_used": 53
+      },
+      "1": {
+        "oracle_best_width": 3,
+        "oracle_best_test_mse": 3228.15771484375,
+        "select_argmin_width": 5,
+        "select_argmin_test_mse": 3269.878662109375,
+        "actual_pick_width": 1,
+        "actual_pick_test_mse": 4291.205078125,
+        "plain_nn_test_mse": 4035.489990234375,
+        "band_picks_by_se_multiple": {
+          "0.0": 5,
+          "1.0": 1,
+          "2.0": 1,
+          "3.0": 1,
+          "4.0": 1,
+          "6.0": 1,
+          "10.0": 1
+        },
+        "n_selection_used": 53
+      },
+      "2": {
+        "oracle_best_width": 7,
+        "oracle_best_test_mse": 3313.77978515625,
+        "select_argmin_width": 9,
+        "select_argmin_test_mse": 3491.362548828125,
+        "actual_pick_width": 1,
+        "actual_pick_test_mse": 3809.64990234375,
+        "plain_nn_test_mse": 3482.936767578125,
+        "band_picks_by_se_multiple": {
+          "0.0": 9,
+          "1.0": 1,
+          "2.0": 1,
+          "3.0": 1,
+          "4.0": 1,
+          "6.0": 1,
+          "10.0": 1
+        },
+        "n_selection_used": 53
+      }
+    },
+    "provenance": {
+      "sweep_cells": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL9/diabetes_<seed>_w_sweep_<width>.json (seeds=[0, 1, 2])",
+      "plain_nn_cells": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL9/diabetes_<seed>_plain_nn.json",
+      "selector": "automl_package.utils.capacity_selection.cheapest_within_tolerance"
+    },
+    "selection_set_size_probe": {
+      "dataset": "diabetes",
+      "seed": 1,
+      "width_lo_actual_pick": 1,
+      "width_hi_comparator": 3,
+      "probe_fraction_pct": 50,
+      "n_selection_orig": 53,
+      "n_selection_probe": 177,
+      "prefix_consistent": true,
+      "test_mse_lo": 4291.205078125,
+      "test_mse_hi": 3228.15771484375,
+      "orig": {
+        "mean_diff": -0.018159447071600467,
+        "se": 0.035086246218077384,
+        "within_tolerance": true
+      },
+      "probe": {
+        "mean_diff": 0.05534682878889808,
+        "se": 0.02487395913393362,
+        "within_tolerance": false
+      },
+      "note": "w_lo=1 is the shipped rule's actual pick for diabetes seed1; w_hi=3 is the TEST-oracle-best width."
+    }
+  },
+  "yacht": {
+    "winning_width_exists": true,
+    "selection_lost_it": true,
+    "dominant_cause": "selection_set_size",
+    "n_selection_used": 37,
+    "data_carve_consistent": true,
+    "aggregate_mean_test_mse": {
+      "oracle_best": 1.0796218713124592,
+      "select_argmin": 1.5156599680582683,
+      "actual_pick": 3.189571976661682,
+      "plain_nn": 1.7537834246953328
+    },
+    "magnitudes": {
+      "selection_noise_mse_forfeited": 0.43603809674580907,
+      "band_mse_forfeited": 1.6739120086034138,
+      "total_mse_forfeited": 2.109950105349223,
+      "gap_vs_plain_mse": 1.4357885519663494,
+      "gap_vs_plain_relative_pct": 81.8680648789787,
+      "per_seed_relative_gap_pct": [
+        217.1907335141999,
+        -7.425913157771509,
+        148.9687179677424
+      ],
+      "per_seed_relative_gap_std_pct": 94.02491514502826
+    },
+    "per_seed": {
+      "0": {
+        "oracle_best_width": 8,
+        "oracle_best_test_mse": 1.1843262910842896,
+        "select_argmin_width": 5,
+        "select_argmin_test_mse": 1.2139151096343994,
+        "actual_pick_width": 2,
+        "actual_pick_test_mse": 5.058849334716797,
+        "plain_nn_test_mse": 1.594891905784607,
+        "band_picks_by_se_multiple": {
+          "0.0": 5,
+          "1.0": 5,
+          "2.0": 2,
+          "3.0": 1,
+          "4.0": 1,
+          "6.0": 1,
+          "10.0": 1
+        },
+        "n_selection_used": 37
+      },
+      "1": {
+        "oracle_best_width": 9,
+        "oracle_best_test_mse": 1.3819935321807861,
+        "select_argmin_width": 8,
+        "select_argmin_test_mse": 2.650724411010742,
+        "actual_pick_width": 1,
+        "actual_pick_test_mse": 2.733792304992676,
+        "plain_nn_test_mse": 2.9530858993530273,
+        "band_picks_by_se_multiple": {
+          "0.0": 8,
+          "1.0": 3,
+          "2.0": 1,
+          "3.0": 1,
+          "4.0": 1,
+          "6.0": 1,
+          "10.0": 1
+        },
+        "n_selection_used": 37
+      },
+      "2": {
+        "oracle_best_width": 7,
+        "oracle_best_test_mse": 0.6725457906723022,
+        "select_argmin_width": 2,
+        "select_argmin_test_mse": 0.6823403835296631,
+        "actual_pick_width": 1,
+        "actual_pick_test_mse": 1.7760742902755737,
+        "plain_nn_test_mse": 0.7133724689483643,
+        "band_picks_by_se_multiple": {
+          "0.0": 2,
+          "1.0": 2,
+          "2.0": 1,
+          "3.0": 1,
+          "4.0": 1,
+          "6.0": 1,
+          "10.0": 1
+        },
+        "n_selection_used": 37
+      }
+    },
+    "provenance": {
+      "sweep_cells": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL9/yacht_<seed>_w_sweep_<width>.json (seeds=[0, 1, 2])",
+      "plain_nn_cells": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL9/yacht_<seed>_plain_nn.json",
+      "selector": "automl_package.utils.capacity_selection.cheapest_within_tolerance"
+    },
+    "selection_set_size_probe": {
+      "dataset": "yacht",
+      "seed": 0,
+      "width_lo_actual_pick": 2,
+      "width_hi_comparator": 8,
+      "probe_fraction_pct": 50,
+      "n_selection_orig": 37,
+      "n_selection_probe": 123,
+      "prefix_consistent": true,
+      "test_mse_lo": 5.058849334716797,
+      "test_mse_hi": 1.1843262910842896,
+      "orig": {
+        "mean_diff": 0.030404026890460352,
+        "se": 0.01792670248557211,
+        "within_tolerance": true
+      },
+      "probe": {
+        "mean_diff": 0.02210350221012706,
+        "se": 0.006367144190033074,
+        "within_tolerance": false
+      },
+      "note": "w_lo=2 is the shipped rule's actual pick for yacht seed0; w_hi=8 is the TEST-oracle-best width."
+    }
+  },
+  "energy": {
+    "winning_width_exists": true,
+    "selection_lost_it": true,
+    "dominant_cause": "selection_set_size",
+    "n_selection_used": 92,
+    "data_carve_consistent": true,
+    "aggregate_mean_test_mse": {
+      "oracle_best": 6.1800159613291425,
+      "select_argmin": 7.060096184412639,
+      "actual_pick": 28.540884653727215,
+      "plain_nn": 11.904082616170248
+    },
+    "magnitudes": {
+      "selection_noise_mse_forfeited": 0.8800802230834961,
+      "band_mse_forfeited": 21.480788469314575,
+      "total_mse_forfeited": 22.36086869239807,
+      "gap_vs_plain_mse": 16.63680203755697,
+      "gap_vs_plain_relative_pct": 139.75711169005075,
+      "per_seed_relative_gap_pct": [
+        408.0977285395392,
+        112.89205653880816,
+        4.177756904988299
+      ],
+      "per_seed_relative_gap_std_pct": 170.6577247695032
+    },
+    "per_seed": {
+      "0": {
+        "oracle_best_width": 12,
+        "oracle_best_test_mse": 8.22449779510498,
+        "select_argmin_width": 12,
+        "select_argmin_test_mse": 8.22449779510498,
+        "actual_pick_width": 2,
+        "actual_pick_test_mse": 41.78848648071289,
+        "plain_nn_test_mse": 8.22449779510498,
+        "band_picks_by_se_multiple": {
+          "0.0": 12,
+          "1.0": 12,
+          "2.0": 2,
+          "3.0": 1,
+          "4.0": 1,
+          "6.0": 1,
+          "10.0": 1
+        },
+        "n_selection_used": 92
+      },
+      "1": {
+        "oracle_best_width": 9,
+        "oracle_best_test_mse": 3.3296921253204346,
+        "select_argmin_width": 9,
+        "select_argmin_test_mse": 3.3296921253204346,
+        "actual_pick_width": 1,
+        "actual_pick_test_mse": 29.761892318725586,
+        "plain_nn_test_mse": 13.979804039001465,
+        "band_picks_by_se_multiple": {
+          "0.0": 9,
+          "1.0": 9,
+          "2.0": 1,
+          "3.0": 1,
+          "4.0": 1,
+          "6.0": 1,
+          "10.0": 1
+        },
+        "n_selection_used": 92
+      },
+      "2": {
+        "oracle_best_width": 5,
+        "oracle_best_test_mse": 6.985857963562012,
+        "select_argmin_width": 8,
+        "select_argmin_test_mse": 9.6260986328125,
+        "actual_pick_width": 2,
+        "actual_pick_test_mse": 14.072275161743164,
+        "plain_nn_test_mse": 13.507946014404297,
+        "band_picks_by_se_multiple": {
+          "0.0": 8,
+          "1.0": 5,
+          "2.0": 2,
+          "3.0": 1,
+          "4.0": 1,
+          "6.0": 1,
+          "10.0": 1
+        },
+        "n_selection_used": 92
+      }
+    },
+    "provenance": {
+      "sweep_cells": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL9/energy_<seed>_w_sweep_<width>.json (seeds=[0, 1, 2])",
+      "plain_nn_cells": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL9/energy_<seed>_plain_nn.json",
+      "selector": "automl_package.utils.capacity_selection.cheapest_within_tolerance"
+    }
+  },
+  "kin8nm": {
+    "winning_width_exists": true,
+    "selection_lost_it": true,
+    "dominant_cause": "rule_objective_mismatch",
+    "n_selection_used": 983,
+    "data_carve_consistent": true,
+    "aggregate_mean_test_mse": {
+      "oracle_best": 0.00867873833825191,
+      "select_argmin": 0.0086842505261302,
+      "actual_pick": 0.009130915937324366,
+      "plain_nn": 0.008755477455755075
+    },
+    "magnitudes": {
+      "selection_noise_mse_forfeited": 5.512187878290234e-06,
+      "band_mse_forfeited": 0.0004466654111941661,
+      "total_mse_forfeited": 0.00045217759907245636,
+      "gap_vs_plain_mse": 0.00037543848156929016,
+      "gap_vs_plain_relative_pct": 4.28804121153336,
+      "per_seed_relative_gap_pct": [
+        -0.1876623325151202,
+        13.314367492461946,
+        0.0
+      ],
+      "per_seed_relative_gap_std_pct": 6.321149757141959
+    },
+    "per_seed": {
+      "0": {
+        "oracle_best_width": 10,
+        "oracle_best_test_mse": 0.008795334957540035,
+        "select_argmin_width": 12,
+        "select_argmin_test_mse": 0.008811871521174908,
+        "actual_pick_width": 10,
+        "actual_pick_test_mse": 0.008795334957540035,
+        "plain_nn_test_mse": 0.008811871521174908,
+        "band_picks_by_se_multiple": {
+          "0.0": 12,
+          "1.0": 10,
+          "2.0": 10,
+          "3.0": 10,
+          "4.0": 10,
+          "6.0": 8,
+          "10.0": 5
+        },
+        "n_selection_used": 983
+      },
+      "1": {
+        "oracle_best_width": 11,
+        "oracle_best_test_mse": 0.008369918912649155,
+        "select_argmin_width": 11,
+        "select_argmin_test_mse": 0.008369918912649155,
+        "actual_pick_width": 9,
+        "actual_pick_test_mse": 0.009726451709866524,
+        "plain_nn_test_mse": 0.00858359970152378,
+        "band_picks_by_se_multiple": {
+          "0.0": 11,
+          "1.0": 11,
+          "2.0": 9,
+          "3.0": 9,
+          "4.0": 8,
+          "6.0": 8,
+          "10.0": 5
+        },
+        "n_selection_used": 983
+      },
+      "2": {
+        "oracle_best_width": 12,
+        "oracle_best_test_mse": 0.008870961144566536,
+        "select_argmin_width": 12,
+        "select_argmin_test_mse": 0.008870961144566536,
+        "actual_pick_width": 12,
+        "actual_pick_test_mse": 0.008870961144566536,
+        "plain_nn_test_mse": 0.008870961144566536,
+        "band_picks_by_se_multiple": {
+          "0.0": 12,
+          "1.0": 12,
+          "2.0": 12,
+          "3.0": 12,
+          "4.0": 12,
+          "6.0": 8,
+          "10.0": 4
+        },
+        "n_selection_used": 983
+      }
+    },
+    "provenance": {
+      "sweep_cells": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL9/kin8nm_<seed>_w_sweep_<width>.json (seeds=[0, 1, 2])",
+      "plain_nn_cells": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL9/kin8nm_<seed>_plain_nn.json",
+      "selector": "automl_package.utils.capacity_selection.cheapest_within_tolerance"
+    }
+  },
+  "california": {
+    "winning_width_exists": true,
+    "selection_lost_it": true,
+    "dominant_cause": "rule_objective_mismatch",
+    "n_selection_used": 2477,
+    "data_carve_consistent": true,
+    "aggregate_mean_test_mse": {
+      "oracle_best": 0.2992071608702342,
+      "select_argmin": 0.30027738213539124,
+      "actual_pick": 0.303212970495224,
+      "plain_nn": 0.30149634679158527
+    },
+    "magnitudes": {
+      "selection_noise_mse_forfeited": 0.0010702212651570453,
+      "band_mse_forfeited": 0.0029355883598327637,
+      "total_mse_forfeited": 0.004005809624989809,
+      "gap_vs_plain_mse": 0.001716623703638731,
+      "gap_vs_plain_relative_pct": 0.5693679946395429,
+      "per_seed_relative_gap_pct": [
+        -0.39530961462239367,
+        -0.849353260595199,
+        2.906419599529996
+      ],
+      "per_seed_relative_gap_std_pct": 1.6737649248488544
+    },
+    "per_seed": {
+      "0": {
+        "oracle_best_width": 9,
+        "oracle_best_test_mse": 0.2952309250831604,
+        "select_argmin_width": 9,
+        "select_argmin_test_mse": 0.2952309250831604,
+        "actual_pick_width": 9,
+        "actual_pick_test_mse": 0.2952309250831604,
+        "plain_nn_test_mse": 0.29640263319015503,
+        "band_picks_by_se_multiple": {
+          "0.0": 9,
+          "1.0": 9,
+          "2.0": 9,
+          "3.0": 5,
+          "4.0": 5,
+          "6.0": 5,
+          "10.0": 3
+        },
+        "n_selection_used": 2477
+      },
+      "1": {
+        "oracle_best_width": 11,
+        "oracle_best_test_mse": 0.29655787348747253,
+        "select_argmin_width": 11,
+        "select_argmin_test_mse": 0.29655787348747253,
+        "actual_pick_width": 9,
+        "actual_pick_test_mse": 0.2996865212917328,
+        "plain_nn_test_mse": 0.30225372314453125,
+        "band_picks_by_se_multiple": {
+          "0.0": 11,
+          "1.0": 11,
+          "2.0": 9,
+          "3.0": 7,
+          "4.0": 7,
+          "6.0": 5,
+          "10.0": 1
+        },
+        "n_selection_used": 2477
+      },
+      "2": {
+        "oracle_best_width": 12,
+        "oracle_best_test_mse": 0.3058326840400696,
+        "select_argmin_width": 11,
+        "select_argmin_test_mse": 0.30904334783554077,
+        "actual_pick_width": 7,
+        "actual_pick_test_mse": 0.3147214651107788,
+        "plain_nn_test_mse": 0.3058326840400696,
+        "band_picks_by_se_multiple": {
+          "0.0": 11,
+          "1.0": 7,
+          "2.0": 7,
+          "3.0": 5,
+          "4.0": 5,
+          "6.0": 5,
+          "10.0": 2
+        },
+        "n_selection_used": 2477
+      }
+    },
+    "provenance": {
+      "sweep_cells": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL9/california_<seed>_w_sweep_<width>.json (seeds=[0, 1, 2])",
+      "plain_nn_cells": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL9/california_<seed>_plain_nn.json",
+      "selector": "automl_package.utils.capacity_selection.cheapest_within_tolerance"
+    }
+  }
+}

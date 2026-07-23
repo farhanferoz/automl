@@ -684,14 +684,18 @@ and must land before WSEL-8 reads its numbers.)*
 **⚡ 2026-07-23 REVIEW WAVE (Decisions 33/34/35) — ✅ REVIEW CLOSED BY THE USER 2026-07-23
 (second sitting; all items walked incl. the normalisation re-pass and the WSEL-16/17
 walkthrough). DISPATCH AUTHORIZED from this commit.** Order:
-**WSEL-24 FIRST** (user ruling — its verdict may re-sequence everything behind it) → then in
-parallel by disjoint write sets: WSEL-20 (partial diff in the session scratchpad,
-`wsel20-partial-work.patch`) ∥ WSEL-22(a) (+ the WSEL-9 uncapped LightGBM cells, zero/tiny
-compute; *the WSEL-15 affine re-grade was struck from this slot — user parking ruling 2026-07-23,
-see the WSEL-15 FOLLOW-UP block*) ∥ WSEL-21 spec ∥ the Decision-33(vi) plan-hygiene pass →
-WSEL-23 candidate specs (adversarial read each) → WSEL-23 grids → WSEL-10 LAST (its
-replacement-claim section gated on WSEL-23's end-state; transfer ledger + arbiter reference
-required). `flexnn-package.md` FP-13 stays CONDITIONAL on WSEL-21's outcome.
+**WSEL-24 ✅ DONE 2026-07-23** (verdict in its block: selection_set_size on the small datasets —
+causal; rule_objective_mismatch on the large — policy, batched for the user; NO re-sequencing
+forced; WSEL-22(c) stays dormant) → in parallel by disjoint write sets **(dispatched at harvest,
+2026-07-23)**: WSEL-20 (partial diff in the session scratchpad, `wsel20-partial-work.patch`) ∥
+WSEL-22(a) (+ the WSEL-9 uncapped LightGBM cells, zero/tiny compute; *the WSEL-15 affine re-grade
+was struck from this slot — user parking ruling 2026-07-23, see the WSEL-15 FOLLOW-UP block*) ∥
+WSEL-21 spec ∥ the Decision-33(vi) plan-hygiene pass (chunk 1 landed `f8b7f72`; remaining chunks
+after their reader tasks harvest) → **WSEL-6-R (NEW — fired by WSEL-24's causal verdict: the
+real-data selection-fraction reopen; spec-gated, dispatches after the trio harvests)** ∥ WSEL-23
+candidate specs (adversarial read each) → WSEL-23 grids → WSEL-10 LAST (its replacement-claim
+section gated on WSEL-23's end-state; transfer ledger + arbiter reference required).
+`flexnn-package.md` FP-13 stays CONDITIONAL on WSEL-21's outcome.
 
 ⚡ **TASK ZERO — `flexnn-package.md` FP-11 RUNS BEFORE ANY TASK IN THIS FILE (user, 2026-07-21).**
 It moves the flexible-capacity code under one `models/flexnn/` home. **Every width task deps on it**,
@@ -982,6 +986,13 @@ asserted in a test, not eyeballed; a test asserts each of §1's three models ret
 cost including selection.
 
 ### WSEL-6 — how much data does width selection need? — ✅ **ANSWERED 2026-07-22 (primary grid): 15% of the training portion suffices for every arm; NO arm is data-limited. Router-dependent-arm re-run at WSEL-7's `new_default` still owed.**
+
+> 🔄 **REAL-DATA HALF REOPENED 2026-07-23 (WSEL-24's causal verdict): "15% suffices" is TOYS-ONLY
+> and does NOT transfer.** On the battery the 15% carve yields selection sets of 37/53/92 rows on
+> yacht/diabetes/energy, and WSEL-24's probe demonstrated causally that enlarging the SELECT carve
+> ALONE — rule, multiplier and estimator identical — flips the pick to correct on diabetes and
+> yacht. Scheduled as **WSEL-6-R** in the wave line (§4), spec-gated. This block's toys verdict is
+> unchanged; its scope label narrows to toys.
 
 **RESULT: `fraction: 0.15`, `saturated: true`, `data_limited` all false** — ledger `automl_package/examples/capacity_ladder_results/WSEL6/frozen.json` (90 cells: 2 tiers × 3 seeds × 5 fractions × 3 arms; per-cell JSONs + `saturation.png` in the same directory; per-(tier,seed[,width]) cached nets under `WSEL6/_cache/`).
 
@@ -1429,7 +1440,33 @@ or the law inherits the sweep's cost and the replacement economics are circular.
 on a shared trunk carry the same false equal-variance assertion); recorded here for depth's
 unpark — depth's parked plans are NOT edited from this task.
 
-### WSEL-24 — the selection post-mortem: a winning width should exist — did SELECTION throw it away? — 🗓 **SCHEDULED; ⚡ RUNS FIRST in the orchestration wave (user ruling, 2026-07-23: "there must be a width that should win. Why didn't we select it? ... it should be done first")**
+### WSEL-24 — the selection post-mortem: a winning width should exist — did SELECTION throw it away? — ✅ **ANSWERED 2026-07-23: YES a winning width existed on ALL FIVE datasets, and selection lost it on all five. The cause SPLITS cleanly by selection-set size: small datasets → underpowered selection (causally demonstrated); large datasets → the rule answering "smallest sufficient" where the battery scores "most accurate" (a POLICY question, batched for the user).**
+
+> ✅ **HARVESTED 2026-07-23 (worker-run; root re-verified: ruff clean, `--selftest` PASS, ledger
+> loads with all three verdict fields per dataset, write set exactly the declared driver + ledger).**
+> Driver `automl_package/examples/width_wsel24.py` · ledger
+> `automl_package/examples/capacity_ladder_results/WSEL9/attribution.json`.
+> - **diabetes / yacht / energy → `selection_set_size`** (n_selection_used 53 / 37 / 92): per-seed
+>   gaps vs the plain control are erratic sign-flippers (up to +217% and +408% swings — the
+>   underpowered-selection signature). **CAUSAL for diabetes and yacht, not correlational:** a
+>   5-cell probe (inside the pre-declared 6-cell cap) held the rule, the 2·SE multiplier and the
+>   bootstrap estimator IDENTICAL and only enlarged the SELECT carve — the verdict FLIPPED to
+>   correctly rejecting the bad cheap width in both. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL9/attribution.json` -->
+>   **energy's label is inferred by analogy** (same n-clustering + the worst seed variance of the
+>   five; its direct probe cell deliberately unspent) — recorded, not hidden.
+> - **kin8nm / california → `rule_objective_mismatch`** (n_selection_used 983 / 2477): the SE is
+>   small and well-estimated, the SELECT curve genuinely near-flat at the top; the rule correctly
+>   trades a hair of accuracy (4.3% / 0.6% vs plain) for a cheaper width. The rule answered its
+>   own question faithfully; the battery scores a different one. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL9/attribution.json` -->
+> - **Exonerated:** `band`/`se_estimate` on the global rule (no dataset — **WSEL-22(c) stays
+>   DORMANT**); `data_carve` (config-identical across every arm in every cell); `recipe` (Q4
+>   non-issue — no architecture-vs-control gap anywhere; 3 of 15 cells tie plain exactly at w_max).
+> **Consequences applied at harvest:** (1) **WSEL-6's real-data selection-fraction half REOPENS as
+> WSEL-6-R** (wave line, §4) — the frozen 15% was validated on toys only and is now causally
+> demonstrated underpowered at real-data selection sizes ≤ ~100. (2) The kin8nm/california finding
+> is a selection-POLICY question (which rule to field per deployment context) — ⛔ **BATCHED FOR THE
+> USER**; no task may re-aim the rule at the battery's objective without that ruling. (3) **No
+> re-sequencing** of the parallel trio — dispatched at harvest.
 
 **The fact to attribute.** WSEL-9: W-SWEEP wins no dataset and loses to the plain fixed-width
 control on all five — yet the control was built single-difference (one hidden layer at
