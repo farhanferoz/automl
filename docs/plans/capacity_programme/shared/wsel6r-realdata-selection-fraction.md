@@ -367,8 +367,9 @@ contract. **The driver's author never runs the full 195-cell grid — the ROOT r
   50%-ceiling `select_squared_error` and per-sample TEST arrays in the sidecar (committed JSON
   keeps pointer + shapes + checksum + means, §4); dial cells add `select_error_table` per §4, same
   sidecar split.
-- **`--summarize`** aggregate mode: for each fraction in the ladder (§2.2, default
-  `{15,20,25,30,35,40,45,50}`, overridable), for each dataset, slice every landed cell's cached array
+- **`--summarize`** aggregate mode: for each fraction in the ladder (§2.2 as amended, default
+  `{5,10,15,20,25,30,35,40,45,50}` — this line originally carried the pre-amendment 8-point list;
+  corrected at the driver harvest, root, 2026-07-23), for each dataset, slice every landed cell's cached array
   to that fraction's prefix length, compute §3's dual picks (W-SWEEP) and §4's descriptive per-input
   readout (dial), cross-check §5 Outcome C's negative control, and write
   `automl_package/examples/capacity_ladder_results/WSEL6R/frozen.json` <!-- citecheck-ignore: forward reference -- Create target of a later task's grid run, not yet built by this spec-authoring task -->.
@@ -453,3 +454,19 @@ the TEST-side paired 2·SE computation + WSEL-24 continuity readout (draft phras
 SELECT-side SE with TEST-side errors); (iv) ladder extended to {5, 10}. Next step per the wave
 line: the driver task builds `automl_package/examples/width_wsel6r.py` against §6 <!-- citecheck-ignore: forward reference -- Create target of the driver task -->; the ROOT runs
 the 195-cell grid backgrounded.
+
+**Driver-build reconciliation (root, 2026-07-23 harvest — the driver is BUILT and root-verified:
+selftest 5/5, ruff clean, plan gates green).** The builder's five flagged resolutions are
+RATIFIED: (1) §6's stale 8-point ladder default corrected in place above (the §2.2 amendment is
+authoritative); (2) `select_error_table`'s scalar metadata stays on the committed cell, only the
+raw `table` goes to the sidecar; (3) §2.3's "reused verbatim" is reconciled as: the TRAINING
+calls are imported verbatim, while cell assembly is copy-with-provenance wrappers adding the
+§4 captures in the same forward pass — one retrain per cell, the budgeted count unchanged;
+(4) the per-input descriptive readout uses the zero-compute labelling function (the router's own
+training-target construction) rather than refitting router MLPs, honoring §2.4's two-numpy-reads
+claim; (5) `--summarize` auto-aggregates ceiling cells only — `_frac`-suffixed fallback cells
+are root-inspected, never silently merged. **Sidecar git-hygiene closed at the root:** a NARROW
+ignore rule for `automl_package/examples/capacity_ladder_results/WSEL6R/_cache/` was added to
+`.gitignore` — a global `*.npz` rule was REJECTED because 435 `.npz` files are legitimately
+TRACKED elsewhere (the ProbReg strand's PS1/PS2/PS3 ledgers), and `_cache/` dirs legitimately
+commit `*_meta.json` (WSEL-8 precedent) — the WSEL6R contract needs neither in its sidecar dir.

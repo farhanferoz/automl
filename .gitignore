@@ -33,3 +33,6 @@ texput.log
 .idea/
 .vscode/
 *.swp
+
+# WSEL6R raw per-sample sidecar arrays (committed cells carry pointer+checksum+means; spec shared/wsel6r-realdata-selection-fraction.md §4)
+automl_package/examples/capacity_ladder_results/WSEL6R/_cache/
