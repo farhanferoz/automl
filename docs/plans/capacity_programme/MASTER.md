@@ -630,6 +630,27 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     function of the out-of-sample per-width values; the bake-off's blend verdict is scoped to
     the implemented (thresholded-label) construction.
 
+35. **THE 2026-07-23 REVIEW RE-PASS RULINGS (user + root, same joint review, second sitting —
+    review still OPEN at recording time; CLOSED by the user later the same sitting, wave
+    dispatch authorized).** **(i)** the NORMALISATION thread is parked IN FULL
+    (user: an architecture must first work *without* normalisation) — the parking of 2026-07-22
+    is WIDENED to include the queued `per_width_affine_needed` re-grade, struck from the
+    orchestration wave; the field stays quarantined/un-citable; reopen trigger unchanged
+    (WSEL-23 end-state) — `width.md` WSEL-15 FOLLOW-UP block. **(ii)** ROOT CATCH, remedy-seam:
+    WSEL-24's band/SE conviction routed to a task whose scope disclaimed the GLOBAL selection
+    rule; fixed by a CONDITIONAL WSEL-22(c) (global-band remedy, spec-gated, dormant unless
+    WSEL-24 convicts; `rule_objective_mismatch` stays a user policy ruling, not (c)'s) —
+    `width.md` WSEL-22/WSEL-24 blocks. **(iii)** WSEL-23 candidate 1 gains: a pre-registered
+    SELECTION corollary (premium shrinks ⇒ dial pick narrower, agreement rises from 0/3); a
+    zero-training gradient-attribution DIAGNOSTIC that tests the candidate's premise before any
+    weighted run; and a CONDITIONAL single-head companion arm (3 seeds, mechanism discriminator;
+    runs unless the diagnostic refutes; retirement stands unless it closes the primary bar) —
+    user-agreed evidence-gated design, `width.md` WSEL-23 candidate 1. **(iv)** the Decision
+    33(vi) hygiene pass's scope GAINS a staleness sweep: status markers whose stated blockers
+    have since landed on disk (found instance: §3.8's tier-2 rows still say "DEFERRED — needs
+    WSEL-15" though `width_candidates.py` + the weighted loss are long landed; the deferral may
+    stand, the *reason* must be re-derived).
+
 ## Rules (cache discipline)
 
 ⚠️ **THE NUMBERS GATE IS PARTIAL — strengthen it before the next planning round.**

@@ -672,13 +672,14 @@ Order: **WSEL-0 → WSEL-1 → WSEL-2 → WSEL-3 → WSEL-4 → WSEL-5 → (WSEL
 WSEL-10.** *(**WSEL-11** added 2026-07-21, MASTER Decision 21 — parallel, independent of WSEL-6/7,
 and must land before WSEL-8 reads its numbers.)*
 
-**⚡ 2026-07-23 REVIEW WAVE (Decisions 33/34) — DISPATCHES ONLY WHEN THE USER CLOSES THE REVIEW
-(their ruling: "Don't start the work. We will orchestrate all planned work."), review still OPEN:
-the WSEL-16/17 walkthrough item is pending with the user.** Order for that wave when it comes:
+**⚡ 2026-07-23 REVIEW WAVE (Decisions 33/34/35) — ✅ REVIEW CLOSED BY THE USER 2026-07-23
+(second sitting; all items walked incl. the normalisation re-pass and the WSEL-16/17
+walkthrough). DISPATCH AUTHORIZED from this commit.** Order:
 **WSEL-24 FIRST** (user ruling — its verdict may re-sequence everything behind it) → then in
 parallel by disjoint write sets: WSEL-20 (partial diff in the session scratchpad,
-`wsel20-partial-work.patch`) ∥ WSEL-22(a) (+ the WSEL-15 affine re-grade and the WSEL-9 uncapped
-LightGBM cells, all zero/tiny compute) ∥ WSEL-21 spec ∥ the Decision-33(vi) plan-hygiene pass →
+`wsel20-partial-work.patch`) ∥ WSEL-22(a) (+ the WSEL-9 uncapped LightGBM cells, zero/tiny
+compute; *the WSEL-15 affine re-grade was struck from this slot — user parking ruling 2026-07-23,
+see the WSEL-15 FOLLOW-UP block*) ∥ WSEL-21 spec ∥ the Decision-33(vi) plan-hygiene pass →
 WSEL-23 candidate specs (adversarial read each) → WSEL-23 grids → WSEL-10 LAST (its
 replacement-claim section gated on WSEL-23's end-state; transfer ledger + arbiter reference
 required). `flexnn-package.md` FP-13 stays CONDITIONAL on WSEL-21's outcome.
@@ -1303,8 +1304,20 @@ called it arbitrary and too large. §1's own clause pre-registered exactly this 
   exist locally (never committed), so blend re-eval is local-machine-feasible without
   retraining, and (a)'s ledger states that dependency.
 - **Untouched by construction:** WSEL-8 (output contract carries `w_shared_width`/`w_sweep_width`
-  only — no router-consuming arm); the global arms' selection rule (already noise-aware 2·SE — a
-  different rule for a different problem, §1); certified historical artifacts (frozen paper trail).
+  only — no router-consuming arm); the global arms' selection rule is untouched **by (a)/(b)**
+  (already noise-aware 2·SE — a different rule for a different problem, §1) **but is (c)'s subject
+  if WSEL-24 convicts it — see (c) below**; certified historical artifacts (frozen paper trail).
+- **(c) CONDITIONAL — global-rule band remedy (added 2026-07-23, review re-pass; root catch:
+  WSEL-24's remedy routing pointed here while this task's scope disclaimed the global rule —
+  a conviction would have had no owning task).** Trigger: WSEL-24's Q2 replay convicts the GLOBAL
+  cheapest-within-tolerance rule — the recorded bootstrap-2·SE band swallowed genuinely-better
+  widths (`dominant_cause` ∈ {band, se_estimate} on the global curve). Remedy is SPEC-GATED like
+  (b), never pre-built: candidate directions are (b)'s σ-anchored criterion lifted to the global
+  curve (a width is within-tolerance iff its excess held-out error over the best is within what
+  the noise level alone explains at a stated confidence) and/or a recalibrated bootstrap SE;
+  a `rule_objective_mismatch` verdict is explicitly NOT (c)'s to fix — that is the selection-POLICY
+  ruling reserved to the user (WSEL-24 block). Real-data use inherits (b)'s estimated-σ caveat
+  verbatim. Dormant unless triggered; costs nothing if WSEL-24 exonerates the band.
 - **Report consequence:** every routed compute-vs-quality trade is a function of the band; the
   report states the band of record next to each such number.
 - **(b) real-data caveat, BINDING on its spec:** the σ-anchored form uses the TRUE noise level —
@@ -1341,6 +1354,43 @@ before build; §3.7 binds throughout — all variances FIXED/declared, never lea
    (approximation-theoretic decay), instantiated once and FROZEN — never per-width constants —
    and validated at ≥2 values of w_max (the w_max=12 toy plus at least one other) with the
    profile response pre-registered. Same discipline as the router sizing rule and §3.10.**
+   **Pre-registered SELECTION corollary (added 2026-07-23, review re-pass):** the dial's
+   right-shifted pick is a mechanical consequence of the mid-width premium (WSEL-8's mechanism
+   paragraph: the dial's curve still improves at its widest heads, so the same honest rule picks
+   wider — 9/11/11 vs the sweep's 7/8/6). If this candidate shrinks the premium, the end-state
+   re-run's dial pick must move NARROWER and pick-agreement with the sweep must rise from 0/3.
+   The protocol measures both halves anyway; registering the direction now makes the mechanism
+   story falsifiable rather than post-hoc.
+   **Evidence-gated MECHANISM DIAGNOSTIC + single-head companion (user conditional approval,
+   2026-07-23 re-pass: "I don't mind a more thorough investigation if we have concrete evidence
+   that we are missing stuff here & the loss needs redress"):**
+   - **(i) Gradient-attribution diagnostic, runs FIRST inside this candidate's spec — zero
+     training, a few forward/backward passes on existing code:** under the CURRENT unweighted
+     sum, measure each width term's share of gradient magnitude on the SHARED parameters (trunk
+     for the multi-head; trunk + output weights for the single-head), at init and at a
+     mid-training checkpoint, 3 seeds. **Pre-registered expectation: the narrow widths (1–3,
+     whose error is dominated by irreducible approximation deficit) contribute an outsized
+     share.** This directly tests the candidate's own premise BEFORE any weighted training —
+     evidence either way: confirmed → the "loss needs redress" claim has direct evidence;
+     refuted → the mechanism story is weakened and that is recorded against the candidate too.
+     *Why a diagnostic at all (recorded so the reasoning survives the conversation): the
+     observational ordering — mid-width penalty 1× (nothing shared) / 2–6× (trunk shared) /
+     9–22× (everything shared) — is CONFOUNDED by capacity (12 vs 90 effective output
+     parameters), so it cannot distinguish gradient distortion from capacity shortage; only a
+     direct gradient measurement can. And the stop-grad result (removing the cross-width pull
+     entirely was the WORST recipe, 17.7×) already rules out the crude form of the claim — the
+     defensible claim is that the interaction's BALANCE is wrong, which is exactly what
+     weighting changes and what the diagnostic measures.*
+   - **(ii) Single-head companion arm, CONDITIONAL on (i) confirming:** the single-head
+     structure (`NestedWidthNet` running-sum form) trained with the same derived weights,
+     3 seeds, canonical cell only — a mechanism DISCRIMINATOR, not a resurrection: the two
+     architectures share different amounts (trunk-only vs everything), so the weighting should
+     help the single-head's mid-widths MORE in relative terms if the mechanism is real, and a
+     multi-head-helps/single-head-doesn't outcome localises the single-head failure elsewhere
+     (consistent with its 3× full-width gap, which this mechanism cannot reach). **Expectation
+     on record: it stays uncompetitive at full width; its retirement (ordering-success /
+     accuracy-failure) stands unless it closes the primary bar, in which case the existing
+     promotion path applies.** If (i) refutes, this arm is DROPPED and the drop recorded.
 2. **Deployment-prior mixture training (the programme's own prior-over-capacity pattern):**
    weights = a DECLARED prior over deployment widths (uniform = today's schedule; any non-uniform
    choice is stated and justified AS a prior) — the width analog of depth's ELBO geometric prior
@@ -1407,8 +1457,11 @@ read is ambiguous (**cap: 6 cells, pre-declared**).
 **Non-goals:** no retraining beyond the probe cap; no selector/band CHANGES (WSEL-22 owns those —
 this task only replays counterfactuals); no new datasets; no report prose (WSEL-10 consumes).
 **Sequencing consequence (user ruling):** this task runs FIRST; its outcome may re-sequence the
-wave — a `band`/`se_estimate` verdict feeds WSEL-22, `selection_set_size` reopens WSEL-6's
-real-data half, `recipe` feeds WSEL-23.
+wave — a `band`/`se_estimate` verdict on the PER-INPUT side feeds WSEL-22(a)/(b); **on the GLOBAL
+rule's side it triggers WSEL-22(c)** (the conditional global-band remedy — added 2026-07-23 at the
+review re-pass when the root caught that WSEL-22's original scope declared the global rule
+untouched, leaving a conviction of the global band with no owning task); `selection_set_size`
+reopens WSEL-6's real-data half, `recipe` feeds WSEL-23.
 *Orchestration:* orchestration-wave head; worker-dispatchable (write set:
 `automl_package/examples/capacity_ladder_results/WSEL9/attribution.json` + one driver under
 `automl_package/examples/`) · tier: sonnet high · scale: static · shape: research · verify: the
@@ -2698,8 +2751,14 @@ field in Step 3 and `hit_cap: false`; (4)
   6. Integrity: 14/14 cells converged under the cap; one cell (b, seed 3) has width 2 untrustworthy —
      not verdict-bearing (mid-width claims are lottery-labelled anyway; wide-end conclusions hold
      with and without it, checked both ways).
-- 📌 **QUEUED 2026-07-23 (root, joint review): re-grade `per_width_affine_needed` from the
-  ALL-schedule cells — zero compute, orchestration wave.** The frozen field is TRUE against the
+- ⏸ **PARKED 2026-07-23 (user ruling at the joint-review re-pass — superseding the 📌 QUEUED
+  status this item carried for a few hours): the re-grade of `per_width_affine_needed` parks with
+  the rest of the normalisation thread; the field stays QUARANTINED and un-citable until the
+  thread reopens.** Supporting evidence recorded at the same re-pass (root, ledgers re-read off
+  disk): the ALL-schedule `frozen.json`'s own mean-graded copy of the field is ALSO true, but its
+  triggering widths MOVE — sandwich triggers at widths 5/6, ALL-schedule at widths 2/7 (rel. gains 0.120 and 0.143 vs the 0.100 threshold) <!-- source: `automl_package/examples/capacity_ladder_results/WSEL15_ALLSCHED/frozen.json` (`affine_detail.rel_gain_c_over_b_by_width`) -->
+  — a trigger that wanders across schedules is lottery-consistent, strengthening the quarantine.
+  Original re-grade rationale kept below for when the thread reopens. The frozen field is TRUE against the
   pre-registered FALSE prediction, but its triggering widths (5 and 6, relative gains 0.222 and 0.180 vs the 0.100 threshold) sit INSIDE the mid-width lottery zone this very follow-up established <!-- source: `automl_package/examples/capacity_ladder_results/WSEL15/frozen.json` (`affine_detail.rel_gain_c_over_b_by_width`) -->
   (the grading grid was the sandwich grid, 3 seeds), while at the wide end the affine HURTS
   (C/B ratios 1.13-1.25 at widths 10-12, same ledger). Re-read arms b vs c per-seed-paired from
@@ -2710,6 +2769,13 @@ field in Step 3 and `hit_cap: false`; (4)
   closed until after the pending architecture work settles which width architecture is best and how
   it compares. Reopen deliberately then; do not fold into any current task. *(2026-07-23 note:
   "settles" now concretely = WSEL-23's exhaustion end-state — the reopen trigger has a task.)*
+  **WIDENED 2026-07-23 (user ruling at the joint-review re-pass): the parking now covers the ENTIRE
+  normalisation thread, including the queued affine re-grade above (struck from the review wave).**
+  Rationale, user's words: we first need a width architecture that works WITHOUT normalisation —
+  we don't have one (separately trained per-width networks still beat the nested structure, the
+  open research the review wave exists to run) — so how normalisation behaves on top of a
+  not-yet-chosen architecture is not decision-relevant. Reopen trigger unchanged: WSEL-23's
+  exhaustion end-state.
 
 ### WSEL-16 — the architecture comparison: can the CHEAP structure be trained to work? — 🔄 **IN PROGRESS 2026-07-22**
 
