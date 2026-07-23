@@ -331,6 +331,13 @@ class RoutingStatus(enum.Enum):
     VOID_FOR_ROUTING = "void_for_routing"
 
 
+class LrSchedule(enum.Enum):
+    """Closed set of LR-schedule options for the multi-feature training path (WSEL-21 escalation spec §4: the rung ladder)."""
+
+    NONE = "none"  # constant LR -- the protocol default, byte-identical to every pre-WSEL-21 run.
+    COSINE_TO_ZERO = "cosine_to_zero"  # cosine-annealed initial_lr -> 0 over `t_max` epochs, floored at 0 past `t_max` (spec §9 amendment 1).
+
+
 def _rule_sized_hidden(in_dim: int) -> tuple[int, int]:
     """Arm 2's input-dimensionality-relative hidden-width rule (see module docstring for the choice).
 
@@ -897,7 +904,7 @@ def _cell_json_path(results_dir: str, backend: Backend, mode: Mode, n_sel: int, 
 # ---------------------------------------------------------------------------
 
 
-def _mf_new_model(in_dim: int, width: int, seed: int, *, max_epochs: int, patience: int, lr: float) -> FlexibleWidthNN:
+def _mf_new_model(in_dim: int, width: int, seed: int, *, max_epochs: int, patience: int, lr: float, batch_size: int = w4.PORTED_BATCH_SIZE) -> FlexibleWidthNN:
     """One dedicated single-width `FlexibleWidthNN`, `width_wsel6._new_model`'s PORTED-arm protocol verbatim, generalized to `in_dim`.
 
     No package change is needed for this: `FlexibleWidthNN`/`FlexibleWidthNNModule` already infer
@@ -905,6 +912,10 @@ def _mf_new_model(in_dim: int, width: int, seed: int, *, max_epochs: int, patien
     models/base_pytorch.py:124-125`, confirmed by direct read and a live check at authoring time,
     not assumed) -- `input_size=in_dim` here is only what an unfitted instance reports before that
     inference runs.
+
+    `batch_size` defaults to the PORTED-arm's full-batch constant -- WSEL-21's escalation ladder
+    (`docs/plans/capacity_programme/shared/wsel21-escalation.md` §4) is the only caller that
+    overrides it; every pre-existing call site is byte-identical.
     """
     return FlexibleWidthNN(
         input_size=in_dim,
@@ -914,7 +925,7 @@ def _mf_new_model(in_dim: int, width: int, seed: int, *, max_epochs: int, patien
         learning_rate=lr,
         n_epochs=max_epochs,
         early_stopping_rounds=patience,
-        batch_size=w4.PORTED_BATCH_SIZE,
+        batch_size=batch_size,
         random_seed=seed,
         calculate_feature_importance=False,
         capacity_selection=CapacitySelection.FIXED,
@@ -922,16 +933,65 @@ def _mf_new_model(in_dim: int, width: int, seed: int, *, max_epochs: int, patien
     )
 
 
+def _cosine_lr(epoch: int, initial_lr: float, t_max: int) -> float:
+    """Cosine-annealed LR at `epoch` (0-indexed, the epoch about to run): `initial_lr` at `epoch=0`, 0.0 at/after `epoch>=t_max`.
+
+    WSEL-21 escalation spec §4 rung C's LR schedule; `t_max` per spec §9 amendment 1 is 3x rung B's
+    median stopping epoch, never `max_epochs` (a cosine over `max_epochs` never engages before
+    patience stops training on these trajectories -- the amendment's own finding).
+    """
+    if epoch >= t_max:
+        return 0.0
+    return 0.5 * initial_lr * (1.0 + math.cos(math.pi * epoch / t_max))
+
+
+def _make_lr_schedule_epoch_callback(initial_lr: float, t_max: int) -> Callable[..., None]:
+    """Builds an `epoch_callback` (the established per-epoch hook, `base_pytorch.py::_fit_single`) that advances `model.optimizer`'s LR along `_cosine_lr` after each epoch.
+
+    Reuses the SAME driver-side hook `probreg_kselection_experiments.py`/`probreg_structure_
+    battery.py` already attach `model.epoch_callback` through -- no new training loop is needed for
+    rung C/D's LR-schedule knob, only `_fit_single`'s existing per-epoch extension point.
+    """
+
+    def _callback(*, epoch: int, model: FlexibleWidthNN, val_loss: float | None) -> None:  # noqa: ARG001 -- val_loss unused, matches `_fit_single`'s keyword-called epoch_callback signature
+        next_lr = _cosine_lr(epoch + 1, initial_lr, t_max)
+        for group in model.optimizer.param_groups:
+            group["lr"] = next_lr
+
+    return _callback
+
+
 def _mf_train_one_width(
-    in_dim: int, width: int, seed: int, x_tr: np.ndarray, y_tr: np.ndarray, x_val: np.ndarray, y_val: np.ndarray, *, max_epochs: int, patience: int, lr: float
+    in_dim: int,
+    width: int,
+    seed: int,
+    x_tr: np.ndarray,
+    y_tr: np.ndarray,
+    x_val: np.ndarray,
+    y_val: np.ndarray,
+    *,
+    max_epochs: int,
+    patience: int,
+    lr: float,
+    batch_size: int = w4.PORTED_BATCH_SIZE,
+    lr_schedule: LrSchedule = LrSchedule.NONE,
+    t_max: int | None = None,
 ) -> tuple[FlexibleWidthNN, list[float]]:
     """Trains one dedicated width-`width` `FlexibleWidthNN` via the `_fit_single` bypass.
 
     `width_wsel6._train_tier1`'s exact pattern (tier-1 hetero's built-in MSE criterion IS SS3.7's
     fixed-sigma likelihood on this toy's single constant sigma; no hetero3/weighted-loss cells here
     per the toy-design spec's own non-goals).
+
+    `batch_size`/`lr_schedule`/`t_max` are WSEL-21's protocol-escalation knobs (spec §4); every
+    default reproduces today's full-batch, constant-LR protocol byte-for-byte. `t_max` is required
+    (and positive) whenever `lr_schedule` is not `LrSchedule.NONE`.
     """
-    model = _mf_new_model(in_dim, width, seed, max_epochs=max_epochs, patience=patience, lr=lr)
+    model = _mf_new_model(in_dim, width, seed, max_epochs=max_epochs, patience=patience, lr=lr, batch_size=batch_size)
+    if lr_schedule is LrSchedule.COSINE_TO_ZERO:
+        if not t_max or t_max <= 0:
+            raise ValueError(f"lr_schedule={lr_schedule.value} requires a positive t_max (got {t_max!r}).")
+        model.epoch_callback = _make_lr_schedule_epoch_callback(lr, t_max)
     _best_epoch, val_loss_history = model._fit_single(x_tr, y_tr, x_val=x_val, y_val=y_val)
     return model, val_loss_history
 
@@ -944,9 +1004,11 @@ def _mf_model_cache_paths(results_dir: str, d: int, geometry: wt.Geometry, seed:
     return os.path.join(base, f"{tag}.pt"), os.path.join(base, f"{tag}_meta.json")
 
 
-def _mf_load_cached_model(in_dim: int, width: int, seed: int, state_path: str, *, max_epochs: int, patience: int, lr: float) -> FlexibleWidthNN:
+def _mf_load_cached_model(
+    in_dim: int, width: int, seed: int, state_path: str, *, max_epochs: int, patience: int, lr: float, batch_size: int = w4.PORTED_BATCH_SIZE
+) -> FlexibleWidthNN:
     """Rebuilds a multi-feature `FlexibleWidthNN`'s module and loads a previously-cached `state_dict` back into it."""
-    model = _mf_new_model(in_dim, width, seed, max_epochs=max_epochs, patience=patience, lr=lr)
+    model = _mf_new_model(in_dim, width, seed, max_epochs=max_epochs, patience=patience, lr=lr, batch_size=batch_size)
     model.input_size = in_dim
     model.build_model()
     model.model.load_state_dict(torch.load(state_path, map_location=model.device))
@@ -969,15 +1031,20 @@ def _mf_get_or_train_one_width(
     patience: int,
     min_delta: float,
     lr: float,
+    batch_size: int = w4.PORTED_BATCH_SIZE,
+    lr_schedule: LrSchedule = LrSchedule.NONE,
+    t_max: int | None = None,
 ) -> tuple[FlexibleWidthNN, dict[str, Any], bool]:
     """Get-or-train ONE multi-feature width-`width` net, cached at `state_path`/`meta_path` (mirrors `width_wsel6._get_or_train`)."""
     if os.path.exists(state_path) and os.path.exists(meta_path):
-        model = _mf_load_cached_model(in_dim, width, seed, state_path, max_epochs=max_epochs, patience=patience, lr=lr)
+        model = _mf_load_cached_model(in_dim, width, seed, state_path, max_epochs=max_epochs, patience=patience, lr=lr, batch_size=batch_size)
         with open(meta_path) as f:
             meta = json.load(f)
         return model, meta, True
 
-    model, val_loss_history = _mf_train_one_width(in_dim, width, seed, x_tr, y_tr, x_val, y_val, max_epochs=max_epochs, patience=patience, lr=lr)
+    model, val_loss_history = _mf_train_one_width(
+        in_dim, width, seed, x_tr, y_tr, x_val, y_val, max_epochs=max_epochs, patience=patience, lr=lr, batch_size=batch_size, lr_schedule=lr_schedule, t_max=t_max
+    )
     replay = w4._replay(val_loss_history, patience, min_delta)
     hit_cap = bool(len(val_loss_history) >= max_epochs)
     trustworthy = bool(replay.trustworthy and not hit_cap)
@@ -1007,6 +1074,9 @@ def _get_or_build_mf_models(
     patience: int = w4.PORTED_PATIENCE,
     min_delta: float = w4.PORTED_MIN_DELTA,
     lr: float = w4.PORTED_LR_DEFAULT,
+    batch_size: int = w4.PORTED_BATCH_SIZE,
+    lr_schedule: LrSchedule = LrSchedule.NONE,
+    t_max: int | None = None,
     cache_tag: str = "",
     widths: tuple[int, ...] | None = None,
 ) -> tuple[dict[int, FlexibleWidthNN], dict[int, dict[str, Any]], bool, int]:
@@ -1019,10 +1089,24 @@ def _get_or_build_mf_models(
     path (a raised-cap retrain of SPECIFIC widths cached under a distinct tag, never clobbering
     the originals); the default is the full `1..w_max` sweep.
 
+    `batch_size`/`lr_schedule`/`t_max` are WSEL-21's protocol-escalation knobs (escalation spec §4);
+    every default reproduces today's full-batch, constant-LR, patience-60 protocol byte-for-byte. A
+    non-default `batch_size`, `patience`, or `lr_schedule` REQUIRES a non-empty `cache_tag` -- a rung's
+    nets must never collide with the full-batch cache at the same (d, geometry, seed, n_train, width)
+    key (escalation spec §4 hazard 2). Enforced below, not left as a convention.
+
     Returns:
         `(models, metas, all_cache_hit, n_train)` -- `n_train` is the ACTUAL value used (the §3b
         canonical 1500 unless the caller passed an explicit override, e.g. the F6 fallback).
     """
+    is_default_protocol = batch_size == w4.PORTED_BATCH_SIZE and patience == w4.PORTED_PATIENCE and lr_schedule is LrSchedule.NONE
+    if not is_default_protocol and not cache_tag:
+        raise ValueError(
+            f"_get_or_build_mf_models: non-default training protocol (batch_size={batch_size}, patience={patience}, "
+            f"lr_schedule={lr_schedule.value}) requires a non-empty cache_tag -- refusing to collide with the full-batch "
+            "cache (WSEL-21 escalation spec §4 hazard 2)."
+        )
+
     n_train = wt.TRAIN_N if n_train is None else n_train
     x_tr_full, y_tr_full, _region_tr, _t_tr = wt.make_hetero_multifeature(n_train, seed, d, geometry)
     val_mask = (np.arange(n_train) % _INTERNAL_VAL_EVERY) == 0
@@ -1035,7 +1119,22 @@ def _get_or_build_mf_models(
     for width in widths if widths is not None else range(1, w_max + 1):
         state_path, meta_path = _mf_model_cache_paths(results_dir, d, geometry, seed, n_train, width, cache_tag=cache_tag)
         model, meta, cache_hit = _mf_get_or_train_one_width(
-            d, width, seed, x_tr, y_tr, x_val, y_val, state_path, meta_path, max_epochs=max_epochs, patience=patience, min_delta=min_delta, lr=lr
+            d,
+            width,
+            seed,
+            x_tr,
+            y_tr,
+            x_val,
+            y_val,
+            state_path,
+            meta_path,
+            max_epochs=max_epochs,
+            patience=patience,
+            min_delta=min_delta,
+            lr=lr,
+            batch_size=batch_size,
+            lr_schedule=lr_schedule,
+            t_max=t_max,
         )
         models[width], metas[width] = model, meta
         all_cache_hit = all_cache_hit and cache_hit
@@ -1380,6 +1479,273 @@ def _mf_cell_json_path(results_dir: str, d: int, geometry: wt.Geometry, backend:
 
 
 # ---------------------------------------------------------------------------
+# WSEL-21 -- the d>=8 training-protocol escalation ladder (`docs/plans/capacity_programme/shared/
+# wsel21-escalation.md`). Rung (ii) authoring ONLY: parameter-threading (above) + this section's
+# rung-runner CLI + the escalation ledger writer. NO rung is executed here beyond `--selftest`'s
+# tiny synthetic-data wiring checks -- the ROOT runs the real calibration cell (d=8, axis, seed=2,
+# n_train=1500) per the spec's own orchestration note.
+# ---------------------------------------------------------------------------
+
+_ESCALATION_CALIBRATION_CELL: dict[str, Any] = {"d": 8, "geometry": wt.Geometry.AXIS, "seed": 2, "n_train": 1500}  # spec §3's designated cell.
+_ESCALATION_T_MAX_MULT = 3  # spec §9 amendment 1: rung C/D's cosine horizon = 3x rung B's median stopping epoch (never max_epochs).
+_ESCALATION_PATIENCE_RAISE_MULT = 3  # spec §4 rung D: patience 60 -> 180 -- the SAME judgment-call class as the T_max multiplier above, stated as one.
+_ESCALATION_LEDGER_FILENAME = "wsel21_escalation_ledger.json"
+
+
+class EscalationRung(enum.Enum):
+    """Closed set: the WSEL-21 protocol ladder's four rungs (escalation spec §4), tested in order A -> D; the ladder stops at the first graduating rung."""
+
+    A = "A"  # MINIBATCH_128
+    B = "B"  # MINIBATCH_32
+    C = "C"  # LR_DECAY -- gated on rung B's median stopping epoch (spec §9 amendment 1)
+    D = "D"  # PATIENCE_RAISED
+
+
+class EscalationVerdict(enum.Enum):
+    """Closed set: the WSEL-21 escalation ledger's top-level verdict (spec §6)."""
+
+    GRADUATED = "GRADUATED"
+    UNREACHABLE = "UNREACHABLE"  # the failure branch, a done-state per spec §6 -- not a halt.
+
+
+_RUNG_NAMES: dict[EscalationRung, str] = {
+    EscalationRung.A: "MINIBATCH_128",
+    EscalationRung.B: "MINIBATCH_32",
+    EscalationRung.C: "LR_DECAY",
+    EscalationRung.D: "PATIENCE_RAISED",
+}
+_RUNG_CACHE_TAGS: dict[EscalationRung, str] = {
+    EscalationRung.A: "_mb128",
+    EscalationRung.B: "_mb32",
+    EscalationRung.C: "_mb32_lrdecay",
+    EscalationRung.D: "_mb32_lrdecay_pat180",
+}
+_RUNG_BATCH_SIZE: dict[EscalationRung, int] = {EscalationRung.A: 128, EscalationRung.B: 32, EscalationRung.C: 32, EscalationRung.D: 32}
+_RUNG_LR_SCHEDULE: dict[EscalationRung, LrSchedule] = {
+    EscalationRung.A: LrSchedule.NONE,
+    EscalationRung.B: LrSchedule.NONE,
+    EscalationRung.C: LrSchedule.COSINE_TO_ZERO,
+    EscalationRung.D: LrSchedule.COSINE_TO_ZERO,  # "batch_size/LR-schedule at C's values" (spec §4) -- same schedule type, same T_max (recomputed identically, see _rung_c_t_max).
+}
+_RUNG_PATIENCE: dict[EscalationRung, int] = {
+    EscalationRung.A: w4.PORTED_PATIENCE,
+    EscalationRung.B: w4.PORTED_PATIENCE,
+    EscalationRung.C: w4.PORTED_PATIENCE,
+    EscalationRung.D: w4.PORTED_PATIENCE * _ESCALATION_PATIENCE_RAISE_MULT,
+}
+
+
+def _rung_c_t_max(results_dir: str) -> int:
+    """T_max for rungs C/D's cosine schedule: 3x the median `actual_epochs` across rung B's 12 recorded per-width trajectories at the calibration cell (spec §9 amendment 1).
+
+    Reads rung B's OWN cache metas (never re-derives or assumes them) -- rung B must have already
+    run and landed its 12-width cache before rung C or D can compute this.
+    """
+    cell = _ESCALATION_CALIBRATION_CELL
+    epochs: list[int] = []
+    for width in range(1, W_MAX + 1):
+        _state_path, meta_path = _mf_model_cache_paths(
+            results_dir, cell["d"], cell["geometry"], cell["seed"], cell["n_train"], width, cache_tag=_RUNG_CACHE_TAGS[EscalationRung.B]
+        )
+        if not os.path.exists(meta_path):
+            raise RuntimeError(
+                f"WSEL-21 rung C/D: rung B's cache meta is missing at {meta_path} -- rung B must run (and land its "
+                "12-width cache) before rung C/D's cosine horizon can be computed (escalation spec §9 amendment 1)."
+            )
+        with open(meta_path) as f:
+            epochs.append(json.load(f)["actual_epochs"])
+    return round(_ESCALATION_T_MAX_MULT * float(np.median(epochs)))
+
+
+def _rung_protocol(rung: EscalationRung, results_dir: str) -> dict[str, Any]:
+    """Resolves one ladder rung (escalation spec §4's table) to concrete `_get_or_build_mf_models` kwargs."""
+    lr_schedule = _RUNG_LR_SCHEDULE[rung]
+    t_max = _rung_c_t_max(results_dir) if lr_schedule is LrSchedule.COSINE_TO_ZERO else None
+    return {
+        "batch_size": _RUNG_BATCH_SIZE[rung],
+        "patience": _RUNG_PATIENCE[rung],
+        "lr_schedule": lr_schedule,
+        "t_max": t_max,
+        "cache_tag": _RUNG_CACHE_TAGS[rung],
+    }
+
+
+def _escalation_ledger_path(results_dir: str) -> str:
+    return os.path.join(results_dir, _ESCALATION_LEDGER_FILENAME)
+
+
+def _init_escalation_ledger(results_dir: str) -> dict[str, Any]:
+    """The escalation spec §6 ledger's pre-registered SHAPE: static per-rung protocol fields filled from the §4 table; every MEASURED field null until a rung runs."""
+    cell = _ESCALATION_CALIBRATION_CELL
+    return {
+        "calibration_cell": {"d": cell["d"], "geometry": cell["geometry"].value, "seed": cell["seed"], "n_train": cell["n_train"]},
+        "anchor_ratio_to_noise_floor": None,
+        "anchor_source": _calibration_path(results_dir),
+        "baseline": {"ratio_to_noise_floor": None, "all_widths_trustworthy": None},
+        "rungs": [
+            {
+                "name": _RUNG_NAMES[rung],
+                "batch_size": _RUNG_BATCH_SIZE[rung],
+                "lr": w4.PORTED_LR_DEFAULT,
+                "lr_schedule": _RUNG_LR_SCHEDULE[rung].value,
+                "patience": _RUNG_PATIENCE[rung],
+                "ratio_to_noise_floor": None,
+                "all_widths_trustworthy": None,
+                "graduated": None,
+            }
+            for rung in EscalationRung
+        ],
+        "graduated_rung": None,
+        "verdict": None,
+        "verdict_scope": (
+            "d>=8, protocol family = {full-batch->minibatch{128,32}, LR-constant->cosine-decay, patience 60->180}; "
+            "d>=8 not reachable at any tested combination"
+        ),
+        "provenance": {"timestamp_utc": None, "git": None},
+    }
+
+
+def _load_or_init_escalation_ledger(results_dir: str) -> dict[str, Any]:
+    """Loads the on-disk escalation ledger, or the pre-registered §6 shape if it does not exist yet."""
+    path = _escalation_ledger_path(results_dir)
+    if os.path.exists(path):
+        with open(path) as f:
+            return json.load(f)
+    return _init_escalation_ledger(results_dir)
+
+
+def _fill_ledger_baseline_and_anchor(ledger: dict[str, Any], results_dir: str, calibration: dict[str, Any]) -> None:
+    """Fills `anchor_ratio_to_noise_floor` and `baseline` in place -- both READ from disk, never assumed (escalation spec §9 finding 3).
+
+    `anchor_ratio_to_noise_floor` comes from the already-loaded d=1 calibration artifact.
+    `baseline.ratio_to_noise_floor` is read from `frozen_mf.json`'s recorded triple (if present);
+    `baseline.all_widths_trustworthy` is read from the full-batch (`cache_tag=""`) per-width cache
+    metas at the calibration cell (if present). Either baseline field is left `null` (untouched) if
+    its source is not yet on disk -- never backfilled with an assumed value.
+    """
+    cell = _ESCALATION_CALIBRATION_CELL
+    ledger["anchor_ratio_to_noise_floor"] = calibration["anchor_ratio_to_noise_floor"]
+
+    frozen_mf_path = os.path.join(results_dir, "frozen_mf.json")
+    if os.path.exists(frozen_mf_path):
+        with open(frozen_mf_path) as f:
+            frozen_mf = json.load(f)
+        triple = frozen_mf.get("triples", {}).get(f"d{cell['d']}_{cell['geometry'].value}_seed{cell['seed']}")
+        if triple is not None:
+            ledger["baseline"]["ratio_to_noise_floor"] = triple.get("ratio_to_noise_floor")
+
+    trustworthy_flags: list[bool] = []
+    for width in range(1, W_MAX + 1):
+        # cache_tag="" -> the original full-batch cache.
+        _state_path, meta_path = _mf_model_cache_paths(results_dir, cell["d"], cell["geometry"], cell["seed"], cell["n_train"], width)
+        if not os.path.exists(meta_path):
+            trustworthy_flags = []
+            break
+        with open(meta_path) as f:
+            trustworthy_flags.append(json.load(f)["trustworthy"])
+    if trustworthy_flags:
+        ledger["baseline"]["all_widths_trustworthy"] = bool(all(trustworthy_flags))
+
+
+def _apply_rung_result(ledger: dict[str, Any], rung: EscalationRung, result: dict[str, Any]) -> None:
+    """Updates `ledger["rungs"]`'s matching entry with a measured rung result and recomputes `graduated_rung`/`verdict` in place (escalation spec §6).
+
+    The first graduating rung (in A -> D order, `ledger["rungs"]`'s own construction order) sets
+    `verdict = GRADUATED`. If every rung has been measured (`graduated is not None`) and none
+    graduated, `verdict = UNREACHABLE` -- the failure-branch done-state (spec §6), never a halt.
+    """
+    for entry in ledger["rungs"]:
+        if entry["name"] == _RUNG_NAMES[rung]:
+            entry["ratio_to_noise_floor"] = result["ratio_to_noise_floor"]
+            entry["all_widths_trustworthy"] = result["all_widths_trustworthy"]
+            entry["graduated"] = result["graduated"]
+            break
+
+    graduated_entry = next((e for e in ledger["rungs"] if e["graduated"]), None)
+    if graduated_entry is not None:
+        ledger["graduated_rung"] = graduated_entry["name"]
+        ledger["verdict"] = EscalationVerdict.GRADUATED.value
+    elif all(e["graduated"] is not None for e in ledger["rungs"]):
+        ledger["graduated_rung"] = None
+        ledger["verdict"] = EscalationVerdict.UNREACHABLE.value
+
+    full_provenance = run_provenance()
+    ledger["provenance"] = {"timestamp_utc": full_provenance["timestamp_utc"], "git": full_provenance["git"]}
+
+
+def _write_escalation_ledger(ledger: dict[str, Any], results_dir: str) -> str:
+    os.makedirs(results_dir, exist_ok=True)
+    path = _escalation_ledger_path(results_dir)
+    with open(path, "w") as f:
+        json.dump(_jsonable(ledger), f, indent=2)
+    return path
+
+
+def run_escalation_rung(rung: EscalationRung, *, results_dir: str = RESULTS_DIR, write_ledger: bool = False) -> dict[str, Any]:
+    """WSEL-21 rung runner (escalation spec §4/§5): trains the calibration cell at `rung`'s protocol, checks graduation, optionally updates the escalation ledger (spec §6).
+
+    Trains the FULL 12-width sweep at the designated (d=8, axis, seed=2, n_train=1500) cell under
+    `rung`'s protocol (`_rung_protocol`), then checks BOTH graduation conditions (spec §5): every
+    width trustworthy, AND `ratio_to_noise_floor <= anchor_ratio_to_noise_floor` (the SAME pinned
+    anchor the v2 fit gate uses, read once from the d=1 calibration artifact). `write_ledger=True`
+    read-modifies-writes `wsel21_escalation_ledger.json` (spec §6's shape) with this rung's result.
+
+    This function trains real nets when called for real -- ONLY `--selftest` exercises the pure
+    logic (`_rung_protocol`/`_apply_rung_result`/ledger round-trip) on tiny synthetic data instead;
+    the real calibration cell is the ROOT's to run, never dispatched from here.
+    """
+    cell = _ESCALATION_CALIBRATION_CELL
+    protocol = _rung_protocol(rung, results_dir)
+    calibration = _load_calibration_or_refuse(results_dir)
+    anchor = calibration["anchor_ratio_to_noise_floor"]
+
+    models, metas, _cache_hit, _n_train_used = _get_or_build_mf_models(
+        cell["seed"],
+        cell["d"],
+        cell["geometry"],
+        n_train=cell["n_train"],
+        results_dir=results_dir,
+        patience=protocol["patience"],
+        batch_size=protocol["batch_size"],
+        lr_schedule=protocol["lr_schedule"],
+        t_max=protocol["t_max"],
+        cache_tag=protocol["cache_tag"],
+    )
+    all_widths_trustworthy = all(metas[w]["trustworthy"] for w in range(1, W_MAX + 1))
+
+    x_report, y_report, _region_report, _t_report = wt.make_report_split(cell["seed"], cell["d"], cell["geometry"])
+    error_table_report = _mf_error_table(models, x_report, y_report, W_MAX)
+    noise_floor = float(nwn.HETERO_NOISE_SIGMA**2)
+    best_fixed_mse = float(error_table_report.mean(axis=0).min())
+    ratio_to_noise_floor = best_fixed_mse / noise_floor
+    graduated = bool(all_widths_trustworthy and ratio_to_noise_floor <= anchor)
+
+    result = {
+        "name": _RUNG_NAMES[rung],
+        "batch_size": protocol["batch_size"],
+        "lr": w4.PORTED_LR_DEFAULT,
+        "lr_schedule": protocol["lr_schedule"].value,
+        "patience": protocol["patience"],
+        "ratio_to_noise_floor": ratio_to_noise_floor,
+        "all_widths_trustworthy": all_widths_trustworthy,
+        "graduated": graduated,
+    }
+    print(
+        f"[wsel21 rung {rung.value}] {result['name']} ratio_to_noise_floor={ratio_to_noise_floor:.4g} (anchor={anchor:.4g}) "
+        f"all_widths_trustworthy={all_widths_trustworthy} graduated={graduated}"
+    )
+
+    if write_ledger:
+        ledger = _load_or_init_escalation_ledger(results_dir)
+        _fill_ledger_baseline_and_anchor(ledger, results_dir, calibration)
+        _apply_rung_result(ledger, rung, result)
+        path = _write_escalation_ledger(ledger, results_dir)
+        print(f"wrote {path}  graduated_rung={ledger['graduated_rung']}  verdict={ledger['verdict']}")
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # --summarize -- aggregates every per-cell JSON on disk into WSEL19/frozen.json. No verdict is
 # invented here: the D1 spec asks for an aggregate, not a plateau/invariance read (unlike WSEL-6/7,
 # which specify one) -- mean +/- SE per (backend, mode, n_sel) across present seeds, transparently.
@@ -1605,6 +1971,107 @@ def run_selftest() -> bool:
         fallback_ok = mf_fallback_case["n_train_fallback_applied"] is True and mf_fallback_case["n_train"] == mf_n_train
         print(f"[wsel19 selftest] mf n-train-fallback recorded: n_train={mf_fallback_case['n_train']}  {'PASS' if fallback_ok else 'FAIL'}")
         ok = ok and fallback_ok
+
+        # --- WSEL-21 escalation-ladder protocol threading (escalation spec §4/§5/§6): default-path
+        # byte-identity, cosine-decay wiring, the cache-tag guard, and the ledger writer's round-trip
+        # -- all on tiny synthetic data. No real cells (the real calibration cell is the ROOT's). ---
+        esc_rng = np.random.default_rng(0)
+        esc_in_dim, esc_width, esc_seed = 2, 2, 0
+        esc_lr = w4.PORTED_LR_DEFAULT
+        esc_x_tr = esc_rng.normal(size=(24, esc_in_dim)).astype(np.float32)
+        esc_y_tr = esc_rng.normal(size=24).astype(np.float32)
+        esc_x_val = esc_rng.normal(size=(8, esc_in_dim)).astype(np.float32)
+        esc_y_val = esc_rng.normal(size=8).astype(np.float32)
+
+        # (a) Default-path byte-identity: implicit defaults (every pre-existing call site's shape)
+        # vs explicit defaults must train to IDENTICAL state dicts on a fixed seed.
+        model_implicit, _ = _mf_train_one_width(esc_in_dim, esc_width, esc_seed, esc_x_tr, esc_y_tr, esc_x_val, esc_y_val, max_epochs=5, patience=5, lr=esc_lr)
+        model_explicit, _ = _mf_train_one_width(
+            esc_in_dim,
+            esc_width,
+            esc_seed,
+            esc_x_tr,
+            esc_y_tr,
+            esc_x_val,
+            esc_y_val,
+            max_epochs=5,
+            patience=5,
+            lr=esc_lr,
+            batch_size=w4.PORTED_BATCH_SIZE,
+            lr_schedule=LrSchedule.NONE,
+            t_max=None,
+        )
+        sd_implicit, sd_explicit = model_implicit.model.state_dict(), model_explicit.model.state_dict()
+        byte_identical = set(sd_implicit.keys()) == set(sd_explicit.keys()) and all(torch.equal(sd_implicit[k], sd_explicit[k]) for k in sd_implicit)
+        print(f"[wsel19 selftest] wsel21 default-path byte-identity (implicit vs explicit defaults): {'PASS' if byte_identical else 'FAIL'}")
+        ok = ok and byte_identical
+
+        # (b) The cosine schedule actually decays: the pure formula (LR at t_max/2 < initial, 0 at
+        # t_max) AND a live-wired run's actual optimizer LR (proving the epoch_callback is wired in).
+        esc_t_max = 10
+        formula_decays = (
+            _cosine_lr(0, esc_lr, esc_t_max) == esc_lr
+            and _cosine_lr(esc_t_max // 2, esc_lr, esc_t_max) < esc_lr
+            and _cosine_lr(esc_t_max, esc_lr, esc_t_max) == 0.0
+        )
+        model_cosine, _ = _mf_train_one_width(
+            esc_in_dim,
+            esc_width,
+            esc_seed,
+            esc_x_tr,
+            esc_y_tr,
+            esc_x_val,
+            esc_y_val,
+            max_epochs=esc_t_max // 2 + 2,
+            patience=esc_t_max + 10,
+            lr=esc_lr,
+            lr_schedule=LrSchedule.COSINE_TO_ZERO,
+            t_max=esc_t_max,
+        )
+        live_lr = model_cosine.optimizer.param_groups[0]["lr"]
+        cosine_ok = formula_decays and live_lr < esc_lr
+        print(f"[wsel19 selftest] wsel21 cosine LR schedule decays (formula + live optimizer, live_lr={live_lr:.4g}): {'PASS' if cosine_ok else 'FAIL'}")
+        ok = ok and cosine_ok
+
+        # (c) Cache-tag guard: a non-default protocol with an empty cache_tag must refuse, never
+        # silently collide with the full-batch cache (escalation spec §4 hazard 2).
+        try:
+            _get_or_build_mf_models(esc_seed, esc_in_dim, wt.Geometry.AXIS, results_dir=tmp_dir, batch_size=32)
+            guard_fired = False
+        except ValueError:
+            guard_fired = True
+        print(f"[wsel19 selftest] wsel21 cache-tag guard fires on non-default protocol + empty tag: {'PASS' if guard_fired else 'FAIL'}")
+        ok = ok and guard_fired
+
+        # (d) Ledger writer round-trip: pre-registered shape -> a synthetic graduating rung result ->
+        # write -> read back (escalation spec §6). No real baseline/anchor reads -- pure logic.
+        escalation_ledger = _init_escalation_ledger(tmp_dir)
+        _escalation_shape_keys = {
+            "calibration_cell",
+            "anchor_ratio_to_noise_floor",
+            "anchor_source",
+            "baseline",
+            "rungs",
+            "graduated_rung",
+            "verdict",
+            "verdict_scope",
+            "provenance",
+        }
+        shape_ok = set(escalation_ledger.keys()) == _escalation_shape_keys and len(escalation_ledger["rungs"]) == len(EscalationRung)
+        fake_rung_result = {"ratio_to_noise_floor": 1.0, "all_widths_trustworthy": True, "graduated": True}
+        _apply_rung_result(escalation_ledger, EscalationRung.B, fake_rung_result)
+        escalation_ledger_path = _write_escalation_ledger(escalation_ledger, tmp_dir)
+        with open(escalation_ledger_path) as f:
+            reloaded_ledger = json.load(f)
+        roundtrip_ok = (
+            reloaded_ledger["graduated_rung"] == _RUNG_NAMES[EscalationRung.B]
+            and reloaded_ledger["verdict"] == EscalationVerdict.GRADUATED.value
+            and reloaded_ledger["rungs"][1]["ratio_to_noise_floor"] == 1.0
+            and reloaded_ledger["rungs"][1]["graduated"] is True
+        )
+        ledger_ok = shape_ok and roundtrip_ok
+        print(f"[wsel19 selftest] wsel21 escalation ledger shape + round-trip: {'PASS' if ledger_ok else 'FAIL'}")
+        ok = ok and ledger_ok
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -1627,6 +2094,20 @@ def main() -> None:
     parser.add_argument("--selftest", action="store_true", help="Tiny wiring check in a temp dir, then exit.")
     parser.add_argument("--summarize", action="store_true", help="Aggregate every 1-D per-cell JSON on disk into WSEL19/frozen.json.")
     parser.add_argument("--calibrate", action="store_true", help="Run the §5.2 d=1 calibration cell, write the gating artifact, and exit.")
+    parser.add_argument(
+        "--escalation-rung",
+        choices=[r.value for r in EscalationRung],
+        default=None,
+        help=(
+            "WSEL-21 escalation spec §4: run the designated (d=8, axis, seed=2, n_train=1500) calibration cell at this rung's "
+            "protocol and check graduation (spec §5). Combine with --escalation-ledger to update wsel21_escalation_ledger.json."
+        ),
+    )
+    parser.add_argument(
+        "--escalation-ledger",
+        action="store_true",
+        help="With --escalation-rung: read-modify-write wsel21_escalation_ledger.json (escalation spec §6) with this rung's measured result.",
+    )
     parser.add_argument("--backend", choices=[b.value for b in Backend], default=None)
     parser.add_argument("--mode", choices=[m.value for m in Mode], default=None)
     parser.add_argument("--n-sel", type=int, choices=list(N_SEL_VALUES), default=None)
@@ -1649,8 +2130,10 @@ def main() -> None:
     parser.add_argument("--results-dir", type=str, default=RESULTS_DIR)
     args = parser.parse_args()
 
-    if sum([args.selftest, args.summarize, args.calibrate]) > 1:
-        parser.error("--selftest, --summarize and --calibrate are mutually exclusive.")
+    if sum([args.selftest, args.summarize, args.calibrate, args.escalation_rung is not None]) > 1:
+        parser.error("--selftest, --summarize, --calibrate and --escalation-rung are mutually exclusive.")
+    if args.escalation_ledger and args.escalation_rung is None:
+        parser.error("--escalation-ledger requires --escalation-rung.")
     if args.selftest:
         sys.exit(0 if run_selftest() else 1)
     if args.summarize:
@@ -1658,6 +2141,9 @@ def main() -> None:
         return
     if args.calibrate:
         run_calibration(results_dir=args.results_dir)
+        return
+    if args.escalation_rung is not None:
+        run_escalation_rung(EscalationRung(args.escalation_rung), results_dir=args.results_dir, write_ledger=args.escalation_ledger)
         return
 
     if (args.dim is None) != (args.geometry is None):

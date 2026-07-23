@@ -1272,8 +1272,15 @@ scratchpad (`wsel20-partial-work.patch`) for the orchestration wave to reuse or 
 > T_max = 3 × rung-B's median stopping epoch. Two minor findings recorded there too (the
 > most-sensitive-cell screen is a heuristic, quotable only as economy; the ledger's baseline
 > trustworthy field must be READ from the cache metas, not assumed).**
-> Next: rung (ii) authoring contract dispatched (flag threading + per-rung cache_tag + ledger
-> writer; NO runs); then the ROOT runs rungs A→B(→C→D) backgrounded on the calibration cell.
+> ✅ **RUNG (ii) AUTHORING LANDED 2026-07-23 (worker; root-verified from disk after a silent
+> idle):** protocol knobs threaded with byte-identical defaults, LR schedule as an enum with
+> `t_max` per the §9 amendment, REQUIRED per-rung cache-tag guard (hazard 2 enforced in code,
+> not convention), rung-runner CLI (`--escalation-rung {A,B,C,D}` + `--escalation-ledger`) whose
+> ledger fields are READ from the artifacts per §9 finding 3. Selftest extended with the four
+> pre-registered assertions (default-path byte-identity · cosine decays, live optimizer checked ·
+> guard fires · ledger round-trip) — all PASS at root re-run; ruff clean; write set exactly the
+> driver. **Ladder EXECUTING: root runs rung A backgrounded on the designated calibration cell;
+> B/C/D only on predecessor failure per the spec's sequential rule.**
 
 **Why.** The multi-feature bake-off's d ∈ {8, 32} levels are honestly voided: the vetted full-batch
 sweep protocol stalls within tens of steps (best-fixed error 17.8–31.7× the noise floor — the v2
