@@ -591,6 +591,45 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     7. Status and findings are reported by RESEARCH APPROACH in the user's ratified names
        (multi-head / single-head / recipe), never task ids.
 
+33. **THE 2026-07-23 JOINT-REVIEW RULINGS (user, width results walkthrough).** Recorded so none
+    is re-asked; each has its plan slot: **(i)** noise-aware (2·SE) thresholds ADOPTED over flat
+    percentage bars — `width.md` WSEL-20 (the WSEL-7 verdict re-grades under it; strand-wide
+    binding: no new flat bar without a stated noise argument); **(ii)** the per-input labelling
+    tolerance's pre-registered trigger FIRED — sensitivity sweep + σ-anchored replacement
+    candidate, `width.md` WSEL-22 (part b spec-gated; implication map incl. the BLEND reopen path
+    in the block); **(iii)** the d ≥ 8 training-protocol escalation SCHEDULED — `width.md`
+    WSEL-21 (failure branch is a done-state); **(iv)** router regularisation demoted from
+    mandatory to CONDITIONAL — `flexnn-package.md` FP-13; **(v)** FP-5's stale-reference finding
+    RESOLVED by git archaeology, bisect moot — resolution block in `flexnn-package.md` FP-5;
+    **(vi)** a PLAN HYGIENE PASS is authorized for the orchestration wave: roll CLOSED tasks'
+    verdict histories into `archive/` (or per-task files under `shared/`), a one-paragraph
+    verdict + pointer left in each task block; ROOT-ONLY writes, single session, citation AND
+    numbers gates green before and after; nothing summarized away that an open task still reads;
+    **(vii)** the report (WSEL-10) gains a REQUIRED transfer-ledger section (toy-negative /
+    toy-positive / real-data-confirmed per adopted verdict). Standing conduct rule re-affirmed:
+    obvious, low-risk, reversible decisions are taken and logged, never parked on the user.
+    **Execution regime for ALL of it: NOTHING dispatches until the review completes — the user
+    orchestrates the full planned set at the sitting's end (user, mid-review, verbatim intent:
+    "Don't start the work. We will orchestrate all planned work.").**
+
+34. **EXHAUST-BEFORE-NEGATIVE (user ruling, 2026-07-23 joint review, verbatim intent: "This is
+    an exercise in inventing a new architecture... we need to exhaust every possibility of
+    improving the architecture... before we report a negative result").** WSEL-8's both-halves
+    FAIL stands as a recorded measurement but is NOT report-final; the replacement line does not
+    stop. `width.md` WSEL-23 enumerates the improvement ladder — derived observation-model loss
+    weighting as PRIMARY (probabilistically principled: weights 1/(σ² + a²(w)) fall out of an
+    explicit per-width observation model, no arbitrary penalties; all variances FIXED, never
+    learned), deployment-prior mixture, per-width private capacity, self-distillation — with a
+    CHECKABLE exhaustion end-state; WSEL-10's replacement-claim section is gated on it. The
+    generalization clause binds every candidate: parametric laws in w validated at ≥2 values of
+    w_max, never per-width constants (§3.10 discipline, same as the router sizing rule). The
+    ARBITER (the held-out error-table per-input judge the router is distilled from) is a NAMED
+    reference in the report's comparison suite — the routing upper bound, shown with its measured
+    noise limitation and the generator-true oracle beside it. Also ruled the same exchange, on
+    the blend (recorded in `width.md` WSEL-22 b′): the blend has NO threshold — it is purely a
+    function of the out-of-sample per-width values; the bake-off's blend verdict is scoped to
+    the implemented (thresholded-label) construction.
+
 ## Rules (cache discipline)
 
 ⚠️ **THE NUMBERS GATE IS PARTIAL — strengthen it before the next planning round.**

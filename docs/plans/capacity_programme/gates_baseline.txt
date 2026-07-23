@@ -18,6 +18,11 @@ automl_package/examples/probreg_benchmark.py
 # is retained on disk, so it still CITES these paths and the citation gate still sees them --
 # but nobody is scheduled to build them. If WSEL-9 is ever formally CUT rather than parked,
 # delete these two entries with it. They are not live forward work.
+#
+# WSEL-21 Create target (parked 2026-07-23, root — scheduled at the user's review sitting):
+docs/plans/capacity_programme/shared/wsel21-escalation.md           # WSEL-21 (i)
+# WSEL-24 Create target (parked 2026-07-23, root — battery attribution deliverable):
+automl_package/examples/capacity_ladder_results/WSEL9/attribution.json  # WSEL-24
 
 # --- depth-selection.md Create targets (parked 2026-07-20, root) -------------------------------
 # Each verified: named in a DSEL task's write set / §3.6 constants row AND asserted by that task's

@@ -979,7 +979,31 @@ grep -cE '^\*\*VERDICT:\*\* (MATERIAL|IMMATERIAL)$' docs/plans/capacity_programm
 Both JSONs must exist; the `grep -c` must print `1`. **The note must state the three per-seed
 percentage differences as numbers** — a verdict without them fails the task.
 
-### FP-5 — reconcile the routers — 🟡 **CODE COMPLETE 2026-07-21; clause (d) VERIFY-BLOCKED ON A STALE REFERENCE (not FP-5's fault — proven)**
+### FP-5 — reconcile the routers — ✅ **DONE: clause (d) RESOLVED 2026-07-23 (root diagnosis at the width review, no bisect run needed — see the resolution block below). Historical status: CODE COMPLETE 2026-07-21; clause (d) verify-blocked on a stale reference (not FP-5's fault — proven).**
+
+> **✅ CLAUSE (d) RESOLUTION, 2026-07-23 (root, executed at the user's review — by git archaeology,
+> zero experiment runs):**
+> - **The reference of record was already regenerated** at `1d940a3` (2026-07-21, "record run
+>   provenance; regenerate the router-capacity references") **with full provenance**, and the
+>   current on-disk reference matches FP-5's re-run **bit-for-bit on every deploy leaf** (verified
+>   2026-07-23 by direct JSON comparison of `mse_hardpick`/`mean_executed_width` across all
+>   seeds/sweeps). This plan's "verify-blocked" status was stale w.r.t. disk. Note the check is
+>   now determinism, not historical continuity — FP-5's innocence rests on the three-run
+>   attribution in the finding doc, which stands unrewritten.
+> - **The recommended bisect is MOOT, established without a run:** `git log` over BOTH drift
+>   windows (certification-era reference `bb7e9dc` → masterprobe `833c68e`, and regeneration →
+>   masterprobe) shows **ZERO commits touching the deploy code path**
+>   (`sinc_width_experiment.py`, `capacity_ladder_k6.py`, `nested_width_net.py`), while modern
+>   runs are bit-identical to each other. No committed code moved the metric; a commit bisect
+>   would return nothing.
+> - **Remaining cause candidates (stated as candidates, not proven):** the certification-era
+>   reference predates the provenance machinery — its generating environment and tree state are
+>   unrecorded; the drift is consistent with a workspace-venv change (torch/numpy live outside
+>   this repo) or an unrecorded dirty tree at generation. The provenance machinery (git commit +
+>   dirty flag + torch/numpy/thread versions in every summary JSON) exists so this ambiguity is
+>   structurally impossible for artifacts since `1d940a3`.
+> - **Residue routed to the report (width.md WSEL-10):** certified-era deploy numbers and modern
+>   reruns can differ by ~2% for environmental reasons; any table mixing eras must say so.
 
 **Done and root-verified:** the four shared defaults are **UNCHANGED** as FP-5.b requires (`git diff`
 on those lines empty) · all five importers **re-derived by grep at execution time** per FP-5.a's
@@ -1815,6 +1839,40 @@ AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/ -q
 - **If FP-8 modifies any protected producer** (it should not; if it does, that is a scope breach to
   flag) — the FP-2 canonical cell must be re-run and match its reference JSON **within 2% relative on
   `per_case[i].fit_bar.ratio_to_floor`, all seeds** (same file, metric and bar as FP-2).
+
+---
+
+### FP-13 — router regularisation capability — ⛔ **CONDITIONAL (filed 2026-07-23 at the width review sitting): BLOCKED on width's d ≥ 8 training-protocol escalation; adopted only on an empirical win there**
+
+**Origin.** Width sign-off rulings 3/6 (2026-07-22, `width.md` WSEL-7 block) made router
+regularisation a first-class requirement — early stopping on an internal validation split, mild
+weight decay, dropout excluded — and delegated implementation to this strand (`routing.py` is this
+strand's write set). No task was filed here at the time; the 2026-07-23 review named that a
+scheduling miss and filed this one. The width bake-off (`width.md` WSEL-19) then MEASURED the
+ruling-6 recipe and it never won unconditionally: ~6× worse at the starved 75-label cell at d=1
+(the internal-validation carve costs more than fixed-epoch overfitting), geometry-conditional at
+d=2 (worse at axis, better at oblique), untested at d ≥ 8 (full-batch training wall). The
+2026-07-23 review therefore **AMENDED the ruling: conditional, not mandatory** (recorded in
+`width.md`, WSEL-7 review addenda).
+
+**Trigger — all three, in order, else this task never runs:**
+1. width's training-protocol escalation (mini-batching / LR-patience ladder, the recorded
+   follow-up in `width.md`) lands trustworthy d ≥ 8 per-width fits;
+2. the bake-off's regularised arm re-runs there under its pre-registered rules;
+3. it WINS on routed held-out error at d ≥ 8.
+
+**Spec sketch (made decision-complete at unblock):** an optional internal-validation
+early-stopping + weight-decay path in `DistilledCapacityRouter._fit_from_targets`, behind
+constructor parameters **defaulting OFF** — frozen behaviour byte-identical, the four shared
+defaults untouched per FP-5.b until the trigger fires. The input-size-relative sizing rule the
+bake-off driver records per cell becomes the documented sizing rule once its large-d instance
+validates. Dropout stays excluded (ruling 6 stands on that point).
+**Non-goals:** no default flip without the trigger; no speculative pre-build; no change to the
+labelling rule or its tolerance (MASTER Decision 18).
+*Orchestration:* deps: `width.md` WSEL-21 (the d ≥ 8 escalation — scheduled 2026-07-23 at the
+same review sitting) · tier: sonnet high · shape: execution · verify at unblock:
+`AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/test_distilled_router.py -q` green with
+the suite extended to cover the optional path AND the defaults-off byte-identity.
 
 ---
 

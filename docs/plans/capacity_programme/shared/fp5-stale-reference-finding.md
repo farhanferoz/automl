@@ -1,6 +1,13 @@
 # The W6 router-capacity deploy reference no longer reproduces at `master`
 
-**Status: OPEN FINDING, batched for user review. NOT caused by wave 4. NOT resolved by the run.**
+**Status: ✅ RESOLVED 2026-07-23 — diagnosis executed at the user's review by git archaeology
+(zero experiment runs); full resolution recorded in `flexnn-package.md` FP-5's resolution block.
+Short form: the reference was regenerated with provenance at `1d940a3` and now matches modern runs
+bit-for-bit; zero commits touch the deploy code path in either drift window, so no committed code
+moved the metric and the recommended bisect is moot; remaining cause candidates are environmental
+(pre-provenance reference, unrecorded env/tree). Everything below stands as the historical record.**
+
+**Original status: OPEN FINDING, batched for user review. NOT caused by wave 4. NOT resolved by the run.**
 Recorded by the root, 2026-07-21, while verifying `flexnn-package.md` FP-5 clause (d).
 
 ## What failed
