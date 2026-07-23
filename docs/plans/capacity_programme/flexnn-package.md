@@ -1842,7 +1842,7 @@ AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest tests/ -q
 
 ---
 
-### FP-13 — router regularisation capability — ⛔ **CONDITIONAL (filed 2026-07-23 at the width review sitting): BLOCKED on width's d ≥ 8 training-protocol escalation; adopted only on an empirical win there**
+### FP-13 — router regularisation capability — ⛔ **CLOSED-UNFIRED 2026-07-23: width's escalation ladder returned `UNREACHABLE` (all four rungs failed the graduation bar — `width.md` WSEL-21 block), so trigger condition 1 (trustworthy d ≥ 8 fits AT the bar) can never hold. This task never runs; reopen only if a future, differently-scoped escalation family graduates.**
 
 **Origin.** Width sign-off rulings 3/6 (2026-07-22, `width.md` WSEL-7 block) made router
 regularisation a first-class requirement — early stopping on an internal validation split, mild

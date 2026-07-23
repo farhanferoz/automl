@@ -1258,7 +1258,26 @@ levels for a third-level key and could never have passed; see the harvest note a
 the review completes before ANY execution; the worker's partial diff is preserved in the session
 scratchpad (`wsel20-partial-work.patch`) for the orchestration wave to reuse or discard.
 
-### WSEL-21 — the d ≥ 8 training-protocol escalation — 🔄 **RUNG (i) DONE 2026-07-23: spec authored (worker), adversarially read (root) — GO issued with one required amendment. Rung (ii) authoring dispatched.**
+### WSEL-21 — the d ≥ 8 training-protocol escalation — ✅ **ANSWERED 2026-07-23: d ≥ 8 is UNREACHABLE under the protocol family — all four rungs trained every width cleanly and NONE moved fit quality (17.97-18.99× the noise floor vs full-batch's 17.8×, bar 1.13×). The pre-registered failure branch IS the done-state: no grid re-run, FP-13 never fires, the report says protocol-limited-not-architecture-decided.**
+
+> ✅ **LADDER COMPLETE 2026-07-23 (root-run, 4 rungs on the designated calibration cell; ledger
+> `automl_package/examples/capacity_ladder_results/WSEL19/wsel21_escalation_ledger.json`).**
+> Per-rung fit ratio vs the pinned 1.128 anchor (full-batch baseline 17.835): mini-batch 128 → 18.086 · mini-batch 32 → 18.990 · +cosine decay (the §9-amended T_max, ENGAGED this time) → 18.924 · +patience ×3 → 17.973. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/wsel21_escalation_ledger.json` (`rungs[].ratio_to_noise_floor`) -->
+> All 48 rung-trained nets are trajectory-trustworthy — the wall is FIT QUALITY, not convergence
+> bookkeeping (and the disk-read baseline `all_widths_trustworthy` came back TRUE, vindicating
+> the §9 read-don't-assume correction: the assumed `false` would have been wrong).
+> **Report sentence, verbatim per spec §6:** "d ≥ 8 is recorded UNREACHABLE under the protocol
+> family tested (full-batch → mini-batch {128, 32}; constant LR → cosine decay; patience
+> 60 → 180); ruling 6's decisive d ∈ {8, 32} test and the large-d half of the
+> input-size-relative sizing rule stay OPEN — protocol-limited, not architecture-decided."
+> **Consequences:** FP-13's trigger condition 1 fails → FP-13 CLOSED-unfired
+> (`flexnn-package.md`); rung (iii) never earned; WSEL-19's d ∈ {8, 32} levels stay honestly
+> OPEN. Interpretation lead for any future extension of the family (hypothesis, recorded not
+> concluded): every variant held fit within ±7% of full-batch while training cleanly —
+> consistent with a capacity/construction limitation of these net sizes on the rotated-box
+> target, not optimization dynamics; a future ladder extension should probe capacity
+> (hidden width / depth of the per-width nets) or the construction itself, not more optimizer
+> knobs.
 
 > ✅ **RUNG (i) HARVESTED 2026-07-23.** Spec: `shared/wsel21-escalation.md` (worker-authored;
 > write set exactly that one file). Root verification before the read: the pinned graduation

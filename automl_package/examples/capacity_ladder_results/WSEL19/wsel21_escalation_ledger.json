@@ -1,0 +1,66 @@
+{
+  "calibration_cell": {
+    "d": 8,
+    "geometry": "axis",
+    "seed": 2,
+    "n_train": 1500
+  },
+  "anchor_ratio_to_noise_floor": 1.1278630234301088,
+  "anchor_source": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL19/wsel19_calibration_d1.json",
+  "baseline": {
+    "ratio_to_noise_floor": 17.835,
+    "all_widths_trustworthy": true
+  },
+  "rungs": [
+    {
+      "name": "MINIBATCH_128",
+      "batch_size": 128,
+      "lr": 0.01,
+      "lr_schedule": "none",
+      "patience": 60,
+      "ratio_to_noise_floor": 18.0861160159111,
+      "all_widths_trustworthy": true,
+      "graduated": false
+    },
+    {
+      "name": "MINIBATCH_32",
+      "batch_size": 32,
+      "lr": 0.01,
+      "lr_schedule": "none",
+      "patience": 60,
+      "ratio_to_noise_floor": 18.989910185337063,
+      "all_widths_trustworthy": true,
+      "graduated": false
+    },
+    {
+      "name": "LR_DECAY",
+      "batch_size": 32,
+      "lr": 0.01,
+      "lr_schedule": "cosine_to_zero",
+      "patience": 60,
+      "ratio_to_noise_floor": 18.92379820346832,
+      "all_widths_trustworthy": true,
+      "graduated": false
+    },
+    {
+      "name": "PATIENCE_RAISED",
+      "batch_size": 32,
+      "lr": 0.01,
+      "lr_schedule": "cosine_to_zero",
+      "patience": 180,
+      "ratio_to_noise_floor": 17.973254621028897,
+      "all_widths_trustworthy": true,
+      "graduated": false
+    }
+  ],
+  "graduated_rung": null,
+  "verdict": "UNREACHABLE",
+  "verdict_scope": "d>=8, protocol family = {full-batch->minibatch{128,32}, LR-constant->cosine-decay, patience 60->180}; d>=8 not reachable at any tested combination",
+  "provenance": {
+    "timestamp_utc": "2026-07-23T14:22:00+00:00",
+    "git": {
+      "commit": "43678822bac626762736b2051e9b24821d8cd736",
+      "dirty": true
+    }
+  }
+}
