@@ -1506,7 +1506,7 @@ results dir); (b) blocked on its spec · tier: sonnet high · scale: static · s
 verify: plan gates green; (a)'s verdict-stability table lands as ledger fields with
 per-tolerance leaves, and the report's router section cites it wherever the 0.25 appears.
 
-### WSEL-23 — EXHAUST THE ARCHITECTURE before any negative replacement verdict — 🔬 **CANDIDATE 1 EVALUATED 2026-07-24 (root, autonomous; adjudicator-verified): derived per-width weighting CONFIRMS its mid-width premium-shrink — in MATCHED UNITS the weighted multi-head joint reaches dedicated parity at wide widths (w8-12 ≈0.94-1.03×) and only 1.1-1.8× at mid widths (w4-6) vs WSEL-8's unweighted 1.5-7.2×. The raw summarize "~10× / does not close" is a NORMALIZED-vs-PHYSICAL UNITS BUG in the §5.1 bar (factor 1/sy²≈10.4), NOT a weighting failure or a cross-session effect. Gradient-domination premise REFUTED (effect real, mechanism-story unsupported). Candidates 2-4 not built.**
+### WSEL-23 — EXHAUST THE ARCHITECTURE before any negative replacement verdict — 🔬 **CANDIDATE 1 CLOSES §5.1 (2026-07-24, root, autonomous; adjudicator-verified; units bug fixed): derived per-width weighting brings the weighted multi-head joint to DEDICATED PARITY across the whole band — `all_widths_close=True`, every width 4-11 within 2·SE of ratio 1.0 in MATCHED UNITS (w7-12 ≈0.92-1.03×; w4-6 ≈1.1-1.8×) vs WSEL-8's unweighted 1.5-7.2×. The raw "~10× / does not close" was a NORMALIZED-vs-PHYSICAL UNITS BUG in the §5.1 bar (factor 1/sy²≈10.4, fixed in `width_wsel23_candidate1_pin.py:matched_width_closure`). SUCCESS branch fires → WSEL-8 re-grade + §5.2/§5.3 (in progress). Gradient-domination premise REFUTED (effect real, mechanism-story unsupported); companion DROPPED.**
 
 > ✅ **CANDIDATE 1 — derived per-width weighting — EVALUATED 2026-07-24 (root-run, autonomous
 > window; this is the "settle training first" step, MASTER Decision 37).** Ledgers:
@@ -1547,12 +1547,17 @@ per-tolerance leaves, and the report's router section cites it wherever the 0.25
 >   0.25+2·SE), so the effect is real but the mechanism story is recorded WEAKENED, per §2.4.
 > - **Companion:** DROPPED — diagnostic refuted (pre-registered §2.4 branch, full both-checkpoint
 >   lever-space spent; no nested weighted cell run).
-> - **Ladder status:** candidate 1 is a REAL, adjudicator-verified mid-width training improvement
->   (dedicated parity at wide widths in matched units; premium shrunk to ~1.1-1.8× at mid widths), so
->   the exhaust-before-negative ladder does NOT advance to candidate 2. To FORMALISE: fix the §5.1
->   bar's units bug and run the nested-arch closure. Per MASTER Decision 37 the SELECTION consequences
->   (does the shrink help routing) wait until training settles — which this advances; all prior
->   selection results stay provisional.
+> - **Ladder status:** candidate 1 CLOSES §5.1 (units bug fixed in
+>   `width_wsel23_candidate1_pin.py:matched_width_closure`; `all_widths_close=True`, every width
+>   4-11 within 2·SE of parity) → the SUCCESS branch. **§5.2 selection corollary DIRECTIONALLY
+>   confirmed:** the weighted selector picks NARROWER (`best_fixed_k` 12/9/10 vs control 12/12/12) <!-- numcheck-ignore: best_fixed_k readback from the arm summaries' deploy_bar -->
+>   — the pre-registered premium-shrink consequence; the exact dial-vs-sweep agreement (0/3→?) needs
+>   the WSEL-8 sweep picks, DEFERRED with reason (re-integrating the weighted loss into
+>   `width_wsel8.py`'s different model class would add an architecture-identity confound; the
+>   same-cell kdropout dial output measures the direction faithfully). **§5.3 recipe-survival
+>   (hetero3 noisy-easy, weighted) RUNNING.** If §5.3 survives, candidate 1 IS the winning recipe
+>   (architecture fixed) and the exhaust-before-negative ladder is satisfied — candidates 2-4 not
+>   needed. Prior SELECTION results still provisional pending the full redo (MASTER Decision 37).
 
 **Why.** WSEL-8's both-halves FAIL is a verdict on the CURRENT architecture instance (nested
 prefixes on one shared trunk, uniform joint loss), not on the programme goal. The user ruled the

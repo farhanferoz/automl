@@ -438,8 +438,14 @@ def matched_width_closure(training_arm_summary: dict, wsel8_dir: str, affected_b
     for case in per_case:
         seed = case["seed"]
         held = case["held_out_mse_by_width"]
+        # UNITS FIX (2026-07-24): held_out_mse_by_width is computed on STANDARDISED val targets
+        # (kdropout driver :575, on `_standardize_fit` output), i.e. divided by sy^2; the WSEL8
+        # dedicated `held_out_mse` denominator is PHYSICAL. Scale the joint back to physical by sy^2
+        # so the ratio is unitless. Without this the ratio carries a spurious 1/sy^2 (~10x) factor.
+        sy = case.get("norm", {}).get("sy")
+        sy2 = float(sy) ** 2 if sy else 1.0
         for k in range(1, w_max + 1):
-            joint_mse = _share_at(held, k)
+            joint_mse = _share_at(held, k) * sy2
             sweep_mse = _wsel8_held_out_mse(wsel8_dir, seed, k)
             ratios_by_width[k].append(joint_mse / sweep_mse)
 
