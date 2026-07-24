@@ -1,0 +1,57 @@
+{
+ "what": "WSEL-23 candidate-1 \u00a75.3 recipe-survival: hetero3 noisy-easy check, weighted vs unweighted control (shared_trunk, w_max=12, 3 seeds).",
+ "weighted": [
+  {
+   "seed": 0,
+   "fit_ratio_to_floor": 1.1999,
+   "fit_pass": true,
+   "noisy_easy_pass": true,
+   "noisy_easy_width": 2.286,
+   "hard_width": 7.842
+  },
+  {
+   "seed": 1,
+   "fit_ratio_to_floor": 1.5885,
+   "fit_pass": false,
+   "noisy_easy_pass": true,
+   "noisy_easy_width": 2.909,
+   "hard_width": 6.359
+  },
+  {
+   "seed": 2,
+   "fit_ratio_to_floor": 1.2958,
+   "fit_pass": false,
+   "noisy_easy_pass": true,
+   "noisy_easy_width": 2.538,
+   "hard_width": 7.249
+  }
+ ],
+ "control": [
+  {
+   "seed": 0,
+   "fit_ratio_to_floor": 1.6442,
+   "fit_pass": false,
+   "noisy_easy_pass": true,
+   "noisy_easy_width": 3.278,
+   "hard_width": 7.416
+  },
+  {
+   "seed": 1,
+   "fit_ratio_to_floor": 1.8423,
+   "fit_pass": false,
+   "noisy_easy_pass": true,
+   "noisy_easy_width": 3.298,
+   "hard_width": 6.109
+  },
+  {
+   "seed": 2,
+   "fit_ratio_to_floor": 1.3377,
+   "fit_pass": false,
+   "noisy_easy_pass": true,
+   "noisy_easy_width": 2.717,
+   "hard_width": 6.932
+  }
+ ],
+ "verdict": "SURVIVES clause (a): noisy_easy_pass=True on ALL seeds for the weighted net (noise region kept NARROWER than control); the fit-bar 2/3 miss is hetero3 difficulty, not weighting \u2014 the control fails fit on 3/3 seeds and is worse than weighted on every seed. Weighting DOMINATES the control on hetero3 too.",
+ "remaining": "\u00a75.3(b) tier-3 corner check (needs the width-cert W2/W4 protocol) not yet run."
+}

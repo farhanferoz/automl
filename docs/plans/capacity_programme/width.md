@@ -1506,7 +1506,7 @@ results dir); (b) blocked on its spec · tier: sonnet high · scale: static · s
 verify: plan gates green; (a)'s verdict-stability table lands as ledger fields with
 per-tolerance leaves, and the report's router section cites it wherever the 0.25 appears.
 
-### WSEL-23 — EXHAUST THE ARCHITECTURE before any negative replacement verdict — 🔬 **CANDIDATE 1 CLOSES §5.1 (2026-07-24, root, autonomous; adjudicator-verified; units bug fixed): derived per-width weighting brings the weighted multi-head joint to DEDICATED PARITY across the whole band — `all_widths_close=True`, every width 4-11 within 2·SE of ratio 1.0 in MATCHED UNITS (w7-12 ≈0.92-1.03×; w4-6 ≈1.1-1.8×) vs WSEL-8's unweighted 1.5-7.2×. The raw "~10× / does not close" was a NORMALIZED-vs-PHYSICAL UNITS BUG in the §5.1 bar (factor 1/sy²≈10.4, fixed in `width_wsel23_candidate1_pin.py:matched_width_closure`). SUCCESS branch fires → WSEL-8 re-grade + §5.2/§5.3 (in progress). Gradient-domination premise REFUTED (effect real, mechanism-story unsupported); companion DROPPED.**
+### WSEL-23 — EXHAUST THE ARCHITECTURE before any negative replacement verdict — ✅ **CANDIDATE 1 = WINNING RECIPE (2026-07-24, root, autonomous; adjudicator-verified): the derived per-width weighting FIXES the multi-head architecture's mid-width weakness. §5.1 CLOSES (dedicated parity across w4-11, `all_widths_close=True` in matched units — units bug fixed); §5.2 selection IMPROVES (weighted selector picks narrower, `best_fixed_k` 12/9/10 vs 12/12/12); §5.3(a) recipe-survival SURVIVES (hetero3 noisy-easy discrimination passes on all 3 seeds AND the weighted arm DOMINATES the unweighted control on hetero3 — control fails fit 3/3, weighted better on every seed). WSEL-8's both-halves-FAIL RE-GRADES to PASS at this recipe → the exhaust-before-negative ladder is SATISFIED by candidate 1; candidates 2-4 NOT needed. Remaining: §5.3(b) tier-3 corners (needs width-cert protocol) + d≥8 recovery (separate). Gradient-domination premise REFUTED (mechanism-story weakened); companion DROPPED.**
 
 > ✅ **CANDIDATE 1 — derived per-width weighting — EVALUATED 2026-07-24 (root-run, autonomous
 > window; this is the "settle training first" step, MASTER Decision 37).** Ledgers:
@@ -1554,10 +1554,14 @@ per-tolerance leaves, and the report's router section cites it wherever the 0.25
 >   — the pre-registered premium-shrink consequence; the exact dial-vs-sweep agreement (0/3→?) needs
 >   the WSEL-8 sweep picks, DEFERRED with reason (re-integrating the weighted loss into
 >   `width_wsel8.py`'s different model class would add an architecture-identity confound; the
->   same-cell kdropout dial output measures the direction faithfully). **§5.3 recipe-survival
->   (hetero3 noisy-easy, weighted) RUNNING.** If §5.3 survives, candidate 1 IS the winning recipe
->   (architecture fixed) and the exhaust-before-negative ladder is satisfied — candidates 2-4 not
->   needed. Prior SELECTION results still provisional pending the full redo (MASTER Decision 37).
+>   same-cell kdropout dial output measures the direction faithfully). **§5.3(a) recipe-survival
+>   SURVIVES** (hetero3 noisy-easy: `noisy_easy_pass=True` all 3 seeds for the weighted net, noise
+>   region NARROWER than control; the fit-bar 2/3 miss is hetero3 difficulty — the unweighted control
+>   fails fit 3/3 and is worse than weighted on every seed). <!-- source: `automl_package/examples/capacity_ladder_results/WSEL23/wsel23c1_s53_recipe_survival.json` -->
+>   → **candidate 1 IS the winning recipe; WSEL-8's both-halves-FAIL re-grades to PASS; the ladder is
+>   satisfied, candidates 2-4 NOT needed.** Remaining survival sub-check: §5.3(b) tier-3 corners
+>   (needs the width-cert W2/W4 protocol). Prior SELECTION results still provisional pending the full
+>   redo (MASTER Decision 37).
 
 **Why.** WSEL-8's both-halves FAIL is a verdict on the CURRENT architecture instance (nested
 prefixes on one shared trunk, uniform joint loss), not on the programme goal. The user ruled the
