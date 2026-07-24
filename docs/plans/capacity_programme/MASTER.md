@@ -668,6 +668,50 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
     stated objective, both objectives reported); **(iii)** the library's documented default.
     Implementation travels through the owning tasks — the ruling itself changes no rule code.
 
+37. **TRAINING-BEFORE-SELECTION ORDERING (user, 2026-07-24).** Verbatim intent: "We need to find
+    the best model that we have, the best training setup that we have. We get the results of that,
+    then we try the selection. There is no point in trying the selection while we are still
+    figuring out the training problem." **Binding pipeline for the width strand: settle the training
+    recipe FIRST (WSEL-23 candidate 1 = the derived per-width weighting, aimed at the weak mid
+    widths), THEN redo selection.** Consequence the user made explicit and RATIFIED: settling the
+    training INVALIDATES every prior selection result — the band verdicts (WSEL-22), the
+    router-backend bake-off (WSEL-19), the selection-fraction freeze (WSEL-6 / WSEL-6-R), the
+    oracle-agreement numbers, and the "no free lunch" real-data battery were ALL computed on the
+    CURRENT (unweighted, mid-width-weak) per-width held-out error tables; a training change changes
+    those tables, so all of it is recomputed after training settles. Verbatim: "all the selection
+    work done before... has to be done again after the training has settled." Rationale on record:
+    selection is DISTILLED from the per-width error tables (MASTER Decision 13); selection-on-stale-
+    tables is wasted work, and it explains why so much selection read as "no free lunch" (measured on
+    a model with a broken middle). **De-queued until the weighted verdict lands:** the real-data
+    selection-fraction battery (WSEL-6-R), the band experiments (WSEL-22 remainder), the
+    threshold-free blend. The band CRITERION may be DESIGNED now (recorded in the WSEL-22 block); its
+    EXPERIMENTS wait. The weighted run's embedded selection-agreement corollary (candidate-1 spec
+    §5.2) is a PRELIMINARY signal about training, never a settled selection result.
+
+38. **ATTACK NEGATIVES BEFORE RECORDING (user, 2026-07-24 — "why do you keep reporting failures
+    that, when I review, turn out to have gaps or things done incorrectly? How do we break the
+    cycle?").** Root cause named and accepted: the standing verification (selftest / ruff / gates)
+    proves a task was EXECUTED correctly, but nothing attacks whether a NEGATIVE verdict is REAL —
+    the adversarial pass has been happening at the user's review instead of before the record, and
+    that displacement IS the cycle. A false negative closes a door SILENTLY and is unrecoverable
+    downstream (verifiability asymmetry: adjudication kills false positives, cannot recover misses),
+    so a negative deserves MORE scrutiny than a positive, not less. **Binding rule:** before ANY
+    failure / negative / UNREACHABLE / NOT-ADOPTED verdict is recorded, or any INHERITED default is
+    retained, the block must carry an on-disk `flip_attempt:` note answering — (a) the smallest change
+    that would flip it, and whether it was actually tried; (b) any number already in the record that
+    points the other way; (c) is the failure the phenomenon itself or an artifact of setup (capacity,
+    sample size, scale, wrong metric); (d) for an inherited default, justified in terms of WHAT and
+    why this value. A pre-registered "failure branch" is valid ONLY if the spec first enumerates the
+    FULL lever-space and the branch fires after that space is SPENT, not after one axis — WSEL-21's
+    "unreachable" fired after optimizer knobs alone while a ~7× data-lever improvement sat in the
+    record as a footnote (the motivating instance). Negative verdicts route to the adjudicator tier.
+    **ENFORCEMENT:** a negative-verdict check in `test_plan_gates.py` requires every block carrying
+    the explicit `NEGATIVE-VERDICT` marker to hold a `flip_attempt:` field in the same block —
+    forward-looking and zero-false-positive (a natural-language scan over the existing FAIL /
+    UNREACHABLE / NOT-ADOPTED verdicts was considered and deferred as too brittle to run unattended;
+    pre-existing verdicts predate the marker and the judgment rule, not the gate, governs their
+    back-fill). The judgment rule binds whether or not the gate fires.
+
 ## Rules (cache discipline)
 
 ⚠️ **THE NUMBERS GATE IS PARTIAL — strengthen it before the next planning round.**

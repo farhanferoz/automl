@@ -1,0 +1,70 @@
+{
+  "shape_sane_monotone_decreasing": true,
+  "held_out": {
+    "rows": [
+      {
+        "w": 8,
+        "pred_a2": 0.0006351066090595856,
+        "obs_a2": 0.00023350525336960888,
+        "ratio_obs_over_pred": 0.3676630821325644,
+        "within_factor_3": true
+      },
+      {
+        "w": 9,
+        "pred_a2": 0.0005018126293804133,
+        "obs_a2": 0.0003831396096696453,
+        "ratio_obs_over_pred": 0.763511293334141,
+        "within_factor_3": true
+      },
+      {
+        "w": 10,
+        "pred_a2": 0.0004064682297981348,
+        "obs_a2": 0.000297958829129735,
+        "ratio_obs_over_pred": 0.7330433408724488,
+        "within_factor_3": true
+      },
+      {
+        "w": 11,
+        "pred_a2": 0.00033592415685796263,
+        "obs_a2": 0.0003779715454826746,
+        "ratio_obs_over_pred": 1.1251692912412092,
+        "within_factor_3": true
+      },
+      {
+        "w": 12,
+        "pred_a2": 0.00028226960402648245,
+        "obs_a2": 0.00030494204101463125,
+        "ratio_obs_over_pred": 1.0803219215414412,
+        "within_factor_3": true
+      }
+    ],
+    "n_pass": 5,
+    "n_total": 5,
+    "min_pass_required": 4,
+    "pass": true
+  },
+  "out_of_regime": {
+    "rows": [
+      {
+        "w": 1,
+        "pred_a2": 0.04064682297981348,
+        "obs_a2": 0.06708301365375519,
+        "under_predicts": true
+      },
+      {
+        "w": 2,
+        "pred_a2": 0.01016170574495337,
+        "obs_a2": 0.04818632215261459,
+        "under_predicts": true
+      },
+      {
+        "w": 3,
+        "pred_a2": 0.004516313664423719,
+        "obs_a2": 0.04532693088054657,
+        "under_predicts": true
+      }
+    ],
+    "note": "under-prediction here is EXPECTED and ACCEPTABLE (spec \u00a73.3/\u00a73.5) -- the conservative, non-disruptive direction, never a falsifier"
+  },
+  "falsified": false
+}

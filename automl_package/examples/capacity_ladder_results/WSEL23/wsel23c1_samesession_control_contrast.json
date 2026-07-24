@@ -1,0 +1,131 @@
+{
+ "what": "WSEL-23 candidate-1 SAME-SESSION weighted-vs-unweighted-control contrast (w_max=12, ALL schedule, hetero tier1, seeds 0/1/2). Added as the flip_attempt resolving the cross-session confound in the spec 5.1 bar (WSEL-8 dedicated denominator sits ~10x off this session's held_out metric for BOTH arms).",
+ "weighted_all_widths_trustworthy_per_seed": [
+  true,
+  false,
+  true
+ ],
+ "control_all_widths_trustworthy_per_seed": [
+  true,
+  true,
+  true
+ ],
+ "per_width": [
+  {
+   "width": 1,
+   "hard_curve_weighted": 0.137957,
+   "hard_curve_control": 0.135749,
+   "hard_curve_control_over_weighted": 0.984,
+   "held_out_weighted": 0.882844,
+   "held_out_control": 0.754267,
+   "held_out_control_over_weighted": 0.8544
+  },
+  {
+   "width": 2,
+   "hard_curve_weighted": 0.117695,
+   "hard_curve_control": 0.110547,
+   "hard_curve_control_over_weighted": 0.9393,
+   "held_out_weighted": 0.702848,
+   "held_out_control": 0.60776,
+   "held_out_control_over_weighted": 0.8647
+  },
+  {
+   "width": 3,
+   "hard_curve_weighted": 0.101886,
+   "hard_curve_control": 0.107591,
+   "hard_curve_control_over_weighted": 1.056,
+   "held_out_weighted": 0.601514,
+   "held_out_control": 0.588384,
+   "held_out_control_over_weighted": 0.9782
+  },
+  {
+   "width": 4,
+   "hard_curve_weighted": 0.009759,
+   "hard_curve_control": 0.032379,
+   "hard_curve_control_over_weighted": 3.3177,
+   "held_out_weighted": 0.098787,
+   "held_out_control": 0.175574,
+   "held_out_control_over_weighted": 1.7773
+  },
+  {
+   "width": 5,
+   "hard_curve_weighted": 0.004713,
+   "hard_curve_control": 0.009892,
+   "hard_curve_control_over_weighted": 2.099,
+   "held_out_weighted": 0.052753,
+   "held_out_control": 0.058548,
+   "held_out_control_over_weighted": 1.1099
+  },
+  {
+   "width": 6,
+   "hard_curve_weighted": 0.003665,
+   "hard_curve_control": 0.006859,
+   "hard_curve_control_over_weighted": 1.8716,
+   "held_out_weighted": 0.035126,
+   "held_out_control": 0.046669,
+   "held_out_control_over_weighted": 1.3286
+  },
+  {
+   "width": 7,
+   "hard_curve_weighted": 0.003073,
+   "hard_curve_control": 0.005559,
+   "hard_curve_control_over_weighted": 1.809,
+   "held_out_weighted": 0.030859,
+   "held_out_control": 0.040728,
+   "held_out_control_over_weighted": 1.3198
+  },
+  {
+   "width": 8,
+   "hard_curve_weighted": 0.002799,
+   "hard_curve_control": 0.00514,
+   "hard_curve_control_over_weighted": 1.8364,
+   "held_out_weighted": 0.029307,
+   "held_out_control": 0.039678,
+   "held_out_control_over_weighted": 1.3539
+  },
+  {
+   "width": 9,
+   "hard_curve_weighted": 0.002613,
+   "hard_curve_control": 0.003628,
+   "hard_curve_control_over_weighted": 1.3885,
+   "held_out_weighted": 0.028043,
+   "held_out_control": 0.034623,
+   "held_out_control_over_weighted": 1.2346
+  },
+  {
+   "width": 10,
+   "hard_curve_weighted": 0.002593,
+   "hard_curve_control": 0.003028,
+   "hard_curve_control_over_weighted": 1.1677,
+   "held_out_weighted": 0.027623,
+   "held_out_control": 0.030578,
+   "held_out_control_over_weighted": 1.107
+  },
+  {
+   "width": 11,
+   "hard_curve_weighted": 0.002606,
+   "hard_curve_control": 0.002925,
+   "hard_curve_control_over_weighted": 1.122,
+   "held_out_weighted": 0.027634,
+   "held_out_control": 0.028984,
+   "held_out_control_over_weighted": 1.0489
+  },
+  {
+   "width": 12,
+   "hard_curve_weighted": 0.002602,
+   "hard_curve_control": 0.002786,
+   "hard_curve_control_over_weighted": 1.0706,
+   "held_out_weighted": 0.027487,
+   "held_out_control": 0.028679,
+   "held_out_control_over_weighted": 1.0434
+  }
+ ],
+ "provenance": {
+  "generated_by": "scratchpad same-session contrast",
+  "weighted_summary": "w_kdropout_converged_summary_shared_trunk_weighted_n1500_s0.05_wsel23c1.json",
+  "control_summary": "w_kdropout_converged_summary_shared_trunk_mse_n1500_s0.05_wsel23c1.json"
+ },
+ "mid_width_premium_shrinks_hardcurve": true,
+ "mid_width_premium_shrinks_heldout": true,
+ "max_hardcurve_improvement_factor": 3.318
+}

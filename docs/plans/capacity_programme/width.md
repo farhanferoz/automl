@@ -1260,6 +1260,19 @@ scratchpad (`wsel20-partial-work.patch`) for the orchestration wave to reuse or 
 
 ### WSEL-21 — the d ≥ 8 training-protocol escalation — ✅ **ANSWERED 2026-07-23: d ≥ 8 is UNREACHABLE under the protocol family — all four rungs trained every width cleanly and NONE moved fit quality (17.97-18.99× the noise floor vs full-batch's 17.8×, bar 1.13×). The pre-registered failure branch IS the done-state: no grid re-run, FP-13 never fires, the report says protocol-limited-not-architecture-decided.**
 
+> ⚠️ **RE-SCOPED 2026-07-24 (user review) — "UNREACHABLE" is scoped to OPTIMIZER-KNOB escalation
+> ONLY; it is NOT a capacity/architecture verdict, and the recovery question ("can we recover the
+> width when the signal is buried among many irrelevant features?") is genuinely UNANSWERED and
+> REOPENABLE.** <!-- NEGATIVE-VERDICT: d>=8 scoped-unreachable, reopenable -->
+> flip_attempt: (MASTER Decision 38) (a) smallest change that would flip it — sweep per-width net
+> CAPACITY and training-set SIZE; NEVER RUN (the ladder moved only the optimizer axis). (b)
+> contradicting number already in the record — the F6 data-lever probe pulled `d8_oblique` from the
+> 17.8× class to 2.553 (~7× improvement) in ONE step, filed as a footnote <!-- numcheck-ignore: ~7× data-lever readback; authoritative source is the WSEL-21 escalation ledger cited in the block below -->. (c) artifact-vs-phenomenon
+> — the failing cell is d8 **AXIS** (signal on input coordinate 1, H=I, NO rotation), so the failure
+> is NOT direction-finding; it is a small net + plain MSE + limited data unable to suppress 7 large
+> irrelevant inputs — a capacity/data artifact, not an architecture verdict. REOPEN as a cheap
+> capacity+data diagnostic on the d8-AXIS cell (per-width net width/depth × n_train), NOT more
+> optimizer knobs. Out of the 2026-07-24 autonomous window (training-settle scope, MASTER Decision 37).
 > ✅ **LADDER COMPLETE 2026-07-23 (root-run, 4 rungs on the designated calibration cell; ledger
 > `automl_package/examples/capacity_ladder_results/WSEL19/wsel21_escalation_ledger.json`).**
 > Per-rung fit ratio vs the pinned 1.128 anchor (full-batch baseline 17.835): mini-batch 128 → 18.086 · mini-batch 32 → 18.990 · +cosine decay (the §9-amended T_max, ENGAGED this time) → 18.924 · +patience ×3 → 17.973. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL19/wsel21_escalation_ledger.json` (`rungs[].ratio_to_noise_floor`) -->
@@ -1332,6 +1345,24 @@ under re-aggregation; every rung's verdict a ledger field, not prose.
 
 ### WSEL-22 — an OBJECTIVE labelling tolerance — ✅ **(a) DONE 2026-07-23: the flat 0.25 is now MEASURED — no recorded verdict flips unconditionally; the constant-router headline is tolerance-robust everywhere; secondary findings wobble at the extremes, oblique worst. (b) EVALUATED 2026-07-23: NOT ADOPTED — the σ-anchored band failed the win-only oracle gate at all five confidence levels; flat 0.25 stays the default, now measured against a principled alternative. (c) stays DORMANT. One root-grade catch: the REAL yacht per-input question is unanswerable from cache.**
 
+> ⚠️ **FLAT 0.25 REJECTED 2026-07-24 (user: "Flat 25% is stupid... 25% of what? Likelihood, MSE,
+> cross-entropy. Not justified").** <!-- NEGATIVE-VERDICT: flat-0.25 band retired -->
+> The σ-anchored replacement stays NOT ADOPTED, but the flat 0.25 default does NOT stand either —
+> the band question is REOPENED. New design (to validate, not yet built): a per-input PAIRED
+> distinguishability test — width w is "tied" with the best iff the difference in their per-input
+> held-out losses is within ~2·SE of zero — in the MODEL'S OWN loss (its training AND evaluation
+> metric: squared error for the width nets, likelihood for ProbReg; per-sample-decomposable so the
+> SE is defined); the accuracy-vs-compute preference stays in the objective knob (MASTER Decision 36),
+> NOT in the band. Pre-agreed FALLBACK if it fails: the target where the out-of-sample per-width loss
+> is best, NO threshold (user, 2026-07-24). Design risk flagged: one test point = one measurement, so
+> the SE test must operate over GROUPS/strata of comparable inputs or it degenerates to the failed
+> σ-anchored band; if no clean grouping exists, the threshold-free target may be primary.
+> flip_attempt: (Decision 38, inherited default) justified in terms of WHAT? — a relative % band on
+> an unnamed error metric, neither scale/metric-portable nor magnitude-justified; that is why it is
+> retired. **BAND EXPERIMENTS DE-QUEUED until training settles (MASTER Decision 37).** Related:
+> the THRESHOLD-FREE BLEND (user ruling b′; blend = pure function of out-of-sample per-width values,
+> no threshold) is a NEW task, also built AFTER training settles; the bake-off's blend verdict is
+> scoped to the flawed thresholded-label construction and is provisional (MASTER Decision 37).
 > ✅ **(a) HARVESTED 2026-07-23 (worker-run; root re-verified: ruff clean, selftest PASS, and the
 > headline re-derived from the ledger directly — all 9 constant-router-control findings hold at
 > ALL four tolerances; 15 of 45 tracked findings differ from the 0.25 grading somewhere, always
@@ -1475,7 +1506,48 @@ results dir); (b) blocked on its spec · tier: sonnet high · scale: static · s
 verify: plan gates green; (a)'s verdict-stability table lands as ledger fields with
 per-tolerance leaves, and the report's router section cites it wherever the 0.25 appears.
 
-### WSEL-23 — EXHAUST THE ARCHITECTURE before any negative replacement verdict — 🗓 **SCHEDULED (user ruling, 2026-07-23 joint review: "This is an exercise in inventing a new architecture... we need to exhaust every possibility of improving the architecture... before we report a negative result")**
+### WSEL-23 — EXHAUST THE ARCHITECTURE before any negative replacement verdict — 🔬 **CANDIDATE 1 EVALUATED 2026-07-24 (root, autonomous): derived per-width weighting CONFIRMS its pre-registered mid-width premium-shrink on same-session controls; the absolute §5.1 closure DOES NOT close but is CONFOUNDED (cross-session denominator) so a formal closure is DEFERRED, not negative; the gradient-domination premise is REFUTED (effect real, mechanism-story unsupported). Candidates 2-4 not built.**
+
+> ✅ **CANDIDATE 1 — derived per-width weighting — EVALUATED 2026-07-24 (root-run, autonomous
+> window; this is the "settle training first" step, MASTER Decision 37).** Ledgers:
+> `automl_package/examples/capacity_ladder_results/WSEL23/wsel23c1_summary.json` (diagnostic +
+> §3.5 probe + §5.1 closure), `automl_package/examples/capacity_ladder_results/WSEL23/wsel23c1_samesession_control_contrast.json`
+> (the flip_attempt — same-session unweighted w_max=12 control),
+> `automl_package/examples/capacity_ladder_results/WSEL23/validation_report.json` (a²-law form).
+> - **What holds (pre-registered + same-session controlled):** (a) the a²(w) law validates
+>   5/5 held-out widths; (b) the weighted arm converges to the noise floor (fit ratio_to_floor
+>   0.971 / 1.026 / 1.126, all pass — seed 1 flagged still-improving/not-trustworthy, seeds 0+2 <!-- numcheck-ignore: fit ratio_to_floor readback from wsel23c1_summary.json / the arm summaries -->
+
+>   trustworthy and carry the effect); (c) the w_max'=6 generalization probe passes — premium
+>   shrinks at every width vs its unweighted control; (d) the SAME-SESSION w_max=12 unweighted
+>   control (run as the flip_attempt) shows weighting improves mid widths on BOTH the noise-free
+>   curve (w4 3.32×, w5-8 ≈1.8-2.1×) and the held_out metric (w4-8 ≈1.1-1.8×). Narrow widths 1-2
+>   slightly worse — the intended discount. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL23/wsel23c1_samesession_control_contrast.json` -->
+> - **flip_attempt: why the naive summarize "all_widths_close=False" is NOT a negative (MASTER
+>   Decision 38).** (a) smallest change that would flip it — a SAME-SESSION baseline instead of
+>   WSEL-8's cross-session dedicated nets: RUN, and it flips the reading (the shrink appears on
+>   every same-session contrast). (b) contradicting number already in hand — the weighted arm's
+>   NOISE-FREE curve fit at w12 (0.0024) already reaches dedicated quality; only the noisy
+>   `held_out_mse_by_width` reads ~10× high. (c) artifact-vs-phenomenon — the same-session
+>   unweighted control shows the IDENTICAL ~10× offset vs the dedicated nets, so the ~10× is a
+>   scale/metric confound affecting weighted and control alike, NOT a weighting effect. The
+>   §5.1 bar as specified (cross-session dedicated denominator) cannot close for EITHER arm on
+>   this session's numbers and is quarantined pending (1) below.
+> - **Open before a FORMAL closure verdict (deferred to the user's review):** (1) re-run §5.1
+>   against SAME-SESSION dedicated single-width nets (12×3 small cells) to remove the cross-session
+>   denominator; (2) `held_out_mse_by_width` reads ~10× the noise-free curve fit AND the noise
+>   floor even for a net that fits the curve to the floor — the metric's definition needs a look
+>   before it grounds any absolute bar; (3) the diagnostic REFUTED the gradient-domination premise
+>   on both arches (shared_trunk init 0.134 / mid 0.233; nested init 0.159 / mid 0.350; neither <!-- numcheck-ignore: diagnostic gradient-share readback from wsel23c1_summary.json -->
+
+>   beyond 0.25+2·SE), so the effect is real but the mechanism story is recorded WEAKENED, per §2.4.
+> - **Companion:** DROPPED — diagnostic refuted (pre-registered §2.4 branch, full both-checkpoint
+>   lever-space spent; no nested weighted cell run).
+> - **Ladder status:** candidate 1 is a REAL mid-width training improvement, so the
+>   exhaust-before-negative ladder does NOT advance to candidate 2 on a negative — it pauses at
+>   "candidate 1 improves mid-width fit; formal closure pending the same-session dedicated
+>   baseline". Per MASTER Decision 37 the SELECTION consequences (does the shrink help routing)
+>   wait until training settles — which this advances; all prior selection results stay provisional.
 
 **Why.** WSEL-8's both-halves FAIL is a verdict on the CURRENT architecture instance (nested
 prefixes on one shared trunk, uniform joint loss), not on the programme goal. The user ruled the

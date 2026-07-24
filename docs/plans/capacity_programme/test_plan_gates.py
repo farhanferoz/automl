@@ -178,3 +178,53 @@ def test_baseline_shrink_only() -> None:
         elif any(_resolve(entry, pf) for pf, ref, _ln in _collect() if ref == entry):
             stale.append(f"{entry} (now exists -- remove from baseline)")
     assert not stale, "Baseline entries to remove (shrink-only):\n  " + "\n  ".join(sorted(set(stale)))
+
+
+# ---------------------------------------------------------------------------
+# NEGATIVE-VERDICT gate (MASTER Decision 38). A recorded failure / unreachable /
+# not-adopted verdict marked with the explicit `<!-- NEGATIVE-VERDICT -->` HTML
+# comment must carry a `flip_attempt:` field in the same block -- the smallest
+# change that would flip it, any contradicting number already on record, whether
+# it is a setup artifact, and (for an inherited default) justified in terms of
+# what. Marker-based on purpose: forward-looking, zero false positives (a
+# backticked mention like `NEGATIVE-VERDICT` in prose is NOT the `<!-- ... -->`
+# marker and does not trip the gate).
+# ---------------------------------------------------------------------------
+
+_NEG_MARKER = "<!-- NEGATIVE-VERDICT"
+_FLIP_FIELD = "flip_attempt:"
+_HEADER = re.compile(r"^#{2,4} ")
+
+
+def _block_has_token(lines: list[str], idx: int, token: str, radius: int = 40) -> bool:
+    """True iff `token` is in idx's block (bounded by nearest ##-#### headers, capped at +/- radius)."""
+    lo, hi = max(0, idx - radius), min(len(lines), idx + radius + 1)
+    start = lo
+    for j in range(idx, lo - 1, -1):
+        if _HEADER.match(lines[j]):
+            start = j
+            break
+    end = hi
+    for j in range(idx + 1, hi):
+        if _HEADER.match(lines[j]):
+            end = j
+            break
+    return any(token in lines[j] for j in range(start, end))
+
+
+def test_negative_verdicts_carry_flip_attempt() -> None:
+    """MASTER Decision 38: every `<!-- NEGATIVE-VERDICT -->` marker needs an in-block flip_attempt:."""
+    bad = []
+    for pf in _plan_files():
+        with open(pf, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        for i, raw in enumerate(lines):
+            if _NEG_MARKER not in raw or _IGNORE in raw:
+                continue
+            if not _block_has_token(lines, i, _FLIP_FIELD):
+                bad.append(f"{os.path.relpath(pf, PLAN_DIR)}:{i + 1}")
+    assert not bad, (
+        "NEGATIVE-VERDICT markers with no flip_attempt: in the same block "
+        "(MASTER Decision 38 -- name the smallest change that would flip it and why the "
+        "lever-space is spent):\n  " + "\n  ".join(bad)
+    )
