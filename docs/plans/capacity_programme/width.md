@@ -1506,7 +1506,7 @@ results dir); (b) blocked on its spec · tier: sonnet high · scale: static · s
 verify: plan gates green; (a)'s verdict-stability table lands as ledger fields with
 per-tolerance leaves, and the report's router section cites it wherever the 0.25 appears.
 
-### WSEL-23 — EXHAUST THE ARCHITECTURE before any negative replacement verdict — 🔬 **CANDIDATE 1 EVALUATED 2026-07-24 (root, autonomous): derived per-width weighting CONFIRMS its pre-registered mid-width premium-shrink on same-session controls; the absolute §5.1 closure DOES NOT close but is CONFOUNDED (cross-session denominator) so a formal closure is DEFERRED, not negative; the gradient-domination premise is REFUTED (effect real, mechanism-story unsupported). Candidates 2-4 not built.**
+### WSEL-23 — EXHAUST THE ARCHITECTURE before any negative replacement verdict — 🔬 **CANDIDATE 1 EVALUATED 2026-07-24 (root, autonomous; adjudicator-verified): derived per-width weighting CONFIRMS its mid-width premium-shrink — in MATCHED UNITS the weighted multi-head joint reaches dedicated parity at wide widths (w8-12 ≈0.94-1.03×) and only 1.1-1.8× at mid widths (w4-6) vs WSEL-8's unweighted 1.5-7.2×. The raw summarize "~10× / does not close" is a NORMALIZED-vs-PHYSICAL UNITS BUG in the §5.1 bar (factor 1/sy²≈10.4), NOT a weighting failure or a cross-session effect. Gradient-domination premise REFUTED (effect real, mechanism-story unsupported). Candidates 2-4 not built.**
 
 > ✅ **CANDIDATE 1 — derived per-width weighting — EVALUATED 2026-07-24 (root-run, autonomous
 > window; this is the "settle training first" step, MASTER Decision 37).** Ledgers:
@@ -1516,38 +1516,43 @@ per-tolerance leaves, and the report's router section cites it wherever the 0.25
 > `automl_package/examples/capacity_ladder_results/WSEL23/validation_report.json` (a²-law form).
 > - **What holds (pre-registered + same-session controlled):** (a) the a²(w) law validates
 >   5/5 held-out widths; (b) the weighted arm converges to the noise floor (fit ratio_to_floor
->   0.971 / 1.026 / 1.126, all pass — seed 1 flagged still-improving/not-trustworthy, seeds 0+2 <!-- numcheck-ignore: fit ratio_to_floor readback from wsel23c1_summary.json / the arm summaries -->
-
->   trustworthy and carry the effect); (c) the w_max'=6 generalization probe passes — premium
+>   0.971 / 1.026 / 1.126, all pass — seed 1 flagged still-improving/not-trustworthy, seeds 0+2 trustworthy <!-- numcheck-ignore: fit ratio_to_floor readback from wsel23c1_summary.json / the arm summaries -->
+>   and carry the effect); (c) the w_max'=6 generalization probe passes — premium
 >   shrinks at every width vs its unweighted control; (d) the SAME-SESSION w_max=12 unweighted
->   control (run as the flip_attempt) shows weighting improves mid widths on BOTH the noise-free
->   curve (w4 3.32×, w5-8 ≈1.8-2.1×) and the held_out metric (w4-8 ≈1.1-1.8×). Narrow widths 1-2
->   slightly worse — the intended discount. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL23/wsel23c1_samesession_control_contrast.json` -->
+>   control (run as the flip_attempt) shows weighting lowers mid-width MSE on BOTH the noise-free
+>   curve AND the held_out metric across widths 5-8 — robust for all three seeds INDIVIDUALLY;
+>   widths 9-12 tie or slightly favour weighting; narrow widths 1-2 slightly worse (the intended
+>   discount). The w4 factor is seed-fragile (one bad control seed), so widths 5-8 are the robust
+>   claim, not w4. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL23/wsel23c1_samesession_control_contrast.json` -->
 > - **flip_attempt: why the naive summarize "all_widths_close=False" is NOT a negative (MASTER
->   Decision 38).** (a) smallest change that would flip it — a SAME-SESSION baseline instead of
->   WSEL-8's cross-session dedicated nets: RUN, and it flips the reading (the shrink appears on
->   every same-session contrast). (b) contradicting number already in hand — the weighted arm's
->   NOISE-FREE curve fit at w12 (0.0024) already reaches dedicated quality; only the noisy
->   `held_out_mse_by_width` reads ~10× high. (c) artifact-vs-phenomenon — the same-session
->   unweighted control shows the IDENTICAL ~10× offset vs the dedicated nets, so the ~10× is a
->   scale/metric confound affecting weighted and control alike, NOT a weighting effect. The
->   §5.1 bar as specified (cross-session dedicated denominator) cannot close for EITHER arm on
->   this session's numbers and is quarantined pending (1) below.
-> - **Open before a FORMAL closure verdict (deferred to the user's review):** (1) re-run §5.1
->   against SAME-SESSION dedicated single-width nets (12×3 small cells) to remove the cross-session
->   denominator; (2) `held_out_mse_by_width` reads ~10× the noise-free curve fit AND the noise
->   floor even for a net that fits the curve to the floor — the metric's definition needs a look
->   before it grounds any absolute bar; (3) the diagnostic REFUTED the gradient-domination premise
->   on both arches (shared_trunk init 0.134 / mid 0.233; nested init 0.159 / mid 0.350; neither <!-- numcheck-ignore: diagnostic gradient-share readback from wsel23c1_summary.json -->
-
->   beyond 0.25+2·SE), so the effect is real but the mechanism story is recorded WEAKENED, per §2.4.
+>   Decision 38; adjudicator-verified + root-recomputed).** (a) smallest change that would flip it —
+>   convert to MATCHED UNITS: `held_out_mse_by_width` is in STANDARDISED target units (÷ sy², mean
+>   sy≈0.310), the dedicated denominator is PHYSICAL, so the raw ratio carries a spurious <!-- numcheck-ignore: sy readback from the arm summaries' norm field, recomputed in wsel23c1_samesession_control_contrast.json -->
+>   1/sy²≈10.4 factor. Multiplying the weighted joint held_out by sy² gives ratio-to-dedicated
+>   0.94-1.03 at w8-12 and 1.13-1.79 at w4-6 — the closure is essentially MET at wide widths and the
+>   mid-width premium SHRINKS from WSEL-8's unweighted 1.5-7.2× to ~1.1-1.8×. (b) contradicting
+>   number already in hand — the weighted arm's NOISE-FREE curve fit at w12 (0.0024) already reaches
+>   dedicated quality; only the standardised-unit metric read ~10× high. (c) artifact-vs-phenomenon —
+>   the same-session unweighted control shows the IDENTICAL 1/sy² offset (arithmetic, in BOTH arms),
+>   so it is a UNITS BUG in the §5.1 bar (normalised numerator vs physical denominator), NOT a
+>   weighting effect and NOT a cross-session floor. Recording the raw "does not close" would have been
+>   a FALSE NEGATIVE. <!-- source: `automl_package/examples/capacity_ladder_results/WSEL23/wsel23c1_samesession_control_contrast.json` -->
+> - **The real fix to §5.1 (NOT deferral to new nets):** the bar must compare MATCHED units —
+>   re-running same-session dedicated nets does NOT help (that protocol's cells are physical too, so
+>   the raw bar still reads ~10×); the driver's `held_out_mse_by_width` must be de-normalised (or the
+>   dedicated denominator normalised) before it grounds any absolute bar. In matched units the
+>   shared_trunk closure is largely answerable NOW (above). Remaining open: (1) the nested-arch
+>   closure is `not_yet_run`; (2) the diagnostic REFUTED the gradient-domination premise on both
+>   arches (shared_trunk init 0.134 / mid 0.233; nested init 0.159 / mid 0.350; neither beyond <!-- numcheck-ignore: diagnostic gradient-share readback from wsel23c1_summary.json -->
+>   0.25+2·SE), so the effect is real but the mechanism story is recorded WEAKENED, per §2.4.
 > - **Companion:** DROPPED — diagnostic refuted (pre-registered §2.4 branch, full both-checkpoint
 >   lever-space spent; no nested weighted cell run).
-> - **Ladder status:** candidate 1 is a REAL mid-width training improvement, so the
->   exhaust-before-negative ladder does NOT advance to candidate 2 on a negative — it pauses at
->   "candidate 1 improves mid-width fit; formal closure pending the same-session dedicated
->   baseline". Per MASTER Decision 37 the SELECTION consequences (does the shrink help routing)
->   wait until training settles — which this advances; all prior selection results stay provisional.
+> - **Ladder status:** candidate 1 is a REAL, adjudicator-verified mid-width training improvement
+>   (dedicated parity at wide widths in matched units; premium shrunk to ~1.1-1.8× at mid widths), so
+>   the exhaust-before-negative ladder does NOT advance to candidate 2. To FORMALISE: fix the §5.1
+>   bar's units bug and run the nested-arch closure. Per MASTER Decision 37 the SELECTION consequences
+>   (does the shrink help routing) wait until training settles — which this advances; all prior
+>   selection results stay provisional.
 
 **Why.** WSEL-8's both-halves FAIL is a verdict on the CURRENT architecture instance (nested
 prefixes on one shared trunk, uniform joint loss), not on the programme goal. The user ruled the

@@ -127,5 +127,98 @@
  },
  "mid_width_premium_shrinks_hardcurve": true,
  "mid_width_premium_shrinks_heldout": true,
- "max_hardcurve_improvement_factor": 3.318
+ "max_hardcurve_improvement_factor": 3.318,
+ "units_correction_2026_07_24": {
+  "finding": "The naive summarize ~10x ratio is a NORMALIZED-vs-PHYSICAL units mismatch, NOT a cross-session/session-floor effect (adjudicator-caught, root-verified). held_out_mse_by_width is in STANDARDIZED target units (divided by sy^2); the dedicated/WSEL8 denominator is PHYSICAL. factor = 1/sy^2.",
+  "mean_sy": 0.3094,
+  "one_over_sy2": 10.448,
+  "matched_units_closure": [
+   {
+    "width": 1,
+    "weighted_joint_physical_mse": 0.084578,
+    "dedicated_mse": 0.069583,
+    "matched_ratio_weighted_over_dedicated": 1.215,
+    "wsel8_unweighted_joint_premium": 1.081
+   },
+   {
+    "width": 2,
+    "weighted_joint_physical_mse": 0.067271,
+    "dedicated_mse": 0.050686,
+    "matched_ratio_weighted_over_dedicated": 1.327,
+    "wsel8_unweighted_joint_premium": 1.159
+   },
+   {
+    "width": 3,
+    "weighted_joint_physical_mse": 0.057512,
+    "dedicated_mse": 0.047827,
+    "matched_ratio_weighted_over_dedicated": 1.202,
+    "wsel8_unweighted_joint_premium": 0.997
+   },
+   {
+    "width": 4,
+    "weighted_joint_physical_mse": 0.00948,
+    "dedicated_mse": 0.005291,
+    "matched_ratio_weighted_over_dedicated": 1.792,
+    "wsel8_unweighted_joint_premium": 7.207
+   },
+   {
+    "width": 5,
+    "weighted_joint_physical_mse": 0.005059,
+    "dedicated_mse": 0.004395,
+    "matched_ratio_weighted_over_dedicated": 1.151,
+    "wsel8_unweighted_joint_premium": 2.932
+   },
+   {
+    "width": 6,
+    "weighted_joint_physical_mse": 0.003358,
+    "dedicated_mse": 0.002983,
+    "matched_ratio_weighted_over_dedicated": 1.126,
+    "wsel8_unweighted_joint_premium": 3.268
+   },
+   {
+    "width": 7,
+    "weighted_joint_physical_mse": 0.002951,
+    "dedicated_mse": 0.002915,
+    "matched_ratio_weighted_over_dedicated": 1.013,
+    "wsel8_unweighted_joint_premium": 2.641
+   },
+   {
+    "width": 8,
+    "weighted_joint_physical_mse": 0.002802,
+    "dedicated_mse": 0.002734,
+    "matched_ratio_weighted_over_dedicated": 1.025,
+    "wsel8_unweighted_joint_premium": 2.638
+   },
+   {
+    "width": 9,
+    "weighted_joint_physical_mse": 0.002681,
+    "dedicated_mse": 0.002883,
+    "matched_ratio_weighted_over_dedicated": 0.93,
+    "wsel8_unweighted_joint_premium": 1.751
+   },
+   {
+    "width": 10,
+    "weighted_joint_physical_mse": 0.002641,
+    "dedicated_mse": 0.002798,
+    "matched_ratio_weighted_over_dedicated": 0.944,
+    "wsel8_unweighted_joint_premium": 1.68
+   },
+   {
+    "width": 11,
+    "weighted_joint_physical_mse": 0.002642,
+    "dedicated_mse": 0.002878,
+    "matched_ratio_weighted_over_dedicated": 0.918,
+    "wsel8_unweighted_joint_premium": 1.571
+   },
+   {
+    "width": 12,
+    "weighted_joint_physical_mse": 0.002628,
+    "dedicated_mse": 0.002805,
+    "matched_ratio_weighted_over_dedicated": 0.937,
+    "wsel8_unweighted_joint_premium": 1.486
+   }
+  ],
+  "interpretation": "In matched physical units the weighted multi-head joint net reaches dedicated parity at wide widths (w8-12 ratio 0.94-1.03) and carries only a 1.1-1.8x mid-width premium (w4-6) vs WSEL-8's unweighted 1.5-7.2x. The mid-width premium SHRINKS substantially. The \u00a75.1 closure bar as coded compares a normalized numerator to a physical denominator (a units bug); the fix is matched units, NOT new same-session dedicated nets (those are physical too).",
+  "w4_caveat": "The w4 improvement factor is seed-fragile (control seed0 w4 is a bad fit); the robust mid-width win is widths 5-8, positive on both metrics for all three seeds individually. Do not headline w4."
+ }
 }
