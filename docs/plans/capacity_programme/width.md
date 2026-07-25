@@ -1981,6 +1981,76 @@ MEASUREMENT FIRST, then close the training recipe. No further mechanism design u
   toy (`hetero3`), which currently has none, so a profile can be computed there at all.
   **Done-state:** per-width joint÷dedicated ratios with per-seed spreads on two toys, ≥10 seeds.
   **Failure branch is a done-state too:** if the hump does not survive 10 seeds, that IS the answer.
+  - ✅ **Step 1a (`hetero`, both sides at ten seeds) LANDED 2026-07-25** — the profile block above.
+  - **Step 1b (second toy) — WHICH DENOMINATOR IS ITSELF A DECISION, and it is settled by
+    MEASUREMENT, not assertion (root, 2026-07-25).** Two candidate no-sharing denominators exist:
+    (A) the WSEL-8 dedicated nets, which is what this step originally named — but `width_wsel8.py`
+    is hard-wired to `hetero` (`TOY = nwn.Toy.HETERO`) AND tier 2 has no landed WSEL-4 reference for
+    its `--wsweep-control` gate AND §3.7 sanctions a DIFFERENT objective on tier 2 (fixed-sigma
+    weighted squared error) from the plain MSE the landed `hetero3` joint arms trained on, so porting
+    it opens three questions at once; (B) the harness's OWN `--arch independent`, which differs from
+    the joint arm in SHARING ALONE — same driver, same split, same schedule, same objective, and
+    per-width best-checkpoint restore (`_train_kdropout_to_convergence`: `Arch.INDEPENDENT` restores
+    each width's own best state, so an early-flattening width is not dragged by the shared stop rule).
+    **Gate that decides it, and it must run FIRST:** on `hetero`, where BOTH denominators exist, the
+    (B) control must reproduce the (A) profile within the same 2·SE rule this task uses everywhere.
+    Passes → (B) is a certified stand-in and step 1b runs in the harness with no driver port. Fails →
+    the disagreement is itself a finding about harness/stop-rule/carve differences, it is recorded,
+    and the `width_wsel8.py` port to `hetero3` is then required. **Neither branch may be assumed.**
+- **Step 1c — THE IN-SAMPLE (WEIGHT-SHARING) DISCRIMINATOR.** *(User's experiment, proposed
+  2026-07-25; root's refinement of the inference RATIFIED by the user the same day. Slotted here
+  2026-07-25 — it had been carried only as a resume-queue line and a prerequisite note in the OPEN
+  BUG block, with no arms, metric, done-state or failure branch, which is exactly what
+  "every approved run gets a plan slot at the moment of decision" forbids.)*
+  - **Origin, quoted so the refinement never silently replaces it (user, verbatim):** *"we should
+    also check the results on in sample. If in sample results agree for the multi network and the
+    single network cases for all the widths, that just tells us that the problem is coming from the
+    weight sharing."*
+  - **The ratified refinement:** BOTH outcomes implicate sharing, in OPPOSITE ways, so the test
+    discriminates WHICH sharing mechanism rather than WHETHER sharing is involved — which is strictly
+    more useful than the binary. (i) In-sample ALSO differs → the shared features cannot even fit the
+    training data → a capacity/optimisation limit → the remedy is per-width private capacity
+    (candidate 3, step 3). (ii) In-sample AGREES and only out-of-sample differs → the shared features
+    fit but generalise worse → the surprising branch, since sharing normally REGULARISES, and the
+    remedy is not more capacity.
+  - **⚠️ VOCABULARY, because two different axes are one word apart in this strand.** The user's
+    "single network" = the ONE jointly-trained net read at each width; "multi network" = separate
+    per-width nets sharing no parameters. That is the SHARING axis. It is NOT the
+    multi-head/single-head axis (per-width heads vs the cheap running-sum prefix), which is a READOUT
+    axis and orthogonal. Both of this step's arms are multi-HEAD.
+  - **Arms — single difference, no exceptions.** `--arch shared_trunk` vs `--arch independent`,
+    identical in `--toy`, `--n-train`, `--n-test`, `--sigma`, `--w-max`, `--loss mse`, seed set, and
+    `--schedule all` (**the driver default is `sandwich` and starves mid widths — diff the `config`
+    block of both arms before computing anything**).
+  - **Metric and the UNITS GUARD, which is the whole reason this step was blocked.** In-sample ratio
+    = per-width `train_mse_by_width_physical` (joint ÷ no-sharing); out-of-sample ratio = per-width
+    `test_mse_by_width`. **Both sides of any ratio must carry the SAME unit system**, and after the
+    OPEN BUG fix the field NAME states it — the pre-fix `train_mse_by_width` was STANDARDISED while
+    `test_mse_by_width` is PHYSICAL, and crossing them reproduces the `1/sy²` factor that withdrew the
+    2026-07-24 verdict. **An arm lacking the `_physical` field predates the fix and must be REFUSED,
+    never silently read through the old name.**
+  - **Done-state:** per-width in-sample AND out-of-sample ratios, same seed set, same arms, with
+    per-seed spreads and the breakthrough filter anchored on the BEST run per side (a median anchor
+    detects nothing on a ~50/50 split — the 2026-07-25 methodological catch).
+  - **Both failure branches are done-states:** if the in-sample ratios are unusable (breakthrough
+    failures on either side at a width) that width is reported as inconclusive rather than quoted; if
+    the arms disagree on any frozen config key the run is VOID, not re-graded.
+  - **Cost: no extra training.** These are the same arms step 1b already needs; the in-sample read is
+    an additional field on runs that must happen anyway.
+- **Step 1d — THE TWO-TRAINING-SIZE RUN.** *(Queued 2026-07-25 off the capacity result and the
+  width-4 coin flip; slotted here the same day — it, too, had been carried only as a resume-queue
+  line.)* Everything measured in this strand sits at ONE training size, so no claim about the
+  architecture can currently be separated from a claim about this data regime.
+  - **Why it is load-bearing, not a nice-to-have:** WSEL-21's capacity result and the width-4
+    breakthrough failures point at the SAME diagnosis from two independent directions — at
+    `n_train` 1500 this toy is data-starved exactly at its capability threshold. If the joint net only
+    reaches dedicated parity where data is plentiful — the regime in which dedicated nets are cheap
+    anyway — the replacement claim is materially weaker than the matched-width table makes it look.
+  - **Arms:** the step-1c pair (`shared_trunk`, `independent`) re-run at a SECOND `--n-train`, all
+    other frozen keys held. **Done-state:** does the per-width profile's mid hump grow, shrink, or
+    hold as training size rises? **Failure branch:** if the hump moves with data size, the deficit is
+    a data-regime property and step 3's private-capacity remedy is answering the wrong question —
+    record that and re-scope, do not build candidate 3 anyway.
 - **Step 2 — declare the training recipe on that evidence.** Root's pre-registered expectation,
   recorded now so it cannot be fitted afterwards: **the recipe is already settled and the answer is
   unglamorous — ALL schedule plus the landed fixes, NO weighting.** If step 1 confirms parity at the
