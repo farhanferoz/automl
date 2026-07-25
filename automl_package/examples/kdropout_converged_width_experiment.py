@@ -1017,8 +1017,9 @@ def main() -> None:
         "--a2-law-path",
         type=str,
         default=None,
-        help="Per-width weight artifact, read only when --loss weighted (default: "
-        "capacity_ladder_results/WSEL23_DATA_WEIGHTS/data_weight_table.json; run width_data_weights.py --pin first).",
+        help="Per-width weight artifact. REQUIRED when --loss weighted -- there is no default and the two former "
+        "defaults were deleted, not superseded (both derivations were circular; see width.md WSEL-23). Name a source "
+        "deliberately and be able to say where its weights came from.",
     )
     args = parser.parse_args()
 
