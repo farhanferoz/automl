@@ -894,10 +894,25 @@ def run_cell(
 
     net.eval()
     with torch.no_grad():
-        train_mse_by_width = {k: float(nwn._width_mse(net, k, x_tr_t, y_tr_t).item()) for k in range(1, w_max + 1)}
-        held_out_mse_by_width = {k: float(nwn._width_mse(net, k, x_val_t, y_val_t).item()) for k in range(1, w_max + 1)}
-    train_minus_heldout_gap_by_width = {k: train_mse_by_width[k] - held_out_mse_by_width[k] for k in range(1, w_max + 1)}
-    full_width_held_out_mse = held_out_mse_by_width[w_max]
+        train_mse_by_width_standardised = {k: float(nwn._width_mse(net, k, x_tr_t, y_tr_t).item()) for k in range(1, w_max + 1)}
+        held_out_mse_by_width_standardised = {k: float(nwn._width_mse(net, k, x_val_t, y_val_t).item()) for k in range(1, w_max + 1)}
+    # 2026-07-25 units-bug fix (docs/plans/capacity_programme/width.md "OPEN BUG ... MIX UNITS"): the
+    # pair above is scored in STANDARDISED (normalized-y) space, same trap as
+    # `kdropout_converged_width_experiment.run_case`'s `train_mse_by_width`/`held_out_mse_by_width`.
+    # PHYSICAL twins, via the SAME `_score_all_widths_mse` idiom `err2_te` below already uses;
+    # `x_p1[~val_mask]`/`x_p1[val_mask]` are the RAW train/val arrays this split was carved from
+    # at :800-804. The ambiguous no-unit-suffix names are retired outright rather than kept as an
+    # alias, so a stale reader fails loudly instead of silently mixing units again. The two DERIVED
+    # fields below (`train_minus_heldout_gap_by_width`, `full_width_held_out_mse`) keep their existing
+    # names -- both are internally consistent single-unit-system quantities with no physical sibling,
+    # so they carry no units ambiguity of their own (`capacity_ladder_results/WSEL16/*.py`, out of this
+    # task's write set, reads `full_width_held_out_mse` by this exact name from landed cells).
+    err2_train_physical = sw._score_all_widths_mse(net, norm, x_p1[~val_mask], y_p1[~val_mask], "cpu")
+    err2_held_out_physical = sw._score_all_widths_mse(net, norm, x_p1[val_mask], y_p1[val_mask], "cpu")
+    train_mse_by_width_physical = {k: float(err2_train_physical[:, k - 1].mean()) for k in range(1, w_max + 1)}
+    held_out_mse_by_width_physical = {k: float(err2_held_out_physical[:, k - 1].mean()) for k in range(1, w_max + 1)}
+    train_minus_heldout_gap_by_width = {k: train_mse_by_width_standardised[k] - held_out_mse_by_width_standardised[k] for k in range(1, w_max + 1)}
+    full_width_held_out_mse = held_out_mse_by_width_standardised[w_max]
 
     params_allocated = param_count(net, path_filter=LOGVAR_HEAD_PATH_SUBSTRING)
     params_effective = _params_effective(arm, w_max, params_allocated)
@@ -938,10 +953,15 @@ def run_cell(
         "hit_cap": hit_cap,
         "train_wall_clock_s": train_wall_clock_s,
         "steps_to_converge": steps_to_converge,
-        "train_mse_by_width": {str(k): v for k, v in train_mse_by_width.items()},
-        "held_out_mse_by_width": {str(k): v for k, v in held_out_mse_by_width.items()},
+        "train_mse_by_width_standardised": {str(k): v for k, v in train_mse_by_width_standardised.items()},
+        "train_mse_by_width_physical": {str(k): v for k, v in train_mse_by_width_physical.items()},
+        "held_out_mse_by_width_standardised": {str(k): v for k, v in held_out_mse_by_width_standardised.items()},
+        "held_out_mse_by_width_physical": {str(k): v for k, v in held_out_mse_by_width_physical.items()},
         "full_width_held_out_mse": full_width_held_out_mse,
         "train_minus_heldout_gap_by_width": {str(k): v for k, v in train_minus_heldout_gap_by_width.items()},
+        # 2026-07-25 units-bug fix: exposed so a units guard (physical == standardised * norm["sy"]**2)
+        # can be checked without re-deriving the standardisation from raw data (`--selftest` does this).
+        "norm": norm,
         "params_allocated": params_allocated,
         "params_effective": params_effective,
         "executed_flops_by_width": {str(k): v for k, v in executed_flops_by_width.items()},
@@ -1022,7 +1042,10 @@ def _arm_tier_block(cells: dict[int, dict], w_max: int) -> dict:
     fit_ratios = [c["fit_bar"]["ratio_to_floor"] for c in cells.values()]
     return {
         "n_cells_present": len(cells),
-        "held_out_mse_by_width_mean": _mean_by_width(cells, "held_out_mse_by_width", w_max),
+        # 2026-07-25 units-bug fix: STANDARDISED on purpose, reads the RENAMED per-cell field -- old
+        # landed cells (pre-rename) raise a loud `KeyError` here rather than silently re-mixing units
+        # (2026-07-25 "refuse rather than re-grade").
+        "held_out_mse_by_width_mean": _mean_by_width(cells, "held_out_mse_by_width_standardised", w_max),
         "full_width_held_out_mse_mean": _mean_scalar([c["full_width_held_out_mse"] for c in cells.values()]),
         "full_width_held_out_mse_by_seed": {str(s): c["full_width_held_out_mse"] for s, c in cells.items()},
         "train_wall_clock_s_mean": _mean_scalar([c["train_wall_clock_s"] for c in cells.values()]),
@@ -1048,8 +1071,11 @@ def _check_controls(per_cell: dict[Arm, dict[Tier, dict[int, dict]]]) -> dict:
 
     halt_a = None
     if a_joint_cells and b_heads_cells:
-        a_mean = _mean_by_width(a_joint_cells, "held_out_mse_by_width", W_MAX)
-        b_mean = _mean_by_width(b_heads_cells, "held_out_mse_by_width", W_MAX)
+        # 2026-07-25 units-bug fix: STANDARDISED on purpose -- this is a same-seed-set cross-arm ratio
+        # (`rel_gap_by_width` below); every arm at a fixed seed shares one `norm`, so the unit system
+        # cancels out. Reads the RENAMED per-cell field -- see `_arm_tier_block` above.
+        a_mean = _mean_by_width(a_joint_cells, "held_out_mse_by_width_standardised", W_MAX)
+        b_mean = _mean_by_width(b_heads_cells, "held_out_mse_by_width_standardised", W_MAX)
         rel_gap_by_width = {k: abs(a_mean[k] - b_mean[k]) / b_mean[k] for k in a_mean}
         a_joint_within_10pct_everywhere = all(gap <= _REL_TOL_10PCT for gap in rel_gap_by_width.values())
         halt_a = {
@@ -1276,8 +1302,11 @@ _SELFTEST_REQUIRED_KEYS = (
     "hit_cap",
     "train_wall_clock_s",
     "steps_to_converge",
-    "train_mse_by_width",
-    "held_out_mse_by_width",
+    "train_mse_by_width_standardised",
+    "train_mse_by_width_physical",
+    "held_out_mse_by_width_standardised",
+    "held_out_mse_by_width_physical",
+    "norm",
     "full_width_held_out_mse",
     "train_minus_heldout_gap_by_width",
     "params_allocated",
@@ -1309,10 +1338,22 @@ def run_selftest() -> bool:
             ordering_none_as_expected = (case["ordering_statistic"] is None) == (arm in _ORDERING_NONE_ARMS)
             roundtrip = json.loads(json.dumps(_jsonable(case)))
             roundtrip_ok = all(key in roundtrip for key in _SELFTEST_REQUIRED_KEYS)
-            combo_ok = keys_ok and conv_ok and ordering_none_as_expected and roundtrip_ok
+            # Units guard (2026-07-25 fix): physical MSE = standardised MSE * sy**2 EXACTLY -- the
+            # physical readout is the standardised one affine-rescaled by (sy, my), see
+            # `kdropout_converged_width_experiment.run_selftest`'s twin check for the derivation. 1e-3
+            # relative tolerance covers float32 accumulation differences between the two independently-
+            # computed code paths (`nwn._width_mse` vs `sw._score_all_widths_mse`).
+            sy2 = case["norm"]["sy"] ** 2
+            units_ok = all(
+                math.isclose(case["train_mse_by_width_physical"][str(k)], case["train_mse_by_width_standardised"][str(k)] * sy2, rel_tol=1e-3)
+                and math.isclose(case["held_out_mse_by_width_physical"][str(k)], case["held_out_mse_by_width_standardised"][str(k)] * sy2, rel_tol=1e-3)
+                for k in range(1, _SELFTEST_KW["w_max"] + 1)
+            )
+            combo_ok = keys_ok and conv_ok and ordering_none_as_expected and roundtrip_ok and units_ok
             print(
                 f"[wsel16 selftest] arm={arm.value} tier={tier.value} keys_present={keys_ok} convergence_recorded={conv_ok} "
-                f"ordering_None_as_expected={ordering_none_as_expected} json_roundtrip_ok={roundtrip_ok}  {'PASS' if combo_ok else 'FAIL'}"
+                f"ordering_None_as_expected={ordering_none_as_expected} json_roundtrip_ok={roundtrip_ok} "
+                f"units_check(physical == standardised*sy**2, rel_tol=1e-3)={units_ok}  {'PASS' if combo_ok else 'FAIL'}"
             )
             ok = ok and combo_ok
 

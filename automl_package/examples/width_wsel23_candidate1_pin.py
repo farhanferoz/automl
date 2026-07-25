@@ -368,10 +368,12 @@ def matched_width_closure(training_arm_summary: dict, wsel8_dir: str, affected_b
         seed = case["seed"]
         # SPLIT FIX (2026-07-25 ruling): the numerator MUST be `test_mse_by_width` -- physical units on
         # the disjoint `seed + 500` draw, matching the dedicated-net denominator exactly. The old
-        # `held_out_mse_by_width` numerator was the VALIDATION split, which drove early stopping and
-        # selected the restored checkpoint; dividing it by a clean test-set denominator biased every
-        # ratio downward, in precisely the direction that manufactures the parity result it was testing.
-        # Refuse rather than silently fall back: a landed arm predating the fix cannot be re-graded.
+        # `held_out_mse_by_width` numerator (renamed `held_out_mse_by_width_standardised` by the
+        # 2026-07-25 units-bug fix, `kdropout_converged_width_experiment.run_case`) was the VALIDATION
+        # split, which drove early stopping and selected the restored checkpoint; dividing it by a clean
+        # test-set denominator biased every ratio downward, in precisely the direction that manufactures
+        # the parity result it was testing. Refuse rather than silently fall back: a landed arm predating
+        # the fix cannot be re-graded.
         if "test_mse_by_width" not in case:
             raise KeyError(
                 f"seed {seed}: this arm predates the 2026-07-25 split fix and has no `test_mse_by_width`; "

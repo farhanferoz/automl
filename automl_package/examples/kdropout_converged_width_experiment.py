@@ -623,8 +623,20 @@ def run_case(
     # closed form in `w_max` alone, not read off `net`. Train/held-out MSE per width answer the
     # regularisation question (does bunching change the train-held_out gap) regardless of `--loss`.
     with torch.no_grad():
-        train_mse_by_width = {k: float(nwn._width_mse(net, k, x_tr_t, y_tr_t).item()) for k in range(1, w_max + 1)}
-        held_out_mse_by_width = {k: float(nwn._width_mse(net, k, x_val_t, y_val_t).item()) for k in range(1, w_max + 1)}
+        train_mse_by_width_standardised = {k: float(nwn._width_mse(net, k, x_tr_t, y_tr_t).item()) for k in range(1, w_max + 1)}
+        held_out_mse_by_width_standardised = {k: float(nwn._width_mse(net, k, x_val_t, y_val_t).item()) for k in range(1, w_max + 1)}
+    # 2026-07-25 units-bug fix (docs/plans/capacity_programme/width.md "OPEN BUG ... MIX UNITS"): the
+    # pair above is scored in STANDARDISED (normalized-y) space -- silently mixing units with
+    # `test_mse_by_width` below is the exact defect that produced the withdrawn ~10x 1/sy**2 verdict on
+    # 2026-07-24. PHYSICAL twins, via the SAME `_score_all_widths_mse` idiom `test_mse_by_width` uses
+    # (:702) so the unit conversion has one code path; `x_p1[~val_mask]`/`x_p1[val_mask]` are the RAW
+    # (pre-standardisation) train/val arrays this same split was carved from at :575-582. The ambiguous
+    # `*_by_width` names (no unit suffix) are retired outright rather than kept as an alias, so a stale
+    # reader fails loudly instead of silently mixing units again.
+    err2_train_physical = sw._score_all_widths_mse(net, norm, x_p1[~val_mask], y_p1[~val_mask], device)
+    err2_held_out_physical = sw._score_all_widths_mse(net, norm, x_p1[val_mask], y_p1[val_mask], device)
+    train_mse_by_width_physical = {k: float(err2_train_physical[:, k - 1].mean()) for k in range(1, w_max + 1)}
+    held_out_mse_by_width_physical = {k: float(err2_held_out_physical[:, k - 1].mean()) for k in range(1, w_max + 1)}
     case = {
         "seed": seed,
         "arch": arch.value,
@@ -651,12 +663,15 @@ def run_case(
         "params_allocated": param_count(net, path_filter=LOGVAR_HEAD_PATH_SUBSTRING),
         "params_effective": w_max * (w_max + 1) // 2,
         "executed_flops_by_width": {k: executed_flops(net, k) for k in range(1, w_max + 1)},
-        "train_mse_by_width": train_mse_by_width,
-        # NOT out-of-sample, despite the name: `x_val_t` is the SAME split that drove every width's
-        # ConvergenceTracker AND selected `best_net_state` (the whole-net checkpoint restored above),
-        # so the weights were chosen to minimise the mean of exactly this quantity. Kept for continuity
-        # with landed ledgers; any COMPARISON must use `test_mse_by_width` below (2026-07-25 ruling).
-        "held_out_mse_by_width": held_out_mse_by_width,
+        "train_mse_by_width_standardised": train_mse_by_width_standardised,
+        "train_mse_by_width_physical": train_mse_by_width_physical,
+        # NOT out-of-sample, despite the name: `x_val_t`/`x_p1[val_mask]` is the SAME split that drove
+        # every width's ConvergenceTracker AND selected `best_net_state` (the whole-net checkpoint
+        # restored above), so the weights were chosen to minimise the mean of exactly this quantity (in
+        # either unit system). Kept for continuity with landed ledgers; any COMPARISON must use
+        # `test_mse_by_width` below (2026-07-25 ruling).
+        "held_out_mse_by_width_standardised": held_out_mse_by_width_standardised,
+        "held_out_mse_by_width_physical": held_out_mse_by_width_physical,
         # WSEL-23 candidate 1 (additive only -- no key above this line changed): the per-width training
         # weight actually applied (None unless loss=weighted and a real table was supplied), recorded so
         # a landed cell is reproducible without re-reading whatever weight artifact happened to be on disk.
@@ -793,6 +808,26 @@ def run_selftest() -> bool:
             ok_flags = all(isinstance(conv[k]["converged"], bool) for k in range(1, 4))
             ok_bars = _selftest_bars_present(case, loss)
             combo_ok = ok_traj and ok_flags and isinstance(case["all_widths_trustworthy"], bool) and ok_bars
+            # Units guard (2026-07-25 fix): physical MSE = standardised MSE * sy**2 EXACTLY, since the
+            # physical readout is just the standardised one affine-rescaled by (sy, my) -- (y_phys -
+            # net_phys)**2 = sy**2 * (y_std - net_std)**2. Only present for MSE-family `loss` (NLL
+            # returns before `norm` is attached to `case`, :666-680). 1e-3 relative tolerance covers
+            # float32 accumulation differences between the two independently-computed code paths
+            # (`nwn._width_mse`'s `forward_width` vs `sw._score_all_widths_mse`'s `all_widths_forward`),
+            # not a loose fudge factor -- see `_selftest_masking_agreement` for the AFFINE_SEAM case
+            # where those two paths are checked directly.
+            if "norm" in case:
+                sy2 = case["norm"]["sy"] ** 2
+                units_ok = all(
+                    math.isclose(case["train_mse_by_width_physical"][k], case["train_mse_by_width_standardised"][k] * sy2, rel_tol=1e-3)
+                    and math.isclose(case["held_out_mse_by_width_physical"][k], case["held_out_mse_by_width_standardised"][k] * sy2, rel_tol=1e-3)
+                    for k in range(1, 4)
+                )
+                combo_ok = combo_ok and units_ok
+                print(
+                    f"[kdropout-converged selftest] arch={arch.value} loss={loss.value} "
+                    f"units_check(physical == standardised*sy**2, rel_tol=1e-3)={units_ok}  {'PASS' if units_ok else 'FAIL'}"
+                )
             print(
                 f"[kdropout-converged selftest] arch={arch.value} loss={loss.value} "
                 f"trajectories_recorded={ok_traj} flags_present={ok_flags} bars_present={ok_bars}  {'PASS' if combo_ok else 'FAIL'}"

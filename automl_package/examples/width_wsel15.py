@@ -49,6 +49,7 @@ import argparse
 import copy
 import enum
 import json
+import math
 import os
 import sys
 import time
@@ -63,6 +64,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(_EXAMPLES_DIR)))  # repo root
 import converged_width_experiment as cwe  # noqa: E402
 import kdropout_converged_width_experiment as kce  # noqa: E402
 import nested_width_net as nwn  # noqa: E402
+import sinc_width_experiment as sw  # noqa: E402
 import width_candidates as wc  # noqa: E402
 
 from automl_package.utils.capacity_accounting import executed_flops, param_count  # noqa: E402
@@ -271,8 +273,20 @@ def run_cell(
 
     net.eval()
     with torch.no_grad():
-        train_mse_by_width = {k: float(nwn._width_mse(net, k, x_tr_t, y_tr_t).item()) for k in range(1, w_max + 1)}
-        heldout_mse_by_width = {k: float(nwn._width_mse(net, k, x_te_t, y_te_t).item()) for k in range(1, w_max + 1)}
+        train_mse_by_width_standardised = {k: float(nwn._width_mse(net, k, x_tr_t, y_tr_t).item()) for k in range(1, w_max + 1)}
+        heldout_mse_by_width_standardised = {k: float(nwn._width_mse(net, k, x_te_t, y_te_t).item()) for k in range(1, w_max + 1)}
+    # 2026-07-25 units-bug fix (docs/plans/capacity_programme/width.md "OPEN BUG ... MIX UNITS"): the
+    # pair above is scored in STANDARDISED (normalized-y) space, same trap as
+    # `kdropout_converged_width_experiment.run_case`'s `train_mse_by_width`/`held_out_mse_by_width`
+    # (this driver's "heldout" is the TEST split `x_te, y_te`, not the phase-1 val carve -- still
+    # standardised either way). PHYSICAL twins, via the SAME `_score_all_widths_mse` idiom the primary
+    # driver's `test_mse_by_width` uses; `x_p1[~val_mask]` is the RAW train split, `x_te, y_te` the RAW
+    # test split already in scope above. The ambiguous no-unit-suffix names are retired outright rather
+    # than kept as an alias, so a stale reader fails loudly instead of silently mixing units again.
+    err2_train_physical = sw._score_all_widths_mse(net, norm, x_p1[~val_mask], y_p1[~val_mask], "cpu")
+    err2_heldout_physical = sw._score_all_widths_mse(net, norm, x_te, y_te, "cpu")
+    train_mse_by_width_physical = {k: float(err2_train_physical[:, k - 1].mean()) for k in range(1, w_max + 1)}
+    heldout_mse_by_width_physical = {k: float(err2_heldout_physical[:, k - 1].mean()) for k in range(1, w_max + 1)}
 
     executed_flops_by_width = {k: executed_flops(net, k) for k in range(1, w_max + 1)}
     params_allocated = param_count(net)
@@ -296,8 +310,13 @@ def run_cell(
         "params_allocated": params_allocated,
         "params_effective": params_effective,
         "executed_flops_by_width": {str(k): v for k, v in executed_flops_by_width.items()},
-        "train_mse_by_width": {str(k): v for k, v in train_mse_by_width.items()},
-        "heldout_mse_by_width": {str(k): v for k, v in heldout_mse_by_width.items()},
+        "train_mse_by_width_standardised": {str(k): v for k, v in train_mse_by_width_standardised.items()},
+        "train_mse_by_width_physical": {str(k): v for k, v in train_mse_by_width_physical.items()},
+        "heldout_mse_by_width_standardised": {str(k): v for k, v in heldout_mse_by_width_standardised.items()},
+        "heldout_mse_by_width_physical": {str(k): v for k, v in heldout_mse_by_width_physical.items()},
+        # 2026-07-25 units-bug fix: exposed so a units guard (physical == standardised * norm["sy"]**2)
+        # can be checked without re-deriving the standardisation from raw data (`--selftest` does this).
+        "norm": norm,
         "training_schedule": SCHEDULE.value,
         "provenance": run_provenance(),
     }
@@ -335,14 +354,29 @@ def run_selftest() -> bool:
 
     required_keys = (
         "train_wall_clock_s", "steps_to_converge", "params_allocated", "params_effective",
-        "executed_flops_by_width", "train_mse_by_width", "heldout_mse_by_width", "hit_cap",
+        "executed_flops_by_width", "train_mse_by_width_standardised", "train_mse_by_width_physical",
+        "heldout_mse_by_width_standardised", "heldout_mse_by_width_physical", "norm", "hit_cap",
     )
     for arm in Arm:
         case, _state = run_cell(arm, seed=0, w_max=4, n_train=200, n_test=100, max_epochs=1500, check_every=100, patience=3, min_delta=2e-3)
         keys_ok = all(key in case for key in required_keys)
         conv_ok = all(len(case["convergence"][k]["trajectory"]) >= 1 for k in range(1, 5)) and all(isinstance(case["convergence"][k]["converged"], bool) for k in range(1, 5))
-        combo_ok = keys_ok and conv_ok
-        print(f"[wsel15 selftest] arm={arm.value} cost_fields_present={keys_ok} convergence_trajectories={conv_ok}  {'PASS' if combo_ok else 'FAIL'}")
+        # Units guard (2026-07-25 fix): physical MSE = standardised MSE * sy**2 EXACTLY -- the physical
+        # readout is the standardised one affine-rescaled by (sy, my), see
+        # `kdropout_converged_width_experiment.run_selftest`'s twin check for the derivation. 1e-3
+        # relative tolerance covers float32 accumulation differences between the two independently-
+        # computed code paths (`nwn._width_mse` vs `sw._score_all_widths_mse`).
+        sy2 = case["norm"]["sy"] ** 2
+        units_ok = all(
+            math.isclose(case["train_mse_by_width_physical"][str(k)], case["train_mse_by_width_standardised"][str(k)] * sy2, rel_tol=1e-3)
+            and math.isclose(case["heldout_mse_by_width_physical"][str(k)], case["heldout_mse_by_width_standardised"][str(k)] * sy2, rel_tol=1e-3)
+            for k in range(1, 5)
+        )
+        combo_ok = keys_ok and conv_ok and units_ok
+        print(
+            f"[wsel15 selftest] arm={arm.value} cost_fields_present={keys_ok} convergence_trajectories={conv_ok} "
+            f"units_check(physical == standardised*sy**2, rel_tol=1e-3)={units_ok}  {'PASS' if combo_ok else 'FAIL'}"
+        )
         ok = ok and combo_ok
 
     print(f"[wsel15 selftest] {'PASS' if ok else 'FAIL'}")
@@ -369,8 +403,13 @@ def summarize() -> None:
         return {str(k): float(np.mean([c[field][str(k)] for c in cells.values()])) for k in range(1, w_max + 1)}
 
     w_max = W_MAX
-    per_arm_heldout_mse = {arm.value: _mean_by_width(per_arm[arm], "heldout_mse_by_width", w_max) for arm in Arm}
-    per_arm_train_mse = {arm.value: _mean_by_width(per_arm[arm], "train_mse_by_width", w_max) for arm in Arm}
+    # 2026-07-25 units-bug fix: STANDARDISED on purpose -- this bar is a same-seed, same-`norm`,
+    # cross-ARM ratio (`rel_gap_b_vs_a` below), and every arm at a fixed seed shares one `norm`
+    # (`nwn.make_hetero(n_train, seed, ...)` does not depend on `arm`), so the unit system cancels out
+    # of the ratio. Reads the RENAMED per-cell field -- old landed cells (pre-rename) raise a loud
+    # `KeyError` here rather than silently re-mixing units (2026-07-25 "refuse rather than re-grade").
+    per_arm_heldout_mse = {arm.value: _mean_by_width(per_arm[arm], "heldout_mse_by_width_standardised", w_max) for arm in Arm}
+    per_arm_train_mse = {arm.value: _mean_by_width(per_arm[arm], "train_mse_by_width_standardised", w_max) for arm in Arm}
     per_arm_flops = {arm.value: _mean_by_width(per_arm[arm], "executed_flops_by_width", w_max) for arm in Arm}
     per_arm_cost = {
         arm.value: {
@@ -422,8 +461,11 @@ def summarize() -> None:
     frozen = {
         "prefix_norm_exact": prefix_norm_exact,
         "prefix_norm_max_abs_err": prefix_norm_max_err,
-        "per_arm_heldout_mse_by_width": per_arm_heldout_mse,
-        "per_arm_train_mse_by_width": per_arm_train_mse,
+        # Unit suffix carried through to the AGGREGATE keys too (2026-07-25 units-bug fix): these hold
+        # absolute standardised means, not just the ratio the values are consumed for, so an unsuffixed
+        # name here would re-arm the same trap one level up. No external reader (grepped repo-wide).
+        "per_arm_heldout_mse_by_width_standardised": per_arm_heldout_mse,
+        "per_arm_train_mse_by_width_standardised": per_arm_train_mse,
         "per_arm_executed_flops_by_width": per_arm_flops,
         "per_arm_cost": per_arm_cost,
         "accuracy_bar": accuracy_bar,
