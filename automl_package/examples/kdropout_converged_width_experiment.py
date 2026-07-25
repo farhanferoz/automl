@@ -34,8 +34,8 @@ path bit-for-bit (no longer the CLI defaults -- pass both flags explicitly).
 WSEL-23 candidate 1 extension (`docs/plans/capacity_programme/shared/wsel23-candidate1-derived-weighting.md`):
 `--loss weighted` multiplies each width's MSE term by a frozen per-width weight `w_k = (sigma2 +
 a2(w_max)) / (sigma2 + a2(k))` before summing, where `a2(w) = A * w**-p` is the declared approximation-
-deficit law pinned by `width_wsel23_candidate1_pin.py --pin` into `--a2-law-path`'s `a2_law.json`
-(default `capacity_ladder_results/WSEL23/a2_law.json`). Scored with the SAME MSE-based bars as
+per-width weight table pinned by `width_data_weights.py --pin` into `--a2-law-path`'s artifact
+(default `capacity_ladder_results/WSEL23_DATA_WEIGHTS/data_weight_table.json`). Scored with the SAME MSE-based bars as
 `--loss mse` (the weighting changes only the training gradient, never the held-out scoring). Every
 existing NLL/MSE call site stays byte-identical: the weight threaded through `_width_loss`/
 `_loss_from_readout`/`_sampled_widths_total_loss` defaults to `1.0`, a no-op.
@@ -79,7 +79,10 @@ from automl_package.utils.run_provenance import run_provenance  # noqa: E402
 RESULTS_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "W_KDROPOUT_CONVERGED")
 # WSEL-23 candidate 1's frozen weight-law artifact (`width_wsel23_candidate1_pin.py --pin` writes it;
 # `--loss weighted` reads it) -- default location under that candidate's own results directory (§6).
-_WSEL23_A2_LAW_DEFAULT = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "WSEL23", "a2_law.json")
+# Default weight artifact for `--loss weighted`: the DATA-ONLY table (`width_data_weights.py --pin`).
+# The previous default (`WSEL23/a2_law.json`, pinned from the dedicated-net sweep) is deleted, not
+# merely superseded -- it made the closure circular (`width.md` WSEL-23 withdrawal block).
+_WSEL23_A2_LAW_DEFAULT = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "WSEL23_DATA_WEIGHTS", "data_weight_table.json")
 
 # Regime reused verbatim from the separate-training battery so the two summaries are directly comparable.
 SEEDS = cwe.SEEDS
@@ -124,7 +127,7 @@ class LossType(enum.Enum):
 
     NLL = "nll"  # Gaussian NLL, old default -- unchanged bit-for-bit.
     MSE = "mse"  # Mean squared error of the mean output; `logvar_head` untouched/unused.
-    WEIGHTED = "weighted"  # WSEL-23 candidate 1: MSE weighted by the frozen a2_law.json per-width table (weight=1.0 is a no-op, byte-identical to MSE).
+    WEIGHTED = "weighted"  # MSE weighted by the frozen per-width table (weight=1.0 is a no-op, byte-identical to MSE).
 
 
 def _weight_for(loss: LossType, weight_table: dict[int, float] | None, k: int) -> float:
@@ -207,7 +210,7 @@ def _sampled_widths_total_loss(
     reuse there, so it keeps the unchanged per-k loop.
 
     `weight_table` (WSEL-23 candidate 1, `width.md:1468-1487`) is the per-width training weight, `{k:
-    weight}` for `k` in `1..w_max`, read from a frozen `a2_law.json` (`a2_weight_table`). `None`
+    weight}` for `k` in `1..w_max`, read from a frozen artifact (`weight_table_from_artifact`). `None`
     (the default) or `loss is not LossType.WEIGHTED` -- every width weights `1.0`, a no-op.
     """
     if hasattr(net, "sampled_widths_forward"):
@@ -225,12 +228,31 @@ def _sampled_widths_total_loss(
 def a2_of_w(a2_law: dict, w: int) -> float:
     """Evaluates the frozen approximation-deficit law `a2(w) = A * w**-p` (WSEL-23 candidate 1 §3.2/§3.4).
 
-    `a2_law` is whatever `width_wsel23_candidate1_pin.py --pin` froze into `a2_law.json`: at minimum
+    `a2_law` is the LEGACY parametric form (historical reproduction only -- both its calibration
+    sources are binned, see `width.md` WSEL-23 withdrawal). New runs use `width_data_weights.py`'s
+    direct table via `weight_table_from_artifact`. At minimum
     `{"A": ..., "p": ..., "sigma2": ...}`. `A`/`p` are read from it, never re-derived here -- this
     module trains against the frozen law, it does not fit one (`width.md:1477-1478`: "instantiated
     once and FROZEN").
     """
     return float(a2_law["A"]) * float(w) ** (-float(a2_law["p"]))
+
+
+def weight_table_from_artifact(artifact: dict, w_max: int) -> dict[int, float]:
+    """Per-width training weights from either pin artifact form; the DIRECT table wins when present.
+
+    `width_data_weights.py` writes an explicit `{k: weight}` table estimated from data before any
+    training (the 2026-07-25 scheme). The older parametric `(A, p, sigma2)` form is re-derived through
+    `a2_weight_table` for historical reproduction only — no new run should produce one, since both of
+    its calibration sources are binned (`width.md` WSEL-23 withdrawal block).
+    """
+    if "weight_table" in artifact:
+        table = artifact["weight_table"]
+        missing = [k for k in range(1, w_max + 1) if str(k) not in table and k not in table]
+        if missing:
+            raise ValueError(f"pin artifact's weight_table covers {sorted(table)!r} but this run needs widths {missing} -- re-pin at --w-max {w_max}")
+        return {k: float(table[str(k)] if str(k) in table else table[k]) for k in range(1, w_max + 1)}
+    return a2_weight_table(artifact, w_max)
 
 
 def a2_weight_table(a2_law: dict, w_max: int) -> dict[int, float]:
@@ -258,15 +280,17 @@ def load_a2_law(path: str) -> dict:
     """
     if not os.path.isfile(path):
         raise FileNotFoundError(
-            f"--loss weighted requires a frozen a2_law.json at {path!r} (WSEL-23 candidate 1 §3.4) -- "
+            f"--loss weighted requires a frozen weight artifact at {path!r} -- "
             "run `width_wsel23_candidate1_pin.py --pin` first."
         )
     with open(path) as f:
-        a2_law = json.load(f)
-    missing = [key for key in ("A", "p", "sigma2") if key not in a2_law]
+        artifact = json.load(f)
+    if "weight_table" in artifact:  # the DATA-ONLY form (`width_data_weights.py --pin`) -- self-describing.
+        return artifact
+    missing = [key for key in ("A", "p", "sigma2") if key not in artifact]
     if missing:
-        raise ValueError(f"a2_law.json at {path!r} is missing required key(s) {missing}")
-    return a2_law
+        raise ValueError(f"weight artifact at {path!r} has neither a `weight_table` nor the legacy parametric key(s) {missing}")
+    return artifact
 
 
 def _resolve_a2_law_path(a2_law_path_arg: str | None) -> str:
@@ -442,6 +466,18 @@ def _train_kdropout_to_convergence(
     return {k: trackers[k].result(final_epoch=final_epoch) for k in range(1, w_max + 1)}, best_mean_val_epoch
 
 
+def _mean_val_trajectory(conv: dict[int, cvg.ConvergenceResult]) -> list[list[float]]:
+    """`[[epoch, mean-over-widths held-out loss], ...]` — the series the whole-net checkpoint is picked on.
+
+    Every width's tracker is `update()`d at every checkpoint (converged or not), so all trajectories share
+    one epoch grid and the mean is exact. Empty if any width recorded nothing.
+    """
+    trajectories = [result.trajectory for result in conv.values()]
+    if not trajectories or not all(trajectories) or len({len(t) for t in trajectories}) != 1:
+        return []
+    return [[float(trajectories[0][i][0]), sum(t[i][1] for t in trajectories) / len(trajectories)] for i in range(len(trajectories[0]))]
+
+
 def _validate_fused_heads(arch: Arch, schedule: nwn.WidthSchedule, *, fused_heads: bool) -> None:
     """WSEL-18 spec (3): hard error on `fused_heads=True` outside `Arch.SHARED_TRUNK` + `WidthSchedule.ALL`.
 
@@ -582,6 +618,13 @@ def run_case(
         "n_widths_trustworthy": n_trustworthy,
         "all_widths_trustworthy": n_trustworthy == w_max,
         "best_mean_val_epoch": best_mean_val_epoch,
+        # The series the shared-arch checkpoint is ACTUALLY selected on (mean over widths of the same
+        # per-width checkpoints, recorded at identical epochs, so this is exact, not a re-estimate).
+        # A per-width curve rising past its own best is EXPECTED under joint training -- the trunk
+        # specialises for wider widths -- but THIS one rising past its best is genuine overfitting of
+        # the joint model, and nothing surfaced it before (2026-07-25). Derived here rather than
+        # returned from `_train_kdropout_to_convergence`, whose 2-tuple contract five other drivers unpack.
+        "mean_val_trajectory": _mean_val_trajectory(conv),
         # WSEL-12 cost instrumentation (Step 3, additive only): per-seed training wall clock and the
         # (arch, schedule)-determined trunk-eval count per step, aggregated into summary["config"] by
         # `main()` (`docs/plans/capacity_programme/width.md` lines 1071-1074).
@@ -593,10 +636,14 @@ def run_case(
         "params_effective": w_max * (w_max + 1) // 2,
         "executed_flops_by_width": {k: executed_flops(net, k) for k in range(1, w_max + 1)},
         "train_mse_by_width": train_mse_by_width,
+        # NOT out-of-sample, despite the name: `x_val_t` is the SAME split that drove every width's
+        # ConvergenceTracker AND selected `best_net_state` (the whole-net checkpoint restored above),
+        # so the weights were chosen to minimise the mean of exactly this quantity. Kept for continuity
+        # with landed ledgers; any COMPARISON must use `test_mse_by_width` below (2026-07-25 ruling).
         "held_out_mse_by_width": held_out_mse_by_width,
         # WSEL-23 candidate 1 (additive only -- no key above this line changed): the per-width training
         # weight actually applied (None unless loss=weighted and a real table was supplied), recorded so
-        # a landed cell is reproducible without re-reading whatever a2_law.json happened to be on disk.
+        # a landed cell is reproducible without re-reading whatever weight artifact happened to be on disk.
         "weight_table": weight_table,
     }
 
@@ -631,6 +678,12 @@ def run_case(
     err2_te = sw._score_all_widths_mse(net, norm, x_te, y_te, device)
     err2_by_width_te = {k: err2_te[:, k - 1] for k in range(1, w_max + 1)}
     # floor_hard computed above from `toy`/`sigma` (sigma**2 for HETERO; quiet HETERO_NOISE_SIGMA**2 for HETERO3).
+
+    # The only per-width quantity safe to compare against an external denominator: `x_te` is a disjoint
+    # draw (`seed + 500`) touched by neither training nor checkpoint selection, and it is in PHYSICAL y
+    # units — matching the dedicated-net `held_out_mse` these ratios divide by. Before this existed, the
+    # closure divided a selection-set numerator by a test-set denominator (2026-07-25 ruling).
+    case["test_mse_by_width"] = {k: float(err2_by_width_te[k].mean()) for k in range(1, w_max + 1)}
 
     fit_bar = sw._fit_bar_mse(err2_by_width_te, region_te, w_max, floor_hard)
     curve_gate = sw._curve_shape_gate_mse(err2_by_width_te, region_te, w_max)
@@ -913,8 +966,8 @@ def main() -> None:
         "--a2-law-path",
         type=str,
         default=None,
-        help="WSEL-23 candidate 1: frozen a2_law.json path, read only when --loss weighted (default: "
-        "capacity_ladder_results/WSEL23/a2_law.json; run width_wsel23_candidate1_pin.py --pin first).",
+        help="Per-width weight artifact, read only when --loss weighted (default: "
+        "capacity_ladder_results/WSEL23_DATA_WEIGHTS/data_weight_table.json; run width_data_weights.py --pin first).",
     )
     args = parser.parse_args()
 
@@ -948,8 +1001,7 @@ def main() -> None:
     # pattern above) -- a missing pin must never silently degrade `--loss weighted` to unweighted MSE.
     weight_table: dict[int, float] | None = None
     if loss is LossType.WEIGHTED:
-        a2_law = load_a2_law(_resolve_a2_law_path(args.a2_law_path))
-        weight_table = a2_weight_table(a2_law, w_max)
+        weight_table = weight_table_from_artifact(load_a2_law(_resolve_a2_law_path(args.a2_law_path)), w_max)
 
     print(
         f"[kdropout-converged] device={device} arch={arch.value} loss={loss.value} toy={toy.value} sigma={sigma:g} "
@@ -1006,7 +1058,7 @@ def main() -> None:
                 "check_every": args.check_every,
                 "patience": args.patience,
                 "min_delta": args.min_delta,
-                # WSEL-23 candidate 1 (additive only): which a2_law.json this run actually read, None
+                # Additive only: which weight artifact this run actually read, None
                 # unless loss=weighted (per_case[*]["weight_table"] already carries the resolved table).
                 "a2_law_path": _resolve_a2_law_path(args.a2_law_path) if loss is LossType.WEIGHTED else None,
                 # WSEL-12 cost instrumentation (Step 3, additive only -- no key above this line changed):

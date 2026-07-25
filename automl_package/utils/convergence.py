@@ -66,6 +66,25 @@ class ConvergenceResult:
         return (final_trajectory_point_loss - self.best_val) > max(DIVERGENCE_ABS_EPS, DIVERGENCE_REL_FACTOR * self.best_val)
 
     @property
+    def rise_after_best(self) -> float:
+        """Relative rise from `best_val` to the LAST trajectory point (`0.0` if the series never rose).
+
+        `diverged` only catches an explosion — its threshold is `max(0.2 nats, 0.5 * best_val)`, so a
+        series that bottoms out early and then settles 26% above its own best passes it silently. That
+        is not hypothetical: on the width-net runs, width 1 bottoms at epoch 500 and ends 6-27% above
+        its best on every seed while `trustworthy` reports `True`.
+
+        Deliberately NOT folded into `trustworthy`: in JOINT training a narrow width's own held-out loss
+        rising while the shared trunk specialises for wider widths is the expected cost of sharing, not
+        a defect. It is reported so that any per-width number carries "this width was read this far above
+        its own achievable point", instead of that being invisible. The genuine-overfitting question is
+        about the series actually used to pick the checkpoint — see the driver's mean-val trajectory.
+        """
+        if not self.trajectory or not math.isfinite(self.best_val) or self.best_val <= 0.0:
+            return 0.0
+        return max((self.trajectory[-1][1] - self.best_val) / self.best_val, 0.0)
+
+    @property
     def trustworthy(self) -> bool:
         """A result is safe to CONCLUDE from only if it flattened, was not still visibly creeping, and did not diverge."""
         return self.converged and not self.hit_cap and not self.still_improving and not self.diverged
@@ -78,6 +97,7 @@ class ConvergenceResult:
             "trustworthy": self.trustworthy,
             "still_improving_at_stop": self.still_improving,
             "diverged": self.diverged,
+            "rise_after_best": self.rise_after_best,
             "stop_epoch": self.stop_epoch,
             "best_val": self.best_val,
             "best_epoch": self.best_epoch,

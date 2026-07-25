@@ -7,14 +7,13 @@ canonical training arms themselves (multi-head/single-head, `--loss weighted`, `
 through `kdropout_converged_width_experiment.py` (extended, not duplicated, per §3.9's "ONE home"
 discipline); this script never trains the candidate's own reference cells.
 
-Three things this script does, matching the spec's three lettered items:
-  (a) **`--pin`** -- §3.3: fits the ONE free scalar `A` (exponent `p=2` fixed as a theory anchor) on
-      the decay-regime widths `{4..7}` via closed-form OLS, from the 36 already-landed WSEL8
-      dedicated-net cells (zero new compute), and freezes `(A, p, sigma2)` into `a2_law.json` --
-      `kdropout_converged_width_experiment.py`'s `--loss weighted` reads this file to train.
-  (b) **`--validate`** -- §3.5: the zero-cost held-out-widths (`{8..12}`, factor-of-3 tolerance,
-      >=4/5 required) and out-of-regime (`{1,2,3}`, under-prediction expected/acceptable) profile
-      response, from the SAME 36 cells, no new training.
+**`--pin` and `--validate` are GONE (2026-07-25 user ruling; see `width.md`'s WSEL-23 withdrawal
+block).** They fitted and validated the parametric `(A, p, sigma2)` law from the 36 WSEL8
+dedicated-net cells -- the same cells `matched_width_closure` uses as its DENOMINATOR, which made
+the closure circular. The weights now come from `width_data_weights.py`, which estimates the
+per-width floor from DATA ALONE before any training and carries its own exact-anchor exam. The
+`--pin-self` mode added earlier the same day is gone too: it repeated the defect on the validation
+split. What remains here is the diagnostic and the aggregation:
   (c) **`--diagnostic --arch ARCH --seed SEED`** -- §2: ONE (architecture, seed) gradient-attribution
       cell -- init (genuinely zero-training) and mid-training (a bounded PARTIAL run, stopped at the
       FIRST epoch any one width's `ConvergenceTracker` converges, per §2.3's root-corrected finding
@@ -43,8 +42,6 @@ script never runs the 15 unconditional training cells the spec charges to the ro
 
 Usage:
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m automl_package.examples.width_wsel23_candidate1_pin --selftest
-    AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m automl_package.examples.width_wsel23_candidate1_pin --pin
-    AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m automl_package.examples.width_wsel23_candidate1_pin --validate
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m automl_package.examples.width_wsel23_candidate1_pin --diagnostic --arch shared_trunk --seed 0
     AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m automl_package.examples.width_wsel23_candidate1_pin --summarize
 """
@@ -75,7 +72,6 @@ from automl_package.utils.run_provenance import run_provenance  # noqa: E402
 
 RESULTS_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "WSEL23")
 WSEL8_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "WSEL8")
-A2_LAW_FILENAME = "a2_law.json"  # bare filename, per §3.4 -- written under RESULTS_DIR.
 
 SEEDS = kce.SEEDS  # (0, 1, 2), §3.8's fixed set.
 DIAGNOSTIC_ARCHES = (kce.Arch.SHARED_TRUNK, kce.Arch.NESTED)
@@ -133,38 +129,6 @@ def _wsel8_held_out_mse(wsel8_dir: str, seed: int, width: int) -> float:
         return float(json.load(f)["held_out_mse"])
 
 
-def load_wsel8_mean_mse(wsel8_dir: str = WSEL8_DIR, seeds: tuple[int, ...] = SEEDS, w_max: int = kce.W_MAX) -> dict[int, float]:
-    """§3.3 step 1: `mean_mse(w)` over `seeds` for every width `1..w_max`, from the 36 landed cells."""
-    return {w: sum(_wsel8_held_out_mse(wsel8_dir, s, w) for s in seeds) / len(seeds) for w in range(1, w_max + 1)}
-
-
-def pin_a2_law(wsel8_dir: str = WSEL8_DIR) -> dict:
-    """Fits `A` (OLS, `p=2` fixed) on `FIT_DOMAIN`, freezes `(A, p, sigma2)` (§3.3).
-
-    Also freezes every leaf a downstream `--validate`/`--summarize` call needs
-    (`mean_mse_by_width`/`raw_a2_by_width`, all 12 widths) -- never refit per run
-    (§3.4's "instantiated once and FROZEN").
-    """
-    mean_mse = load_wsel8_mean_mse(wsel8_dir)
-    sigma2 = nwn.HETERO_NOISE_SIGMA**2  # read from HETERO_NOISE_SIGMA, never re-estimated (§3.3 step 4).
-    raw_a2 = {w: max(mean_mse[w] - sigma2, 0.0) for w in mean_mse}  # step 2: floor at 0, a seed-noise safety clamp.
-    numerator = sum(raw_a2[w] / w**2 for w in FIT_DOMAIN)
-    denominator = sum(1.0 / w**4 for w in FIT_DOMAIN)
-    a_star = numerator / denominator  # step 3's closed-form OLS with p fixed at 2.
-    return {
-        "A": a_star,
-        "p": 2.0,
-        "sigma2": sigma2,
-        "fit_domain": list(FIT_DOMAIN),
-        "held_out_domain": list(HELD_OUT_DOMAIN),
-        "out_of_regime_domain": list(OUT_OF_REGIME_DOMAIN),
-        "mean_mse_by_width": mean_mse,
-        "raw_a2_by_width": raw_a2,
-        "wsel8_dir": wsel8_dir,
-        "provenance": run_provenance(),
-    }
-
-
 def _raw_a2(a2_law: dict, w: int) -> float:
     """Robust lookup into `a2_law["raw_a2_by_width"]`, whose keys are `int` in memory / `str` post-JSON."""
     tbl = a2_law["raw_a2_by_width"]
@@ -174,41 +138,6 @@ def _raw_a2(a2_law: dict, w: int) -> float:
 # ---------------------------------------------------------------------------
 # §3.5 -- generalization validation (zero new compute; reads only `a2_law.json`'s own frozen leaves).
 # ---------------------------------------------------------------------------
-
-
-def validate_a2_law(a2_law: dict) -> dict:
-    """§3.5: shape sanity, the held-out-widths factor-of-3 check, and the out-of-regime report.
-
-    The held-out check is load-bearing; the out-of-regime report is an expected miss, never a
-    falsifier. Pure function of `a2_law` -- no new WSEL8 reads.
-    """
-    shape_sane = all(kce.a2_of_w(a2_law, w) > kce.a2_of_w(a2_law, w + 1) for w in range(1, kce.W_MAX))
-
-    held_out_rows = []
-    for w in HELD_OUT_DOMAIN:
-        pred = kce.a2_of_w(a2_law, w)
-        obs = _raw_a2(a2_law, w)
-        ratio = obs / pred if pred > 0 else float("inf")
-        within = (1.0 / HELD_OUT_FACTOR_TOLERANCE) <= ratio <= HELD_OUT_FACTOR_TOLERANCE
-        held_out_rows.append({"w": w, "pred_a2": pred, "obs_a2": obs, "ratio_obs_over_pred": ratio, "within_factor_3": within})
-    n_pass = sum(row["within_factor_3"] for row in held_out_rows)
-    held_out_pass = n_pass >= HELD_OUT_MIN_PASS
-
-    out_of_regime_rows = []
-    for w in OUT_OF_REGIME_DOMAIN:
-        pred = kce.a2_of_w(a2_law, w)
-        obs = _raw_a2(a2_law, w)
-        out_of_regime_rows.append({"w": w, "pred_a2": pred, "obs_a2": obs, "under_predicts": obs > pred})
-
-    return {
-        "shape_sane_monotone_decreasing": shape_sane,
-        "held_out": {"rows": held_out_rows, "n_pass": n_pass, "n_total": len(HELD_OUT_DOMAIN), "min_pass_required": HELD_OUT_MIN_PASS, "pass": held_out_pass},
-        "out_of_regime": {
-            "rows": out_of_regime_rows,
-            "note": "under-prediction here is EXPECTED and ACCEPTABLE (spec §3.3/§3.5) -- the conservative, non-disruptive direction, never a falsifier",
-        },
-        "falsified": (not held_out_pass) or (not shape_sane),
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -437,15 +366,20 @@ def matched_width_closure(training_arm_summary: dict, wsel8_dir: str, affected_b
     ratios_by_width: dict[int, list[float]] = {k: [] for k in range(1, w_max + 1)}
     for case in per_case:
         seed = case["seed"]
-        held = case["held_out_mse_by_width"]
-        # UNITS FIX (2026-07-24): held_out_mse_by_width is computed on STANDARDISED val targets
-        # (kdropout driver :575, on `_standardize_fit` output), i.e. divided by sy^2; the WSEL8
-        # dedicated `held_out_mse` denominator is PHYSICAL. Scale the joint back to physical by sy^2
-        # so the ratio is unitless. Without this the ratio carries a spurious 1/sy^2 (~10x) factor.
-        sy = case.get("norm", {}).get("sy")
-        sy2 = float(sy) ** 2 if sy else 1.0
+        # SPLIT FIX (2026-07-25 ruling): the numerator MUST be `test_mse_by_width` -- physical units on
+        # the disjoint `seed + 500` draw, matching the dedicated-net denominator exactly. The old
+        # `held_out_mse_by_width` numerator was the VALIDATION split, which drove early stopping and
+        # selected the restored checkpoint; dividing it by a clean test-set denominator biased every
+        # ratio downward, in precisely the direction that manufactures the parity result it was testing.
+        # Refuse rather than silently fall back: a landed arm predating the fix cannot be re-graded.
+        if "test_mse_by_width" not in case:
+            raise KeyError(
+                f"seed {seed}: this arm predates the 2026-07-25 split fix and has no `test_mse_by_width`; "
+                "its closure numerator would be the selection split. Re-run the arm -- do NOT re-grade it."
+            )
+        test_by_width = case["test_mse_by_width"]
         for k in range(1, w_max + 1):
-            joint_mse = _share_at(held, k) * sy2
+            joint_mse = _share_at(test_by_width, k)
             sweep_mse = _wsel8_held_out_mse(wsel8_dir, seed, k)
             ratios_by_width[k].append(joint_mse / sweep_mse)
 
@@ -507,8 +441,10 @@ def summarize(results_dir: str, wsel8_dir: str, w12_tag: str, w6_tag: str) -> di
         "by_arch": classify_diagnostic(diagnostic_cells) if diagnostic_cells else {"status": "no_cells_present"},
     }
 
-    a2_law_path = os.path.join(results_dir, A2_LAW_FILENAME)
-    validation = validate_a2_law(kce.load_a2_law(a2_law_path)) if os.path.isfile(a2_law_path) else {"status": "not_pinned"}
+    # The parametric a2-law validation is GONE with the law (2026-07-25): both of its calibration
+    # sources are binned, so there is no `(A, p, sigma2)` artifact left to validate. Weights now come
+    # from `width_data_weights.py`, which carries its own exact-anchor exam in `--selftest`.
+    validation = {"status": "retired_2026_07_25_see_width_data_weights"}
 
     primary = {}
     for arch in DIAGNOSTIC_ARCHES:
@@ -583,16 +519,16 @@ def run_selftest() -> bool:
     print(f"[wsel23c1-pin selftest] (1) weighted@1.0==plain MSE: diff={diff_ones:.3e}; weighted@0.5==0.5x MSE: {ok_1b}  {'PASS' if ok_1 else 'FAIL'}")
     ok = ok and ok_1
 
-    # (2) a2_law.json schema round-trip (real WSEL8 cells -- a 36-file read, not a training cost).
-    law = pin_a2_law(WSEL8_DIR)
+    # (2) the DIRECT weight table (`width_data_weights.py`) survives a JSON round-trip and reaches
+    #     `--loss weighted` unchanged -- the artifact contract that replaced the binned parametric law.
+    table = {k: 1.0 / (1.0 + k) for k in range(1, 5)}
     with tempfile.TemporaryDirectory() as tmp:
-        path = os.path.join(tmp, A2_LAW_FILENAME)
+        path = os.path.join(tmp, "data_weight_table.json")
         with open(path, "w") as f:
-            json.dump(sw._jsonable(law), f)
-        law_back = kce.load_a2_law(path)
-    required_keys = ("A", "p", "sigma2", "fit_domain", "held_out_domain", "mean_mse_by_width", "raw_a2_by_width")
-    ok_2 = all(key in law_back for key in required_keys) and abs(law_back["A"] - law["A"]) < _SELFTEST_A_ROUNDTRIP_TOL and law_back["p"] == law["p"]
-    print(f"[wsel23c1-pin selftest] (2) a2_law.json schema round-trip: A={law_back.get('A')!r} p={law_back.get('p')!r}  {'PASS' if ok_2 else 'FAIL'}")
+            json.dump(sw._jsonable({"weight_table": table}), f)
+        back = kce.weight_table_from_artifact(kce.load_a2_law(path), 4)
+    ok_2 = back == table
+    print(f"[wsel23c1-pin selftest] (2) direct weight-table round-trip through --loss weighted: {ok_2}  {'PASS' if ok_2 else 'FAIL'}")
     ok = ok and ok_2
 
     # (3) early-stop-on-first-convergence stops BEFORE max_epochs on a tiny synthetic smoke config,
@@ -618,15 +554,12 @@ def main() -> None:
     """Runs whichever of `--pin`/`--validate`/`--diagnostic`/`--summarize`/`--selftest` was asked for."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--selftest", action="store_true", help="Seconds-scale synthetic wiring checks, then exit.")
-    parser.add_argument("--pin", action="store_true", help="§3.3: fit A on w=4..7, write a2_law.json.")
-    parser.add_argument("--validate", action="store_true", help="§3.5: zero-cost held-out/out-of-regime report from a2_law.json.")
     parser.add_argument("--diagnostic", action="store_true", help="§2: ONE (--arch, --seed) gradient-attribution cell (requires both flags).")
     parser.add_argument("--summarize", action="store_true", help="Aggregate every already-landed per-cell JSON into the §2.4/§3.5/§5.1 report.")
     parser.add_argument("--arch", choices=[a.value for a in DIAGNOSTIC_ARCHES], default=None, help="--diagnostic only: which architecture cell to run.")
     parser.add_argument("--seed", type=int, default=None, help="--diagnostic only: which seed cell to run.")
     parser.add_argument("--results-dir", type=str, default=None, help=f"Override the output directory (default: {RESULTS_DIR}).")
     parser.add_argument("--wsel8-dir", type=str, default=None, help=f"Override the WSEL8 source directory (default: {WSEL8_DIR}).")
-    parser.add_argument("--a2-law-path", type=str, default=None, help="Override a2_law.json's path (default: <results-dir>/a2_law.json).")
     parser.add_argument("--w12-tag", type=str, default=DEFAULT_W12_TAG, help=f"--summarize only: the --tag the w_max=12 training arms were run with (default: {DEFAULT_W12_TAG}).")
     parser.add_argument("--w6-tag", type=str, default=DEFAULT_W6_TAG, help=f"--summarize only: the --tag the w_max=6 training arms were run with (default: {DEFAULT_W6_TAG}).")
     parser.add_argument("--max-epochs", type=int, default=kce.DEFAULT_MAX_EPOCHS, help="--diagnostic only: partial-run safety cap.")
@@ -641,25 +574,9 @@ def main() -> None:
 
     results_dir = args.results_dir if args.results_dir is not None else RESULTS_DIR
     wsel8_dir = args.wsel8_dir if args.wsel8_dir is not None else WSEL8_DIR
-    a2_law_path = args.a2_law_path if args.a2_law_path is not None else os.path.join(results_dir, A2_LAW_FILENAME)
     os.makedirs(results_dir, exist_ok=True)
 
     ran_something = False
-
-    if args.pin:
-        ran_something = True
-        law = pin_a2_law(wsel8_dir)
-        with open(a2_law_path, "w") as f:
-            json.dump(sw._jsonable(law), f, indent=2)
-        print(f"[wsel23c1-pin] wrote {a2_law_path}  A={law['A']:.6f} p={law['p']:g} sigma2={law['sigma2']:.6f}")
-
-    if args.validate:
-        ran_something = True
-        report = validate_a2_law(kce.load_a2_law(a2_law_path))
-        out_path = os.path.join(results_dir, "validation_report.json")
-        with open(out_path, "w") as f:
-            json.dump(sw._jsonable(report), f, indent=2)
-        print(f"[wsel23c1-validate] wrote {out_path}  held_out_pass={report['held_out']['pass']} ({report['held_out']['n_pass']}/{report['held_out']['n_total']})")
 
     if args.diagnostic:
         ran_something = True

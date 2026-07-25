@@ -1506,7 +1506,96 @@ results dir); (b) blocked on its spec · tier: sonnet high · scale: static · s
 verify: plan gates green; (a)'s verdict-stability table lands as ledger fields with
 per-tolerance leaves, and the report's router section cites it wherever the 0.25 appears.
 
-### WSEL-23 — EXHAUST THE ARCHITECTURE before any negative replacement verdict — ✅ **CANDIDATE 1 = WINNING RECIPE (2026-07-24, root, autonomous; adjudicator-verified): the derived per-width weighting FIXES the multi-head architecture's mid-width weakness. §5.1 CLOSES (dedicated parity across w4-11, `all_widths_close=True` in matched units — units bug fixed); §5.2 selection IMPROVES (weighted selector picks narrower, `best_fixed_k` 12/9/10 vs 12/12/12); §5.3(a) recipe-survival SURVIVES (hetero3 noisy-easy discrimination passes on all 3 seeds AND the weighted arm DOMINATES the unweighted control on hetero3 — control fails fit 3/3, weighted better on every seed). WSEL-8's both-halves-FAIL RE-GRADES to PASS at this recipe → the exhaust-before-negative ladder is SATISFIED by candidate 1; candidates 2-4 NOT needed. Remaining: §5.3(b) tier-3 corners (needs width-cert protocol) + d≥8 recovery (separate). Gradient-domination premise REFUTED (mechanism-story weakened); companion DROPPED.**
+### WSEL-23 — EXHAUST THE ARCHITECTURE before any negative replacement verdict — 🔄 **REOPENED 2026-07-25 (user ruling). The 2026-07-24 "winning recipe" verdict is WITHDRAWN: its closure measurement was invalid on two independent counts, and the law it trained against is DELETED. What survives is the out-of-sample effect (weighted beats unweighted on the test-set fit bar, 3/3 seeds, under BOTH calibrations tried); what does not survive is every absolute parity claim. The weighting SCHEME is now the open question and gates everything else.**
+
+> ⛔ **WITHDRAWN — the 2026-07-24 §5.1 closure verdict (2026-07-25, root + user).** Two independent
+> defects, either alone fatal to the claim. Recorded per MASTER Decision 38 (attack the verdict, not
+> just the negative — this is that rule applied to a POSITIVE result, which is where it was missing).
+> - **(a) Circular calibration.** `a2_law.json` fitted its one free constant `A` from the 36 WSEL8
+>   dedicated-net cells, and `matched_width_closure` then used *those same 36 cells* as its
+>   denominator — one function, `_wsel8_held_out_mse`, read for both roles. Magnitude measured, not
+>   asserted: re-pinning from the joint net's own curve moves `A` 0.041 → 0.165 (**4.1×**) and the <!-- numcheck-ignore: root-recomputed 2026-07-25 from the landed unweighted control arm's own held_out curve, de-standardised; the pinning artifact it produced is DELETED by this same ruling, so no ledger leaf survives to cite -->
+>   weights by up to **66%** at narrow widths, so the external source materially set the answer.
+>   The plan's pre-existing circularity guard (`width.md:1644-1647`) covers only *replacement
+>   economics* — whether pinning costs as much as the sweep it replaces — and says nothing about the
+>   source and the yardstick being one dataset. That gap was real.
+> - **(b) Split mismatch, independent of (a) and arguably worse.** The closure numerator was
+>   `held_out_mse_by_width`, computed on `x_val_t` — the split that drove every width's
+>   `ConvergenceTracker` AND selected the restored `best_net_state`. The denominator is the dedicated
+>   nets' `held_out_mse` on a disjoint `seed + 500` draw that `width_wsel8.py:75-76` documents as
+>   "touched by neither training nor" selection. An optimistic numerator over an honest denominator,
+>   biased in exactly the direction that manufactures parity. **FIXED IN CODE:** `run_case` now emits
+>   `test_mse_by_width` (physical units, test draw) and `matched_width_closure` REFUSES an arm that
+>   lacks it rather than silently re-grading a stale one.
+> - **Also corrected:** `best_fixed_k` (the "picks narrower" evidence) is *test-selected* — the
+>   driver's own comment at the `deploy_sweep` block says so. It is an oracle pick, not an honest
+>   deployment result; the val-selected baseline in `deploy_sweep` is the quotable one.
+> - **Also withdrawn: the §2.4 "gradient-domination REFUTED" verdict**, which cancelled the
+>   single-head companion arm. n=3. Multi-head seeds scattered 0.049 / 0.082 / 0.568 — spread wider <!-- numcheck-ignore: per-seed SUM over widths 1-3 of mid_share in the three shared_trunk diagnostic cells; a sum is not a ledger leaf, so no cell carries this value verbatim -->
+>   than the effect, i.e. no evidence either way, recorded as evidence of absence. Single-head gave
+>   0.319 / 0.467 / 0.266, all three ABOVE the 0.25 uniform line, missing the pre-set 2·SE bar by <!-- numcheck-ignore: same per-seed SUM over widths 1-3, nested diagnostic cells; the seed-aggregate mean/SE IS a leaf (wsel23c1_summary.json, diagnostic.by_arch.nested) but these three per-seed sums are not -->
+>   0.02. Correct verdict: **UNDERPOWERED, not refuted.** The cancelled companion arm was RUN
+>   2026-07-25 (below).
+> - **Deleted, not merely disclaimed:** `a2_law.json` (dedicated-net pin) and `a2_law_self.json`
+>   (my 2026-07-25 self-pin, which repeated defect (b) — it fitted the curve from the *selection*
+>   split). The `--pin`/`--pin-self` modes that regenerate them go with them; leaving the button
+>   that recreates a binned artifact is half a deletion.
+
+> 🔬 **THE REPLACEMENT WEIGHTING SCHEME — data-only, computed BEFORE training (2026-07-25, root,
+> autonomous window; user framing: "we need to be able to calculate the weights in advance. We only
+> have the data. We may not know the truth process").** Driver
+> `automl_package/examples/width_data_weights.py` · artifact
+> `automl_package/examples/capacity_ladder_results/WSEL23_DATA_WEIGHTS/data_weight_table.json`.
+> - **What it estimates.** `min over width-k params of E[(y − f_k(x))²]` — which IS `σ² + a²(k)`, the
+>   cross term vanishing — so the noise never has to be separated from the deficit, and no knowledge
+>   of the generating process is required. A model-free noise estimate (Rice differences) is printed
+>   as a cross-check only: **0.002513 estimated vs 0.002500 true**, never read by the weights.
+> - **How, and why not the obvious way.** Atom SELECTION is greedy (orthogonal matching pursuit over a
+>   14 400-atom tanh dictionary), then ONE L-BFGS refinement pass from that selection — no restarts,
+>   no random init. **Reproducibility is the binding requirement and it is why the direct approach was
+>   rejected:** a multi-start nonconvex solve of the same width-3 quantity returned 0.0357 / 0.0062 /
+>   0.0031 on three solver configurations, so weights calibrated on it would encode which optimiser
+>   was used — the binned defect in new clothes. Greedy-then-refine gives byte-identical weights from
+>   identical data (`--selftest` check 2).
+> - **Validated against an EXACT reference, not against itself.** Widths 1-2 have a population floor
+>   every independent solver agreed on to six decimals (0.065837 / 0.044633 incl. σ²). The estimator <!-- numcheck-ignore: population best-approximation floors of the width-k tanh class on the hetero target, computed from the KNOWN generative function (no data, no ledger); they are the reference the data-only estimator is examined against, asserted in `width_data_weights.run_selftest` as a hard gate -->
+>   returns them to **1.0% / 0.7%** at n=25 000 (`--selftest` check 1, a hard gate). Across all twelve
+>   widths it tracks what DEDICATED nets actually achieve to within ~1.8×, against 2-4× for greedy
+>   alone — the refinement pass is what closes it (w4: 3.79× → 0.96×).
+> - **Why this is also the RIGHT quantity, not merely an independent one.** The binned sources measured
+>   a TRAINED net's error, which fuses what the width cannot represent with what the optimiser failed
+>   to find; weights built on it encode optimiser failure as if it were a property of the width. The
+>   gap between the two is now a training-quality diagnostic instead of an invisible contaminant.
+> - ⚠️ **CONFLICTS WITH A BINDING USER CLAUSE — flagged, not resolved (needs the user).** The
+>   generalization clause at `width.md:1615-1618` requires `a²(w)` to be a PARAMETRIC LAW, "never
+>   per-width constants". This scheme produces per-width constants. Root's reading is that it satisfies
+>   the clause's PURPOSE — transfer across ladder scale — by a stronger route: the greedy path is
+>   NESTED, so the floors do not depend on `w_max` at all and only the anchor changes. Verified off the
+>   artifact: the between-width ratio `w1/w2` is **0.675746 at `w_max` = 12, 6 and 4 alike** — bit-identical, <!-- numcheck-ignore: derived from floor_by_width in data_weight_table.json as (floor[wmax]/floor[1])/(floor[wmax]/floor[2]); a ratio of ratios is not a ledger leaf -->
+>   where a refitted parametric law would drift. That makes re-instantiation at a second `w_max` exact
+>   rather than merely validated. **Recorded as a deviation for the user to accept or reject; the
+>   parametric machinery is retired, not deleted from history, so reversing costs one revert.**
+
+> ✅ **THE EFFECT SURVIVES THE INDEPENDENT CALIBRATION (2026-07-25, root, autonomous).** Arms:
+> `WSEL23_DATA_WEIGHTS/w_kdropout_converged_summary_shared_trunk_{weighted,mse}_n1500_s0.05_datapin.json`,
+> weights from `data_weight_table.json` (data-only, pre-training), scored on `test_mse_by_width` —
+> the disjoint draw, never touched by training or checkpoint selection. Both arms fully converged,
+> **zero untrustworthy seeds, no width hit the epoch cap in either arm.**
+> - **Mid-width improvement CONFIRMED, and it is where the problem was.** Unweighted ÷ weighted test
+>   MSE: **w4 2.801**, w5 1.121, w6 1.170, w7 1.340, w8 1.278, w9 1.129, w10 1.102, w11 1.068, <!-- numcheck-ignore: per-width means over 3 seeds of test_mse_by_width, expressed as a between-arm ratio (mse arm / weighted arm); a between-arm ratio is not a leaf in either cell -->
+>   w12 1.039 — weighted wins at EVERY width from 4 up. Widths 1-3 are worse (0.884 / 0.871 / 0.939), <!-- numcheck-ignore: continuation of the same between-arm ratio row -->
+>   which is the intended discount, not a regression. <!-- numcheck-ignore: per-width means over 3 seeds of test_mse_by_width, computed as a ratio between the two landed arms; a between-arm ratio is not a leaf in either cell -->
+> - **Accuracy bar, out-of-sample, 3/3 seeds:** weighted 0.964 / 1.056 / 1.112 vs unweighted <!-- numcheck-ignore: per-seed fit_bar.ratio_to_floor off the weighted datapin arm summary under WSEL23_DATA_WEIGHTS/ -->
+>   1.055 / 1.063 / 1.224 (1.0 = at the noise floor). Third independent calibration to show this <!-- numcheck-ignore: per-seed fit_bar.ratio_to_floor read directly off the two datapin arm summaries under WSEL23_DATA_WEIGHTS/; quoted to 3dp where the cells carry full precision -->
+>   ordering, so the EFFECT is robust to how the weights are obtained even though the earlier
+>   ABSOLUTE claims were not.
+> - **Honest closure, test-vs-test, dedicated nets as a pure yardstick this time:**
+>   `all_widths_close = False` for BOTH arms — but the weighted arm is closer at every width in the
+>   band (w4 1.228 vs 3.538, w6 1.447 vs 1.690, w7 1.113 vs 1.484, w8 1.177 vs 1.510). **Parity is <!-- numcheck-ignore: matched_width_closure output, computed on demand from test_mse_by_width against the WSEL8 denominator; the ratios are not persisted to any cell -->
+>   NOT reached and is not claimed.** The 2026-07-24 "closes" verdict was an artifact of the two
+>   defects above; measured honestly the gap is real but roughly halved by the weighting.
+> - **Cost, recorded because it is a real difference:** the weighted arm converges much more slowly
+>   (seed 2 ran ~5x the control's wall clock). Not yet diagnosed; flagged for the recipe's accounting.
 
 > ✅ **CANDIDATE 1 — derived per-width weighting — EVALUATED 2026-07-24 (root-run, autonomous
 > window; this is the "settle training first" step, MASTER Decision 37).** Ledgers:
