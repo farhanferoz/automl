@@ -79,10 +79,12 @@ from automl_package.utils.run_provenance import run_provenance  # noqa: E402
 RESULTS_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "W_KDROPOUT_CONVERGED")
 # WSEL-23 candidate 1's frozen weight-law artifact (`width_wsel23_candidate1_pin.py --pin` writes it;
 # `--loss weighted` reads it) -- default location under that candidate's own results directory (§6).
-# Default weight artifact for `--loss weighted`: the DATA-ONLY table (`width_data_weights.py --pin`).
-# The previous default (`WSEL23/a2_law.json`, pinned from the dedicated-net sweep) is deleted, not
-# merely superseded -- it made the closure circular (`width.md` WSEL-23 withdrawal block).
-_WSEL23_A2_LAW_DEFAULT = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "WSEL23_DATA_WEIGHTS", "data_weight_table.json")
+# NO DEFAULT WEIGHT ARTIFACT EXISTS, deliberately. Two successive defaults were binned: the
+# dedicated-net pin (`WSEL23/a2_law.json`, statistically circular -- it was both the calibration
+# source and the yardstick) and the data-only table (`data_weight_table.json`, ECONOMICALLY circular
+# -- deriving it required a best-fit network at every width, i.e. the per-width sweep this
+# architecture exists to replace). `--loss weighted` now demands an explicit `--a2-law-path`; see
+# `_resolve_a2_law_path`. Re-adding a default here would let a binned basis back in silently.
 
 # Regime reused verbatim from the separate-training battery so the two summaries are directly comparable.
 SEEDS = cwe.SEEDS
@@ -294,8 +296,22 @@ def load_a2_law(path: str) -> dict:
 
 
 def _resolve_a2_law_path(a2_law_path_arg: str | None) -> str:
-    """`--a2-law-path` override if given, else this module's default (`_WSEL23_A2_LAW_DEFAULT`)."""
-    return a2_law_path_arg if a2_law_path_arg is not None else _WSEL23_A2_LAW_DEFAULT
+    """`--a2-law-path`, now REQUIRED under `--loss weighted` -- there is no default weight source.
+
+    The former default pointed at `data_weight_table.json`, produced by `width_data_weights.py`. Both
+    were BINNED 2026-07-25 (user ruling): deriving the weights required a best-fit network at EVERY
+    width before training, which is the per-width sweep this architecture exists to replace -- the
+    replacement economics were circular, exactly what `width.md`'s circularity guard forbids. Leaving
+    a default here would let a stale copy silently re-enter a run, so there is none: callers must name
+    a weight artifact explicitly and justify where it came from.
+    """
+    if a2_law_path_arg is None:
+        raise ValueError(
+            "--loss weighted requires an explicit --a2-law-path. The data-only estimator and its "
+            "tables were binned 2026-07-25 (sweep-based derivation = circular replacement economics; "
+            "see width.md WSEL-23). No default weight source exists -- name one deliberately."
+        )
+    return a2_law_path_arg
 
 
 def _trunk_evals_per_step(

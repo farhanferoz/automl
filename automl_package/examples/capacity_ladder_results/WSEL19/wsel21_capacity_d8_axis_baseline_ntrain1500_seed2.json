@@ -1,0 +1,48 @@
+{
+  "capacity_level": "baseline",
+  "width_multiplier": 1,
+  "hidden_layers": 1,
+  "n_train": 1500,
+  "seed": 2,
+  "d": 8,
+  "geometry": "axis",
+  "w_max": 12,
+  "ratio_to_noise_floor": 17.834772169589993,
+  "best_width": 2,
+  "per_width_ratio_to_noise_floor": [
+    33.17076861858367,
+    17.834772169589993,
+    27.31048762798309,
+    27.671802043914788,
+    35.500171780586236,
+    29.003804922103875,
+    33.67961049079894,
+    35.63126921653747,
+    34.59262251853942,
+    24.72073137760162,
+    35.30307710170745,
+    35.47310233116149
+  ],
+  "anchor_ratio_to_noise_floor": 1.1278630234301088,
+  "all_widths_trustworthy": true,
+  "hit_cap": false,
+  "cache_hit": false,
+  "graduated": false,
+  "provenance": {
+    "timestamp_utc": "2026-07-25T12:36:48+00:00",
+    "git": {
+      "commit": "77eae4ff4011f36fc636de0a04d8ca60148c58f0",
+      "dirty": true
+    },
+    "python": "3.12.13",
+    "torch": "2.10.0+xpu",
+    "numpy": "2.4.3",
+    "platform": "Linux-7.1.4-204.fc44.x86_64-x86_64-with-glibc2.43",
+    "threads": {
+      "omp_num_threads": "4",
+      "torch_num_threads": 4,
+      "cpu_count": 22
+    },
+    "automl_device": "cpu"
+  }
+}

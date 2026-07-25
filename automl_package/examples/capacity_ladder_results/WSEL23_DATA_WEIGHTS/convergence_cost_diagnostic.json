@@ -1,0 +1,1005 @@
+{
+  "question": "Why did the weighted arm's seed-2 run take ~5x the wall clock of the control arm (WSEL-23, width.md)?",
+  "arms_compared": {
+    "weighted": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL23_DATA_WEIGHTS/w_kdropout_converged_summary_shared_trunk_weighted_n1500_s0.05_datapin.json",
+    "control_unweighted": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL23_DATA_WEIGHTS/w_kdropout_converged_summary_shared_trunk_mse_n1500_s0.05_datapin.json"
+  },
+  "code_read": [
+    "automl_package/examples/kdropout_converged_width_experiment.py",
+    "automl_package/utils/convergence.py"
+  ],
+  "min_delta_and_patience_config": {
+    "min_delta_weighted_arm": 0.002,
+    "min_delta_control_arm": 0.002,
+    "patience": 12,
+    "check_every": 500,
+    "note": "Both arms use the SAME min_delta=0.002, patience=12, check_every=500 (config block, both files) -- identical DEFAULT_MIN_DELTA/DEFAULT_PATIENCE/DEFAULT_CHECK_EVERY from automl_package/utils/convergence.py."
+  },
+  "checkpointed_loss_units": {
+    "claim": "The per-width held-out quantity fed to each width's ConvergenceTracker.update() (and thus compared against min_delta) is PLAIN, UNWEIGHTED MSE in BOTH arms -- the per-width training weight never reaches the convergence check.",
+    "evidence": [
+      "kdropout_converged_width_experiment.py:439-441 -- comment + code: 'No `weight=` passed here (defaults to 1.0): convergence is always monitored on PLAIN held-out MSE, even under `loss=LossType.WEIGHTED`' -- `per_width_val = {k: float(_width_loss(loss, net, k, x_val, y_val).item()) for k in range(1, w_max + 1)}` (no weight kwarg).",
+      "kdropout_converged_width_experiment.py:381-387 -- function docstring states the same design intent explicitly ('keeping min_delta meaningful without re-tuning it').",
+      "kdropout_converged_width_experiment.py:166-167 -- `_width_loss`'s WEIGHTED branch is `weight * nwn._width_mse(net, k, x_t, y_t)`; `weight` defaults to `1.0`, so with no override this is byte-identical to the MSE branch.",
+      "The per-width weight table (weight_table_from_artifact) is threaded ONLY into `_sampled_widths_total_loss` (kdropout_converged_width_experiment.py:432, the `.backward()` training-loss call) -- never into the checkpoint call at line 441."
+    ],
+    "best_val_plain_mse_by_width": {
+      "weighted_arm": {
+        "1": {
+          "0": 0.78717,
+          "1": 0.65506,
+          "2": 0.85262
+        },
+        "2": {
+          "0": 0.63615,
+          "1": 0.65242,
+          "2": 0.54936
+        },
+        "3": {
+          "0": 0.65578,
+          "1": 0.5981,
+          "2": 0.50328
+        },
+        "4": {
+          "0": 0.06015,
+          "1": 0.07018,
+          "2": 0.06961
+        },
+        "5": {
+          "0": 0.05396,
+          "1": 0.06953,
+          "2": 0.03895
+        },
+        "6": {
+          "0": 0.02848,
+          "1": 0.04544,
+          "2": 0.03601
+        },
+        "7": {
+          "0": 0.02782,
+          "1": 0.03461,
+          "2": 0.03638
+        },
+        "8": {
+          "0": 0.02747,
+          "1": 0.03449,
+          "2": 0.03729
+        },
+        "9": {
+          "0": 0.02517,
+          "1": 0.03313,
+          "2": 0.03752
+        },
+        "10": {
+          "0": 0.02383,
+          "1": 0.03311,
+          "2": 0.02738
+        },
+        "11": {
+          "0": 0.02378,
+          "1": 0.03157,
+          "2": 0.02796
+        },
+        "12": {
+          "0": 0.02373,
+          "1": 0.03141,
+          "2": 0.02839
+        }
+      },
+      "control_arm": {
+        "1": {
+          "0": 0.7794,
+          "1": 0.66415,
+          "2": 0.67837
+        },
+        "2": {
+          "0": 0.60251,
+          "1": 0.65141,
+          "2": 0.55632
+        },
+        "3": {
+          "0": 0.55349,
+          "1": 0.58836,
+          "2": 0.54563
+        },
+        "4": {
+          "0": 0.41308,
+          "1": 0.0704,
+          "2": 0.04483
+        },
+        "5": {
+          "0": 0.05952,
+          "1": 0.07105,
+          "2": 0.04378
+        },
+        "6": {
+          "0": 0.04648,
+          "1": 0.05081,
+          "2": 0.04262
+        },
+        "7": {
+          "0": 0.04267,
+          "1": 0.04635,
+          "2": 0.03468
+        },
+        "8": {
+          "0": 0.04096,
+          "1": 0.04309,
+          "2": 0.03506
+        },
+        "9": {
+          "0": 0.0369,
+          "1": 0.03284,
+          "2": 0.03584
+        },
+        "10": {
+          "0": 0.03086,
+          "1": 0.03263,
+          "2": 0.03093
+        },
+        "11": {
+          "0": 0.02672,
+          "1": 0.03215,
+          "2": 0.02952
+        },
+        "12": {
+          "0": 0.02538,
+          "1": 0.0319,
+          "2": 0.02978
+        }
+      }
+    },
+    "interpretation": "Magnitudes are directly comparable across arms per width/seed (e.g. width=3 best_val is 0.65578/0.59810/0.50328 in the weighted arm vs 0.55349/0.58836/0.54563 in the control arm for seeds 0/1/2 -- same order of magnitude, no 10x-type rescaling). This directly falsifies the literal 'min_delta compares against a rescaled/smaller loss' theory (hypothesis 2 as stated)."
+  },
+  "per_arm_per_seed": {
+    "weighted": {
+      "0": {
+        "seed": 0,
+        "total_epochs_steps_to_converge": 18500,
+        "train_wall_clock_s": 83.7136635489951,
+        "seconds_per_epoch": 0.004525062894540276,
+        "best_mean_val_epoch": 5500,
+        "per_width": {
+          "1": {
+            "stop_epoch": 6500,
+            "best_epoch": 500,
+            "best_val_plain_mse": 0.7871687412261963,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 37,
+            "recent_improvement": 0.00029599666595458984
+          },
+          "2": {
+            "stop_epoch": 6500,
+            "best_epoch": 500,
+            "best_val_plain_mse": 0.6361546516418457,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 37,
+            "recent_improvement": -0.0012634992599487305
+          },
+          "3": {
+            "stop_epoch": 7500,
+            "best_epoch": 1500,
+            "best_val_plain_mse": 0.6557818651199341,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 37,
+            "recent_improvement": -0.0037334561347961426
+          },
+          "4": {
+            "stop_epoch": 12000,
+            "best_epoch": 6000,
+            "best_val_plain_mse": 0.060148097574710846,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 37,
+            "recent_improvement": 8.773058652877808e-05
+          },
+          "5": {
+            "stop_epoch": 7000,
+            "best_epoch": 1000,
+            "best_val_plain_mse": 0.05395646393299103,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 37,
+            "recent_improvement": 4.758685827255249e-05
+          },
+          "6": {
+            "stop_epoch": 18500,
+            "best_epoch": 12500,
+            "best_val_plain_mse": 0.02847808226943016,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 37,
+            "recent_improvement": 0.0007508434355258942
+          },
+          "7": {
+            "stop_epoch": 12500,
+            "best_epoch": 6500,
+            "best_val_plain_mse": 0.027822786942124367,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 37,
+            "recent_improvement": 0.00037443824112415314
+          },
+          "8": {
+            "stop_epoch": 13500,
+            "best_epoch": 7500,
+            "best_val_plain_mse": 0.027473239228129387,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 37,
+            "recent_improvement": 0.0003932211548089981
+          },
+          "9": {
+            "stop_epoch": 9500,
+            "best_epoch": 3500,
+            "best_val_plain_mse": 0.02516663633286953,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 37,
+            "recent_improvement": 0.00011537410318851471
+          },
+          "10": {
+            "stop_epoch": 10000,
+            "best_epoch": 4000,
+            "best_val_plain_mse": 0.023826468735933304,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 37,
+            "recent_improvement": 2.8504058718681335e-05
+          },
+          "11": {
+            "stop_epoch": 9500,
+            "best_epoch": 3500,
+            "best_val_plain_mse": 0.023775024339556694,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 37,
+            "recent_improvement": -1.0151416063308716e-06
+          },
+          "12": {
+            "stop_epoch": 9500,
+            "best_epoch": 3500,
+            "best_val_plain_mse": 0.02373146079480648,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 37,
+            "recent_improvement": -7.62939453125e-06
+          }
+        },
+        "straggler_width": "6",
+        "straggler_stop_epoch": 18500,
+        "second_slowest_stop_epoch": 13500
+      },
+      "1": {
+        "seed": 1,
+        "total_epochs_steps_to_converge": 18000,
+        "train_wall_clock_s": 79.68585190299927,
+        "seconds_per_epoch": 0.004426991772388849,
+        "best_mean_val_epoch": 17000,
+        "per_width": {
+          "1": {
+            "stop_epoch": 7500,
+            "best_epoch": 1500,
+            "best_val_plain_mse": 0.6550577878952026,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 36,
+            "recent_improvement": 0.00019931793212890625
+          },
+          "2": {
+            "stop_epoch": 6500,
+            "best_epoch": 500,
+            "best_val_plain_mse": 0.652421236038208,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 36,
+            "recent_improvement": 0.0001391768455505371
+          },
+          "3": {
+            "stop_epoch": 6500,
+            "best_epoch": 500,
+            "best_val_plain_mse": 0.5981031060218811,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 36,
+            "recent_improvement": 0.0006800293922424316
+          },
+          "4": {
+            "stop_epoch": 12000,
+            "best_epoch": 6000,
+            "best_val_plain_mse": 0.0701783075928688,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 36,
+            "recent_improvement": 0.00041760504245758057
+          },
+          "5": {
+            "stop_epoch": 9500,
+            "best_epoch": 3500,
+            "best_val_plain_mse": 0.06953180581331253,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 36,
+            "recent_improvement": 0.00016671419143676758
+          },
+          "6": {
+            "stop_epoch": 9500,
+            "best_epoch": 3500,
+            "best_val_plain_mse": 0.04543796181678772,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 36,
+            "recent_improvement": 0.0006858929991722107
+          },
+          "7": {
+            "stop_epoch": 18000,
+            "best_epoch": 12000,
+            "best_val_plain_mse": 0.0346069261431694,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 36,
+            "recent_improvement": 0.0004056505858898163
+          },
+          "8": {
+            "stop_epoch": 18000,
+            "best_epoch": 12000,
+            "best_val_plain_mse": 0.03449491783976555,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 36,
+            "recent_improvement": 0.0004588179290294647
+          },
+          "9": {
+            "stop_epoch": 8500,
+            "best_epoch": 2500,
+            "best_val_plain_mse": 0.033133722841739655,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 36,
+            "recent_improvement": 0.00011927634477615356
+          },
+          "10": {
+            "stop_epoch": 8500,
+            "best_epoch": 2500,
+            "best_val_plain_mse": 0.03311307355761528,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 36,
+            "recent_improvement": 0.00011803582310676575
+          },
+          "11": {
+            "stop_epoch": 8500,
+            "best_epoch": 16500,
+            "best_val_plain_mse": 0.03156699985265732,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 36,
+            "recent_improvement": 0.0005137138068675995
+          },
+          "12": {
+            "stop_epoch": 8500,
+            "best_epoch": 9000,
+            "best_val_plain_mse": 0.03141125664114952,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 36,
+            "recent_improvement": 0.00014848634600639343
+          }
+        },
+        "straggler_width": "7",
+        "straggler_stop_epoch": 18000,
+        "second_slowest_stop_epoch": 18000
+      },
+      "2": {
+        "seed": 2,
+        "total_epochs_steps_to_converge": 99500,
+        "train_wall_clock_s": 520.6345404519961,
+        "seconds_per_epoch": 0.005232507944241167,
+        "best_mean_val_epoch": 99500,
+        "per_width": {
+          "1": {
+            "stop_epoch": 9000,
+            "best_epoch": 12500,
+            "best_val_plain_mse": 0.8526214361190796,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 199,
+            "recent_improvement": -0.0006301999092102051
+          },
+          "2": {
+            "stop_epoch": 16500,
+            "best_epoch": 10500,
+            "best_val_plain_mse": 0.5493586659431458,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 199,
+            "recent_improvement": -0.0017480850219726562
+          },
+          "3": {
+            "stop_epoch": 99500,
+            "best_epoch": 93500,
+            "best_val_plain_mse": 0.5032752752304077,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 199,
+            "recent_improvement": 0.0006633996963500977
+          },
+          "4": {
+            "stop_epoch": 7500,
+            "best_epoch": 11500,
+            "best_val_plain_mse": 0.06960541754961014,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 199,
+            "recent_improvement": 0.000619061291217804
+          },
+          "5": {
+            "stop_epoch": 9500,
+            "best_epoch": 10500,
+            "best_val_plain_mse": 0.038946643471717834,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 199,
+            "recent_improvement": 0.00021235644817352295
+          },
+          "6": {
+            "stop_epoch": 14000,
+            "best_epoch": 8000,
+            "best_val_plain_mse": 0.036007922142744064,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 199,
+            "recent_improvement": 0.001762043684720993
+          },
+          "7": {
+            "stop_epoch": 13500,
+            "best_epoch": 7500,
+            "best_val_plain_mse": 0.03638243302702904,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 199,
+            "recent_improvement": 0.001701008528470993
+          },
+          "8": {
+            "stop_epoch": 13500,
+            "best_epoch": 7500,
+            "best_val_plain_mse": 0.03729275241494179,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 199,
+            "recent_improvement": 0.001494619995355606
+          },
+          "9": {
+            "stop_epoch": 13500,
+            "best_epoch": 7500,
+            "best_val_plain_mse": 0.03752168267965317,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 199,
+            "recent_improvement": 0.0015777796506881714
+          },
+          "10": {
+            "stop_epoch": 8500,
+            "best_epoch": 2500,
+            "best_val_plain_mse": 0.02737748809158802,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 199,
+            "recent_improvement": 0.00022492744028568268
+          },
+          "11": {
+            "stop_epoch": 8000,
+            "best_epoch": 2000,
+            "best_val_plain_mse": 0.027961641550064087,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 199,
+            "recent_improvement": 0.00021649152040481567
+          },
+          "12": {
+            "stop_epoch": 8000,
+            "best_epoch": 2000,
+            "best_val_plain_mse": 0.028392760083079338,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 199,
+            "recent_improvement": 0.00021094642579555511
+          }
+        },
+        "straggler_width": "3",
+        "straggler_stop_epoch": 99500,
+        "second_slowest_stop_epoch": 16500
+      }
+    },
+    "control": {
+      "0": {
+        "seed": 0,
+        "total_epochs_steps_to_converge": 17500,
+        "train_wall_clock_s": 76.04173060099856,
+        "seconds_per_epoch": 0.00434524174862849,
+        "best_mean_val_epoch": 17500,
+        "per_width": {
+          "1": {
+            "stop_epoch": 6500,
+            "best_epoch": 500,
+            "best_val_plain_mse": 0.7793952822685242,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 35,
+            "recent_improvement": -0.0012380480766296387
+          },
+          "2": {
+            "stop_epoch": 16500,
+            "best_epoch": 10500,
+            "best_val_plain_mse": 0.6025125980377197,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 35,
+            "recent_improvement": 0.0014194250106811523
+          },
+          "3": {
+            "stop_epoch": 15000,
+            "best_epoch": 9000,
+            "best_val_plain_mse": 0.5534919500350952,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 35,
+            "recent_improvement": -7.814168930053711e-05
+          },
+          "4": {
+            "stop_epoch": 11000,
+            "best_epoch": 5000,
+            "best_val_plain_mse": 0.41308024525642395,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 35,
+            "recent_improvement": -0.0005316436290740967
+          },
+          "5": {
+            "stop_epoch": 8500,
+            "best_epoch": 2500,
+            "best_val_plain_mse": 0.0595206655561924,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 35,
+            "recent_improvement": -0.0005857981741428375
+          },
+          "6": {
+            "stop_epoch": 13500,
+            "best_epoch": 7500,
+            "best_val_plain_mse": 0.04648023471236229,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 35,
+            "recent_improvement": -6.311014294624329e-05
+          },
+          "7": {
+            "stop_epoch": 13000,
+            "best_epoch": 7000,
+            "best_val_plain_mse": 0.04266735538840294,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 35,
+            "recent_improvement": -0.00019432231783866882
+          },
+          "8": {
+            "stop_epoch": 13500,
+            "best_epoch": 7500,
+            "best_val_plain_mse": 0.04096001759171486,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 35,
+            "recent_improvement": -4.754215478897095e-05
+          },
+          "9": {
+            "stop_epoch": 17500,
+            "best_epoch": 11500,
+            "best_val_plain_mse": 0.03690187633037567,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 35,
+            "recent_improvement": 0.0006373859941959381
+          },
+          "10": {
+            "stop_epoch": 10000,
+            "best_epoch": 4000,
+            "best_val_plain_mse": 0.030864441767334938,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 35,
+            "recent_improvement": -0.0003874804824590683
+          },
+          "11": {
+            "stop_epoch": 10000,
+            "best_epoch": 12500,
+            "best_val_plain_mse": 0.02672054059803486,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 35,
+            "recent_improvement": 0.002960827201604843
+          },
+          "12": {
+            "stop_epoch": 10000,
+            "best_epoch": 4000,
+            "best_val_plain_mse": 0.025379113852977753,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 35,
+            "recent_improvement": -0.0001975707709789276
+          }
+        },
+        "straggler_width": "9",
+        "straggler_stop_epoch": 17500,
+        "second_slowest_stop_epoch": 16500
+      },
+      "1": {
+        "seed": 1,
+        "total_epochs_steps_to_converge": 16000,
+        "train_wall_clock_s": 64.11552978799591,
+        "seconds_per_epoch": 0.004007220611749744,
+        "best_mean_val_epoch": 16000,
+        "per_width": {
+          "1": {
+            "stop_epoch": 6500,
+            "best_epoch": 500,
+            "best_val_plain_mse": 0.6641505360603333,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 32,
+            "recent_improvement": 2.9385089874267578e-05
+          },
+          "2": {
+            "stop_epoch": 6500,
+            "best_epoch": 500,
+            "best_val_plain_mse": 0.6514058709144592,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 32,
+            "recent_improvement": -7.343292236328125e-05
+          },
+          "3": {
+            "stop_epoch": 6500,
+            "best_epoch": 500,
+            "best_val_plain_mse": 0.5883591175079346,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 32,
+            "recent_improvement": 0.0008818507194519043
+          },
+          "4": {
+            "stop_epoch": 12500,
+            "best_epoch": 6500,
+            "best_val_plain_mse": 0.07040252536535263,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 32,
+            "recent_improvement": 8.799880743026733e-05
+          },
+          "5": {
+            "stop_epoch": 10000,
+            "best_epoch": 4000,
+            "best_val_plain_mse": 0.07105032354593277,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 32,
+            "recent_improvement": 0.0002354159951210022
+          },
+          "6": {
+            "stop_epoch": 10000,
+            "best_epoch": 4000,
+            "best_val_plain_mse": 0.050807368010282516,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 32,
+            "recent_improvement": 0.00191560760140419
+          },
+          "7": {
+            "stop_epoch": 13000,
+            "best_epoch": 7000,
+            "best_val_plain_mse": 0.04635343700647354,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 32,
+            "recent_improvement": 4.523620009422302e-05
+          },
+          "8": {
+            "stop_epoch": 16000,
+            "best_epoch": 10000,
+            "best_val_plain_mse": 0.04309260472655296,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 32,
+            "recent_improvement": 4.551932215690613e-05
+          },
+          "9": {
+            "stop_epoch": 9000,
+            "best_epoch": 10000,
+            "best_val_plain_mse": 0.03284264728426933,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 32,
+            "recent_improvement": -7.194653153419495e-05
+          },
+          "10": {
+            "stop_epoch": 9000,
+            "best_epoch": 10000,
+            "best_val_plain_mse": 0.032629333436489105,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 32,
+            "recent_improvement": 0.0001701153814792633
+          },
+          "11": {
+            "stop_epoch": 9000,
+            "best_epoch": 10000,
+            "best_val_plain_mse": 0.03215004876255989,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 32,
+            "recent_improvement": -2.7157366275787354e-06
+          },
+          "12": {
+            "stop_epoch": 8500,
+            "best_epoch": 10000,
+            "best_val_plain_mse": 0.03190075606107712,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 32,
+            "recent_improvement": 0.00010418146848678589
+          }
+        },
+        "straggler_width": "8",
+        "straggler_stop_epoch": 16000,
+        "second_slowest_stop_epoch": 13000
+      },
+      "2": {
+        "seed": 2,
+        "total_epochs_steps_to_converge": 20500,
+        "train_wall_clock_s": 109.28996622299746,
+        "seconds_per_epoch": 0.005331217864536462,
+        "best_mean_val_epoch": 20500,
+        "per_width": {
+          "1": {
+            "stop_epoch": 7500,
+            "best_epoch": 1500,
+            "best_val_plain_mse": 0.6783653497695923,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 41,
+            "recent_improvement": 9.483098983764648e-05
+          },
+          "2": {
+            "stop_epoch": 7500,
+            "best_epoch": 1500,
+            "best_val_plain_mse": 0.5563227534294128,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 41,
+            "recent_improvement": 0.00022166967391967773
+          },
+          "3": {
+            "stop_epoch": 8000,
+            "best_epoch": 2000,
+            "best_val_plain_mse": 0.5456341505050659,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 41,
+            "recent_improvement": 0.00022202730178833008
+          },
+          "4": {
+            "stop_epoch": 17500,
+            "best_epoch": 11500,
+            "best_val_plain_mse": 0.04483051970601082,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 41,
+            "recent_improvement": 0.00010964646935462952
+          },
+          "5": {
+            "stop_epoch": 11500,
+            "best_epoch": 5500,
+            "best_val_plain_mse": 0.04378417879343033,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 41,
+            "recent_improvement": -0.00021547451615333557
+          },
+          "6": {
+            "stop_epoch": 12500,
+            "best_epoch": 6500,
+            "best_val_plain_mse": 0.04262285307049751,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 41,
+            "recent_improvement": -9.975582361221313e-05
+          },
+          "7": {
+            "stop_epoch": 12000,
+            "best_epoch": 6000,
+            "best_val_plain_mse": 0.03467937186360359,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 41,
+            "recent_improvement": -0.00034061819314956665
+          },
+          "8": {
+            "stop_epoch": 10500,
+            "best_epoch": 4500,
+            "best_val_plain_mse": 0.03505675122141838,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 41,
+            "recent_improvement": 0.00018727779388427734
+          },
+          "9": {
+            "stop_epoch": 10000,
+            "best_epoch": 4000,
+            "best_val_plain_mse": 0.035843625664711,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 41,
+            "recent_improvement": 9.726360440254211e-05
+          },
+          "10": {
+            "stop_epoch": 14500,
+            "best_epoch": 8500,
+            "best_val_plain_mse": 0.030930038541555405,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 41,
+            "recent_improvement": 0.00013724341988563538
+          },
+          "11": {
+            "stop_epoch": 20500,
+            "best_epoch": 14500,
+            "best_val_plain_mse": 0.02952064573764801,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 41,
+            "recent_improvement": 0.0005248524248600006
+          },
+          "12": {
+            "stop_epoch": 15000,
+            "best_epoch": 9000,
+            "best_val_plain_mse": 0.029777348041534424,
+            "converged": true,
+            "hit_cap": false,
+            "trustworthy": true,
+            "n_checkpoints_recorded": 41,
+            "recent_improvement": 0.00033216550946235657
+          }
+        },
+        "straggler_width": "11",
+        "straggler_stop_epoch": 20500,
+        "second_slowest_stop_epoch": 17500
+      }
+    }
+  },
+  "seconds_per_epoch_all_arms_seeds": {
+    "weighted": {
+      "0": 0.004525,
+      "1": 0.004427,
+      "2": 0.005233
+    },
+    "control": {
+      "0": 0.004345,
+      "1": 0.004007,
+      "2": 0.005331
+    },
+    "note": "All six values fall in a tight 0.0040-0.0053 s/epoch band with NO systematic arm-vs-arm gap -- per-epoch compute cost is unaffected by --loss weighted (the only extra op is a scalar float multiply per sampled width before summing the training loss). The entire wall-clock difference is explained by epoch COUNT, not epoch COST."
+  },
+  "weight_table_in_force": "/home/ff235/dev/MLResearch/automl/automl_package/examples/capacity_ladder_results/WSEL23_DATA_WEIGHTS/data_weight_table.json",
+  "narrow_width_weights": {
+    "1": 0.04497010465689494,
+    "2": 0.06654887061248344,
+    "3": 0.07726203343252251
+  },
+  "straggler_finding": {
+    "description": "In the weighted arm, seed 2, width=3's ConvergenceTracker did not trip patience until epoch 99500 -- best_epoch=93500, best_val(plain MSE)=0.50328. Every OTHER width x seed cell in BOTH arms (35 of the 36 tracked (arm=control|weighted) x (seed) x (width) trajectories, when restricted to the weighted arm's own seed 2 and to every control cell) converged by epoch <= 20500. Because `_train_kdropout_to_convergence`'s loop only breaks once `all(t.done for t in trackers.values())` (kdropout_converged_width_experiment.py:455), this single straggler width forced the ENTIRE joint run (all 12 widths, every epoch, under --schedule all) to keep training for another ~83000 epochs after every other width had already flattened.",
+    "weighted_seed2_width3_trajectory_shape": "Declines nearly monotonically from 0.61678 (epoch 500) to 0.50261 (epoch 99500) at a slowly-decaying but still-nonzero rate for the entire run -- never plateaus within the observed range. Each ~500-epoch checkpoint step is individually often well below min_delta=0.002, but the cumulative drop since the last recorded best crosses 0.002 often enough (roughly every 2000-6000 epochs, i.e. within the 12-checkpoint/6000-epoch patience window) to keep resetting the patience counter, all the way out to epoch 93500.",
+    "control_seed2_width3_trajectory_shape": "Bottoms out fast at epoch 2000 (best_val=0.54563) then rises to ~0.563 by epoch 8000 and stays flat/noisy with no further trend -- patience trips at epoch 8000 (best_epoch 2000 + 12*500). Qualitatively different SHAPE from the weighted arm's version: fast-approach-then-mild-overfit vs slow-monotonic-creep-that-never-quite-flattens.",
+    "corroborating_pattern": "All three of the weighted arm's most heavily DOWN-weighted widths (w=1 weight=0.045, w=2 weight=0.067, w=3 weight=0.077) show their LATEST best_epoch of any seed specifically on seed 2 (w1: 500/1500/12500 for seeds 0/1/2; w2: 500/500/10500; w3: 1500/500/93500), whereas the control arm's same three widths show early best_epoch on every seed (control w1/w2/w3 best_epoch ranges from 500-10500 across all seeds, no seed-2-specific outlier). This is consistent with seed 2 producing a harder optimization landscape specifically for the down-weighted narrow widths under the weighted objective, with width=3 landing furthest into the pathological slow-creep regime."
+  },
+  "hypotheses": {
+    "H1_epoch_count_not_per_epoch_cost": {
+      "verdict": "confirmed",
+      "numbers": "seconds/epoch across all 6 arm x seed cells: weighted [0.004525, 0.004427, 0.005233], control [0.004345, 0.004007, 0.005331] -- no systematic gap between arms. steps_to_converge: weighted [18500, 18000, 99500] vs control [17500, 16000, 20500]. The wall-clock ratio (520.6/109.3=4.76x for seed 2) closely tracks the epoch-count ratio (99500/20500=4.85x) -- confirming the slowdown is entirely epoch count, not per-epoch cost.",
+      "which_widths_run_long": "NOT the up-weighted wide widths (w=9-12, weight 0.73-1.0) and NOT narrow widths as a class -- specifically ONE width (w=3, the 3rd-narrowest, weight=0.077) on ONE seed (2). The other two heavily down-weighted narrow widths (w=1 weight=0.045, w=2 weight=0.067) converge in the same 6500-16500 epoch range as everything else on seed 2."
+    },
+    "H2_min_delta_absolute_threshold_on_rescaled_loss": {
+      "verdict": "refuted",
+      "numbers": "The value compared against min_delta is plain unweighted MSE in BOTH arms (kdropout_converged_width_experiment.py:439-441, confirmed by code + docstring). best_val magnitudes per width/seed are directly comparable in scale across arms (see checkpointed_loss_units.best_val_plain_mse_by_width) -- there is no rescaling of the monitored quantity, so min_delta=0.002 means the identical thing in both arms.",
+      "related_but_distinct_mechanism_that_IS_real": "The per-width TRAINING gradient (not the monitored value) is scaled by the weight table inside `_sampled_widths_total_loss` (line 432). For width=3 that gradient is ~13x smaller than width=12's (weight 0.077 vs 1.0). This slows that width's approach to its own loss minimum, and on seed 2 specifically produced a slow-monotonic-decline trajectory shape that keeps parceling out just-over-min_delta cumulative improvements for tens of thousands of epochs -- a shape effect on optimization dynamics, not a units mismatch in the convergence check."
+    },
+    "H3_seed_specific_not_systematic": {
+      "verdict": "confirmed",
+      "numbers": "Weighted-vs-control wall clock ratio by seed: seed0 83.71/76.04=1.10x, seed1 79.69/64.12=1.24x, seed2 520.63/109.29=4.76x. Only seed 2 shows a dramatic gap; seeds 0-1 show mild differences of the same order as the control arm's own seed-to-seed spread (control seed2/seed1 = 109.29/64.12 = 1.70x). Localized further: within seed 2, it is effectively ONE width (w=3) responsible for the entire straggler effect -- every other width x seed x arm cell across all 36 tracked series (both arms x 3 seeds x 12 widths) converges by epoch <= 20500; only weighted/seed2/width3 reaches 99500."
+    }
+  },
+  "confound_check": {
+    "environment": "Identical git commit (4cc9aeb2e5), same torch/numpy/platform, same threading (omp_num_threads=4, torch_num_threads=4, cpu_count=22), same device=cpu, in both arms' provenance blocks -- rules out an environment/threading confound for the per-epoch cost comparison.",
+    "untrustworthy_seeds": "Both arms report `untrustworthy_seeds: []` -- zero untrustworthy seeds in either arm, consistent with the brief's premise."
+  },
+  "verdict": "The '~5x slower' cost is not a property of the weighted objective in general -- it is a single-cell outlier: on seed 2 only, width=3's held-out MSE (monitored in plain, unweighted units identical to the control arm) settled into a slow, nearly-monotonic decline that kept crossing the min_delta=0.002 threshold just often enough to reset the patience counter for ~93000 epochs, instead of quickly bottoming out and plateauing/overfitting the way it does in the control arm and the way width=3 does on the weighted arm's other two seeds. Because the joint k-dropout loop only stops once EVERY width's tracker is done, this one straggler forced the whole run (all 12 widths trained every epoch under --schedule all) to keep going until epoch 99500, and per-epoch compute cost is unchanged between arms, so wall-clock scaled directly with that epoch count. The mechanistic link to the weighting is real and evidenced (the down-weighted training gradient for narrow widths measurably slows their approach to a minimum -- all three down-weighted narrow widths show their latest best_epoch of any seed specifically on seed 2), but the LITERAL min_delta-rescaling theory in the brief is refuted by the code: the monitored quantity is never rescaled.",
+  "confidence": "high on the mechanical chain (straggler width forces the whole run to keep training; epoch count, not per-epoch cost, drives wall clock; the monitored quantity is unweighted in both arms) -- all directly read off code and the landed trajectories. medium on the deeper 'why width=3, why seed=2 specifically' question -- the corroborating pattern (all three down-weighted narrow widths peak latest on seed 2) supports a real weighting-induced slowdown of narrow-width optimization, but disk data cannot fully explain why seed 2's landscape in particular pushes width=3 all the way into a non-plateauing regime while widths 1-2 (with even smaller weights) do not.",
+  "unresolved": [
+    "Why width=3 specifically (rather than width=1 or width=2, which have smaller weights still) is the one that falls into the extreme slow-creep regime on seed 2 -- disk has no per-width gradient-norm or shared-trunk-drift instrumentation to test the 'trunk keeps shifting toward wide widths while width=3's own head update is too weak to keep pace' mechanism directly.",
+    "Whether this is a rare tail event that would recur on other seeds/toys under the weighted objective, or a one-off specific to this exact seed=2 data draw and initialization -- only 3 seeds were run, too few to estimate a recurrence rate (agent-memory: no conclusions from tiny samples applies to seed counts too).",
+    "Whether tightening min_delta/patience (recipe-level fix) or clipping/rescaling the training weight table's floor (e.g. a higher floor for width=3) would prevent this pathology, since no such variant was run."
+  ],
+  "proposed_but_NOT_run_probe": "Re-run --arch shared_trunk --loss weighted --schedule all for seed 2 alone with a few different RNG sub-seeds (or perturbed init) to see whether width=3's slow-creep pathology recurs -- if it's seed-2-specific bad luck it should not reproduce under a nearby seed; if it's a systematic consequence of the weight table's floor near widths 1-3, it should reproduce with some regularity. NOT executed -- this is a disk-read diagnostic only."
+}

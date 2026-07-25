@@ -1,0 +1,48 @@
+{
+  "capacity_level": "wide_2x",
+  "width_multiplier": 2,
+  "hidden_layers": 1,
+  "n_train": 1500,
+  "seed": 2,
+  "d": 8,
+  "geometry": "axis",
+  "w_max": 12,
+  "ratio_to_noise_floor": 17.834772169589993,
+  "best_width": 1,
+  "per_width_ratio_to_noise_floor": [
+    17.834772169589993,
+    27.671802043914788,
+    29.003804922103875,
+    35.63126921653747,
+    24.72073137760162,
+    35.47310233116149,
+    34.402412176132195,
+    30.140009522438042,
+    29.579162597656243,
+    32.259252667427056,
+    35.99130809307098,
+    32.47307538986205
+  ],
+  "anchor_ratio_to_noise_floor": 1.1278630234301088,
+  "all_widths_trustworthy": true,
+  "hit_cap": false,
+  "cache_hit": false,
+  "graduated": false,
+  "provenance": {
+    "timestamp_utc": "2026-07-25T13:04:38+00:00",
+    "git": {
+      "commit": "77eae4ff4011f36fc636de0a04d8ca60148c58f0",
+      "dirty": true
+    },
+    "python": "3.12.13",
+    "torch": "2.10.0+xpu",
+    "numpy": "2.4.3",
+    "platform": "Linux-7.1.4-204.fc44.x86_64-x86_64-with-glibc2.43",
+    "threads": {
+      "omp_num_threads": "4",
+      "torch_num_threads": 4,
+      "cpu_count": 22
+    },
+    "automl_device": "cpu"
+  }
+}
