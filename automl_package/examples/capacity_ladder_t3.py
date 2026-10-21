@@ -1,6 +1,6 @@
 """T3: moving-mode power curve -- the count-lane analog of X10 (WS-B, task T3).
 
-(docs/plans/perinput_selector_2026-07-10/EXECUTION_PLAN.md §2 T3; pre-registration in
+(docs/probreg/per_input_k/history/perinput_selector_2026-07/EXECUTION_PLAN.md §2 T3; pre-registration in
  capacity_ladder_results/T3/PREREGISTRATION.md)
 
 X4/X4b closed the moving-mode question at a single N (N_TR=N_TE=1000): the multi-restart

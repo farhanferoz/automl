@@ -79,7 +79,7 @@ def run_one(ds_name: str, x_tr, y_tr, x_te, y_te,
     cls = IndependentWeightsFlexibleNN if weight_kind == "independent" else FlexibleHiddenLayersNN
     t0 = time.perf_counter()
     # LAYER_METHOD_GRID is entirely SOFT_GATING/GUMBEL_SOFTMAX/STE/REINFORCE -- all RETIRED under
-    # the nested ladder (MASTER Decision 29, docs/plans/capacity_programme/MASTER.md). This
+    # the nested ladder (MASTER Decision 29, docs/flexnn/PLAN.md). This
     # sweep's whole purpose is ablating across those methods (a labelled-comparison-arm table by
     # design), so the escape hatch is used rather than dropping them from the grid.
     m = cls(

@@ -1,6 +1,6 @@
 """DSEL-2 — feed-forward depth: does the benefit hold at all? STAGE 1 ONLY (the positive control).
 
-`docs/plans/capacity_programme/depth-selection.md`, task DSEL-2. This module builds and runs
+`docs/flexnn/depth/plan.md`, task DSEL-2. This module builds and runs
 **only** the two-part positive control MASTER Decision 14 requires before any per-depth reading is
 trusted:
 
@@ -18,7 +18,7 @@ Stage 1's control (above) failed on both seeds (`capacity_ladder_results/DSEL2/c
 and turned out to deviate from DSEL-1b's own ratified design in two unflagged ways: it trained every
 exit against the FULL-word label (never the depth-*d* prefix product DSEL-1b's own spec bullet calls
 for) and it never exercised DSEL-1b §1b's scheme (a), the per-sample uniform depth draw. USER RULINGS
-2026-07-21 (`depth-selection.md`, DSEL-2's halt block) order both deviations repaired and re-run as a
+2026-07-21 (`docs/flexnn/depth/plan.md`, DSEL-2's halt block) order both deviations repaired and re-run as a
 four-arm grid before the stage-1 failure is read as a substrate finding. `TargetScheme`/`ScheduleType`
 below are the two axes; `(FULL, ALL_RUNGS)` is stage 1's own arm above — cited, never rerun — and
 `run_dsel2c_arm` trains the other three at the best-found config (width 32, train_frac 0.75, DSEL-2's
@@ -34,7 +34,7 @@ capacity only):** group A5, word length 6, `NestedFeedForwardClf`
 
 **Readout arm, provisional for this stage only:** SHARED (one `nn.Linear` reused at every depth's
 exit) — the certified-winning shape from the recurrent depth mechanism
-(`docs/depth_capacity/verdict_per_input_depth.md`) and the shape `FlexibleHiddenLayersNN` already
+(`docs/flexnn/depth/reports/verdict_per_input_depth.md`) and the shape `FlexibleHiddenLayersNN` already
 ships. DSEL-1b's own readout_comparison JSONs are silent on which arm should be read as *the*
 feed-forward net for Decision-14 purposes (`readable_as_verdict=false` on both seeds — neither
 arm converged cleanly parameter-matched); this module does not resolve that question, it picks one

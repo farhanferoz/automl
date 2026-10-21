@@ -1,6 +1,6 @@
 """Discriminating check: does explicit weight-decay regularisation move the selected width? (WSEL-11).
 
-`docs/plans/capacity_programme/width.md` WSEL-11 / MASTER Decision 21: this programme's research
+`docs/flexnn/width/plan.md` WSEL-11 / MASTER Decision 21: this programme's research
 training is otherwise entirely unregularised (no weight decay, dropout, norm layers, or
 mini-batching), so the strand's own cheapest-within-tolerance selection rule
 (`automl_package/utils/capacity_selection.py`) might partly select SMALL widths because small
@@ -8,15 +8,15 @@ widths overfit less under that regime, not because small suffices -- a bias iden
 width and invisible to any within-strand check. This driver trains the SAME per-width sweep the
 strand already uses as its reference (`converged_width_experiment.py`'s `IndependentWidthNet`, the
 `nested_width_net.make_hetero` toy, per-width convergence gating) at three AdamW weight_decay
-values, applies width.md §1's selection rule to each resulting held-out curve, and reports whether
+values, applies docs/flexnn/width/plan.md §1's selection rule to each resulting held-out curve, and reports whether
 the chosen width moves.
 
-**RE-RUN, 2026-07-21 (width.md lines 934-1015).** The first run of this check trained through
+**RE-RUN, 2026-07-21 (docs/flexnn/width/plan.md lines 934-1015).** The first run of this check trained through
 `nested_width_net.gaussian_log_likelihood` on `IndependentWidthNet`, whose variance heads are real,
 so it fitted mean AND variance -- forbidden by §3.7 ("variance is fixed at the true value, never
 learned"). That run's verdict is VOID and its six per-cell JSONs / `frozen.json` stay on disk,
 un-touched, as the record of what was run; they may not be cited. This version fixes the ONE thing
-that changes on the re-run (width.md line 954): sigma FIXED at the generator's true value, which on
+that changes on the re-run (docs/flexnn/width/plan.md line 954): sigma FIXED at the generator's true value, which on
 tier 1 is exactly `--loss mse` (§3.7 line 359 -- MSE and the fixed-sigma NLL share an optimum up to
 one positive constant scale on this toy, whose noise is common-mode). Everything else -- the toy,
 the lambda grid, the convergence gates, the selection rule -- is byte-identical to the original
@@ -25,7 +25,7 @@ to 3 (seeds 0, 1, 2).
 
 **Local implementation note (MASTER Decision 19 -- the package/experiment boundary).**
 `converged_width_experiment._train_widths_to_convergence` hardcodes a plain `torch.optim.Adam` with
-no weight-decay knob. Weight decay is this task's one experiment-specific variable (width.md
+no weight-decay knob. Weight decay is this task's one experiment-specific variable (docs/flexnn/width/plan.md
 WSEL-11's spec), so `_train_widths_to_convergence_wd` below reimplements ONLY the per-width
 optimizer line -- `torch.optim.AdamW(..., weight_decay=lam)` in place of `Adam` -- and calls the
 SAME shared `cvg.fit_to_convergence` gate (patience/min_delta/check_every all default, i.e.
@@ -33,14 +33,14 @@ UNCHANGED) that every other width driver uses. Everything else (the toy, the net
 convergence gate, the scoring function, the selection rule) is imported and reused verbatim; nothing
 here reimplements those.
 
-**Fixed-sigma objective (width.md §3.7, §3.8 line 428).** Training and scoring both go through the
+**Fixed-sigma objective (docs/flexnn/width/plan.md §3.7, §3.8 line 428).** Training and scoring both go through the
 mean-only MSE twins already shared across this strand's drivers --
 `nested_width_net._width_mse` (training/validation; used the same way by
 `kdropout_converged_width_experiment.py`'s `LossType.MSE` arm) and
 `sinc_width_experiment._score_all_widths_mse` (held-out scoring) -- reused verbatim, not
 reimplemented. Neither reads `IndependentWidthNet`'s `logvar_head`, so sigma never enters either
 graph; `_assert_sigma_fixed` below fails fast if a future edit swaps either back to the
-Gaussian-NLL pair (the exact way the voided run failed, width.md lines 399-410, "WD7").
+Gaussian-NLL pair (the exact way the voided run failed, docs/flexnn/width/plan.md lines 399-410, "WD7").
 
 **Split discipline (the task's own verify line: "reported numbers come from a split not used for
 stopping or selection").** Two disjoint `make_hetero` draws are used, exactly as
@@ -52,8 +52,8 @@ No sample plays both roles. (This driver has no router-fitting stage/`p2` split 
 cheapest-within-tolerance reads a curve directly, it does not fit a per-input router -- so the two
 disjoint draws already satisfy the constraint.)
 
-**Non-goals (binding, width.md WSEL-11 spec, tier 1 only per §3.8's task table):** no sweep over
-toys, tiers or seeds beyond what is specified here; no change to width.md §1's selection rule; no
+**Non-goals (binding, docs/flexnn/width/plan.md WSEL-11 spec, tier 1 only per §3.8's task table):** no sweep over
+toys, tiers or seeds beyond what is specified here; no change to docs/flexnn/width/plan.md §1's selection rule; no
 re-run of WSEL-4's or WSEL-8's numbers from this driver; no interpretation of the discarded run's
 numbers.
 
@@ -93,8 +93,8 @@ from automl_package.utils.run_provenance import run_provenance  # noqa: E402
 
 RESULTS_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "WSEL11", "rerun")
 
-LAMBDAS = (0.0, 1e-4, 1e-2)  # width.md WSEL-11 spec, verbatim -- unchanged by the re-run
-SEEDS = (0, 1, 2)  # width.md §3.8 line 476: re-run supersedes the original "2 seeds" with 3 (0, 1, 2)
+LAMBDAS = (0.0, 1e-4, 1e-2)  # docs/flexnn/width/plan.md WSEL-11 spec, verbatim -- unchanged by the re-run
+SEEDS = (0, 1, 2)  # docs/flexnn/width/plan.md §3.8 line 476: re-run supersedes the original "2 seeds" with 3 (0, 1, 2)
 BASELINE_LAMBDA = 0.0
 
 W_MAX = 12  # same ladder as converged_width_experiment.py -- "one toy", the strand's own reference
@@ -113,7 +113,7 @@ VAL_EVERY = 5
 INITIAL_MAX_EPOCHS = cvg.DEFAULT_MAX_EPOCHS  # 60000
 ESCALATION_FACTOR = 4
 
-# --- Fixed-sigma objective (width.md §3.7, §3.8 line 428: tier 1 is `--loss mse`, explicit) --------
+# --- Fixed-sigma objective (docs/flexnn/width/plan.md §3.7, §3.8 line 428: tier 1 is `--loss mse`, explicit) --------
 # Both pinned to the mean-only MSE twins `kdropout_converged_width_experiment.py`'s `LossType.MSE`
 # arm already uses. Neither touches `IndependentWidthNet.logvar_head`; sigma is never read, so it is
 # equivalent to fixing it at the generator's true value without a free parameter to accidentally fit.
@@ -124,7 +124,7 @@ SCORE_FN = sw._score_all_widths_mse
 
 
 def _assert_sigma_fixed() -> None:
-    """Fails fast (WD7 precedent, width.md lines 399-410) if the train/score path reads variance.
+    """Fails fast (WD7 precedent, docs/flexnn/width/plan.md lines 399-410) if the train/score path reads variance.
 
     The voided run failed exactly this way: its driver called `gaussian_log_likelihood` with no
     assertion anywhere forcing the fixed-sigma objective. Both `TRAIN_LOSS_FN` and `SCORE_FN` here
@@ -133,7 +133,7 @@ def _assert_sigma_fixed() -> None:
     """
     assert TRAIN_LOSS_FN is nwn._width_mse, f"training loss must be the fixed-sigma MSE twin, got {TRAIN_LOSS_FN!r}"
     assert SCORE_FN is sw._score_all_widths_mse, f"scoring must read only the mean head, got {SCORE_FN!r}"
-    assert OBJECTIVE_NAME == "mse", f"tier-1 objective must be 'mse' (width.md sec 3.7), got {OBJECTIVE_NAME!r}"
+    assert OBJECTIVE_NAME == "mse", f"tier-1 objective must be 'mse' (docs/flexnn/width/plan.md sec 3.7), got {OBJECTIVE_NAME!r}"
 
 
 def _standardize_fit(x: np.ndarray, y: np.ndarray) -> dict:
@@ -149,7 +149,7 @@ def _to_std_tensors(x: np.ndarray, y: np.ndarray, norm: dict) -> tuple[torch.Ten
 def _width_loss(net: nwn.IndependentWidthNet, k: int, x_t: torch.Tensor, y_t: torch.Tensor) -> torch.Tensor:
     """Tier-1 fixed-sigma training/validation loss -- `TRAIN_LOSS_FN` (the mean-only MSE twin).
 
-    The variance head is never read here, so sigma cannot be learned (width.md §3.7); on this toy's
+    The variance head is never read here, so sigma cannot be learned (docs/flexnn/width/plan.md §3.7); on this toy's
     constant, common-mode noise, MSE is exactly the fixed-sigma Gaussian NLL up to one positive
     scale factor, so the optimum and the ordering of arms are unchanged from the discarded run's
     intent -- only the forbidden variance-fitting is removed.

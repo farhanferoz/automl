@@ -2,7 +2,7 @@
 
 NESTED trains `FlexibleHiddenLayersNN` with per-sample depth draws
 d ~ Uniform{1..max_hidden_layers} as a TRAINING SCHEDULE, not a learned selector and
-not a loss term (strictly-probabilistic premise, `docs/plans/capacity_ladder_2026-07-09/
+not a loss term (strictly-probabilistic premise, `docs/probreg/history/capacity_ladder_2026-07/plans/
 EXECUTION_PLAN.md` §0b). The prefix-property checks here mirror the F0 audit
 (`automl_package/examples/_flexnn_prefix_selftest.py`) through the NESTED path instead
 of `SoftGatingStrategy`.

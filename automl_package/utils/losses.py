@@ -138,7 +138,7 @@ def fixed_sigma_mixture_log_likelihood(
     """Per-sample fixed-sigma mixture log-likelihood: log Σ_c p_c(x) N(y; μ_c(x), σ²).
 
     The capacity-programme's k-selection readout (MASTER Decision 24,
-    `docs/plans/capacity_programme/MASTER.md`): σ is ONE shared constant across every component,
+    `docs/flexnn/PLAN.md`): σ is ONE shared constant across every component,
     every input and every arm, so nothing is fitted here -- this is not a variance metric.
     **HIGHER IS BETTER** (log-likelihood, not NLL) -- `mdn_nll` above returns the *negative* mean
     of a closely related quantity; mixing the two signs up is a bug waiting to happen, hence the
@@ -154,7 +154,7 @@ def fixed_sigma_mixture_log_likelihood(
             non-negative and sum to ~1 per row.
         mus: [batch, k] per-component means.
         sigma: the ONE shared standard deviation, fixed before scoring
-            (`docs/probreg_benchmark/benchmark_spec.md` §2): the known construction value on toys,
+            (`docs/probreg/shared/benchmark_spec.md` §2): the known construction value on toys,
             the held-out RMSE of the plain-NN baseline on real data. Same value for every arm and
             every component -- never fitted, never per-arm.
         eps: floor for `probs` before `log`, to prevent `-inf`.

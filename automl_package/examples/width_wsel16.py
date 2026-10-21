@@ -1,11 +1,11 @@
-"""WSEL-16 stage 1 -- can the CHEAP structure (`NestedWidthNet`, Design A: one output weight per unit) be TRAINED to work? (`docs/plans/capacity_programme/width.md` ~1527-1682).
+"""WSEL-16 stage 1 -- can the CHEAP structure (`NestedWidthNet`, Design A: one output weight per unit) be TRAINED to work? (`docs/flexnn/width/plan.md` ~1527-1682).
 
 Design A is 6x cheaper in output parameters than the certified `SharedTrunkPerWidthHeadNet` (Design B)
 and is the structure the strand's importance-ordering account is written for (`shared/
 width_transformer_port.md` §1) -- but trained normally (the plain summed loss) it FAILS (MASTER
 Decision 1): hidden unit `w_1` receives gradient from all `w_max` width terms at once and is pulled
 `w_max` ways in a tug-of-war. This task asks whether a TRAINING change (not a new architecture) fixes
-that, on the SAME canonical toy suite (`width.md` §3.8: tier 1 = `hetero`, tier 2 = `hetero3`) and the
+that, on the SAME canonical toy suite (`docs/flexnn/width/plan.md` §3.8: tier 1 = `hetero`, tier 2 = `hetero3`) and the
 SAME convergence gate as the rest of the width strand.
 
 **The five stage-1 arms.** `h = hidden(x)` is the shared `(N, w_max)` trunk output, `c_j` unit `j`'s own
@@ -30,7 +30,7 @@ contribution, `S_k = b + sum_{j<=k} c_j` the width-k running sum:
 **Reuse discipline (§3.9).** Four of the five arms are package classes trained through the EXISTING
 `kdropout_converged_width_experiment._train_kdropout_to_convergence` at tier 1 (plain `--loss mse`,
 byte-identical dispatch to the certified driver). `A_STOPGRAD`'s loss shape, and EVERY arm's tier-2
-fixed-sigma WEIGHTED objective (`width.md` §3.7, assigned to this task by §3.8's RESOLUTION UPDATE
+fixed-sigma WEIGHTED objective (`docs/flexnn/width/plan.md` §3.7, assigned to this task by §3.8's RESOLUTION UPDATE
 2026-07-22), cannot be expressed through that function's `LossType` (NLL/MSE only, and
 `kdropout_converged_width_experiment.py` is read-only for this task) -- `_train_custom_to_convergence`
 below covers exactly those two cases, reproducing the SANDWICH width-draw and `convergence.
@@ -53,7 +53,7 @@ both parameter counts, and wall-clock per step within 1.3x `B_HEADS`'. Decision 
 `B_HEADS`, and `stage2_required = true`.
 
 **Stage 2 -- CONDITIONAL, authored here now that `frozen.json` records `stage2_required: true`**
-(`width.md` "Stage 2 -- CONDITIONAL", tier 1 only, 3 arms x 3 seeds = 9 cells). Purpose: separate
+(`docs/flexnn/width/plan.md` "Stage 2 -- CONDITIONAL", tier 1 only, 3 arms x 3 seeds = 9 cells). Purpose: separate
 "greedy hurts" from "the moving target hurts" -- under `A_STOPGRAD` each unit fits a predecessor that
 is STILL CHANGING (every optimizer step moves every unit's weight simultaneously), which staged
 boosting never does (each stage trains against a prefix already frozen at convergence).
@@ -88,7 +88,7 @@ beyond automatically picking the new arms up into its existing generic per-(arm,
 rule, no change to the toy suite, no promotion of any candidate into the package (WSEL-17), no new
 nested-width class, no re-opening of `G-WIDTH = PASS`, no stage-2 grid EXECUTION (the root runs the 9
 cells), no stage-3 grid EXECUTION (the root runs the 36 cells; this file only adds `--tier 3` CLI
-support -- SANCTIONED 2026-07-22, `width.md`'s stage-3 sign-off ruling: "coverage APPROVED, single-arm
+support -- SANCTIONED 2026-07-22, `docs/flexnn/width/plan.md`'s stage-3 sign-off ruling: "coverage APPROVED, single-arm
 -- `B_HEADS` alone across the 36 tier-3 ladder cells", the driver-extension authoring contract named
 there), no stage-2 decision rule (diagnostic only, see above), no redesign of the stop-gradient
 frozen-readout-bias quirk on record in `frozen.json`.
@@ -97,7 +97,7 @@ Driver CLI contract (root-run grid; this file is never run over the full grid by
   `--arm {b_heads,a_joint,a_stopgrad,a_gates,independent,a_corrective,a_stopgrad_distill,
   a_cascade_staged} --tier {1,2,3} --seed <int> [--tag TAG]` runs ONE cell, writing its per-cell JSON +
   `state_dict` immediately. `--tier 3` additionally requires `--n-train {200,500,1500,4000}` and
-  `--sigma {0.05,0.15,0.5}` (`width.md` SS3.8's data x noise ladder; `--n-test` is never a tier-3 flag,
+  `--sigma {0.05,0.15,0.5}` (`docs/flexnn/width/plan.md` SS3.8's data x noise ladder; `--n-test` is never a tier-3 flag,
   it stays at the driver default). `a_cascade_staged` only accepts `--tier 1`.
   `--summarize` aggregates every per-cell JSON on disk into `WSEL16/frozen.json`.
   `--selftest` runs tiny cells for every (arm, tier) combo (skipping `a_cascade_staged` x tiers 2/3, the
@@ -162,7 +162,7 @@ _INDEPENDENT_CERT_REF_PATH = os.path.join(
     _EXAMPLES_DIR, "capacity_ladder_results", "W_KDROPOUT_CONVERGED", "w_kdropout_converged_summary_independent_mse.json"
 )
 
-# Pre-registered bars (`width.md` "Pre-registered bars" block), fixed BEFORE any run.
+# Pre-registered bars (`docs/flexnn/width/plan.md` "Pre-registered bars" block), fixed BEFORE any run.
 _REL_TOL_10PCT = 0.10  # both halt condition (a) (A_JOINT vs B_HEADS, every width) and the PRIMARY bar (full-width only).
 _REPRO_RATIO_RTOL = 0.02  # halt (b): |ours - certified| ratio-to-floor tolerance for "reproduces the certified reference" (observed deviations ~1e-3; thread noise ~5% ceiling).
 _COST_WALLCLOCK_RATIO_BAR = 1.3
@@ -171,7 +171,7 @@ _HETERO3_NOISY_REGION = 2  # nwn.make_hetero3's region id for the noisy-easy tai
 _SELFTEST_STOPGRAD_LOOP_TOL = 1e-6  # one-pass vs explicit-loop reference, float32 non-associativity slop.
 _SELFTEST_WEIGHTED_LOSS_TOL = 1e-9  # weighted_squared_error vs a hand-computed case, float64 exactness.
 
-# Stage 2's A_CORRECTIVE schedule (`width.md` "Stage 2 -- CONDITIONAL"): stop-gradient epochs between
+# Stage 2's A_CORRECTIVE schedule (`docs/flexnn/width/plan.md` "Stage 2 -- CONDITIONAL"): stop-gradient epochs between
 # corrective phases, and plain-summed-loss optimizer steps per phase. Neither is w_max-dependent -- both
 # are fixed spec constants, not something needing generalization under §3.10.
 _A_CORRECTIVE_INTERVAL = 2000
@@ -195,7 +195,7 @@ class Tier(enum.IntEnum):
     """SS3.8's canonical toy suite tiers.
 
     WSEL-16's own grid: tier 1 + tier 2, 30 cells; tier 3 is the data x noise ladder, CLI support added
-    under `width.md`'s 2026-07-22 stage-3 sign-off ruling -- the root, not this driver, decides which
+    under `docs/flexnn/width/plan.md`'s 2026-07-22 stage-3 sign-off ruling -- the root, not this driver, decides which
     arms/cells actually run there.
     """
 
@@ -206,7 +206,7 @@ class Tier(enum.IntEnum):
 
 @dataclass(frozen=True)
 class _TierConfig:
-    """One tier's toy/size config, `width.md` §3.8 lines 437-443."""
+    """One tier's toy/size config, `docs/flexnn/width/plan.md` §3.8 lines 437-443."""
 
     toy: nwn.Toy
     n_train: int
@@ -221,7 +221,7 @@ _TIER_CONFIG: dict[Tier, _TierConfig] = {
     # _resolve_tier_config() into an ephemeral _TierConfig instead of a fixed row.
 }
 
-# Tier 3 (`width.md` §3.8's data x noise ladder): --toy hetero always, --n-test at this driver's own
+# Tier 3 (`docs/flexnn/width/plan.md` §3.8's data x noise ladder): --toy hetero always, --n-test at this driver's own
 # default (cwe.N_TEST=500, matching tier 1 and the `_n*_s*_wp4` ledger precedent, which used n_test=500
 # at every n_train/sigma combo). --n-train and --sigma are CLOSED SETS, validated at the CLI boundary
 # (argparse `choices=`, main()) -- not re-validated inside run_cell(), which only requires them to be
@@ -241,7 +241,7 @@ _WEIGHTED_OBJECTIVE_TIERS = (Tier.TWO, Tier.THREE)
 def _resolve_tier_config(tier: Tier, n_train: int | None, n_test: int | None, sigma: float | None) -> _TierConfig:
     """Tier's `_TierConfig` -- the fixed row for tiers 1/2, or an ephemeral one built from `n_train`/`sigma` for tier 3.
 
-    Tier 3 has no single row (`width.md` §3.8: it is a 4 n_train x 3 sigma ladder, `--n-test` left at
+    Tier 3 has no single row (`docs/flexnn/width/plan.md` §3.8: it is a 4 n_train x 3 sigma ladder, `--n-test` left at
     this driver's own default) -- `n_train` and `sigma` must both be given by the caller; the closed-set
     membership check itself lives at the CLI boundary (`main()`'s argparse `choices=`), not here, so
     `--selftest` can still pass a tiny synthetic `n_train` through this same path.
@@ -310,7 +310,7 @@ def _params_effective(arm: Arm, w_max: int, params_allocated: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# A_STOPGRAD -- the one-pass stop-gradient loss (`width.md` ~1575-1578). Step 1's identity test target.
+# A_STOPGRAD -- the one-pass stop-gradient loss (`docs/flexnn/width/plan.md` ~1575-1578). Step 1's identity test target.
 # ---------------------------------------------------------------------------
 
 
@@ -376,7 +376,7 @@ def _make_stopgrad_total_loss_fn(tier: Tier, sigma_tr: torch.Tensor) -> Callable
 def _make_stopgrad_distill_total_loss_fn(tier: Tier, sigma_tr: torch.Tensor, w_max: int) -> Callable[[nn.Module, list[int], torch.Tensor, torch.Tensor], torch.Tensor]:
     """`(net, widths, x, y) -> scalar`: `A_STOPGRAD_DISTILL`'s loss -- `A_STOPGRAD`'s structure, target for `k < w_max` replaced by `detach(S_wmax)`.
 
-    Reuses `stopgrad_all_widths_pred` unchanged ("costs nothing extra per step", `width.md` Stage 2):
+    Reuses `stopgrad_all_widths_pred` unchanged ("costs nothing extra per step", `docs/flexnn/width/plan.md` Stage 2):
     column `w_max-1`'s VALUE already equals the plain (undetached) `S_{w_max}` exactly (Step 1's own
     identity test, part (a) -- `detach()` changes gradients, not values), so `.detach()`-ing that one
     column gives the distillation target for free, no second forward pass. `k = w_max` itself keeps the
@@ -414,7 +414,7 @@ def _make_per_width_val_fn(tier: Tier, sigma_val: torch.Tensor) -> Callable[[nn.
 
 
 def _sigma_true_tensor(toy: nwn.Toy, region: np.ndarray, sigma: float, norm: dict) -> torch.Tensor:
-    """Per-point TRUE noise sigma (`width.md` §3.7), IN STANDARDIZED-y UNITS (`/ norm["sy"]`) -- never estimated, never learned.
+    """Per-point TRUE noise sigma (`docs/flexnn/width/plan.md` §3.7), IN STANDARDIZED-y UNITS (`/ norm["sy"]`) -- never estimated, never learned.
 
     `hetero`: `sigma` (the toy's own constant) everywhere -- both regions share it. `hetero3`: region 2
     (noisy-easy) is `HETERO3_NOISY_SIGMA`, regions 0/1 are `HETERO_NOISE_SIGMA` -- read from the
@@ -459,7 +459,7 @@ def _train_custom_to_convergence(
 
     A near-duplicate of `kce._train_kdropout_to_convergence`'s training loop, needed because that
     function's per-width loss is hardcoded to its own `LossType` (NLL/MSE) dispatch and cannot express
-    (a) the tier-2 fixed-sigma WEIGHTED objective (`width.md` §3.7 -- no `LossType` member for it, and
+    (a) the tier-2 fixed-sigma WEIGHTED objective (`docs/flexnn/width/plan.md` §3.7 -- no `LossType` member for it, and
     `kdropout_converged_width_experiment.py` is out of this task's write set), or (b) `A_STOPGRAD`'s
     per-width total-loss SHAPE, which is not a sum of independently-detachable `forward_width(x, k)`
     calls (see `stopgrad_all_widths_pred`). The SANDWICH width draw below (`widths = [1, w_max] + 2
@@ -488,7 +488,7 @@ def _train_custom_to_convergence(
         independent_checkpointing: `True` for `Arm.INDEPENDENT` (disjoint sub-nets restore their OWN
             best state independently, matching `kce._train_kdropout_to_convergence`'s `Arch.INDEPENDENT`
             branch); `False` restores the WHOLE net at its best mean-per-width-validation epoch.
-        corrective_loss_fn: `A_CORRECTIVE`'s only extra mechanism (`width.md` Stage 2): if given, the
+        corrective_loss_fn: `A_CORRECTIVE`'s only extra mechanism (`docs/flexnn/width/plan.md` Stage 2): if given, the
             training loop periodically substitutes THIS loss for `total_loss_fn` on the SAME
             sandwich-sampled widths, same optimizer, no state reset. `None` (default) reproduces the
             EXACT prior behavior -- `A_STOPGRAD` and every tier-2 arm's existing call sites pass none of
@@ -526,7 +526,7 @@ def _train_custom_to_convergence(
         # A_CORRECTIVE's periodic plain-loss phase: epochs [corrective_interval, corrective_block) of
         # every corrective_block-epoch cycle use corrective_loss_fn instead of total_loss_fn -- "every
         # corrective_interval epochs [of total_loss_fn], corrective_duration steps of corrective_loss_fn,
-        # then resume" (`width.md` Stage 2's own wording). corrective_loss_fn is None for every OTHER
+        # then resume" (`docs/flexnn/width/plan.md` Stage 2's own wording). corrective_loss_fn is None for every OTHER
         # arm, so `in_corrective_phase` is always False there and this branch never fires.
         in_corrective_phase = corrective_loss_fn is not None and (epoch - 1) % corrective_block >= corrective_interval
         step_loss_fn = corrective_loss_fn if in_corrective_phase else total_loss_fn
@@ -661,13 +661,13 @@ def _ordering_statistic(
 
 
 # ---------------------------------------------------------------------------
-# Width selection -- BOTH rules the strand binds (`width.md` §1): the global cheapest-within-tolerance
+# Width selection -- BOTH rules the strand binds (`docs/flexnn/width/plan.md` §1): the global cheapest-within-tolerance
 # reader, and the distilled per-input router. Both reused from shared machinery, never reimplemented.
 # ---------------------------------------------------------------------------
 
 
 def _global_selected_width(net: nn.Module, w_max: int, x_report: torch.Tensor, y_report: torch.Tensor) -> dict:
-    """The strand's binding GLOBAL rule (`width.md` §1): cheapest-within-tolerance at 2x bootstrap SE over the held-out per-width squared-error curve."""
+    """The strand's binding GLOBAL rule (`docs/flexnn/width/plan.md` §1): cheapest-within-tolerance at 2x bootstrap SE over the held-out per-width squared-error curve."""
     net.eval()
     with torch.no_grad():
         cols = []
@@ -680,7 +680,7 @@ def _global_selected_width(net: nn.Module, w_max: int, x_report: torch.Tensor, y
 
 
 def _distilled_router_selected_width(net: nn.Module, w_max: int, x_fit: torch.Tensor, y_fit: torch.Tensor, x_route: torch.Tensor, seed: int) -> dict:
-    """The strand's PER-INPUT rule (`width.md` §1): `DistilledCapacityRouter` at its own flat `DEFAULT_TOLERANCE=0.25`.
+    """The strand's PER-INPUT rule (`docs/flexnn/width/plan.md` §1): `DistilledCapacityRouter` at its own flat `DEFAULT_TOLERANCE=0.25`.
 
     A DIFFERENT tolerance rule from the global one, deliberately (§1's "W-PERINPUT runs on a DIFFERENT
     tolerance rule" note).
@@ -768,7 +768,7 @@ def run_cell(
         check_every: epochs between per-width held-out checkpoints.
         patience: consecutive flat checkpoints that declare one width converged.
         min_delta: held-out-loss decrease counted as a real improvement.
-        corrective_interval: `A_CORRECTIVE`-only (`width.md` Stage 2); `None` = `_A_CORRECTIVE_INTERVAL`
+        corrective_interval: `A_CORRECTIVE`-only (`docs/flexnn/width/plan.md` Stage 2); `None` = `_A_CORRECTIVE_INTERVAL`
             (the real 2000-epoch spec value). Overridable so `--selftest` can exercise the corrective
             phase inside its tiny epoch budget without touching the real constant.
         corrective_duration: `A_CORRECTIVE`-only, same override convention; `None` =
@@ -783,7 +783,7 @@ def run_cell(
             `_resolve_tier_config`); or `arm is Arm.A_CASCADE_STAGED` and `tier is not Tier.ONE` -- the
             cascade's squared-error stage-loss port (`cascade_width_net.StageLoss.SQUARED_ERROR`) is
             scoped to tier 1's constant-sigma `hetero` toy only; a tier-2/tier-3 per-point-weighted
-            cascade objective was never authorized (`width.md` Stage 2: "tier 1 only, 3 arms x 3 seeds").
+            cascade objective was never authorized (`docs/flexnn/width/plan.md` Stage 2: "tier 1 only, 3 arms x 3 seeds").
     """
     cfg = _resolve_tier_config(tier, n_train, n_test, sigma)
     n_tr = n_train if n_train is not None else cfg.n_train
@@ -817,7 +817,7 @@ def run_cell(
         if tier is not Tier.ONE:
             raise ValueError(
                 "A_CASCADE_STAGED's squared-error stage-loss port is scoped to tier 1 only "
-                "(width.md Stage 2: 'tier 1 only, 3 arms x 3 seeds') -- neither tier 2 nor tier 3 was ever authorized for this arm."
+                "(docs/flexnn/width/plan.md Stage 2: 'tier 1 only, 3 arms x 3 seeds') -- neither tier 2 nor tier 3 was ever authorized for this arm."
             )
         stage_results = cascade.train_cascade(
             net,
@@ -831,7 +831,7 @@ def run_cell(
             patience=patience,
             min_delta=min_delta,
             stage_loss=cascade.StageLoss.SQUARED_ERROR,
-            sigma_true=None,  # tier 1 hetero is constant-sigma -- PLAIN squared error, `width.md` §3.7.
+            sigma_true=None,  # tier 1 hetero is constant-sigma -- PLAIN squared error, `docs/flexnn/width/plan.md` §3.7.
         )
         conv = {b: stage_results[b]["conv"] for b in range(1, w_max + 1)}  # stage b IS rung/width b.
     elif arm is Arm.A_STOPGRAD or arm is Arm.A_STOPGRAD_DISTILL or arm is Arm.A_CORRECTIVE or tier in _WEIGHTED_OBJECTIVE_TIERS:
@@ -896,7 +896,7 @@ def run_cell(
     with torch.no_grad():
         train_mse_by_width_standardised = {k: float(nwn._width_mse(net, k, x_tr_t, y_tr_t).item()) for k in range(1, w_max + 1)}
         held_out_mse_by_width_standardised = {k: float(nwn._width_mse(net, k, x_val_t, y_val_t).item()) for k in range(1, w_max + 1)}
-    # 2026-07-25 units-bug fix (docs/plans/capacity_programme/width.md "OPEN BUG ... MIX UNITS"): the
+    # 2026-07-25 units-bug fix (docs/flexnn/width/plan.md "OPEN BUG ... MIX UNITS"): the
     # pair above is scored in STANDARDISED (normalized-y) space, same trap as
     # `kdropout_converged_width_experiment.run_case`'s `train_mse_by_width`/`held_out_mse_by_width`.
     # PHYSICAL twins, via the SAME `_score_all_widths_mse` idiom `err2_te` below already uses;
@@ -933,7 +933,7 @@ def run_cell(
     x_report_t, y_report_t = cwe._to_std_tensors(x_report_raw, y_report_raw, norm)
     ordering_statistic = _ordering_statistic(net, arm, w_max, x_fit_t, y_fit_t, x_select_t, y_select_t, x_report_t, y_report_t)
 
-    # Width selection -- BOTH rules (`width.md` §1). Global reads the driver's whole held-out test set;
+    # Width selection -- BOTH rules (`docs/flexnn/width/plan.md` §1). Global reads the driver's whole held-out test set;
     # the router fits on the phase-1 val split and routes the report split (see that function's docstring).
     selected_width_global = _global_selected_width(net, w_max, x_te_t, y_te_t)
     selected_width_distilled_router = _distilled_router_selected_width(net, w_max, x_val_t, y_val_t, x_report_t, seed)
@@ -1060,7 +1060,7 @@ def _arm_tier_block(cells: dict[int, dict], w_max: int) -> dict:
 
 
 def _check_controls(per_cell: dict[Arm, dict[Tier, dict[int, dict]]]) -> dict:
-    """Step 3's two HALT conditions, read from whatever tier-1 cells are on disk (`width.md` "Step 3").
+    """Step 3's two HALT conditions, read from whatever tier-1 cells are on disk (`docs/flexnn/width/plan.md` "Step 3").
 
     Reporting a triggered halt is this driver's job; ACTING on it (stopping the grid, escalating to the
     user) is the ROOT's -- this function only computes the check.
@@ -1103,7 +1103,7 @@ def _check_controls(per_cell: dict[Arm, dict[Tier, dict[int, dict]]]) -> dict:
         halt_b = {
             "certified_reference": _INDEPENDENT_CERT_REF_PATH,
             "per_seed": per_seed,
-            # HALT (b) fires iff INDEPENDENT fails to REPRODUCE its certified reference (width.md Step 3:
+            # HALT (b) fires iff INDEPENDENT fails to REPRODUCE its certified reference (docs/flexnn/width/plan.md Step 3:
             # "does not reach its certified fit bar" -- the bar the certified run itself reached, PER SEED).
             # ROOT FIX 2026-07-22: the original predicate demanded strong_pass on every seed, which the
             # CERTIFIED run itself does not satisfy (its seed 2 is 1.1887, strong_pass=False) -- so a
@@ -1186,7 +1186,7 @@ def _cost_bar_for(arm: Arm, per_cell: dict[Arm, dict[Tier, dict[int, dict]]]) ->
 
 
 def _decide_stage1(per_cell: dict[Arm, dict[Tier, dict[int, dict]]]) -> dict:
-    """The mechanical decision rule (`width.md` "Pre-registered bars").
+    """The mechanical decision rule (`docs/flexnn/width/plan.md` "Pre-registered bars").
 
     `stage1_winner = A_STOPGRAD` if PRIMARY+ORDERING pass, else `A_GATES` if it passes both, else
     `B_HEADS` with `stage2_required=True`.
@@ -1326,7 +1326,7 @@ def run_selftest() -> bool:
     for arm in Arm:
         for tier in Tier:
             if arm is Arm.A_CASCADE_STAGED and tier is not Tier.ONE:
-                continue  # A_CASCADE_STAGED's squared-error port is tier-1-only -- run_cell refuses tiers 2/3 (width.md Stage 2).
+                continue  # A_CASCADE_STAGED's squared-error port is tier-1-only -- run_cell refuses tiers 2/3 (docs/flexnn/width/plan.md Stage 2).
             kw = dict(_SELFTEST_KW)
             if arm is Arm.A_CORRECTIVE:
                 kw.update(_SELFTEST_CORRECTIVE_KW)

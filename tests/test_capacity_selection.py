@@ -1,5 +1,5 @@
 """Tests for the capacity-programme shared selection primitives (Task FP-9,
-`docs/plans/capacity_programme/flexnn-package.md`).
+`docs/flexnn/package/plan.md`).
 
 Covers FP-9.a (`cheapest_within_tolerance`, `automl_package/utils/capacity_selection.py`), FP-9.b
 (`bootstrap_se`/`two_sample_bootstrap_se`, `automl_package/utils/numerics.py`), and FP-9.c

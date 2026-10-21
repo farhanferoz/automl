@@ -100,7 +100,7 @@ def ablation_flexnn(ds):
     )
 
     # SOFT_GATING/GUMBEL_SOFTMAX are RETIRED under the nested ladder (MASTER Decision 29,
-    # docs/plans/capacity_programme/MASTER.md); every config below except the NONE baseline uses
+    # docs/flexnn/PLAN.md); every config below except the NONE baseline uses
     # one, and comparing them against the baseline is this sweep's whole point, so
     # allow_retired_capacity_selection=True is added to each (labelled comparison arm).
     configs = [

@@ -1362,7 +1362,7 @@ logger.info("\n===== AutoML Package Demonstration Complete =====")
 
 Empirical performance numbers across designed problems (heteroscedastic data, dynamic-k strategies,
 piecewise depth selection, exponential targets, conformal coverage, and more) live in
-**[`docs/benchmarks.md`](docs/benchmarks.md)**. The benchmarks document is the source of truth for
+**[`docs/package/history/benchmarks.md`](docs/package/history/benchmarks.md)**. The benchmarks document is the source of truth for
 "how well does this work?" — it includes the ProbReg vs ClassReg vs tree-model comparisons, the
 dynamic-k strategy table, and the Phase 4 feature evaluations.
 
@@ -1375,7 +1375,7 @@ dynamic-k strategy table, and the Phase 4 feature evaluations.
 | Biggest single-feature win | **Symlog** on exponential targets (~5× MSE improvement) |
 | Distribution-free intervals | **`ConformalWrapper`** — coverage tracks target across α = 0.05 / 0.10 / 0.20 |
 
-See `docs/benchmarks.md` for the full tables, dataset definitions, and takeaways.
+See `docs/package/history/benchmarks.md` for the full tables, dataset definitions, and takeaways.
 
 ## **17. Project Structure**
 The project is organized as follows:

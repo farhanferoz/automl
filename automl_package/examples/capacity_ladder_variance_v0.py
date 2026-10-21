@@ -1,6 +1,6 @@
 """WS3/V0 -- the joint-NLL variance-collapse pathology, demonstrated and quantified (the WS3 null).
 
-Capacity-ladder program, `docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md` sec 4. This
+Capacity-ladder program, `docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md` sec 4. This
 task DEMONSTRATES and QUANTIFIES the disease only -- no fixes (V1/V2 own those); this script never
 touches `automl_package/models/`.
 

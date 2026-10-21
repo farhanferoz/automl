@@ -1,6 +1,6 @@
 """M2 — realistic toy mixture-of-experts (MoE) baseline, per the frozen M1 config.
 
-`docs/plans/capacity_programme/flexnn-moe.md` Task M2, built against the "Frozen MoE config"
+`docs/flexnn/moe/plan.md` Task M2, built against the "Frozen MoE config"
 block that task M1 verified against primary sources (2026-07-16):
 
   * **Experts & routing — primary: 8 experts, top-2** (Mixtral, Jiang et al. 2024,
@@ -18,11 +18,11 @@ Experts are small MLPs `Linear(d_in -> expert_hidden) -> tanh -> Linear(expert_h
 output_size)`; the router is one `Linear(d_in -> n_experts)`. Params/FLOPs accounting is NEVER
 hand-computed here for the M2-frozen `output_size=1` (MSE) shape —
 `match_to_reference` calls `capacity_accounting.param_count`/`executed_flops` (S2,
-`docs/plans/capacity_programme/shared/metrics-accounting.md`), the programme's only source of
+`docs/probreg/shared/metrics-accounting.md`), the programme's only source of
 those numbers, for both the reference net and (via `MoEShapeDescriptor`) this module's own
 architecture.
 
-**F6 `task={mse,ce}` flag** (`docs/plans/capacity_programme/flexnn-core.md` Task F6): `Task.CE`
+**F6 `task={mse,ce}` flag** (`docs/flexnn/archive/flexnn-core.md` Task F6): `Task.CE`
 generalizes each expert's output layer to `Linear(expert_hidden -> n_classes)` (`output_size`
 constructor arg) and `training_loss` to `CrossEntropyLoss + L_aux` on the SAME router/aux-loss
 machinery — needed because F6's A5 depth-composition toy is classification, not regression.
@@ -208,7 +208,7 @@ def load_balance_aux_loss(route: RouterOutputs, n_experts: int, alpha: float = A
     generalizes Switch's top-1 `f_i` to top-k>1 by counting every dispatch pair, so `sum_e f_e ==
     top_k` rather than 1. This top-k generalization is the natural extension of eq. 4, not itself
     a cited claim: Mixtral's paper does not restate an aux loss (see the "Frozen MoE config" block
-    in `docs/plans/capacity_programme/flexnn-moe.md`). `P_e` = mean of the FULL (unmasked) softmax
+    in `docs/flexnn/moe/plan.md`). `P_e` = mean of the FULL (unmasked) softmax
     probability on expert e (`full_probs` column mean) — Switch's `P_i`. `f_e` carries no gradient
     (it comes from a hard `topk`/`scatter` dispatch decision); `P_e` does — so gradient descent on
     this loss pushes down the router's soft probability on over-loaded experts and up on
@@ -298,7 +298,7 @@ def match_to_reference(
     `reference` is a real FlexNN/width-net module; `reference_config` is its routed capacity
     (depth for FlexNN, width for a width net). Both accounting quantities come from
     `capacity_accounting.param_count`/`executed_flops` — the S2 module that is the ONLY source of
-    params/FLOPs numbers in this programme (`docs/plans/capacity_programme/shared/metrics-accounting.md`).
+    params/FLOPs numbers in this programme (`docs/probreg/shared/metrics-accounting.md`).
     `param_count` excludes any `logvar`-named parameter (`capacity_accounting.LOGVAR_HEAD_PATH_SUBSTRING`):
     MASTER Decision 2 (MSE-only) makes a width net's logvar head dead weight, and this MoE's
     experts have no logvar branch to compare it against.

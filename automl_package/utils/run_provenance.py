@@ -10,7 +10,7 @@ instance) far more visibly than the perturbation itself would suggest.
 Motivating case (capacity programme, 2026-07-21): a saved reference could not be reproduced even by
 its own commit, and because the JSON stored no environment metadata at all, the cause could not be
 identified from the artifact -- only re-derived by re-running history. See
-`docs/plans/capacity_programme/shared/fp5-stale-reference-finding.md`.
+`docs/flexnn/package/history/fp5-stale-reference-finding.md`.
 """
 
 from __future__ import annotations

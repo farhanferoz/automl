@@ -1,6 +1,6 @@
-"""WSEL-8 -- the W-SHARED ~= W-SWEEP claim, both halves, on toys (`docs/plans/capacity_programme/width.md` ~1052-1081).
+"""WSEL-8 -- the W-SHARED ~= W-SWEEP claim, both halves, on toys (`docs/flexnn/width/plan.md` ~1052-1081).
 
-`width.md` SS1 draws a line between two DIFFERENT claims about the cheap global read:
+`docs/flexnn/width/plan.md` SS1 draws a line between two DIFFERENT claims about the cheap global read:
   * **(a) same quality** -- read at a given width, does the jointly-trained multi-head dial network
     match a network DEDICATED to that width? (partially covered by the certification's fit-at-floor
     evidence, never against the converged per-width sweep).
@@ -149,7 +149,7 @@ _REL_ERR_EPS = 1e-12  # floors the relative-error denominator so a near-zero ref
 
 
 class Arm(enum.Enum):
-    """Closed set: `width.md` SS1's two untested-together arms -- WSEL-8's whole comparison."""
+    """Closed set: `docs/flexnn/width/plan.md` SS1's two untested-together arms -- WSEL-8's whole comparison."""
 
     W_SWEEP = "w_sweep"  # one dedicated FlexibleWidthNN(widths=(k,)) per width -- the expensive reference.
     W_SHARED = "w_shared"  # the certified multi-head dial network, read via fit_global_selector.
@@ -319,7 +319,7 @@ def _read_frozen_fraction(wsel6_frozen_path: str = WSEL6_FROZEN_PATH) -> tuple[f
     """Reads WSEL-6's frozen selection fraction, with provenance -- never hardcoded (SS3.6 feed-forward rule)."""
     if not os.path.exists(wsel6_frozen_path):
         raise RuntimeError(
-            f"WSEL-6 frozen fraction not found at {wsel6_frozen_path!r}; width.md SS3.6's feed-forward rule requires "
+            f"WSEL-6 frozen fraction not found at {wsel6_frozen_path!r}; docs/flexnn/width/plan.md SS3.6's feed-forward rule requires "
             "WSEL-8 to read the selection-set fraction from that artifact -- run WSEL-6 (or point --results-dir "
             "wiring at a build that has) before running --arm w_shared."
         )
@@ -521,7 +521,7 @@ def run_wsweep_control(
     }
     if not reproduces:
         print("!" * 78)
-        print("WSWEEP CONTROL DID NOT REPRODUCE (MASTER Decision 14 / width.md WSEL-8 hard gate):")
+        print("WSWEEP CONTROL DID NOT REPRODUCE (MASTER Decision 14 / docs/flexnn/width/plan.md WSEL-8 hard gate):")
         print(f"  complete={complete} (missing={len(missing)}), all_within_bar={all_within_bar}")
         print("  --arm w_shared will refuse to run until this passes. Report the discrepancy (SS3.5).")
         print("!" * 78)
@@ -538,7 +538,7 @@ def _assert_wsweep_control_passed(results_dir: str) -> None:
     path = os.path.join(results_dir, "wsweep_control.json")
     if not os.path.exists(path):
         raise SystemExit(
-            f"{path} is missing. width.md's WSEL-8 hard gate (MASTER Decision 14): run --wsweep-control after "
+            f"{path} is missing. docs/flexnn/width/plan.md's WSEL-8 hard gate (MASTER Decision 14): run --wsweep-control after "
             "every W-SWEEP dedicated net has landed, BEFORE any --arm w_shared cell."
         )
     with open(path) as f:
@@ -546,7 +546,7 @@ def _assert_wsweep_control_passed(results_dir: str) -> None:
     if control.get("reproduces") is not True:
         raise SystemExit(
             f"{path} has reproduces={control.get('reproduces')!r}. --arm w_shared refuses to run until the W-SWEEP "
-            "positive control reproduces WSEL-4's reference within its bar (width.md SS3.5: report the discrepancy and halt)."
+            "positive control reproduces WSEL-4's reference within its bar (docs/flexnn/width/plan.md SS3.5: report the discrepancy and halt)."
         )
 
 

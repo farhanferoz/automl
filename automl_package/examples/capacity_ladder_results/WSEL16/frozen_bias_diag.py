@@ -1,6 +1,6 @@
 """WSEL-16 frozen-bias diagnostic (root, 2026-07-22) — run BEFORE interpreting A_STOPGRAD's accuracy failure.
 
-The worker-flagged interpretation caveat (width.md WSEL-16 STATUS block): under the stop-gradient
+The worker-flagged interpretation caveat (docs/flexnn/width/plan.md WSEL-16 STATUS block): under the stop-gradient
 loss the shared readout bias `mean_head.bias` appears ONLY inside the detached term
 (`width_wsel16.stopgrad_all_widths_pred`, `s_prev.detach()`), so it receives zero gradient at every
 width and stays frozen at its init value for the whole run. Question this script answers with

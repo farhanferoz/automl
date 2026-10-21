@@ -108,7 +108,7 @@ green) reproduced every per-case NLL bit-identically (max abs diff 0.0 across 45
 deterministic, current-code. Artifact: `K6/k6_summary.json`.
 
 Artifacts: `K4/k4_summary.json`, `K5/k5_summary.json`, `K6/k6_summary.json`, `R2_verdict.md`. June
-reference: `docs/kselection_variational_em_2026-06-13/kselection_variational_em.md`.
+reference: `docs/probreg/history/kselection_variational_em_2026-06/kselection_variational_em.md`.
 
 ---
 
@@ -271,16 +271,16 @@ Artifacts: `V0/v0_summary.json`, `V1/v1_summary.json`, `V2/v2_summary.json`, `V2
 
 ## Reports of record (2026-07-10, both gate-clean)
 - **REPORT-2 (revised post-review; S/T/H/P folded 2026-07-10/11):**
-  `/home/ff235/dev/MLResearch/automl/docs/capacity_ladder_report_2026-07-10/capacity_ladder_report.pdf`
+  `/home/ff235/dev/MLResearch/automl/docs/probreg/history/capacity_ladder_2026-07/report/capacity_ladder_report.pdf`
   (28pp; 8 cold-read gate rounds; gate log `COLD_READ_TODO.md` in the same folder). Carries every ⟦REV⟧
   correction in this ledger, the nested-vs-dedicated depth table, the analytic V3 ceiling, and a new
   **§6 "From a measurement to a deployable selector"** (S1/S2 recipe, H1 ProbReg two-phase validation,
   T2 dimension degradation, T3+P1 power curves, T1 representable-not-learnable) with §7 boundary rewrite
   (moving-mode resolved as power-limited; boundary = input-dimension + depth-learnability). Tables 8–13,
   Telgarsky 2016 added.
-- **NOTE-MOE:** `/home/ff235/dev/MLResearch/automl/docs/moe_contrast_2026-07-10/moe_contrast.pdf`
+- **NOTE-MOE:** `/home/ff235/dev/MLResearch/automl/docs/flexnn/moe/reports/moe_contrast/moe_contrast.pdf`
   (11pp; gate log `COLD_READ_LOG.md`; primary-verified MoE quotes). Cross-referenced with REPORT-2.
-- Review of record for the 2026-07-10 corrections: `docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md` §8.
+- Review of record for the 2026-07-10 corrections: `docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md` §8.
 
 ## Pending / in flight
 - WS2 F0–F3 + R3 DONE (2026-07-10): global depth-capacity knee discriminates (G r\*=3, H r\*=2), G-flat
@@ -371,7 +371,7 @@ X1/X3 supersede REPORT-2 §4's "power-limited at N=500" wording). The ⛔ commit
 
 # Per-input selector program (S/T/H/P) — successor to the capacity-ladder program
 
-Plan of record: `docs/plans/perinput_selector_2026-07-10/EXECUTION_PLAN.md`. Framing: the ProbReg
+Plan of record: `docs/probreg/per_input_k/history/perinput_selector_2026-07/EXECUTION_PLAN.md`. Framing: the ProbReg
 model is a CLASSIFIER over k classes (never "Gaussian mixture"). Each certified task appended here
 on adjudication.
 

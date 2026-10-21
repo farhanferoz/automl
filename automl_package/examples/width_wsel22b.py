@@ -1,7 +1,7 @@
 r"""WSEL-22(b) -- the sigma-anchored per-input labelling-band evaluation driver.
 
-`docs/plans/capacity_programme/width.md` WSEL-22 (part b); implements
-`docs/plans/capacity_programme/shared/wsel22b-sigma-anchored-band.md` (the ratified, adversarially-read
+`docs/flexnn/width/plan.md` WSEL-22 (part b); implements
+`docs/flexnn/width/specs/wsel22b-sigma-anchored-band.md` (the ratified, adversarially-read
 spec -- read it in full before touching this file, especially SS4/SS5.2/SS5.3/SS5.5's root amendments) SS9's
 driver contract.
 

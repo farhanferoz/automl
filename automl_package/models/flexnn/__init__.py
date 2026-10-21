@@ -1,6 +1,6 @@
 """FlexNN — the one home for the flexible-capacity model family (width, depth, routing).
 
-Consolidated 2026-07-21 (`docs/plans/capacity_programme/flexnn-package.md` Task FP-11) from four
+Consolidated 2026-07-21 (`docs/flexnn/package/plan.md` Task FP-11) from four
 previously scattered locations (`models/architectures/`, `models/flexible_width_network.py`,
 `models/flexible_neural_network.py`, `models/independent_weights_flexible_neural_network.py`,
 `models/selection_strategies/`, `models/common/distilled_router.py`). The old paths remain as

@@ -1,13 +1,13 @@
 """WSEL-23 candidate 1 -- pinning, the gradient-attribution diagnostic, and generalization validation.
 
 Spec (decision-complete, adversarially read and GO'd 2026-07-23):
-`docs/plans/capacity_programme/shared/wsel23-candidate1-derived-weighting.md`. This script owns
+`docs/flexnn/width/history/wsel23-candidate1-derived-weighting.md`. This script owns
 everything that document's §6 driver contract assigns to "a NEW, SEPARATE small script" -- the
 canonical training arms themselves (multi-head/single-head, `--loss weighted`, `--w-max 12/6`) run
 through `kdropout_converged_width_experiment.py` (extended, not duplicated, per §3.9's "ONE home"
 discipline); this script never trains the candidate's own reference cells.
 
-**`--pin` and `--validate` are GONE (2026-07-25 user ruling; see `width.md`'s WSEL-23 withdrawal
+**`--pin` and `--validate` are GONE (2026-07-25 user ruling; see `docs/flexnn/width/plan.md`'s WSEL-23 withdrawal
 block).** They fitted and validated the parametric `(A, p, sigma2)` law from the 36 WSEL8
 dedicated-net cells -- the same cells `matched_width_closure` uses as its DENOMINATOR, which made
 the closure circular. The weights now come from `width_data_weights.py`, which estimates the

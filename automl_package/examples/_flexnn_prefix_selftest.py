@@ -2,12 +2,12 @@
 
 This is a numerical AUDIT of the EXISTING `FlexibleHiddenLayersNN`, not a new
 mechanism. It asserts two facts of record from the 2026-07-09 capacity-ladder
-survey (see `docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md` §1/§3):
+survey (see `docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md` §1/§3):
 
   (i) Prefix property: depth d reuses blocks 1..d. The soft layer-selection
       strategies (`GumbelSoftmaxStrategy`, `SoftGatingStrategy`, `SteStrategy`;
       `automl_package/models/selection_strategies/layer_selection_strategies.py`)
-      already cache every intermediate block representation inside one forward
+      already cache every intermediate block redocs/probreg/history/presentation inside one forward
       pass and apply the SHARED output layer to each depth in turn — the
       all-depth score table is a free by-product of one forward pass, not
       something that needs `max_hidden_layers` separate forwards. Nothing in

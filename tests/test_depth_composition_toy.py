@@ -1,5 +1,5 @@
 """Tests for DSEL-1b's nested (all-rungs) feed-forward training scheme (`depth_composition_toy.py`,
-docs/plans/capacity_programme/depth-selection.md task DSEL-1b).
+docs/flexnn/depth/plan.md task DSEL-1b).
 
 The substrate here is deliberately small (short word length, narrow width, short ladder) -- this
 file exists to prove the NESTING MECHANISM works (every depth in the ladder gets a usable gradient

@@ -20,7 +20,7 @@ _PROBABILISTIC_HEAD_OUTPUT_SIZE = 2
 class _RetiredDepthSelectionStrategy(BaseSelectionStrategy):
     """Shared construction-time guard for the four RETIRED in-training layer-selection strategies.
 
-    MASTER Decision 29 (`docs/plans/capacity_programme/MASTER.md`): under the nested ladder,
+    MASTER Decision 29 (`docs/flexnn/PLAN.md`): under the nested ladder,
     nothing may choose or shape depth DURING TRAINING by default -- GumbelSoftmax/SoftGating/Ste/
     Reinforce are retired to a labelled comparison arm, reachable only via the
     `allow_retired_capacity_selection` escape hatch set on the model instance (never a default,
@@ -33,7 +33,7 @@ class _RetiredDepthSelectionStrategy(BaseSelectionStrategy):
     allow_retired_capacity_selection=True)` reaches this check even though `layer_selection_method`'s
     OWN model file never declares the kwarg (verified on disk before relying on it).
 
-    NOTE ON SCOPE (recorded so this is not mistaken for the whole guard -- flexnn-package.md
+    NOTE ON SCOPE (recorded so this is not mistaken for the whole guard -- docs/flexnn/package/plan.md
     FP-12's write set is `layer.py` only, not `flexnn/depth/model.py`): `DepthRegularization`'s
     `DEPTH_PENALTY`/`ELBO`/`COST_AWARE_ELBO` enum members are NOT gated here -- they are read by
     `FlexibleHiddenLayersNN`'s loss calculation in that out-of-write-set file. Blocking
@@ -242,7 +242,7 @@ class NestedStrategy(BaseSelectionStrategy):
     no penalty), so `n_predictor_layers` must be 0, same as `NoneStrategy`.
 
     All `max_hidden_layers` per-depth outputs are computed once via the same
-    cached-representation loop the soft strategies use (`all_depth_outputs`), so the
+    cached-redocs/probreg/history/presentation loop the soft strategies use (`all_depth_outputs`), so the
     per-sample gather that follows is a free reshape of one forward pass — the prefix
     property this relies on is the one audited in `_flexnn_prefix_selftest.py`.
     `all_depth_log_likelihood` reuses that same cache to export the eval-time all-depth

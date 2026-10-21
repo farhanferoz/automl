@@ -1,6 +1,6 @@
 """Ordering-constraint identifiability penalty for ProbReg SEP_HEADS.
 
-See ``docs/probreg_identifiability_research.md`` §3.3 for full derivation.
+See ``docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md`` §3.3 for full derivation.
 
 Given classifier logits and per-head means, for each class i we
     1. Take the top ``top_decile_fraction`` of training samples by p_i(x).

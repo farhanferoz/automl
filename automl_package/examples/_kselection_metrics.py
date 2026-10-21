@@ -124,7 +124,7 @@ def weight_survival_metrics(weights: np.ndarray, floor_factor: float = 0.5) -> d
     Operates on the inferred mixing weights ``w̄`` (the Dirichlet posterior mean
     ``γ_c / Σ_j γ_j`` for Basis A, or the per-input mean averaged over inputs for
     Basis B) — NOT on the as-built selector. This is the "what to record" of the
-    controlled test in docs/kselection_variational_em_2026-06-13 (note §9).
+    controlled test in docs/probreg/history/kselection_variational_em_2026-06 (note §9).
 
     Args:
         weights: 1-D array of mixing weights over the K classes (sums to ~1).

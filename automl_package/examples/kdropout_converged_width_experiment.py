@@ -21,17 +21,17 @@ Architecture / data / split / scoring / bars are `IndependentWidthNet` +
 comparable to `capacity_ladder_results/W_CONVERGED/w_converged_summary.json`. The ONLY thing that
 changes is the training scheme (k-dropout sandwich vs per-width separate).
 
-Width-MSE program extension (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` WP-1): `--arch`
+Width-MSE program extension (`docs/flexnn/width/history/width_mse_2026-07/EXECUTION_PLAN.md` WP-1): `--arch`
 selects `NestedWidthNet` (shared trunk + shared heads, 1x params -- the charter question),
 `IndependentWidthNet` (K disjoint sub-nets, the old default / positive control), or
 `SharedTrunkPerWidthHeadNet` (shared trunk + per-width heads -- the G-WIDTH certified arm and, since
-`docs/plans/capacity_programme/width.md`'s WD4 fix, the CLI default); `--loss` selects Gaussian NLL (old default, unchanged) or plain
+`docs/flexnn/width/plan.md`'s WD4 fix, the CLI default); `--loss` selects Gaussian NLL (old default, unchanged) or plain
 MSE on the mean output (`logvar_head` untouched). MSE runs are scored with a separate MSE score table
 + the WP-1 fit/curve-shape/dial/deploy bars (`sinc_width_experiment._score_all_widths_mse` and
 friends) instead of the LL-based bars. `--loss nll --arch independent` reproduces the pre-existing
 path bit-for-bit (no longer the CLI defaults -- pass both flags explicitly).
 
-WSEL-23 candidate 1 extension (`docs/plans/capacity_programme/shared/wsel23-candidate1-derived-weighting.md`):
+WSEL-23 candidate 1 extension (`docs/flexnn/width/history/wsel23-candidate1-derived-weighting.md`):
 `--loss weighted` multiplies each width's MSE term by a frozen per-width weight `w_k = (sigma2 +
 a2(w_max)) / (sigma2 + a2(k))` before summing, where `a2(w) = A * w**-p` is the declared approximation-
 per-width weight table pinned by `width_data_weights.py --pin` into `--a2-law-path`'s artifact
@@ -108,7 +108,7 @@ _DEFAULT_UNIFORM_SCHEDULE_DRAW_N = 4
 # SANDWICH instead, yielding cells labelled `nested` whose numbers were byte-identical to the certified
 # ones. Add a member here only together with its branch in the training loop. WSEL-14 adds
 # WidthSchedule.ALL (every width, every step, deterministically) alongside its branch below --
-# WidthSchedule.NESTED stays out on purpose (width.md WSEL-14 non-goals: "no new schedule beyond the
+# WidthSchedule.NESTED stays out on purpose (docs/flexnn/width/plan.md WSEL-14 non-goals: "no new schedule beyond the
 # bunch-size axis and ALL").
 _IMPLEMENTED_SCHEDULES = frozenset({nwn.WidthSchedule.SANDWICH, nwn.WidthSchedule.UNIFORM, nwn.WidthSchedule.ALL})
 # Width-cert W7: report-grade delta_tie sweep for the MSE deploy baseline; the 0.25 row must reproduce
@@ -135,7 +135,7 @@ class LossType(enum.Enum):
 
 
 def _weight_for(loss: LossType, weight_table: dict[int, float] | None, k: int) -> float:
-    """Per-width training weight for width `k` under `loss` (WSEL-23 candidate 1, `width.md:1468-1487`).
+    """Per-width training weight for width `k` under `loss` (WSEL-23 candidate 1, `docs/flexnn/width/plan.md:1468-1487`).
 
     `1.0` (a no-op) unless `loss is LossType.WEIGHTED` AND a `weight_table` was actually supplied --
     this is the single choke point that keeps every existing NLL/MSE call site byte-identical: they
@@ -160,7 +160,7 @@ def _width_loss(
     or WEIGHTED (WSEL-23 candidate 1: `weight * _width_mse`). `weight` defaults to `1.0` -- a no-op
     for every existing NLL/MSE call site, and for a WEIGHTED call with no real per-width weight (e.g.
     the convergence-monitoring checkpoint, which always wants PLAIN held-out MSE regardless of the
-    training loss -- see `width.md`'s "min_delta stays meaningful without re-tuning" reasoning,
+    training loss -- see `docs/flexnn/width/plan.md`'s "min_delta stays meaningful without re-tuning" reasoning,
     `wsel23-candidate1-derived-weighting.md` §3.4).
     """
     if loss is LossType.NLL:
@@ -213,7 +213,7 @@ def _sampled_widths_total_loss(
     `IndependentWidthNet` has no shared trunk (`sampled_widths_forward` absent) -- there is nothing to
     reuse there, so it keeps the unchanged per-k loop.
 
-    `weight_table` (WSEL-23 candidate 1, `width.md:1468-1487`) is the per-width training weight, `{k:
+    `weight_table` (WSEL-23 candidate 1, `docs/flexnn/width/plan.md:1468-1487`) is the per-width training weight, `{k:
     weight}` for `k` in `1..w_max`, read from a frozen artifact (`weight_table_from_artifact`). `None`
     (the default) or `loss is not LossType.WEIGHTED` -- every width weights `1.0`, a no-op.
     """
@@ -233,10 +233,10 @@ def a2_of_w(a2_law: dict, w: int) -> float:
     """Evaluates the frozen approximation-deficit law `a2(w) = A * w**-p` (WSEL-23 candidate 1 §3.2/§3.4).
 
     `a2_law` is the LEGACY parametric form (historical reproduction only -- both its calibration
-    sources are binned, see `width.md` WSEL-23 withdrawal). New runs use `width_data_weights.py`'s
+    sources are binned, see `docs/flexnn/width/plan.md` WSEL-23 withdrawal). New runs use `width_data_weights.py`'s
     direct table via `weight_table_from_artifact`. At minimum
     `{"A": ..., "p": ..., "sigma2": ...}`. `A`/`p` are read from it, never re-derived here -- this
-    module trains against the frozen law, it does not fit one (`width.md:1477-1478`: "instantiated
+    module trains against the frozen law, it does not fit one (`docs/flexnn/width/plan.md:1477-1478`: "instantiated
     once and FROZEN").
     """
     return float(a2_law["A"]) * float(w) ** (-float(a2_law["p"]))
@@ -248,7 +248,7 @@ def weight_table_from_artifact(artifact: dict, w_max: int) -> dict[int, float]:
     `width_data_weights.py` writes an explicit `{k: weight}` table estimated from data before any
     training (the 2026-07-25 scheme). The older parametric `(A, p, sigma2)` form is re-derived through
     `a2_weight_table` for historical reproduction only — no new run should produce one, since both of
-    its calibration sources are binned (`width.md` WSEL-23 withdrawal block).
+    its calibration sources are binned (`docs/flexnn/width/plan.md` WSEL-23 withdrawal block).
     """
     if "weight_table" in artifact:
         table = artifact["weight_table"]
@@ -279,7 +279,7 @@ def load_a2_law(path: str) -> dict:
 
     Fails loudly -- no silent `weight=1.0` fallback -- if the file is missing or malformed: a missing
     pin would otherwise silently train the UNWEIGHTED objective under a `weighted`-labelled result,
-    exactly the kind of stale-provenance defect `docs/plans/capacity_programme/shared/
+    exactly the kind of stale-provenance defect `docs/flexnn/
     fp5-stale-reference-finding.md` records against.
     """
     if not os.path.isfile(path):
@@ -303,7 +303,7 @@ def _resolve_a2_law_path(a2_law_path_arg: str | None) -> str:
     The former default pointed at `data_weight_table.json`, produced by `width_data_weights.py`. Both
     were BINNED 2026-07-25 (user ruling): deriving the weights required a best-fit network at EVERY
     width before training, which is the per-width sweep this architecture exists to replace -- the
-    replacement economics were circular, exactly what `width.md`'s circularity guard forbids. Leaving
+    replacement economics were circular, exactly what `docs/flexnn/width/plan.md`'s circularity guard forbids. Leaving
     a default here would let a stale copy silently re-enter a run, so there is none: callers must name
     a weight artifact explicitly and justify where it came from.
     """
@@ -311,7 +311,7 @@ def _resolve_a2_law_path(a2_law_path_arg: str | None) -> str:
         raise ValueError(
             "--loss weighted requires an explicit --a2-law-path. The data-only estimator and its "
             "tables were binned 2026-07-25 (sweep-based derivation = circular replacement economics; "
-            "see width.md WSEL-23). No default weight source exists -- name one deliberately."
+            "see docs/flexnn/width/plan.md WSEL-23). No default weight source exists -- name one deliberately."
         )
     return a2_law_path_arg
 
@@ -693,11 +693,11 @@ def run_case(
     n_trustworthy = sum(1 for r in conv.values() if r.trustworthy)
     # WSEL-14 Step 3 cost instrumentation: reuse capacity_accounting.py's dispatchers rather than
     # re-deriving a FLOP/param formula. `params_effective` is the per-width-head triangle
-    # `1+2+...+w_max` (`shared/width_transformer_port.md` §3) -- only the first k of each width-k head's
+    # `1+2+...+w_max` (`docs/flexnn/transformer/specs/width_transformer_port.md` §3) -- only the first k of each width-k head's
     # w_max input columns can ever be non-zero (the rest are masked before the readout), so it is a
     # closed form in `w_max` alone, not read off `net`. Train/held-out MSE per width answer the
     # regularisation question (does bunching change the train-held_out gap) regardless of `--loss`.
-    # 2026-07-25 units-bug fix (docs/plans/capacity_programme/width.md "OPEN BUG ... MIX UNITS"): the
+    # 2026-07-25 units-bug fix (docs/flexnn/width/plan.md "OPEN BUG ... MIX UNITS"): the
     # standardised pair below is scored in STANDARDISED (normalized-y) space -- silently mixing units
     # with `test_mse_by_width` below is the exact defect that produced the withdrawn ~10x 1/sy**2 verdict
     # on 2026-07-24. PHYSICAL twins, via the SAME `_score_all_widths_mse` idiom `test_mse_by_width` uses,
@@ -750,7 +750,7 @@ def run_case(
         "mean_val_trajectory": _mean_val_trajectory(conv),
         # WSEL-12 cost instrumentation (Step 3, additive only): per-seed training wall clock and the
         # (arch, schedule)-determined trunk-eval count per step, aggregated into summary["config"] by
-        # `main()` (`docs/plans/capacity_programme/width.md` lines 1071-1074).
+        # `main()` (`docs/flexnn/width/plan.md` lines 1071-1074).
         "train_wall_clock_s": train_wall_clock_s,
         "trunk_evals_per_step": _trunk_evals_per_step(net, schedule, w_max, uniform_draw_n),
         # WSEL-14 Step 3 cost instrumentation (additive only -- no key above this line changed).
@@ -1130,7 +1130,7 @@ def main() -> None:
         type=str,
         default=None,
         help="Per-width weight artifact. REQUIRED when --loss weighted -- there is no default and the two former "
-        "defaults were deleted, not superseded (both derivations were circular; see width.md WSEL-23). Name a source "
+        "defaults were deleted, not superseded (both derivations were circular; see docs/flexnn/width/plan.md WSEL-23). Name a source "
         "deliberately and be able to say where its weights came from.",
     )
     parser.add_argument(
@@ -1249,7 +1249,7 @@ def main() -> None:
             # COUNT, which changes float reduction order and therefore the low-order bits. Added
             # 2026-07-21 after a saved reference could not be reproduced by its own commit and the
             # artifact recorded nothing that could explain why
-            # (docs/plans/capacity_programme/shared/fp5-stale-reference-finding.md).
+            # (docs/flexnn/package/history/fp5-stale-reference-finding.md).
             "provenance": run_provenance(),
         }
         with open(path, "w") as f:

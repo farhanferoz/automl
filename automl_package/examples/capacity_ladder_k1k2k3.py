@@ -6,7 +6,7 @@ aggregate_sparsity tables K0 did not build). Everything here consumes the 18 K0 
 `knee`, `perbin_stack`, `perinput_curve`, `mixture_logscore`, `quantile_bins`) — reused, not
 reimplemented, per the K0 contract.
 
-Three reads, per `docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md` sec 2:
+Three reads, per `docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md` sec 2:
 
   K1 — global stacking (B4) + global knee (B2) per (method, toy, seed), pooled across seeds, and
        the over-chop control on broad twins (bias-free single-mode data; the knee must not railroad

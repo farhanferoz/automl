@@ -235,7 +235,7 @@ class NestedStrategy(BaseSelectionStrategy):
         the collapsed (law-of-total-variance) readout, just returning the per-component means
         instead of collapsing them. `SINGLE_HEAD_FINAL_OUTPUT` has no `forward_per_class` and is
         blocked under NESTED at construction (`ProbabilisticRegressionModel.__init__`,
-        MASTER Decision 29 / probreg.md P10), so this is never reached with that layout.
+        MASTER Decision 29 / docs/probreg/shared/plan.md P10), so this is never reached with that layout.
 
         Known compatibility boundary, inherited from `forward_per_class` (not introduced here):
         `forward_per_class` does not apply boundary constraints, unlike
@@ -246,7 +246,7 @@ class NestedStrategy(BaseSelectionStrategy):
 
         Returns:
             `(probs, mus)`, each shape (batch, k_val): `probs` sums to 1 across dim -1 (masked
-            classes carry zero weight, matching `probreg.md` §1's SEPARATE_HEADS row).
+            classes carry zero weight, matching `docs/probreg/PLAN.md` §1's SEPARATE_HEADS row).
         """
         masked_logits = torch.full_like(classifier_raw_logits, float("-inf"))
         masked_logits[:, :k_val] = classifier_raw_logits[:, :k_val]
@@ -293,7 +293,7 @@ class NestedStrategy(BaseSelectionStrategy):
     def all_rung_log_likelihood(self, x_input: torch.Tensor, y_target: torch.Tensor, sigma: float) -> torch.Tensor:
         """Per-sample fixed-sigma MIXTURE log-likelihood at every rung (MASTER Decision 24).
 
-        Replaces the prior collapsed-Gaussian-at-a-LEARNED-log_var readout (flexnn-package.md
+        Replaces the prior collapsed-Gaussian-at-a-LEARNED-log_var readout (docs/flexnn/package/plan.md
         FP-12): scores the genuine per-component mixture from `all_rung_mixture_components`
         against the ONE shared `sigma`, via `fixed_sigma_mixture_log_likelihood`. This is the
         all-rung score table `ProbabilisticRegressionModel.fit_global_selector`
@@ -303,7 +303,7 @@ class NestedStrategy(BaseSelectionStrategy):
         report for that boundary).
         (D6, corrected 2026-07-21: an earlier docstring named `held_out_arbiter_advantage` as the
         consumer -- false, that function never calls this one; it calls
-        `_per_sample_log_likelihood_at_k` twice instead. See `probreg.md` D5/D6.)
+        `_per_sample_log_likelihood_at_k` twice instead. See `docs/probreg/PLAN.md` D5/D6.)
 
         Args:
             x_input: Input tensor, shape (batch, in_features).

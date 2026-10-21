@@ -1,6 +1,6 @@
 """WSEL-18 acceptance benchmark: fused ALL-schedule per-step wall-clock vs per-head SANDWICH per-step.
 
-`docs/plans/capacity_programme/width.md` WSEL-18 spec (4), on the canonical cell. Modelled on `capacity_ladder_results/WSEL14/cost_probe/profile_all_schedule.py`'s cost-probe shape
+`docs/flexnn/width/plan.md` WSEL-18 spec (4), on the canonical cell. Modelled on `capacity_ladder_results/WSEL14/cost_probe/profile_all_schedule.py`'s cost-probe shape
 (same canonical cell, same "reuse the real driver's inner-loop body verbatim" method, same
 warmup-then-count convention) but narrower: this only needs the two numbers the spec asks for --
 fused/ALL and per-head/SANDWICH total per-step wall-clock -- not that probe's five-way phase

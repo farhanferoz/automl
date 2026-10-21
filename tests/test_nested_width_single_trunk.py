@@ -1,4 +1,4 @@
-"""WSEL-12 equivalence test (`docs/plans/capacity_programme/width.md` lines 1017-1087).
+"""WSEL-12 equivalence test (`docs/flexnn/width/plan.md` lines 1017-1087).
 
 `_train_kdropout_to_convergence`'s sandwich-step accumulation used to loop `for k in widths: total +=
 _width_loss(...)`, recomputing `SharedTrunkPerWidthHeadNet`'s shared trunk (`self.hidden(x)`) once PER

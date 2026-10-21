@@ -1,10 +1,10 @@
-"""WSEL-6 -- how much data does width selection need? (`docs/plans/capacity_programme/width.md` ~908-930).
+"""WSEL-6 -- how much data does width selection need? (`docs/flexnn/width/plan.md` ~908-930).
 
 The selection split every other width driver inherits is a hardcoded 50/50 even/odd carve of the
 training portion (`kdropout_converged_width_experiment.py:273-276`'s `p1_idx`/`p2_idx`, the SAME
 carve `converged_width_experiment.run_case` and `sinc_width_experiment`'s phase-1/phase-2 arm use):
 `p1` (even indices) trains the underlying net(s), `p2` (odd indices, the "held-out-within-train"
-half) is the SELECTION POOL the three arms of `width.md` SS1 read from. Nobody has ever measured
+half) is the SELECTION POOL the three arms of `docs/flexnn/width/plan.md` SS1 read from. Nobody has ever measured
 how much of `p2` the selection step actually needs. This driver sweeps the FRACTION of the training
 portion (`n_train`) handed to selection -- `{5, 10, 15, 25, 40}%`, always <= p2's own 50%, so every
 fraction is a genuine SUBSET of the selection pool, never an over-read of it -- on the SS3.8 canonical
@@ -19,7 +19,7 @@ not sampling noise between independently-drawn subsets at each fraction.
 **Training is independent of `fraction` -- caching choice, stated per the task brief.** Only the
 SELECTION step reads a fraction of `p2`; the underlying net(s) always train on the full `p1` split,
 regardless of fraction or which arm is asked for. W-SHARED and W-PERINPUT are read off the SAME
-trained multi-head `FlexibleWidthNN(widths=1..w_max)` (`width.md` SS1: "training is NOT a variable
+trained multi-head `FlexibleWidthNN(widths=1..w_max)` (`docs/flexnn/width/plan.md` SS1: "training is NOT a variable
 between those two"); W-SWEEP needs 12 dedicated single-width nets. Both are therefore CACHED to disk,
 keyed by `(tier, seed[, width])`, the first time any cell needs them, and every later cell (a
 different fraction, or the other of W-SHARED/W-PERINPUT) loads the cached `state_dict` instead of
@@ -47,7 +47,7 @@ schedule_weighted_to_convergence` / `width_wsel16._train_custom_to_convergence`'
 use for exactly this class of problem, wired onto `FlexibleWidthNN.model` (`FlexibleWidthNNModule`)
 instead of a raw `nested_width_net` class.
 
-**Selection, one rule for all three arms (`width.md` SS1: "the same rule applies to W-SWEEP's curve, or
+**Selection, one rule for all three arms (`docs/flexnn/width/plan.md` SS1: "the same rule applies to W-SWEEP's curve, or
 W-SHARED and W-SWEEP are not answering the same question").** W-SHARED: `FlexibleWidthNN.
 fit_global_selector` (landed 2026-07-22). W-PERINPUT: `FlexibleWidthNN.fit_router` (same class, same
 trained net). W-SWEEP: no single net spans every width, so its held-out error TABLE is built by hand
@@ -63,7 +63,7 @@ forward` recomputes the trunk once per configured width with no sharing in its o
 `held_out_read_cost` per dedicated net (its 12 nets are not one `executed_flops`-registered object, so
 `global_sweep_cost`'s single-`net` signature does not fit it directly). Reported, not gating.
 
-**Emits** (`width.md` SS3.6, this task's two owned frozen constants): `WSEL6/frozen.json`'s `fraction`
+**Emits** (`docs/flexnn/width/plan.md` SS3.6, this task's two owned frozen constants): `WSEL6/frozen.json`'s `fraction`
 (the smallest fraction at which EVERY (tier, arm) is within its own twice-bootstrap-SE noise band of its
 best fraction, via `cheapest_within_tolerance` read over a `(seeds, fractions)` curve per (tier, arm) --
 the same selection rule turned on itself; the largest swept fraction plus `saturated: false` if any
@@ -137,7 +137,7 @@ _CACHE_DIRNAME = "_cache"
 
 SEEDS = (0, 1, 2)
 W_MAX = 12
-FRACTIONS_PCT = (5, 10, 15, 25, 40)  # of the training portion (n_train) -- width.md WSEL-6's suggested sweep, taken as-is.
+FRACTIONS_PCT = (5, 10, 15, 25, 40)  # of the training portion (n_train) -- docs/flexnn/width/plan.md WSEL-6's suggested sweep, taken as-is.
 
 _HETERO3_NOISY_REGION = 2  # nwn.make_hetero3's region id for the noisy-easy tail (HETERO3_NOISY_SIGMA).
 
@@ -150,7 +150,7 @@ class Tier(enum.IntEnum):
 
 
 class Arm(enum.Enum):
-    """Closed set: `width.md` SS1's three complete systems -- WSEL-6's whole comparison."""
+    """Closed set: `docs/flexnn/width/plan.md` SS1's three complete systems -- WSEL-6's whole comparison."""
 
     W_SHARED = "w_shared"  # FlexibleWidthNN.fit_global_selector -- ONE width for the dataset, cheap read.
     W_PERINPUT = "w_perinput"  # FlexibleWidthNN.fit_router -- a width PER INPUT, distilled router.
@@ -159,7 +159,7 @@ class Arm(enum.Enum):
 
 @dataclass(frozen=True)
 class _TierConfig:
-    """One tier's toy/size config, `width.md` SS3.8's WSEL-6 row (~908-930)."""
+    """One tier's toy/size config, `docs/flexnn/width/plan.md` SS3.8's WSEL-6 row (~908-930)."""
 
     toy: nwn.Toy
     n_train: int
@@ -180,7 +180,7 @@ _TIER_CONFIG: dict[Tier, _TierConfig] = {
 
 
 def _sigma_true(toy: nwn.Toy, region: np.ndarray, sigma: float) -> np.ndarray:
-    """Per-point TRUE noise sigma (`width.md` SS3.7), RAW scale -- never estimated, never learned.
+    """Per-point TRUE noise sigma (`docs/flexnn/width/plan.md` SS3.7), RAW scale -- never estimated, never learned.
 
     Unlike `width_wsel13`/`width_wsel16`'s twins of this helper, no `/ norm["sy"]` correction is
     needed: `FlexibleWidthNN` trains on RAW (unstandardized) `x`/`y` here (`width_wsel4.py`'s
@@ -514,7 +514,7 @@ def _get_or_train_sweep_all(
 
 
 # ---------------------------------------------------------------------------
-# Arm selection + scoring -- `width.md` SS1's "each model is the complete system, including its
+# Arm selection + scoring -- `docs/flexnn/width/plan.md` SS1's "each model is the complete system, including its
 # selection machinery": every arm's held-out quality is read off `predict()`, the public API a
 # downstream consumer would actually call, never a side-channel score.
 # ---------------------------------------------------------------------------
@@ -552,7 +552,7 @@ def _run_w_perinput(
     current defaults until WSEL-7 rules otherwise).
 
     `router_override` is the ONE sanctioned exception -- the SS3.5-mandated re-run at WSEL-7's
-    `new_default` after its non-invariance verdict (`width.md` WSEL-7 result block, 2026-07-22).
+    `new_default` after its non-invariance verdict (`docs/flexnn/width/plan.md` WSEL-7 result block, 2026-07-22).
     When set (`{"hidden": tuple, "epochs": int, "lr": float, "source": path}`), the router is
     constructed DIRECTLY with those args and fitted through its unmodified public `.fit()` -- the
     same reuse pattern `width_wsel7.run_cell` and `width_wsel16._distilled_router_selected_width`
@@ -614,7 +614,7 @@ def _run_w_sweep(models: dict[int, FlexibleWidthNN], metas: dict[int, dict[str, 
     No single net spans every width here, so `FlexibleWidthNN.fit_global_selector` (built for ONE
     multi-width net) does not apply directly; the error table is built by hand, one `predict(...,
     width=k)` call per dedicated net -- the SAME public API `_run_w_shared` uses -- then fed to the
-    SAME `cheapest_within_tolerance` selector `fit_global_selector` calls internally (`width.md` SS1:
+    SAME `cheapest_within_tolerance` selector `fit_global_selector` calls internally (`docs/flexnn/width/plan.md` SS1:
     "the same rule applies to W-SWEEP's curve").
     """
     x_sel, y_sel, _region_sel = _selection_subsample(split, fraction_pct)

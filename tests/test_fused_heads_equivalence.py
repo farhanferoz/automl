@@ -1,4 +1,4 @@
-"""WSEL-18 equivalence test (`docs/plans/capacity_programme/width.md` lines 1988-2007).
+"""WSEL-18 equivalence test (`docs/flexnn/width/plan.md` lines 1988-2007).
 
 `SharedTrunkPerWidthHeadNet`'s per-head bookkeeping under the ALL schedule (`w_max` separate
 `mean_heads` tensors, each paying its own forward/backward/optimizer dispatch) is the WSEL-14 cost

@@ -1,4 +1,4 @@
-"""Graded per-input-depth toy — ONE shared recurrent block serving variable per-input DEPTH (`depth.md` D1b).
+"""Graded per-input-depth toy — ONE shared recurrent block serving variable per-input DEPTH (`docs/flexnn/depth/history/depth.md` D1b).
 
 Trains one shared block on a MIX of S5 word lengths and reads held-out accuracy PER LENGTH, at the
 canonical LR 3e-3 (the depth edition of the width toy's #2 `SharedTrunkPerWidthHeadNet`).
@@ -23,7 +23,7 @@ at 3e-3; that is this module's default.
 - `wide_shallow`    — a fixed 1-hidden-layer MLP on the word one-hot ZERO-PADDED to the max length
   (no per-input depth). The width-substitution control; should stall on long words.
 
-**Pre-registered bars (from `depth.md` D1b, fixed before this ran):**
+**Pre-registered bars (from `docs/flexnn/depth/history/depth.md` D1b, fixed before this ran):**
 - G1 *deep fits:* `per_length_head` holds held-out acc ≥ `FIT_ACC` (0.90) across the WHOLE ladder.
 - G2 *width stalls:* `wide_shallow` falls ≤ `STALL_ACC` (0.60) at the long-word end.
 - G3 *graded dial:* the (`per_length_head` − `wide_shallow`) acc GAP increases monotonically with

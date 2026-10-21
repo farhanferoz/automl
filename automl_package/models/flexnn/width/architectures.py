@@ -1,7 +1,7 @@
 """The four width-dial architectures certified by the width-MSE programme.
 
 Moved from `automl_package/examples/nested_width_net.py` (2026-07-21,
-`docs/plans/capacity_programme/flexnn-package.md` Task FP-2 -- the boundary rule, MASTER Decision
+`docs/flexnn/package/plan.md` Task FP-2 -- the boundary rule, MASTER Decision
 19: `automl_package/models/` holds library architectures, `automl_package/examples/` holds
 experiment drivers). `automl_package/examples/nested_width_net.py` is now a re-export shim over
 this module (the `automl_package/examples/convergence.py` precedent) and keeps the toy generators
@@ -17,7 +17,7 @@ much of the trunk/readout is shared across widths:
 - `NestedWidthNet` -- shared trunk, ONE shared mean/logvar head pair (the charter-question arch).
 - `IndependentWidthNet` -- `w_max` disjoint one-hidden-layer sub-nets, no weight sharing at all.
 - `SharedTrunkPerWidthHeadNet` -- shared trunk, per-width OWN mean head. **The architecture of
-  record**: MASTER Decision 1's certified G-WIDTH arch (`docs/width_mse_2026-07-16/
+  record**: MASTER Decision 1's certified G-WIDTH arch (`docs/flexnn/width/reports/
   verdict_variable_width_mse.md` §10 certification addendum).
 - `SharedReadoutPerWidthAffineNet` -- shared trunk AND shared readout, plus a 2-parameter per-width
   affine on top (the minimum-seam arm).
@@ -44,7 +44,7 @@ class NestedWidthNet(nn.Module):
     `Linear(1 -> w_max)` -> activation -> hidden vector `h`; `mean_head`/`logvar_head` are
     `Linear(w_max -> 1)`. A width-k forward zeros `h[:, k:]` before both readouts.
 
-    Variance status (`width.md` SS3.7, recorded by WSEL-17 Step 3): `logvar_head` is a
+    Variance status (`docs/flexnn/width/plan.md` SS3.7, recorded by WSEL-17 Step 3): `logvar_head` is a
     LEARNED-variance readout from this class's pre-ruling probabilistic lineage. The 2026-07-21
     user ruling forbids fitting it in any new run -- variance is FIXED at the true generator
     value, never learned. New runs train MSE or the fixed-sigma weighted objective only; loss
@@ -57,7 +57,7 @@ class NestedWidthNet(nn.Module):
         Args:
             w_max: maximum hidden width (the largest prefix the net can express).
             activation: hidden-layer nonlinearity class (instantiated with no args); tanh per
-                the plan's fixed hyperparameter (`docs/plans/width_dial_2026-07-11/EXECUTION_PLAN.md`
+                the plan's fixed hyperparameter (`docs/flexnn/width/history/width_dial_2026-07/EXECUTION_PLAN.md`
                 §2d config).
         """
         super().__init__()
@@ -68,7 +68,7 @@ class NestedWidthNet(nn.Module):
         self.logvar_head = nn.Linear(self.w_max, 1)
 
     def hidden(self, x: torch.Tensor) -> torch.Tensor:
-        """`(N, 1) -> (N, w_max)` post-activation hidden representation (the trunk's full output)."""
+        """`(N, 1) -> (N, w_max)` post-activation hidden redocs/probreg/history/presentation (the trunk's full output)."""
         return self.activation(self.trunk(x))
 
     def forward_width(self, x: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -151,7 +151,7 @@ class IndependentWidthNet(nn.Module):
     depth, trained with the same k-dropout selection). Here width-k is its OWN sub-net
     `Linear(in_dim -> k) -> tanh -> (mean_head_k, logvar_head_k)`, sharing NOTHING with width-k'≠k.
     This deliberately breaks the shared-trunk prefix property of `NestedWidthNet` — the one variable
-    W1/W2 pinned as the obstruction (`docs/plans/width_dial_2026-07-11/EXECUTION_PLAN.md` §6
+    W1/W2 pinned as the obstruction (`docs/flexnn/width/history/width_dial_2026-07/EXECUTION_PLAN.md` §6
     follow-up): node-0 no longer has to double as a good small-width predictor, so each width is free
     to fit to its own ceiling.
 
@@ -160,12 +160,12 @@ class IndependentWidthNet(nn.Module):
     `train_nested_width` (which touches only `net.w_max` and `net.forward_width`) — the ONLY thing
     that changes vs the shared W2 run is shared-vs-independent weights.
 
-    Variance status (`width.md` SS3.7, recorded by WSEL-17 Step 3): the per-width `logvar_head_k`
+    Variance status (`docs/flexnn/width/plan.md` SS3.7, recorded by WSEL-17 Step 3): the per-width `logvar_head_k`
     readouts are LEARNED-variance heads from the pre-ruling lineage; fitting them in any new run is
     forbidden (variance is FIXED at the true generator value, never learned). New runs train MSE or
     the fixed-sigma weighted objective only.
 
-    **Input-dimension generalization** (WSEL-19 §2b, `docs/plans/capacity_programme/shared/
+    **Input-dimension generalization** (WSEL-19 §2b, `docs/flexnn/
     wsel19-toy-design.md`): every sub-net's trunk takes a constructor-time `in_dim` (default 1) —
     a constructor argument, not something inferred from data, because this class has no `fit()`
     hook to infer it from; `in_dim` follows the same convention `w_max`/`activation` already do.
@@ -224,13 +224,13 @@ class SharedTrunkPerWidthHeadNet(nn.Module):
     parameterization (a genuine Matryoshka-style dedicated `Linear(k -> 1)` head per width, as in
     `matryoshka_width_net.MatryoshkaWidthNet`, changes both the sharing AND the parameter count per
     width; kept out of this class on purpose so exactly one variable moves;
-    `docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` WP-2 Contingency C: "the middle rung").
+    `docs/flexnn/width/history/width_mse_2026-07/EXECUTION_PLAN.md` WP-2 Contingency C: "the middle rung").
 
-    MSE-only (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §0: no variance fitting anywhere) --
+    MSE-only (`docs/flexnn/width/history/width_mse_2026-07/EXECUTION_PLAN.md` §0: no variance fitting anywhere) --
     `forward_width`/`all_widths_forward` return a `log_var` of zeros to match the `(mean, log_var)`
     interface every caller expects, but it is never read by `_width_mse` and carries no gradient.
 
-    **WSEL-18 fused mode** (`fused_heads=True`, constructor flag, DEFAULT OFF -- `docs/plans/
+    **WSEL-18 fused mode** (`fused_heads=True`, constructor flag, DEFAULT OFF -- `docs/
     capacity_programme/width.md` WSEL-18): replaces the `w_max` disjoint `mean_heads` with ONE
     lower-triangular-masked `(w_max, w_max)` weight tensor + a `(w_max,)` bias vector, turning
     `all_widths_forward`'s `w_max`-iteration python loop into a single matmul. Under the WSEL-14 ALL
@@ -244,7 +244,7 @@ class SharedTrunkPerWidthHeadNet(nn.Module):
     (enforced in `kdropout_converged_width_experiment.py`, not here: this class has no notion of
     "schedule", only the trainer does).
 
-    **Input-dimension generalization** (WSEL-19 §2b, `docs/plans/capacity_programme/shared/
+    **Input-dimension generalization** (WSEL-19 §2b, `docs/flexnn/
     wsel19-toy-design.md`): the trunk takes a constructor-time `in_dim` (default 1) -- a
     constructor argument, not something inferred from data, following the same convention
     `w_max`/`activation`/`fused_heads` already use (this class has no `fit()` hook to infer
@@ -263,7 +263,7 @@ class SharedTrunkPerWidthHeadNet(nn.Module):
         Args:
             w_max: maximum hidden width (the largest prefix the net can express).
             activation: hidden-layer nonlinearity class (instantiated with no args); tanh per the
-                plan's fixed hyperparameter (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §5).
+                plan's fixed hyperparameter (`docs/flexnn/width/history/width_mse_2026-07/EXECUTION_PLAN.md` §5).
             fused_heads: WSEL-18, default OFF. When `True`, replaces `mean_heads` with a single
                 lower-triangular-masked `(w_max, w_max)` weight + `(w_max,)` bias (see class
                 docstring) instead of the `w_max`-entry `ModuleList`. Each row is initialised from
@@ -297,7 +297,7 @@ class SharedTrunkPerWidthHeadNet(nn.Module):
             self.mean_heads = nn.ModuleList(nn.Linear(self.w_max, 1) for _ in range(self.w_max))
 
     def hidden(self, x: torch.Tensor) -> torch.Tensor:
-        """`(N, in_dim) -> (N, w_max)` post-activation hidden representation (identical to `NestedWidthNet.hidden` at the default `in_dim=1`)."""
+        """`(N, in_dim) -> (N, w_max)` post-activation hidden redocs/probreg/history/presentation (identical to `NestedWidthNet.hidden` at the default `in_dim=1`)."""
         return self.activation(self.trunk(x))
 
     def _fused_weight(self) -> torch.Tensor:
@@ -411,7 +411,7 @@ class SharedReadoutPerWidthAffineNet(nn.Module):
         self.affine_bias = nn.Parameter(torch.zeros(self.w_max))
 
     def hidden(self, x: torch.Tensor) -> torch.Tensor:
-        """`(N, 1) -> (N, w_max)` post-activation hidden representation (as `NestedWidthNet.hidden`)."""
+        """`(N, 1) -> (N, w_max)` post-activation hidden redocs/probreg/history/presentation (as `NestedWidthNet.hidden`)."""
         return self.activation(self.trunk(x))
 
     def forward_width(self, x: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:

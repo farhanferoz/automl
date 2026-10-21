@@ -2,7 +2,7 @@
 
 Kept here (rather than deleted) so every existing `from automl_package.models.
 selection_strategies.n_classes_strategies import ...` call site keeps resolving unchanged
-(2026-07-21, `docs/plans/capacity_programme/flexnn-package.md` Task FP-11 — the FlexNN family
+(2026-07-21, `docs/flexnn/package/plan.md` Task FP-11 — the FlexNN family
 gets one home, MASTER Decision 19's boundary rule; the `automl_package/examples/convergence.py`
 precedent: move the logic, leave the shim, do not rewrite callers). `probabilistic_regression_net.py`
 is the live external consumer and is untouched — it keeps importing from this old path.

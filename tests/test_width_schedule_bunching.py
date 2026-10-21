@@ -1,4 +1,4 @@
-"""WSEL-14 Step 2 — pins the bunch-size-1 optimiser footgun (`docs/plans/capacity_programme/width.md`).
+"""WSEL-14 Step 2 — pins the bunch-size-1 optimiser footgun (`docs/flexnn/width/plan.md`).
 
 Under bunch size 1 (only one width trained per step -- `--schedule uniform --uniform-draw-n 1`), a
 width whose OWN per-width head (`SharedTrunkPerWidthHeadNet.mean_heads`) is not among the widths

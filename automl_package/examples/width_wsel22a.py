@@ -1,10 +1,10 @@
 """WSEL-22(a) -- the labelling-tolerance sensitivity sweep, plus the promoted WSEL-9 uncapped LightGBM re-run.
 
-`docs/plans/capacity_programme/width.md` WSEL-22 (part a) and WSEL-10's real-data-inversion note.
+`docs/flexnn/width/plan.md` WSEL-22 (part a) and WSEL-10's real-data-inversion note.
 
 **Why.** `routing.py`'s `DEFAULT_TOLERANCE = 0.25` (`automl_package/models/flexnn/routing.py:77`) is an
 inherited constant, never measured (copied from `sinc_width_experiment.py`'s tie threshold). The
-2026-07-23 joint review leaned on it ("arbitrary & frankly very large threshold"), firing width.md
+2026-07-23 joint review leaned on it ("arbitrary & frankly very large threshold"), firing docs/flexnn/width/plan.md
 SS1's pre-registered trigger. This driver turns it from inherited into measured: it relabels the
 CACHED per-width error tables of the two DECIDED WSEL-19 router-backend bake-off levels (the 1-D
 slice, unconditionally decided, and the d=2 multi-feature slice's verdict-weighted triples only --
@@ -69,7 +69,7 @@ replay, not retraining. Neither the proxy's routing behaviour nor its accuracy s
 sensitivity is UNANSWERABLE from cached artifacts, and this proxy is reported as the closest
 available evidence, clearly flagged.
 
-**Part 2 -- the promoted uncapped-LightGBM re-run (width.md WSEL-10's real-data-inversion note):**
+**Part 2 -- the promoted uncapped-LightGBM re-run (docs/flexnn/width/plan.md WSEL-10's real-data-inversion note):**
 the 5 `hit_cap: true` LightGBM cells under `WSEL9/` (identified by scanning every `*_lightgbm.json`
 on disk, never from prose) -- `california_2`, `energy_2`, `kin8nm_{0,1,2}` -- re-run with IDENTICAL
 config except `n_estimators` raised well past the original 200-tree cap. Landed beside the originals
@@ -135,13 +135,13 @@ _WSEL19_RESULTS_DIR = w19.RESULTS_DIR
 _WSEL9_RESULTS_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "WSEL9")
 _FROZEN_MF_PATH = os.path.join(_WSEL19_RESULTS_DIR, "frozen_mf.json")
 
-TOLERANCES: tuple[float, ...] = (0.05, 0.10, 0.25, 0.50)  # the pre-registered sweep, width.md WSEL-22(a).
+TOLERANCES: tuple[float, ...] = (0.05, 0.10, 0.25, 0.50)  # the pre-registered sweep, docs/flexnn/width/plan.md WSEL-22(a).
 _BASELINE_TOLERANCE = DEFAULT_TOLERANCE  # 0.25 -- label churn is measured against this tolerance's labels.
 
 YACHT_D = w9.Dataset.YACHT
 _YACHT_ROUTER_SEED = 0  # `FlexibleWidthNN.fit_router` never overrides `DistilledCapacityRouter`'s own seed=0 default -- matched, not a bug introduced here.
 
-# The 5 `hit_cap: true` LightGBM baseline cells (width.md WSEL-10's promoted follow-up), identified
+# The 5 `hit_cap: true` LightGBM baseline cells (docs/flexnn/width/plan.md WSEL-10's promoted follow-up), identified
 # by scanning every `*_lightgbm.json` under WSEL9/ for `hit_cap: true` at authoring time -- recorded
 # here as the closed set this task reruns, not re-derived from prose.
 PROMOTED_UNCAPPED_CELLS: tuple[tuple[w9.Dataset, int], ...] = (
@@ -490,7 +490,7 @@ def decided_d2_triples(frozen_mf_path: str = _FROZEN_MF_PATH) -> list[tuple[wt.G
     """Reads `WSEL19/frozen_mf.json`'s `triples` for every VERDICT-WEIGHTED d=2 (geometry, seed, n_train).
 
     d=2 oblique seed 0 is VOID (`verdict_weight: false`, fit-gate failure) and is excluded here by
-    construction, read from disk rather than hardcoded (width.md's own binding: the decided scope is
+    construction, read from disk rather than hardcoded (docs/flexnn/width/plan.md's own binding: the decided scope is
     whatever the ledger currently marks verdict-weighted, not a restated list).
     """
     with open(frozen_mf_path) as f:

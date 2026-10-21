@@ -1,4 +1,4 @@
-r"""WSEL-24 -- the selection post-mortem (`docs/plans/capacity_programme/width.md` WSEL-24).
+r"""WSEL-24 -- the selection post-mortem (`docs/flexnn/width/plan.md` WSEL-24).
 
 WSEL-9's real-data battery found W-SWEEP loses to the plain fixed-width control on all five
 datasets. This module attributes WHY, in the block's stated order, reading WSEL-9's already-landed
@@ -25,7 +25,7 @@ per-cell JSONs (`automl_package/examples/capacity_ladder_results/WSEL9/`) rather
 
 Also checked, zero-compute: **data-carve consistency** (`_check_data_carve_consistency`) -- every
 arm in a (dataset, seed) cell must share `test_fraction`/`max_train`/`fraction_pct`
-(`docs/width_benchmark/benchmark_spec.md` SS2/SS3's "one split, shared verbatim across every arm"
+(`docs/flexnn/width/specs/benchmark_spec.md` SS2/SS3's "one split, shared verbatim across every arm"
 rule) -- a mismatch would be `DominantCause.DATA_CARVE`.
 
 Non-goals (task brief): no retraining beyond the 6-cell probe cap; no selector/band CHANGES
@@ -96,7 +96,7 @@ PROBE_FRACTION_PCT = 50
 
 
 class DominantCause(enum.StrEnum):
-    """Closed taxonomy for the per-dataset verdict (`width.md` WSEL-24 block's own six-way split)."""
+    """Closed taxonomy for the per-dataset verdict (`docs/flexnn/width/plan.md` WSEL-24 block's own six-way split)."""
 
     BAND = "band"
     SE_ESTIMATE = "se_estimate"

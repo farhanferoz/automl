@@ -1,13 +1,13 @@
 """Global (whole-dataset) capacity selection primitives (capacity-programme Task FP-9.a).
 
 One capacity for the WHOLE dataset, not one per input -- see MASTER Decision 18
-(`docs/plans/capacity_programme/MASTER.md`) for why the two selection rules in this programme are
+(`docs/flexnn/PLAN.md`) for why the two selection rules in this programme are
 deliberately different and both retained. `cheapest_within_tolerance` below answers "which single
 capacity for *this dataset*", selecting the smallest (cheapest) capacity in a held-out error curve
 whose error is not meaningfully worse than the best capacity's, where "meaningfully worse" is
 calibrated from the data itself: the paired difference against the best capacity must exceed TWICE
 a bootstrap-estimated standard error of that difference. Rule of record:
-`docs/reports/probreg_kselection/probreg_kselection.md` §3.2 -- "require a difference of at least
+`docs/probreg/shared/reports/probreg_kselection/probreg_kselection.md` §3.2 -- "require a difference of at least
 twice an estimated standard error of that noise ... before calling it real", the noise estimated by
 bootstrap resampling. Imported here, not re-derived.
 

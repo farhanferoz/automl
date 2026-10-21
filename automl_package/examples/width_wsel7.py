@@ -1,10 +1,10 @@
-"""WSEL-7 — is the router's architecture right for width? (`docs/plans/capacity_programme/width.md` ~914-947).
+"""WSEL-7 — is the router's architecture right for width? (`docs/flexnn/width/plan.md` ~914-947).
 
 The `DistilledCapacityRouter` (`automl_package/models/flexnn/routing.py`) is used FROZEN and untuned
 everywhere else in this strand: two hidden layers of 32 units (`DEFAULT_HIDDEN = (32, 32)`), 300
 full-batch Adam epochs (`DEFAULT_N_EPOCHS`), lr 1e-2 (`DEFAULT_LR`) -- `routing.py:57-60`. The only
 existing evidence for that choice is one dimension, two settings, one toy, 3 seeds
-(`width-cert.md:234,237`). This driver extends it to an OFAT search over router hidden width,
+(`docs/flexnn/width/history/width-cert.md:234,237`). This driver extends it to an OFAT search over router hidden width,
 depth (layer count), epoch count and learning rate -- one dimension swept at a time, everything else
 held at the frozen default -- to establish whether width's routing conclusions are invariant to the
 router's own architecture, and if not, what the router needs.
@@ -13,7 +13,7 @@ router's own architecture, and if not, what the router needs.
 NOT swept here -- its sensitivity sweep is ruled "not scheduled" and this task's own `frozen.json`
 does not own that constant. Only router hidden/depth/epochs/lr are swept and owned.
 
-**Root-assigned suite** (`width.md` SS3.8's root-assignment rule; this task's own row is not listed
+**Root-assigned suite** (`docs/flexnn/width/plan.md` SS3.8's root-assignment rule; this task's own row is not listed
 in SS3.8's table, so the root assigned it directly): TIER 1 (`hetero`, `n_train=1500`, `n_test=500`,
 `sigma=0.05`) AND TIER 2 (`hetero3`, `n_train=2250`, `n_test=750`, the fixed-sigma WEIGHTED objective
 for any net training) -- seeds 0/1/2, `w_max=12`, the certified multi-head `SharedTrunkPerWidthHeadNet`
@@ -44,7 +44,7 @@ directly with the swept CONSTRUCTION arguments and calls its unmodified `.fit()`
 width) exactly as `width_wsel16._distilled_router_selected_width` already does for the same reason.
 Nothing in `routing.py` or `distilled_router.py`-equivalent modules is edited -- varying construction
 arguments of the shared class it delegates to is reuse, not a reimplementation, and this task's write
-set excludes those files regardless (`width.md` SS3.5's WSEL-7 branch: "NEVER write
+set excludes those files regardless (`docs/flexnn/width/plan.md` SS3.5's WSEL-7 branch: "NEVER write
 `automl_package/models/common/distilled_router.py` from this strand"). The layers dimension (1 vs 3)
 needs no special-casing either: `hidden` is already an arbitrary-length tuple, so depth is just
 `len(hidden)`.
@@ -69,10 +69,10 @@ the smallest value (ascending capacity order for hidden/layers/epochs; best-rati
 has no capacity ordering) whose ratio is within tolerance of the best -- SS3.5's "smallest
 configuration that reaches the plateau." `new_default` combines each dimension whose 5%-rule
 `invariant` is false with its own `plateau_value`, and the frozen default's value on every dimension
-that stayed invariant under the 5% rule -- unaffected by WSEL-20 below (`width.md`'s WSEL-20 (d):
+that stayed invariant under the 5% rule -- unaffected by WSEL-20 below (`docs/flexnn/width/plan.md`'s WSEL-20 (d):
 `new_default` keeps the 5%-rule population it always had).
 
-**WSEL-20 -- the noise-aware (2*SE) invariance rule (`width.md`, "adopt the noise-aware (2*SE)
+**WSEL-20 -- the noise-aware (2*SE) invariance rule (`docs/flexnn/width/plan.md`, "adopt the noise-aware (2*SE)
 invariance rule").** The strand-level `invariant` field -- the field of record WSEL-7's own verify
 line asserts -- is graded a second way at the SAME `plateau_value`: a dimension's plateau gap to the
 frozen default (`1.0 - mean_ratio_at_plateau`, since the default's own ratio is 1.0 by construction)
@@ -153,7 +153,7 @@ _ROUTER_REPORT_FRACTION = 0.5
 # ratio-to-best is within this fraction.
 _PLATEAU_REL_TOL = 0.05
 
-# WSEL-20 (`docs/plans/capacity_programme/width.md`, "adopt the noise-aware (2*SE) invariance rule"):
+# WSEL-20 (`docs/flexnn/width/plan.md`, "adopt the noise-aware (2*SE) invariance rule"):
 # the plateau value's mean-ratio gap to the frozen default (ratio 1.0 by construction) must exceed
 # this many standard errors of that mean before it counts as a statistically significant improvement
 # -- i.e. before the dimension FAILS invariance. Below the bar, the gap is noise, not a real gain.
@@ -515,7 +515,7 @@ def _cell_json_path(results_dir: str, tier: Tier, seed: int, dimension: Dimensio
 
 
 def _dimension_verdict(dimension: Dimension, per_value_cells: dict[float, dict]) -> dict:
-    """Invariance + plateau read for one swept dimension (`width.md` SS3.5's WSEL-7 branch; module docstring).
+    """Invariance + plateau read for one swept dimension (`docs/flexnn/width/plan.md` SS3.5's WSEL-7 branch; module docstring).
 
     Grades the plateau value two ways. `invariant` (unchanged key, 5% pre-registered tolerance bar)
     stays exactly as authored -- it still drives `new_default`'s population, per WSEL-20 (d)'s
@@ -523,7 +523,7 @@ def _dimension_verdict(dimension: Dimension, per_value_cells: dict[float, dict])
     value: `gap_to_default_at_plateau` (the mean ratio's distance from the frozen default's own
     ratio of 1.0) vs `twice_se_at_plateau` (`_INVARIANCE_SE_MULTIPLIER` * the standard error of that
     mean across the value's cells) -- `clears_2se_bar`/`invariant_2se` is the strand's new field-of-
-    record grading (`docs/plans/capacity_programme/width.md`, "WSEL-20").
+    record grading (`docs/flexnn/width/plan.md`, "WSEL-20").
     """
     values = _DIMENSION_VALUES[dimension]
     ratio_by_value: dict[float, float] = {}
@@ -591,7 +591,7 @@ _NEW_DEFAULT_KEY_FOR_DIMENSION = {Dimension.HIDDEN: "hidden", Dimension.LAYERS: 
 def summarize(results_dir: str = RESULTS_DIR) -> None:
     """Aggregates every per-cell JSON on disk into `WSEL7/frozen.json`. Does not train or fit anything.
 
-    WSEL-20 (`docs/plans/capacity_programme/width.md`): `invariant` -- the field of record WSEL-7's
+    WSEL-20 (`docs/flexnn/width/plan.md`): `invariant` -- the field of record WSEL-7's
     own verify line asserts -- is now graded under the noise-aware 2*SE rule (AND of every
     dimension's `invariant_2se`). The pre-registered 5% grading is retained, never overwritten, as
     `invariant_5pct_historical`. `new_default`'s population keeps using the 5% per-dimension read

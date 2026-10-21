@@ -80,7 +80,7 @@ task report, exactly as the absorbed predecessor flagged its own judgment call):
      toys' own `sample_toy_*_given_x` gold-standard arbiters (toy_a/toy_b/broad_unimodal have no
      such public helper; `_resample_y_given_x` below adds the three-line inline equivalent for
      each, mirroring their `make_toy_*` formula exactly).
-  5. D2's win rule (structure.md §4.5, AMENDED 2026-07-21 by the root after this concern was
+  5. D2's win rule (docs/probreg/fixed_k/plan.md §4.5, AMENDED 2026-07-21 by the root after this concern was
      raised against the original wording, which compared `heldout_nll_own` across arms that do
      not share a likelihood family -- exactly what PS-1's trunk battery varies). The PRIMARY
      readout is now `heldout_fixed_sigma_mll` (HIGHER is better -- it is identically defined for
@@ -97,7 +97,7 @@ task report, exactly as the absorbed predecessor flagged its own judgment call):
      `--rescore` all need per-point values. All three are saved to a companion
      `<cell>_perpoint.npz` next to the per-cell JSON -- an additional artifact, not a schema
      violation, the same role WSEL-13's companion `state_*.pt` files play.
-  7. D3's identifiability disqualifier (structure.md §4.5, AMENDED 2026-07-21 by the root after
+  7. D3's identifiability disqualifier (docs/probreg/fixed_k/plan.md §4.5, AMENDED 2026-07-21 by the root after
      inspecting real PS-1 cells mid-grid: the original "any toy, any seed" wording would have
      disqualified every `ce` arm -- `broad_unimodal`/`toy_c_broad` are single-mode twins built so
      y's fine structure is NOT recoverable from x, so chance-level `slice_accuracy` there is
@@ -771,7 +771,7 @@ def run_cell(arm: Arm, toy: Toy, k: int, seed: int, max_epochs: int, check_every
 
 
 def _own_nll_is_defined(arm: Arm) -> bool:
-    """Whether `arm` has a defined own-NLL (D2 amendment, structure.md §4.5).
+    """Whether `arm` has a defined own-NLL (D2 amendment, docs/probreg/fixed_k/plan.md §4.5).
 
     `fixed_shared` arms have no fitted predictive density at all (a mean-only or
     fixed-sigma-scored network), so their own-NLL is UNDEFINED, not merely different --
@@ -968,17 +968,17 @@ def _load_perpoint(cell: dict[str, Any], key: str) -> np.ndarray | None:
 # k=2 is the truth-scale, decision-bearing pinned k (§4.2: "k is a condition, never a claim"; k=6
 # is the deliberate-overcapacity observation cell). Genuinely un-locked ambiguity, resolved here as
 # the reversible default: D2's comparisons run on k=2 only. Flagged for the root in the task report;
-# now locked into structure.md §4.5 by the root's 2026-07-21 D2 amendment.
+# now locked into docs/probreg/fixed_k/plan.md §4.5 by the root's 2026-07-21 D2 amendment.
 _D2_DECISION_K = 2
 
-# D3-ce's amended reference toy (structure.md §4.5, amended 2026-07-21): the ONE toy whose classes
+# D3-ce's amended reference toy (docs/probreg/fixed_k/plan.md §4.5, amended 2026-07-21): the ONE toy whose classes
 # are genuine components with a known intrinsic k, so a cross-entropy-supervised classifier's
 # accuracy is a meaningful signal there. Every other toy's slice_accuracy is diagnostic only.
 _D3_REFERENCE_TOY = Toy.TOY_B.value
 
 
 def _is_decision_eligible(cell: dict[str, Any]) -> bool:
-    """A cell may carry a D2 comparison only if it converged (structure.md §2's locked re-run rule).
+    """A cell may carry a D2 comparison only if it converged (docs/probreg/fixed_k/plan.md §2's locked re-run rule).
 
     A cell still at `hit_cap` after its one re-run at 600 epochs is flagged `converged: false` and
     "never silently averaged in" -- a non-converged cell compared against a converged one measures
@@ -1165,7 +1165,7 @@ def decide(stage_dir: str, stage: Stage) -> dict[str, Any]:
         if not _is_decision_eligible(c)
     ]
 
-    # D2 PRIMARY (structure.md §4.5, amended 2026-07-21): heldout_fixed_sigma_mll, HIGHER is
+    # D2 PRIMARY (docs/probreg/fixed_k/plan.md §4.5, amended 2026-07-21): heldout_fixed_sigma_mll, HIGHER is
     # better -- identically defined for every arm, so this is the metric that actually decides.
     primary_matrix, primary_beats = _pairwise_matrix(survivors, by_arm, rng, "fixed_sigma_ll_per_point", higher_is_better=True)
     primary_winner = _dominant(survivors, primary_beats) if survivors else None
@@ -1304,7 +1304,7 @@ def run_selftest() -> bool:
         try:
             case, perpoint = run_cell(arm, Toy.TOY_A, k=3, seed=0, max_epochs=2, check_every=1, sigma_toy=sigma_toy)
             heldout_nll_own = case["final"]["heldout_nll_own"]
-            # D2 amendment (structure.md §4.5): fixed_shared arms have no fitted predictive
+            # D2 amendment (docs/probreg/fixed_k/plan.md §4.5): fixed_shared arms have no fitted predictive
             # density, so own-NLL is UNDEFINED (None) for them and finite for every other arm.
             if spread is Spread.FIXED_SHARED:
                 own_nll_ok = heldout_nll_own is None and "own_nll_per_point" not in perpoint
@@ -1412,7 +1412,7 @@ def main() -> None:
 
     final = case["final"]
     print(
-        # `heldout_nll_own` is legitimately None for a no-fitted-spread arm (structure.md §4.5 D2),
+        # `heldout_nll_own` is legitimately None for a no-fitted-spread arm (docs/probreg/fixed_k/plan.md §4.5 D2),
         # so it cannot be formatted numerically. This is a SUMMARY LINE ONLY -- the cell JSON is
         # already on disk by this point -- but an unhandled None here exits non-zero and makes a
         # completed cell look like a failed one to the grid runner.

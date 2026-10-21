@@ -1,6 +1,6 @@
 # T1 pre-registration — the provably-deep-required toy
 
-**Task:** `docs/plans/perinput_selector_2026-07-10/EXECUTION_PLAN.md` §2 WS-B, task T1.
+**Task:** `docs/probreg/per_input_k/history/perinput_selector_2026-07/EXECUTION_PLAN.md` §2 WS-B, task T1.
 F2's depth lane (`capacity_ladder_f2.py`, `capacity_ladder_results/F2/`) measured a NULL
 per-input depth signal on toys G/G-flat/H. Toy G's compositional region (a sine modulated by
 a linear envelope) turned out to carry an incidentally tiny per-input depth requirement, so

@@ -1,6 +1,6 @@
 # W_CASCADE / W_MRL pre-registration — frozen residual cascade vs Matryoshka width heads
 
-(`docs/plans/width_dial_2026-07-11/cascade_execution_plan_2026-07-11.md` §4.4; drivers
+(`docs/flexnn/width/history/width_dial_2026-07/cascade_execution_plan_2026-07-11.md` §4.4; drivers
 `cascade_width_experiment.py` (both arms), nets `cascade_width_net.py`/`matryoshka_width_net.py`.
 Written BEFORE the real 3-seed run — this file records the bars as designed, not as observed. Bars
 and thresholds are IDENTICAL to the W batteries (`W_CONVERGED`, `W_KDROPOUT_CONVERGED`) —
@@ -112,7 +112,7 @@ If BOTH arms pass bars (i) and (ii): the arm of record is whichever has the bett
 held-out LL; ties (within 2*SE) are broken toward the CASCADE (guaranteed identity/ordering, and
 `~6K` params vs Matryoshka's `~(4W+2) + sum_k 2(k+1)` — plan §2.8's accounting table). If only ONE
 arm passes bars (i) and (ii), it is the arm of record. If NEITHER arm passes CONSTRUCTION, the
-finding is: "per-rung heads and frozen additivity do NOT rescue shared-representation nesting" — a
+finding is: "per-rung heads and frozen additivity do NOT rescue shared-redocs/probreg/history/presentation nesting" — a
 real (negative) answer to the middle-ground question raised by W1/W2's shared-trunk failure — and
 gets folded into the report as-is, not iterated on ad hoc.
 

@@ -1,5 +1,5 @@
 """Ground-truth tests for the capacity-ladder input-varying-capacity toys (F1, execution plan
-docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md §3 WS2): Toy G (varying need), Toy G-flat
+docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md §3 WS2): Toy G (varying need), Toy G-flat
 (negative control) and Toy H (SNR dial).
 
 Run DIRECTLY, e.g. ``python3 tests/test_capacity_ladder_toys.py`` (repo-wide pytest collection is

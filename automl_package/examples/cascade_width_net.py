@@ -1,6 +1,6 @@
 """Frozen residual cascade — width grown one tanh block at a time, each block frozen forever.
 
-(`docs/plans/width_dial_2026-07-11/cascade_execution_plan_2026-07-11.md` §2.1-2.3, §4.1)
+(`docs/flexnn/width/history/width_dial_2026-07/cascade_execution_plan_2026-07-11.md` §2.1-2.3, §4.1)
 
 K blocks, each a single-hidden-layer tanh subnet of width 1: `h_b(x) = tanh(u_b x + c_b)` with two
 scalar readouts `(dmu_b, ds_b) = (a_b h_b + d_b, a'_b h_b + d'_b)`. The rung-k (prefix-k) model is
@@ -22,7 +22,7 @@ block b permanently (plan §2.3 Lemma 2). This guarantees `NLL_val(rung k)` non-
 rung a valid calibrated model, and rung identity stable forever -- the coherence invariant in its
 guaranteed (weak) form.
 
-**WSEL-16 Stage-2 `A_CASCADE_STAGED` port (`docs/plans/capacity_programme/width.md` Stage 2, §3.7).**
+**WSEL-16 Stage-2 `A_CASCADE_STAGED` port (`docs/flexnn/width/plan.md` Stage 2, §3.7).**
 `train_cascade` fit ONLY the Gaussian NLL until this port: additive log-variance, a LEARNED
 variance head, exactly what §3.7 forbids ("VARIANCE IS FIXED AT THE TRUE VALUE, NEVER LEARNED").
 `StageLoss` (below) is the closed set of per-stage training losses this function accepts:
@@ -91,7 +91,7 @@ class StageLoss(enum.Enum):
     """Closed set of per-stage training losses `train_cascade` accepts (WSEL-16 Stage-2 port, §3.7)."""
 
     NLL = "nll"  # ORIGINAL path, byte-identical: additive log-variance, NGBoost's Gaussian NLL.
-    SQUARED_ERROR = "squared_error"  # NEW: sigma FIXED at `sigma_true`, never learned (`width.md` §3.7).
+    SQUARED_ERROR = "squared_error"  # NEW: sigma FIXED at `sigma_true`, never learned (`docs/flexnn/width/plan.md` §3.7).
 
 
 def _zero_readouts_(block: nn.ModuleDict) -> None:
@@ -110,7 +110,7 @@ class ResidualCascadeNet(nn.Module):
     Linear(1,1), "logvar_head": Linear(1,1)})`. Every block's readouts start at exactly zero (trunk
     keeps its default init) so an untrained net's every rung is the N(0,1) marginal -- selftest (a).
 
-    Variance status (`width.md` SS3.7, recorded by WSEL-17 Step 3): per-block `logvar_head`s are
+    Variance status (`docs/flexnn/width/plan.md` SS3.7, recorded by WSEL-17 Step 3): per-block `logvar_head`s are
     LEARNED-variance readouts; `StageLoss.NLL` fits them and is retained for byte-identical
     reproduction of the historical cascade run ONLY (this module's header names the SS3.7
     violation it constitutes). New runs use `StageLoss.SQUARED_ERROR` -- sigma FIXED at
@@ -191,7 +191,7 @@ def _stage_squared_error(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """One stage's per-example fixed-sigma squared error and its `mu_total`, using the CACHED frozen prefix (no re-run).
 
-    WSEL-16 Stage-2 `A_CASCADE_STAGED` port (`width.md` §3.7 -- sigma FIXED, never learned). Calls
+    WSEL-16 Stage-2 `A_CASCADE_STAGED` port (`docs/flexnn/width/plan.md` §3.7 -- sigma FIXED, never learned). Calls
     `block_contrib` (the SAME fused call `_stage_nll` uses, no second forward pass) but discards its
     `ds` (log-variance) output -- it never enters this loss's autograd graph, so `logvar_head` gets no
     gradient regardless of whether the caller's optimizer parameter group still contains it.
@@ -255,7 +255,7 @@ def train_cascade(
     code change; default off (plain NLL, comparable to every other W battery). Only defined under
     `stage_loss=StageLoss.NLL` -- `beta_nll=True` with `stage_loss=SQUARED_ERROR` raises `ValueError`.
 
-    `stage_loss`/`sigma_true` (WSEL-16 Stage-2 `A_CASCADE_STAGED` port, `width.md` §3.7): `stage_loss=
+    `stage_loss`/`sigma_true` (WSEL-16 Stage-2 `A_CASCADE_STAGED` port, `docs/flexnn/width/plan.md` §3.7): `stage_loss=
     StageLoss.SQUARED_ERROR` replaces the per-stage AND the acceptance-rule/held-out metric with the
     fixed-sigma squared error (`_stage_squared_error`) EVERYWHERE `_stage_nll` was used, including the
     rung-(b-1) baseline read (`val_nll_prev` -- name kept for the existing `cascade_width_experiment.py`

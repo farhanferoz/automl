@@ -1,6 +1,6 @@
 """WS3/V2 -- heteroscedastic sigma(x)-estimation FIX BATTERY, ranked against known ground truth.
 
-Capacity-ladder program, `docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md` sec 4. V0
+Capacity-ladder program, `docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md` sec 4. V0
 established the joint-NLL variance-collapse disease; V1 ranked the fix family for GLOBAL variance
 on well-specified linear-Gaussian data. V2 moves to V-toy1 (`_toy_datasets.make_v_toy1`), the 1-D
 HETEROSCEDASTIC toy with a KNOWN smooth sigma(x), and ranks six practical remedies for estimating

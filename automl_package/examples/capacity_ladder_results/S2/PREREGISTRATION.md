@@ -1,6 +1,6 @@
 # S2 preregistration — direct held-out-likelihood selector (the principled objective)
 
-Source: `docs/plans/perinput_selector_2026-07-10/EXECUTION_PLAN.md`, §1 WS-A, task **S2**.
+Source: `docs/probreg/per_input_k/history/perinput_selector_2026-07/EXECUTION_PLAN.md`, §1 WS-A, task **S2**.
 Written BEFORE any real run, verbatim from the ratified plan (2026-07-10) plus the dispatch
 message's arithmetic (which is more explicit than the plan text on sign convention). Do not
 edit after a real run starts; outcomes are read against this text, not the reverse.

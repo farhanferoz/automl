@@ -1,7 +1,7 @@
 """WSEL-15 -- does the nested width design survive a normalisation layer?
 
-`docs/plans/capacity_programme/width.md` ~1416-1515, the transformer-port repairs measured.
-`shared/width_transformer_port.md` SS5 lists four repairs for the one obstacle standing between the
+`docs/flexnn/width/plan.md` ~1416-1515, the transformer-port repairs measured.
+`docs/flexnn/transformer/specs/width_transformer_port.md` SS5 lists four repairs for the one obstacle standing between the
 certified nested-width design and a transformer port: a normalisation layer computes its statistics
 over the WHOLE vector, so truncating to a prefix changes the divisor for every surviving unit. Three
 of the four repairs are testable on today's toy (the fourth, a rung-independent normaliser, is
@@ -73,7 +73,7 @@ from automl_package.utils.run_provenance import run_provenance  # noqa: E402
 RESULTS_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "WSEL15")
 
 # Canonical cell, reused verbatim so this task's numbers sit in the same table as WSEL-13/14
-# (`width.md`'s canonical cell: `--arch shared_trunk --loss mse --toy hetero`, n_train=1500, sigma=0.05,
+# (`docs/flexnn/width/plan.md`'s canonical cell: `--arch shared_trunk --loss mse --toy hetero`, n_train=1500, sigma=0.05,
 # w_max=12). WSEL-12 must be merged first so arm A's cost numbers are measured on the fixed training
 # loop (this task's stated dependency).
 SEEDS = cwe.SEEDS  # (0, 1, 2)
@@ -85,7 +85,7 @@ TOY = nwn.Toy.HETERO
 ARCH = kce.Arch.SHARED_TRUNK  # checkpointing-branch selector only; arms B/C are still whole-net-checkpointed like SHARED_TRUNK.
 LOSS = kce.LossType.MSE  # MSE-only, no variance fit (SS3.7).
 SCHEDULE = nwn.WidthSchedule.SANDWICH  # DEFAULT: the certified schedule -- byte-identical to the landed grid.
-# WSEL-15 FOLLOW-UP (width.md, 2026-07-22): `--schedule all` re-runs the arms with NO width starved, to
+# WSEL-15 FOLLOW-UP (docs/flexnn/width/plan.md, 2026-07-22): `--schedule all` re-runs the arms with NO width starved, to
 # separate "normalisation helps the mids" from "longer training feeds the mids the sandwich starves".
 # Results are segregated into WSEL15_ALLSCHED/ so the landed WSEL15/ grid and its frozen.json can never
 # be clobbered, nor aggregated with mixed-schedule cells.
@@ -104,13 +104,13 @@ DEFAULT_CHECK_EVERY = kce.cvg.DEFAULT_CHECK_EVERY
 DEFAULT_PATIENCE = kce.cvg.DEFAULT_PATIENCE
 DEFAULT_MIN_DELTA = kce.cvg.DEFAULT_MIN_DELTA
 
-# Step 1 (`check_prefix_norm_exact`) bar and default toy size -- `width.md` ~1466-1471, no discretion.
+# Step 1 (`check_prefix_norm_exact`) bar and default toy size -- `docs/flexnn/width/plan.md` ~1466-1471, no discretion.
 _PREFIX_NORM_TOL = 1e-5
 _PREFIX_NORM_CHECK_N = 64
 _PREFIX_NORM_CHECK_TRAIN_STEPS = 10
 _PREFIX_NORM_CHECK_LR = 1e-2
 
-# Pre-registered bars (`width.md` ~1487-1500), fixed BEFORE any run.
+# Pre-registered bars (`docs/flexnn/width/plan.md` ~1487-1500), fixed BEFORE any run.
 _ACCURACY_REL_TOL = 0.10  # arm B (and, for the affine question, arm C) vs arm A/B, per width.
 _COST_WALLCLOCK_RATIO_BAR = 1.3  # arm B's per-step wall-clock must stay within 1.3x arm A's.
 _AFFINE_NEEDED_REL_GAIN = 0.10  # per_width_affine_needed iff arm C beats arm B by > 10% relative MSE at any width.
@@ -144,7 +144,7 @@ def _build_net(arm: Arm, w_max: int) -> nwn.SharedTrunkPerWidthHeadNet | wc.Pref
 
 
 def _params_effective_triangle(w_max: int) -> int:
-    """The `1+2+...+w_max` triangle (`shared/width_transformer_port.md` SS3).
+    """The `1+2+...+w_max` triangle (`docs/flexnn/transformer/specs/width_transformer_port.md` SS3).
 
     Head `k` reads a vector whose tail is zeroed, so only the first `k` of its `w_max` input columns
     can ever influence width-k's output -- summed over every width, the per-width heads' EFFECTIVE
@@ -170,7 +170,7 @@ def check_prefix_norm_exact(
     `mode` to `NAIVE` -- `mode` is a plain attribute, not a parameter, so this is the only difference
     between the two nets. Compares every width's output on a fixed `(n, 1)` input at initialisation AND
     after `n_train_steps` full-batch Adam steps (same input/target, same lr, applied identically to
-    both nets) -- exactly Step 1's spec (`width.md` ~1466-1471).
+    both nets) -- exactly Step 1's spec (`docs/flexnn/width/plan.md` ~1466-1471).
 
     `tests/test_prefix_norm_equivalence.py` calls this SAME function (not a re-derived comparison), so
     the pytest gate and `frozen.json`'s `prefix_norm_exact` field can never silently disagree.
@@ -275,7 +275,7 @@ def run_cell(
     with torch.no_grad():
         train_mse_by_width_standardised = {k: float(nwn._width_mse(net, k, x_tr_t, y_tr_t).item()) for k in range(1, w_max + 1)}
         heldout_mse_by_width_standardised = {k: float(nwn._width_mse(net, k, x_te_t, y_te_t).item()) for k in range(1, w_max + 1)}
-    # 2026-07-25 units-bug fix (docs/plans/capacity_programme/width.md "OPEN BUG ... MIX UNITS"): the
+    # 2026-07-25 units-bug fix (docs/flexnn/width/plan.md "OPEN BUG ... MIX UNITS"): the
     # pair above is scored in STANDARDISED (normalized-y) space, same trap as
     # `kdropout_converged_width_experiment.run_case`'s `train_mse_by_width`/`held_out_mse_by_width`
     # (this driver's "heldout" is the TEST split `x_te, y_te`, not the phase-1 val carve -- still
@@ -304,7 +304,7 @@ def run_cell(
         "n_widths_trustworthy": n_trustworthy,
         "all_widths_trustworthy": all_trustworthy,
         "hit_cap": hit_cap,
-        # Step 3 cost instrumentation -- same fields as WSEL-14 (`width.md` ~1475-1478).
+        # Step 3 cost instrumentation -- same fields as WSEL-14 (`docs/flexnn/width/plan.md` ~1475-1478).
         "train_wall_clock_s": train_wall_clock_s,
         "steps_to_converge": steps_to_converge,
         "params_allocated": params_allocated,

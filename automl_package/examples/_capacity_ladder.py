@@ -1,6 +1,6 @@
 """Shared post-hoc capacity-ladder library (WS1/WS2/WS3, task K0).
 
-One score table, five readers. Every WS in `docs/plans/capacity_ladder_2026-07-09/
+One score table, five readers. Every WS in `docs/probreg/history/capacity_ladder_2026-07/plans/
 EXECUTION_PLAN.md` (taxonomy in its §0, governance in its §0b) reduces to the SAME
 post-hoc object: `score[i, c]` = held-out log-likelihood of example i under capacity c
 (§0's B2/B4/B5). This module builds that table from either of the two model shapes the

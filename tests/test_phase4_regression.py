@@ -143,7 +143,7 @@ class TestCrossModelRanking:
         a 1.2x slack of the shallow baseline. Rewritten against NONE (a survivor); verified
         empirically (flex_mse=0.302 vs shallow_mse*1.2=0.324) before this edit. GUMBEL_SOFTMAX +
         ELBO were incidental -- ELBO is dropped too since it is inert without a learned selector
-        (flexnn-package.md FP-12: "makes depth_regularization inert for layer_selection_method=NONE").
+        (docs/flexnn/package/plan.md FP-12: "makes depth_regularization inert for layer_selection_method=NONE").
         """
         x, y, _ = piecewise_data
         x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=42)

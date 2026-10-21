@@ -1,6 +1,6 @@
 """X1: hierarchical partial-pooled per-bin stacking (WS1/WS2 capacity-ladder follow-up, task X1).
 
-(docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md §8.5 X1 / W8; pre-registration in
+(docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md §8.5 X1 / W8; pre-registration in
  capacity_ladder_results/X1/PREREGISTRATION.md)
 
 `_capacity_ladder.perbin_stack` runs `stack_em` INDEPENDENTLY per bin (no partial pooling — the

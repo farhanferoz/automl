@@ -1,7 +1,7 @@
 """Capacity-accounting primitives -- param/FLOP counting shared by every capacity-dial family.
 
 Split out of `automl_package/examples/capacity_accounting.py` (2026-07-20,
-`docs/plans/capacity_programme/flexnn-package.md` Task FP-1) to break a load-time circular
+`docs/flexnn/package/plan.md` Task FP-1) to break a load-time circular
 import: that script imports `FlexibleHiddenLayersNN`/`FlexibleWidthNN` from the package at module
 level, while the package's `fit_router` methods need `executed_flops` -- previously resolved with
 a deferred, inside-method import, which is exactly the pattern FP-1 exists to remove.
@@ -25,7 +25,7 @@ The two shape descriptors below (`DepthNetShapeDescriptor`, `MoEShapeDescriptor`
 class yet, so they register directly, here.
 
 Under MASTER Decision 2 (MSE-only across the capacity strands,
-`docs/plans/capacity_programme/MASTER.md`), the width nets' `logvar_head` is dead weight at
+`docs/flexnn/PLAN.md`), the width nets' `logvar_head` is dead weight at
 inference: `param_count` exposes `path_filter` so a caller can EXCLUDE it explicitly (e.g.
 `path_filter=LOGVAR_HEAD_PATH_SUBSTRING`), while `executed_flops` excludes it UNCONDITIONALLY
 (no flag) since no MSE-only deployment ever calls it.
@@ -52,7 +52,7 @@ LOGVAR_HEAD_PATH_SUBSTRING = "logvar"  # nested_width_net.py's NestedWidthNet/In
 class DepthNetShapeDescriptor:
     """Shape of the depth-net family's shared-blocks-plus-shared-head arm.
 
-    Planned `NestedDepthNet` (`docs/plans/capacity_programme/depth.md` Task D2 -- not built at S2
+    Planned `NestedDepthNet` (`docs/flexnn/depth/history/depth.md` Task D2 -- not built at S2
     authoring time). One `input_size -> hidden_size` block, `max_depth - 1` chained
     `hidden_size -> hidden_size` blocks, and ONE shared `hidden_size -> output_size` readout
     applied after the routed depth's blocks (D2: "shared blocks + ONE shared output head over
@@ -71,7 +71,7 @@ class DepthNetShapeDescriptor:
 class MoEShapeDescriptor:
     """Shape of the planned MoE family.
 
-    `MoERegressionNet` (`docs/plans/capacity_programme/flexnn-moe.md` Task M2 -- not built at S2
+    `MoERegressionNet` (`docs/flexnn/moe/plan.md` Task M2 -- not built at S2
     authoring time). M2's frozen spec: each expert is `Linear(d_in -> expert_hidden) -> tanh ->
     Linear(expert_hidden -> 1)`; the router is a single `Linear(d_in -> n_experts)`. `n_experts`
     is the TOTAL expert count (the router's output width); `executed_flops`'s `config` argument
@@ -263,7 +263,7 @@ def router_fit_cost(in_dim: int, n_capacities: int, n_samples: int, n_epochs: in
     without importing it -- this module imports nothing from `models/` (see the module docstring).
 
     `hidden` is REQUIRED rather than defaulted to the router's own `DEFAULT_HIDDEN`: that constant
-    is a shared global whose value only `flexnn-package.md` FP-5 may change, and a default copied
+    is a shared global whose value only `docs/flexnn/package/plan.md` FP-5 may change, and a default copied
     here would drift out of step with it silently. Pass the router's actual configuration.
 
     Args:
@@ -315,10 +315,10 @@ def sweep_cost(net: object, capacity_grid: Sequence[int], n_train_samples: int, 
 
 
 # ---------------------------------------------------------------------------
-# End-to-end selection cost (capacity-programme Task WSEL-5, `docs/plans/capacity_programme/
-# width.md`). The three primitives above each price ONE mechanism in isolation; none of them is a
-# total cost for any of the models width.md Section 1 actually compares (W-SHARED/W-PERINPUT/
-# W-SWEEP, and their `probreg.md` counterparts M1/M3 -- the SAME three mechanisms, family-agnostic,
+# End-to-end selection cost (capacity-programme Task WSEL-5, `docs/
+# docs/flexnn/width/plan.md`). The three primitives above each price ONE mechanism in isolation; none of them is a
+# total cost for any of the models docs/flexnn/width/plan.md Section 1 actually compares (W-SHARED/W-PERINPUT/
+# W-SWEEP, and their `docs/probreg/PLAN.md` counterparts M1/M3 -- the SAME three mechanisms, family-agnostic,
 # reached through `CapacitySelection.GLOBAL_CHEAP`/`PER_INPUT`/`GLOBAL_SWEEP`, FP-3's one shared
 # enum). The three functions below are named after those enum members rather than any one family's
 # model names, so depth/joint/MoE wire onto them too instead of growing a width-local copy --
@@ -327,9 +327,9 @@ def sweep_cost(net: object, capacity_grid: Sequence[int], n_train_samples: int, 
 # `training_macs` is a REQUIRED, caller-supplied argument to `global_cheap_cost`/`per_input_cost`
 # -- deliberately not derived here, for the same reason `router_fit_cost`'s `hidden` has no
 # default (see above). W-SHARED and W-PERINPUT are read off the SAME already-trained net
-# (width.md Section 1: "training is NOT a variable between those two"), trained under whichever
+# (docs/flexnn/width/plan.md Section 1: "training is NOT a variable between those two"), trained under whichever
 # schedule the caller actually ran (sandwich / one-width-per-batch / all-widths-every-step --
-# `width.md` WSEL-14 owns costing the schedule itself and has not yet run), so that net's training
+# `docs/flexnn/width/plan.md` WSEL-14 owns costing the schedule itself and has not yet run), so that net's training
 # cost is a fact about the run that produced it, not a formula this module should assume on its
 # behalf. `global_sweep_cost` takes no such argument: W-SWEEP's training IS `sweep_cost` by
 # construction -- a separate ordinary model per candidate capacity, exactly what that primitive
@@ -343,7 +343,7 @@ class SelectionCostBreakdown:
 
     Both fields share the MAC convention every function in this module uses (forward+backward for
     training terms, forward-only for read/score terms), so they sum meaningfully into one total --
-    the finite, end-to-end cost WSEL-5 exists to make computable (width.md Section 1: "EACH MODEL
+    the finite, end-to-end cost WSEL-5 exists to make computable (docs/flexnn/width/plan.md Section 1: "EACH MODEL
     IS THE COMPLETE SYSTEM, INCLUDING ITS SELECTION MACHINERY").
 
     Attributes:

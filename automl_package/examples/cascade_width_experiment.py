@@ -1,6 +1,6 @@
 """Cascade vs Matryoshka: the width-dial arm-of-record decision (both trained to convergence).
 
-(`docs/plans/width_dial_2026-07-11/cascade_execution_plan_2026-07-11.md` §4.3; pre-registration
+(`docs/flexnn/width/history/width_dial_2026-07/cascade_execution_plan_2026-07-11.md` §4.3; pre-registration
 `capacity_ladder_results/W_CASCADE/PREREGISTRATION.md`)
 
 Runs BOTH arms on the identical data/split/seeds as `converged_width_experiment.py` (reused

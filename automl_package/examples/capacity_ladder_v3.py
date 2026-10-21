@@ -1,6 +1,6 @@
 """WS3/V3 -- the variance-CAPACITY ladder (unification): the SAME knee reader that selects mixture-component count k also selects sigma-model capacity v.
 
-Capacity-ladder program, `docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md` sec 4, AS
+Capacity-ladder program, `docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md` sec 4, AS
 AMENDED by the R4 adjudication (`capacity_ladder_results/R4_verdict.md` sec 4, "V3 spec check").
 V1 ranked GLOBAL variance-estimation mechanisms; V2 ranked the heteroscedastic sigma(x) FIX
 BATTERY and found the disease (in-sample variance collapse) is finite-sample and the

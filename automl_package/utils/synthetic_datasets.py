@@ -1,6 +1,6 @@
 """Synthetic benchmark datasets B1-B6.
 
-Original designs from docs/research_plan.md §2.2. Each generator returns
+Original designs from docs/applications/research_plan.md §2.2. Each generator returns
 ``(x, y, meta)`` with ``meta`` carrying auxiliary quantities useful for
 diagnostics (e.g., subpopulation labels, true noise levels, latent parameters).
 

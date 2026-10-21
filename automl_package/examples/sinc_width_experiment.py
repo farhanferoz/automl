@@ -1,6 +1,6 @@
 """W1 — per-input WIDTH dial on the ramped-sinc positive control.
 
-(docs/plans/width_dial_2026-07-11/EXECUTION_PLAN.md §2b/2c/2d/2e; pre-registration in
+(docs/flexnn/width/history/width_dial_2026-07/EXECUTION_PLAN.md §2b/2c/2d/2e; pre-registration in
 capacity_ladder_results/W1/PREREGISTRATION.md)
 
 Builds the nested-width network (`nested_width_net.NestedWidthNet`, single hidden layer, WIDTH is
@@ -318,7 +318,7 @@ def _deploy_bar(selector_nll: float, per_k_nll: dict[int, float], oracle_nll: fl
 
 
 # ---------------------------------------------------------------------------
-# MSE-only bars + selector (width-MSE program, docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md §5)
+# MSE-only bars + selector (width-MSE program, docs/flexnn/width/history/width_mse_2026-07/EXECUTION_PLAN.md §5)
 # — a second set of readouts for `--loss mse` runs, parallel to the LL-based CONSTRUCTION/RECOVERY/
 # DEPLOY bars above (those functions are UNCHANGED). `_recovery_bar` above IS reused verbatim for the
 # MSE dial bar below — its "difference between two groups' means, > 2*SE" check is metric-agnostic,
@@ -529,7 +529,7 @@ def _noisy_easy_bar_mse(expected_width: np.ndarray, region_labels: np.ndarray) -
     """§5 bar 4 (WP-3 only) — the noisy-easy NEGATIVE control: the dial reads capacity-hunger, not raw error.
 
     Region labels (`make_hetero3`): `REGION_EASY=0`, `REGION_HARD=1`, `REGION_NOISY_EASY=2`. Two clauses,
-    both must hold (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §5 bar 4):
+    both must hold (`docs/flexnn/width/history/width_mse_2026-07/EXECUTION_PLAN.md` §5 bar 4):
       (a) STAY NARROW — `width(noisy-easy) <= width(easy) + NOISY_EASY_STAY_NARROW_SLACK`. Noise is
           common-mode across widths at a fixed input, so no width fits the noisy-easy region down; the
           honest capacity verdict is "stay narrow". A dial keyed on raw error magnitude would over-feed

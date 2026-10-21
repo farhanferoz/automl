@@ -1,5 +1,5 @@
 """WSEL-19 §2b equivalence test -- the input-dimension generalization of `SharedTrunkPerWidthHeadNet`
-and `IndependentWidthNet` (`docs/plans/capacity_programme/shared/wsel19-toy-design.md` §2b, F1).
+and `IndependentWidthNet` (`docs/flexnn/width/history/wsel19-toy-design.md` §2b, F1).
 
 Both classes' trunks moved from a hardcoded `Linear(1, ...)` to a constructor-time `in_dim`
 parameter (default 1). This file is the equivalence proof the amended spec requires BEFORE any

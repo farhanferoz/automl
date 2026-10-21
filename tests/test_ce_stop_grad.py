@@ -1,7 +1,7 @@
 """Tests for CE_STOP_GRAD gradient routing (CT3).
 
 CE_STOP_GRAD and GRADIENT_STOP are RETIRED under the nested ladder (MASTER Decision 29,
-docs/plans/capacity_programme/MASTER.md): cross-entropy training pulls the classifier toward a
+docs/flexnn/PLAN.md): cross-entropy training pulls the classifier toward a
 predetermined percentile carve-up of y, which the ladder forbids. This whole file's SUBJECT is
 those two retired cross-entropy modes -- it exists to verify their gradient-routing behaviour as a
 labelled comparison arm, not to claim they are the recommended path. Every model construction below

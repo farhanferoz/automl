@@ -1,0 +1,16 @@
+# Documents the plan gates skip. Every entry was OUTSIDE the old plan folder
+# (docs/plans/capacity_programme/) and so was never under the gates before the 2026-10-21
+# reorganisation moved it next to live plans. Listing them keeps the gates' coverage exactly
+# what it was. Bringing one under the gates (fix its citations and numbers, delete its line here)
+# is welcome; adding a live plan to this list is not -- this file may only shrink.
+docs/applications/research_plan.md   # April 2026 publication roadmap, partly superseded
+docs/applications/work_order.md      # April 2026 work queue, parked
+docs/probreg/shared/benchmark_spec.md  # real-data benchmark spec, frozen 2026-07; numeric bars superseded
+docs/probreg/shared/toy_design_spec.md # draft toy spec, parked
+docs/flexnn/width/specs/benchmark_spec.md
+docs/flexnn/depth/specs/depth_selection_toy_design.md
+docs/flexnn/depth/specs/ff_depth_toy_spec.md
+docs/flexnn/depth/specs/ff_depth_protocol_repair_spec.md
+docs/flexnn/joint/specs/joint_toy_design.md
+docs/flexnn/joint/specs/joint_frozen_bar_spec.md
+docs/flexnn/joint/specs/j3_toy_design.md

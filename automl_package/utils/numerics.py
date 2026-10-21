@@ -232,7 +232,7 @@ def calculate_class_value_ranges(y_flat: np.ndarray, y_binned: np.ndarray, k: in
 # three shapes the capacity-programme example drivers use: plain (SE of a 1-D vector's mean),
 # paired (SE of a paired-difference vector's mean -- mathematically the SAME operation as plain,
 # applied to a difference vector, so `bootstrap_se` below covers both), and two-sample
-# (`two_sample_bootstrap_se`). See `docs/plans/capacity_programme/shared/zero-caller-inventory.md`
+# (`two_sample_bootstrap_se`). See `docs/flexnn/package/zero-caller-inventory.md`
 # Part (ii) for the inventory this consolidates: 7 "plain" sites (`_boot_se` x3, `_plain_boot_se`
 # x4) that are already identical thin wrappers around one shared primitive (a pure rename here),
 # 3 "paired" sites (`_paired_bootstrap_se`, `paired_bootstrap_se`, `_paired_point_bootstrap_se`)
@@ -241,7 +241,7 @@ def calculate_class_value_ranges(y_flat: np.ndarray, y_binned: np.ndarray, k: in
 #
 # That inventory's shared low-level primitive, `automl_package/examples/_capacity_ladder.py
 # ::_bootstrap_col_means`, cannot be imported here: package code under `utils/` never imports from
-# `examples/` (capacity-programme boundary rule, `docs/plans/capacity_programme/flexnn-package.md`
+# `examples/` (capacity-programme boundary rule, `docs/flexnn/package/plan.md`
 # §2). `bootstrap_se` below reimplements that primitive's single-column algorithm exactly (row-wise
 # i.i.d. resample-with-replacement, `n_boot` times, `std(ddof=1)` of the resampled means) rather
 # than inventing a new one.

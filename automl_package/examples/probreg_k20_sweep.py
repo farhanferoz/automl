@@ -156,7 +156,7 @@ def _compute_middle_bin_stats(model: ProbabilisticRegressionModel, x_te: np.ndar
     Returns:
         (max_p_mid, sum_p_mid): each is mean-across-val-set of the per-sample
             max (resp. sum) of class probabilities over the middle-third slice.
-            `max_p_mid` matches the handover spec (docs/phase2_handover.md) and is
+            `max_p_mid` matches the handover spec (docs/probreg/history/identifiability_2026-04/phase2_handover.md) and is
             the metric P2.4 consumes. `sum_p_mid` is a companion measuring total
             middle-region mass per sample (less concentration-biased than max).
     """

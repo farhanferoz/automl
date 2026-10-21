@@ -1,6 +1,6 @@
 # H1 preregistration — ProbReg: two-phase schedule vs shipping joint gate vs fixed-k
 
-Source: `docs/plans/perinput_selector_2026-07-10/EXECUTION_PLAN.md`, §3 WS-C, task **H1**
+Source: `docs/probreg/per_input_k/history/perinput_selector_2026-07/EXECUTION_PLAN.md`, §3 WS-C, task **H1**
 (lines ~283-319), plus §0a decisions L1-L5, §0b governance, §0c. Written BEFORE any real run,
 verbatim from the ratified plan (2026-07-10) plus the dispatch message's arm/bar detail. Do not
 edit after a real run starts; outcomes are read against this text, not the reverse.

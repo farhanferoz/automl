@@ -1,6 +1,6 @@
 """WS3/V1 -- global-variance-estimation mechanisms, ranked against analytic ground truth.
 
-Capacity-ladder program, `docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md` sec 4. V0
+Capacity-ladder program, `docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md` sec 4. V0
 established the joint-NLL variance-collapse disease; V1 ranks the FIX FAMILY for GLOBAL variance
 against exact ground truth on well-specified linear-Gaussian data, plus a deliberate mean-model
 misspecification arm. No touching `automl_package/models/` -- this is pure diagnostic plumbing.

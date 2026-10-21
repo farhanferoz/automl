@@ -1,4 +1,4 @@
-"""Tests for the variational-EM k-selector harness (note docs/kselection_variational_em_2026-06-13).
+"""Tests for the variational-EM k-selector harness (note docs/probreg/history/kselection_variational_em_2026-06).
 
 Covers the closed-form E/M math and the pruning behaviour the controlled test relies on:
 resolved modes keep bins (bypass pruned), merged modes fall back to the bypass, and smooth

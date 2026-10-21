@@ -1,6 +1,6 @@
 """X2: CRPS-knee arm on the V3 sigma-capacity ladder (WS3 capacity-ladder follow-up, task X2).
 
-(docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md §8.5 X2; pre-registration in
+(docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md §8.5 X2; pre-registration in
  capacity_ladder_results/X2/PREREGISTRATION.md)
 
 The V3 held-out-NLL knee UNDER-RESOLVES the sigma-capacity ladder (v0 global -> v1 tercile ->

@@ -1,11 +1,11 @@
 """Depth-SELECTION toy — per-input depth choice WITHOUT an oracle (D8b).
 
-Design doc: `docs/depth_capacity/depth_selection_toy_design.md` (esp. §2 arithmetic, §3.1 generative
+Design doc: `docs/flexnn/depth/specs/depth_selection_toy_design.md` (esp. §2 arithmetic, §3.1 generative
 spec, §3.2 net+dial, §3.4 gradedness, §3.5 router, §3.6 bars S1-S5, §6 RESOLVED = Option A: concealment
 DROPPED as a kill criterion, a surface-baseline control added instead; construction = A5, L=10 —
 shortened from the design doc's L=16 after root-causing the anytime net's chance-level training, see
 the root-cause note below).
-Plan: `docs/plans/capacity_programme/depth.md` Task D8b.
+Plan: `docs/flexnn/depth/history/depth.md` Task D8b.
 
 **Construction (design §6, C1'''):** words of length L=10 over a 4-letter alphabet of A5 involutions
 (order-2 generators; `depth_composition_toy.Group.A5` / `build_group` — extended there, not here, so S5/Z120 share it).

@@ -1,6 +1,6 @@
 """T1 path-2 — bounded easier-target search for a depth-requiring AND GD-learnable positive control.
 
-(docs/plans/perinput_selector_2026-07-10/EXECUTION_PLAN.md WS-B, task T1; terminal G-FORK path 2,
+(docs/probreg/per_input_k/history/perinput_selector_2026-07/EXECUTION_PLAN.md WS-B, task T1; terminal G-FORK path 2,
 user-selected 2026-07-11. Disposition packet: capacity_ladder_results/T1/T1_PATH1_ADJUDICATION.md.)
 
 Path-1 HARDENED that the 5-fold tent map (`make_toy_t1` n_iter=5, 32 linear pieces) at trunk width

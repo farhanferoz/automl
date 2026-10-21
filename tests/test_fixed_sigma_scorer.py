@@ -1,4 +1,4 @@
-"""Tests for the fixed-sigma mixture scorer (MASTER Decision 24; flexnn-package.md FP-12).
+"""Tests for the fixed-sigma mixture scorer (MASTER Decision 24; docs/flexnn/package/plan.md FP-12).
 
 Covers: `fixed_sigma_mixture_log_likelihood` (the pure scorer), `NestedStrategy`'s new
 per-component mixture readout it is built on, and the Decision-29 depth-selection retirement
@@ -56,7 +56,7 @@ class TestFixedSigmaMixtureLogLikelihoodKnownAnswer:
     def test_two_component_mixture_matches_manual_logsumexp(self):
         """A hand-computed 2-component mixture log-likelihood, checked against scipy-free
         manual log-sum-exp -- the scorer must be the genuine mixture density, not a moment-
-        matched single Gaussian (the exact substitution error flexnn-package.md FP-12 warns
+        matched single Gaussian (the exact substitution error docs/flexnn/package/plan.md FP-12 warns
         against)."""
         y = torch.tensor([1.0])
         probs = torch.tensor([[0.3, 0.7]])
@@ -106,7 +106,7 @@ class TestFixedSigmaMixtureLogLikelihoodKnownAnswer:
 
 class TestNestedStrategyMixtureComponents:
     """The per-component mixture readout `all_rung_log_likelihood` is built on -- the part
-    flexnn-package.md FP-12 says is NOT a one-line substitution."""
+    docs/flexnn/package/plan.md FP-12 says is NOT a one-line substitution."""
 
     def _fit_nested(self, x, y, max_k=4, n_epochs=25, seed=0):
         model = ProbabilisticRegressionModel(
@@ -168,7 +168,7 @@ class TestNestedStrategyMixtureComponents:
         MIXTURE score at a rung k>=2 must differ from a fixed-sigma single Gaussian scored at the
         SAME rung's collapsed (law-of-total-variance) mean -- if they agreed, the migration would
         have silently substituted a constant into the old collapsed form (the exact trap
-        flexnn-package.md FP-12 warns is not a one-line substitution)."""
+        docs/flexnn/package/plan.md FP-12 warns is not a one-line substitution)."""
         x, y = multimodal_data
         model = self._fit_nested(x, y, max_k=3, n_epochs=40)
         x_t = torch.tensor(x[:32], dtype=torch.float32).to(model.device)

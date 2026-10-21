@@ -1,5 +1,5 @@
 """Toys with INPUT-VARYING required capacity (F1, capacity-ladder execution plan
-docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md §3 WS2).
+docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md §3 WS2).
 
 Three generators, all 1-D, x in [-1, 1], following the conventions of
 ``_toy_datasets.py`` (plain functions, keyword defaults, float32 arrays, a
@@ -188,7 +188,7 @@ def make_toy_h(
 
 # ---------------------------------------------------------------------------
 # Toy T1 — the provably-deep-required toy (per-input selector program, WS-B task T1,
-# docs/plans/perinput_selector_2026-07-10/EXECUTION_PLAN.md). Unlike Toy G, whose
+# docs/probreg/per_input_k/history/perinput_selector_2026-07/EXECUTION_PLAN.md). Unlike Toy G, whose
 # compositional region turned out to carry an incidentally tiny per-input depth signal,
 # T1's region B is a Telgarsky-style composed tent map: iterating tent(z) = 1 - |2z - 1|
 # n_iter times doubles the piece count each time (2**n_iter linear pieces at n_iter=5 ->

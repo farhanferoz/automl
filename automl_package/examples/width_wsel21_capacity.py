@@ -1,6 +1,6 @@
-"""WSEL-21 -- the d>=8 CAPACITY+DATA diagnostic (re-scope of `docs/plans/capacity_programme/width.md` WSEL-21, 2026-07-24 user review).
+"""WSEL-21 -- the d>=8 CAPACITY+DATA diagnostic (re-scope of `docs/flexnn/width/plan.md` WSEL-21, 2026-07-24 user review).
 
-**What this reopens.** The WSEL-21 optimizer-knob escalation ladder (`shared/wsel21-escalation.md`,
+**What this reopens.** The WSEL-21 optimizer-knob escalation ladder (`docs/flexnn/width/specs/wsel21-escalation.md`,
 driver `width_wsel19.py`'s `EscalationRung`/`run_escalation_rung`) recorded d>=8 UNREACHABLE under
 FOUR protocol rungs (full-batch -> mini-batch {128, 32}; constant LR -> cosine decay; patience
 60 -> 180) on the designated calibration cell (d=8, geometry=AXIS, seed=2, n_train=1500): every rung
@@ -9,7 +9,7 @@ trained cleanly (`all_widths_trustworthy=True` throughout) but fit quality never
 <!-- source: automl_package/examples/capacity_ladder_results/WSEL19/wsel21_escalation_ledger.json -->
 The user's 2026-07-24 re-scope narrowed that verdict to the OPTIMIZER-KNOB family only -- it is NOT
 a capacity/architecture verdict -- and reopened exactly this question: "can we recover the width when
-the signal is buried among many irrelevant features?" (`width.md`, WSEL-21 block, `flip_attempt`).
+the signal is buried among many irrelevant features?" (`docs/flexnn/width/plan.md`, WSEL-21 block, `flip_attempt`).
 The re-scope names the smallest change that would flip the verdict: sweep per-width net CAPACITY and
 training-set SIZE, never more optimizer knobs.
 
@@ -69,7 +69,7 @@ multiplier 1, depth 1 -- reproduces `FlexibleWidthNN`'s own per-width net exactl
 above). Every other level changes exactly one of {width multiplier, depth} from `BASELINE` (this
 strand's own single-difference discipline, `wsel21-escalation.md` §4's rung table), except the last,
 which combines both single-differences -- mirroring the router sweep's own "half/double width, 1 vs 3
-layers" combination (`width.md:1178-1182`).
+layers" combination (`docs/flexnn/width/plan.md:1178-1182`).
 
 **Cache collision guard (escalation spec §4 hazard 2, re-applied across model CLASSES here, not just
 protocols).** This driver's cached net weights use a DEDICATED subdirectory (`_capacity_cache/`,

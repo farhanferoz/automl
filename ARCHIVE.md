@@ -145,8 +145,8 @@ softmax produces stable training. Recommendation: use SoftGating with ELBO.
 
 ### Session: 2026-04-06 — Persistence & Architecture Audit
 
-- Produced `docs/architecture_analysis.md` — full bug audit, SOTA comparison
-- Produced `docs/implementation_plan.md` — phased implementation plan
+- Produced `docs/package/history/architecture_analysis.md` — full bug audit, SOTA comparison
+- Produced `docs/package/history/implementation_plan.md` — phased implementation plan
 - Created `~/dev/antigravity_recovery/antigravity_recovery.py` for session recovery
 
 ## Session: 2026-04-07 — Phase 5: SHAP + Symlog Fixes

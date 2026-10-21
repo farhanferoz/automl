@@ -1,6 +1,6 @@
 """Thin re-export shim -- `MatryoshkaWidthNet` IS the certified `SharedTrunkPerWidthHeadNet`.
 
-WSEL-17 Step 1 (`docs/plans/capacity_programme/width.md` ~2292-2301, §3.9 finding 1) measured the
+WSEL-17 Step 1 (`docs/flexnn/width/plan.md` ~2292-2301, §3.9 finding 1) measured the
 §3.9 duplicate pair by construction, not by taste: this file's per-rung dedicated head
 (`Linear(k -> 1)` reading the raw prefix `h[:, :k]`) and `SharedTrunkPerWidthHeadNet`'s per-width
 head (`Linear(w_max -> 1)` reading a MASKED hidden vector, columns `>= k` zeroed) compute the SAME

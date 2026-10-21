@@ -1,7 +1,7 @@
 """Aggregate the WSEL-16 stage-3 tier-3 coverage grid (36 cells, b_heads single-arm).
 
 The driver's own ``summarize()`` predates tier 3 and probes unsuffixed filenames, so this
-root-side aggregator is the tier-3 ledger producer (width.md WSEL-16 stage-3 sign-off ruling,
+root-side aggregator is the tier-3 ledger producer (docs/flexnn/width/plan.md WSEL-16 stage-3 sign-off ruling,
 2026-07-22). Deterministic: reads only the landed cell JSONs beside it; timestamp is keyed off
 the newest input's mtime so reruns are byte-identical.
 

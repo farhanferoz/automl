@@ -1,11 +1,11 @@
 r"""F6 — FlexNN-vs-MoE comparison battery (rescopes M3; UNGATED from G-JOINT).
 
-`docs/plans/capacity_programme/flexnn-core.md` Task F6. Compares four contenders on three toys,
+`docs/flexnn/archive/flexnn-core.md` Task F6. Compares four contenders on three toys,
 each contender matched to a common reference capacity in TWO regimes (total params, executed
 FLOPs), 3 seeds minimum, convergence-gated (MASTER Decision 9):
 
   * **Toys**: (1) the certified width toy (`nested_width_net.make_hetero`, config from
-    `width-cert.md`'s W9 canonical headline: `shared_trunk`/MSE, `n_train=1500`, `n_test=500`,
+    `docs/flexnn/width/history/width-cert.md`'s W9 canonical headline: `shared_trunk`/MSE, `n_train=1500`, `n_test=500`,
     `sigma=0.05`, `w_max=12`); (2) `nested_width_net.make_hetero3` (WP-3 noisy-easy negative
     control, `n_train=2250`, `n_test=750`); (3) the A5 depth-composition toy in its CE form
     (`depth_composition_toy.make_word_data(Group.A5, ...)`) — classification over 60 group
@@ -26,7 +26,7 @@ FLOPs), 3 seeds minimum, convergence-gated (MASTER Decision 9):
     (`TUNED_ALPHA_CANDIDATES`) and records whether tuning closes the gap — never a hand-wavy
     claim from the frozen alpha=1e-2 run alone.
   * **G-JOINT is DROPPED from this grid** (open research problem, decided separately in
-    `flexnn-core.md` MASTER Decision 5) — only the two CERTIFIED 1-D dials (width, depth) are in
+    `docs/flexnn/archive/flexnn-core.md` MASTER Decision 5) — only the two CERTIFIED 1-D dials (width, depth) are in
     scope; no joint (width, depth) toy is run here.
 
 Package-model training bypasses `BaseModel.fit()`'s Optuna/early-stopping wrapper entirely and
@@ -39,7 +39,7 @@ uses), full-batch Adam, closing over `moe_regression.training_loss`.
 
 Held-out generalization split per toy (adapting each toy's OWN established convention to the
 package-model harness's need for an explicit validation set):
-  * Width toy / hetero3: an INDEPENDENT test draw at `seed+500` (exactly `width-cert.md`'s own
+  * Width toy / hetero3: an INDEPENDENT test draw at `seed+500` (exactly `docs/flexnn/width/history/width-cert.md`'s own
     convention) plus a local 80/20 shuffle-split of the `n_train` pool into (train, val) for
     early stopping / `fit_router` / best-fixed selection — that val split is new (the raw
     research harness in `kdropout_converged_width_experiment.py` does not need one), stated here
@@ -100,7 +100,7 @@ MOE_FAIL_MARGIN = 0.05  # relative margin: MoE's best variant this much worse th
 class ToyKey(enum.StrEnum):
     """Closed set of this battery's three toys (G-JOINT dropped — see module docstring)."""
 
-    WIDTH = "width"  # certified width toy (width-cert.md ledger), regression
+    WIDTH = "width"  # certified width toy (docs/flexnn/width/history/width-cert.md ledger), regression
     HETERO3 = "hetero3"  # WP-3 noisy-easy negative control, regression
     A5_DEPTH = "a5_depth"  # A5 group word-composition, classification (CE)
 

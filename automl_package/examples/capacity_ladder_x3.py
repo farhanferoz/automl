@@ -1,6 +1,6 @@
 """X3: repeated cross-fit re-issue of the F3 per-bin verdicts (WS2 capacity-ladder follow-up, task X3).
 
-(docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md §8.5 X3 / §8.6; pre-registration in
+(docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md §8.5 X3 / §8.6; pre-registration in
  capacity_ladder_results/X3/PREREGISTRATION.md)
 
 Fixes the W4 review finding (§8.2): the F3 toy-G per-input depth advantage recorded as "+2.67 SE"

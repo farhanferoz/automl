@@ -1,8 +1,8 @@
 """Joint width+depth toy (J0 Step 2) — ONE net serving a per-input 2-D capacity dial (state-width w, unroll-depth T).
 
-Design doc: `docs/joint_capacity/joint_toy_design.md` (§2 the joint net; §3 the three candidates -- this
+Design doc: `docs/flexnn/joint/specs/joint_toy_design.md` (§2 the joint net; §3 the three candidates -- this
 module builds J-1 and J-2, J-3 is deferred; §4 the pilot bars S1/W-bar/D-bar/X-bar; §5 the J-1 arithmetic
-verification; §6 the G-JOINT gate). Plan: `docs/plans/capacity_programme/width-depth.md` Task J0.
+verification; §6 the G-JOINT gate). Plan: `docs/flexnn/joint/plan.md` Task J0.
 Mirrors `depth_selection_toy.py`'s structure/idioms exactly, extended for the width dial + the (w,T) grid.
 
 **The joint net (design §2).** A weight-shared recurrent block folds the per-step input; the 2-D dial is
@@ -26,7 +26,7 @@ from J-2 (`WidthMode`, design §3's "hedge on the key risk"):
     narrow width genuinely cannot carry more than w units of information forward. This requires one
     separate fold per width rung (the fold trajectory itself now depends on w).
 
-**Data (design §3 J-1 + `docs/joint_capacity/j1_arithmetic_check.py`).** K_MAX=4 parallel track slots.
+**Data (design §3 J-1 + `docs/flexnn/joint/scripts/j1_arithmetic_check.py`).** K_MAX=4 parallel track slots.
 Per input: draw width-demand A ~ U{1..K_MAX} and depth-demand T* ~ U(T_STAR_LADDER) INDEPENDENTLY. A
 active slots each get a length-L A5-involution word with realized commitment == T* (`depth_selection_toy
 .sample_stratum`, reused verbatim); the K_MAX-A inactive slots are all-NOOP (5th symbol = identity).
@@ -93,7 +93,7 @@ _EXAMPLES_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _EXAMPLES_DIR)
 _REPO_ROOT = os.path.dirname(os.path.dirname(_EXAMPLES_DIR))
 sys.path.insert(0, _REPO_ROOT)  # repo root, so `import automl_package` works
-_DOCS_JOINT_DIR = os.path.join(_REPO_ROOT, "docs", "joint_capacity")
+_DOCS_JOINT_DIR = os.path.join(_REPO_ROOT, "docs", "flexnn", "joint", "scripts")
 sys.path.insert(0, _DOCS_JOINT_DIR)  # so `import j1_arithmetic_check` works (design §5 arithmetic, not under examples/)
 
 import convergence as cvg  # noqa: E402 — full-trajectory convergence gate, shared with every capacity toy

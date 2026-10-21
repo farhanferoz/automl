@@ -1,7 +1,7 @@
 """Depth toy via GROUP WORD-PROBLEM composition — the depth analog of the width toy's flat+sine.
 
-**Why this replaces the 1-D regression candidates** (`docs/plans/capacity_programme/depth.md` D1;
-`docs/depth_capacity/depth_toy_negative_note.md`; this session's grounding). The four 1-D
+**Why this replaces the 1-D regression candidates** (`docs/flexnn/depth/history/depth.md` D1;
+`docs/flexnn/depth/reports/depth_toy_negative_note.md`; this session's grounding). The four 1-D
 smooth-regression candidates all failed because depth-hunger and GD-learnability are MUTUALLY
 EXCLUSIVE for smooth 1-D targets — now known to be a proven theorem, not an artifact: Malach &
 Shalev-Shwartz 2019 (arXiv:1903.03488) and Malach, Yehudai, Shalev-Shwartz, Shamir 2021
@@ -116,7 +116,7 @@ STALL_ACC = 0.60  # wide-shallow "stalls" at <= this held-out accuracy (well bel
 DEFAULT_OUT_DIR = os.path.join(_EXAMPLES_DIR, "capacity_ladder_results", "D_TOY_PROBES")
 
 # ---------------------------------------------------------------------------
-# F5c-a protocol-repair constants (`docs/depth_capacity/ff_depth_protocol_repair_spec.md`).
+# F5c-a protocol-repair constants (`docs/flexnn/depth/specs/ff_depth_protocol_repair_spec.md`).
 # Rung 0 (spec §1.3, MASTER Decision 15 -- applied regardless of benefit, not a ladder rung): the
 # LR/clip values every certified A5/S5 L=10 loop uses. `train_clf`'s own LR/CHECK_EVERY/PATIENCE/
 # MIN_DELTA above are untouched (they remain the F5b-call-site defaults, see `train_clf`'s docstring);
@@ -614,9 +614,9 @@ def _train_dual_gate(
 
 # ---------------------------------------------------------------------------
 # Nested (all-rungs) feed-forward training — DSEL-1b
-# (docs/plans/capacity_programme/depth-selection.md, task DSEL-1b).
+# (docs/flexnn/depth/plan.md, task DSEL-1b).
 #
-# DSEL-1's diagnosis (docs/plans/capacity_programme/shared/dsel1_nested_diagnosis.md): `train_clf`
+# DSEL-1's diagnosis (docs/flexnn/depth/history/dsel1_nested_diagnosis.md): `train_clf`
 # above failed because it supervises a single readout at FULL DEPTH ONLY -- no intermediate depth
 # ever receives a gradient, so nothing stops the optimizer from using the whole stack purely to
 # memorize. Every capacity dial in this programme that works instead puts every rung in the loss,
@@ -646,9 +646,9 @@ class ReadoutMode(enum.StrEnum):
     DSEL-1b opens this as a pre-registered two-arm comparison and forbids a default: the certified
     depth result favours a shared readout, but its own stated mechanism ("the weight-shared
     recurrent block presents every depth with the SAME state space, so one readout suffices",
-    `docs/depth_capacity/verdict_per_input_depth.md:40-43`) does not carry over to an architecture
-    with DISTINCT weights per layer, where each depth hands the readout a DIFFERENT representation
-    — exactly the width-strand failure mode (`depth.md:29-31`). Neither member of this enum is the
+    `docs/flexnn/depth/reports/verdict_per_input_depth.md:40-43`) does not carry over to an architecture
+    with DISTINCT weights per layer, where each depth hands the readout a DIFFERENT redocs/probreg/history/presentation
+    — exactly the width-strand failure mode (`docs/flexnn/depth/history/depth.md:29-31`). Neither member of this enum is the
     default; both are run.
     """
 
@@ -734,7 +734,7 @@ def train_nested_clf(
 
     Reproduces the certified all-rungs training convention (`depth_selection_toy.py:475`,
     `depth_graded_toy.py:148`, both re-verified against source 2026-07-20 —
-    `docs/plans/capacity_programme/shared/dsel1_nested_diagnosis.md` §1). Scheme (a), a per-sample
+    `docs/flexnn/depth/history/dsel1_nested_diagnosis.md` §1). Scheme (a), a per-sample
     uniform draw over depths (`layer_selection_strategies.py:187` `NestedStrategy`), is a labelled
     comparison arm available if this scheme proves too slow to train — not implemented here, since
     it is not needed: this toy trains in well under a minute (see the readout-arm comparison below).
@@ -1047,7 +1047,7 @@ def run_positive_control(
 
     A5, L=10, at the repaired Rung-0 protocol (spec §1.3) under the dual-metric gate (spec §4) — the
     SAME `train_clf` protocol the grid arms will use (spec §1.3's "uniformity rule"). This is the ONLY
-    arm this function trains; no other arm may be trained until it passes (`flexnn-core.md` §F5c-b:
+    arm this function trains; no other arm may be trained until it passes (`docs/flexnn/archive/flexnn-core.md` §F5c-b:
     "No compute is spent on any other arm until this passes").
 
     Bar (unchanged, `ff_depth_toy_spec.md` §6 / spec §5): held-out accuracy >= `FIT_ACC` AND

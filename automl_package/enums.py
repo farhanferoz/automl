@@ -28,7 +28,7 @@ class RegressionStrategy(Enum):
 
 
 class HeadSpread(Enum):
-    """How a SEPARATE_HEADS class's spread is parameterised (structure phase, structure.md PS-A1)."""
+    """How a SEPARATE_HEADS class's spread is parameterised (structure phase, docs/probreg/fixed_k/plan.md PS-A1)."""
 
     PER_INPUT = "per_input"  # log-variance is a function of p_i (legacy default)
     ALL_CONSTANT = "all_constant"  # mean AND log-variance are per-class parameters (calibrated-constant baseline)
@@ -111,15 +111,15 @@ class DepthRegularization(Enum):
 class CapacitySelection(Enum):
     """The ONE capacity-selection API, shared by every capacity-dial family.
 
-    Capacity-programme Task FP-3, `docs/plans/capacity_programme/flexnn-package.md`.
+    Capacity-programme Task FP-3, `docs/flexnn/package/plan.md`.
     Ships only the members whose mechanism exists today -- an enum member is a promise that it
     works, not a placeholder. A member is added by the task that builds its mechanism, never ahead
     of it (the rule that retires the old `WidthSelectionMethod.DISTILLED` trap: an enum member whose
     implementation raises `NotImplementedError`).
 
-    `GLOBAL_CHEAP` and `GLOBAL_SWEEP` were added 2026-07-21 by `probreg.md` PA, which built both
+    `GLOBAL_CHEAP` and `GLOBAL_SWEEP` were added 2026-07-21 by `docs/probreg/shared/plan.md` PA, which built both
     mechanisms for ProbReg. **The k family implements them; width and depth do NOT yet** -- those
-    arrive with `width.md` WSEL-3/WSEL-4 and `depth-selection.md` DSEL-6/DSEL-7. A member existing
+    arrive with `docs/flexnn/width/plan.md` WSEL-3/WSEL-4 and `docs/flexnn/depth/plan.md` DSEL-6/DSEL-7. A member existing
     here is a promise about THIS enum's contract, not a claim that every family implements it.
     """
 
@@ -140,7 +140,7 @@ class NClassesRegularization(Enum):
     """Enum for n_classes complexity control in probabilistic regression.
 
     K_PENALTY and ELBO are **RETIRED under the nested ladder** (MASTER Decision 29,
-    `docs/plans/capacity_programme/MASTER.md`): they are only meaningful alongside an in-training
+    `docs/flexnn/PLAN.md`): they are only meaningful alongside an in-training
     `NClassesSelectionMethod`, and those are themselves retired. Under `NESTED` they raise at
     construction and are absent from `get_hyperparameter_search_space`; they are reachable ONLY
     behind the explicit `allow_retired_capacity_selection` opt-out, for a labelled comparison arm,
@@ -294,7 +294,7 @@ class ProbRegLossType(Enum):
 
     GAUSSIAN_LTV = "gaussian_ltv"  # law of total variance + Gaussian NLL (current default)
     MDN = "mdn"                    # Bishop 1994 mixture density network NLL
-    FIXED_SIGMA_MIXTURE = "fixed_sigma_mixture"  # mixture NLL at a required, shared, fixed sigma (structure.md)
+    FIXED_SIGMA_MIXTURE = "fixed_sigma_mixture"  # mixture NLL at a required, shared, fixed sigma (docs/probreg/fixed_k/plan.md)
 
 
 class OptimizerType(Enum):

@@ -1,6 +1,6 @@
 """P1 — depth power curve (X10, trimmed 3-point) — per-input selector program WS-D.
 
-(docs/plans/perinput_selector_2026-07-10/EXECUTION_PLAN.md WS-D, P1 section)
+(docs/probreg/per_input_k/history/perinput_selector_2026-07/EXECUTION_PLAN.md WS-D, P1 section)
 
 The moving-mode power curve (T3) turns "absent" into "absent, or under-powered?" by sweeping
 N. P1 asks the SAME question of the depth lane: F2/F3/X3 measured the toy-G per-input depth

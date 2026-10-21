@@ -1,6 +1,6 @@
 """W2 — per-input WIDTH dial on the heterogeneous (line + native-frequency-sine) toy.
 
-(docs/plans/width_dial_2026-07-11/EXECUTION_PLAN.md §6; pre-registration in
+(docs/flexnn/width/history/width_dial_2026-07/EXECUTION_PLAN.md §6; pre-registration in
 capacity_ladder_results/W2/PREREGISTRATION.md)
 
 W1 (`sinc_width_experiment.py`) FAILED bar (i) CONSTRUCTION on the ramped-sinc toy for two reasons

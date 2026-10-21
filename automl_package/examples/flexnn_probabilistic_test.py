@@ -72,7 +72,7 @@ def run(ds):
     noise_std_test = noise_std[len(x_train):] if noise_std is not None else None
 
     # SOFT_GATING and NClassesRegularization.K_PENALTY are RETIRED under the nested ladder
-    # (MASTER Decision 29, docs/plans/capacity_programme/MASTER.md). All three configs below use
+    # (MASTER Decision 29, docs/flexnn/PLAN.md). All three configs below use
     # a retired member and are constructed EAGERLY (not inside the per-config try/except at the
     # bottom of this function), so allow_retired_capacity_selection=True is required here or the
     # whole run() call crashes before the comparison table prints at all -- this file's entire

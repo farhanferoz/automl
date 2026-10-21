@@ -1,7 +1,7 @@
 r"""WSEL-6-R -- the real-data selection-fraction reopen.
 
-`docs/plans/capacity_programme/width.md` WSEL-6-R; spec
-`docs/plans/capacity_programme/shared/wsel6r-realdata-selection-fraction.md`.
+`docs/flexnn/width/plan.md` WSEL-6-R; spec
+`docs/flexnn/width/specs/wsel6r-realdata-selection-fraction.md`.
 
 WSEL-6 froze a 15% SELECT-set fraction on SYNTHETIC toys only; WSEL-24 causally demonstrated that
 15% is underpowered on three of WSEL-9's five real datasets (diabetes/yacht/energy, `n_selection_

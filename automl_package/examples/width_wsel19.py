@@ -1,4 +1,4 @@
-"""WSEL-19 D1 -- the router-backend bake-off, 1-D slice (`docs/plans/capacity_programme/width.md` WSEL-19 ~1146-1219, D1 execution spec ~1220-1268).
+"""WSEL-19 D1 -- the router-backend bake-off, 1-D slice (`docs/flexnn/width/plan.md` WSEL-19 ~1146-1219, D1 execution spec ~1220-1268).
 
 **Question.** WSEL-7's sign-off left three rulings undecided by fiat: the router must be
 input-size-RELATIVE (ruling 2), regularisation is a first-class requirement (ruling 3, concretised
@@ -27,14 +27,14 @@ HARD argmax-routes; BLEND weights every width's prediction by the router's own c
 probabilities. Training is IDENTICAL between the two -- `run_cell` fits the requested backend
 once and reads off both the argmax and the probability-weighted number from the SAME fit. Ruling
 4 pins the readout: routed error on the underlying model's own training metric (squared error on
-this MSE-only toy, `width.md` SS3.7), no size penalty, smallness only through the declared
+this MSE-only toy, `docs/flexnn/width/plan.md` SS3.7), no size penalty, smallness only through the declared
 `DEFAULT_TOLERANCE` tie-band -- so BLEND's "quality" is the probability-weighted EXPECTATION of
 the same per-width squared-error table HARD reads by argmax, not a likelihood
 (`DistilledCapacityRouter.blend_scores`/`blend_nll` port the log-likelihood blend `capacity_
 ladder_t2` needs elsewhere in this programme; they do not apply to a plain squared-error metric,
 so this driver computes the direct linear-space expectation instead, `_score_blend` below).
 
-**REUSE FIRST (`width.md` SS3.9; verified against source, not recalled).**
+**REUSE FIRST (`docs/flexnn/width/plan.md` SS3.9; verified against source, not recalled).**
   - `automl_package.models.flexnn.routing`: `DistilledCapacityRouter`/`DEFAULT_HIDDEN`/
     `DEFAULT_N_EPOCHS`/`DEFAULT_LR`/`DEFAULT_TOLERANCE` (backend 1, unmodified). `_CapacityRouterMLP`
     and `_cheapest_within_tolerance_labels` are imported too, leading underscore notwithstanding --
@@ -64,7 +64,7 @@ so this driver computes the direct linear-space expectation instead, `_score_ble
     written.
 
 **Data design -- three DISJOINT `make_hetero` draws per seed, all at tier-1's canonical
-`sigma=0.05` (`width.md` SS3.8's tier-1 row):**
+`sigma=0.05` (`docs/flexnn/width/plan.md` SS3.8's tier-1 row):**
   1. **Training draw** (`p1` of `make_hetero(1500, seed)`) -- WSEL-6's own draw, already baked into
      the cached per-width `state_dict`s; this driver never re-derives it (loaded nets only).
   2. **Selection pool** (`make_hetero(1200, seed + 1000)`) -- a THIRD disjoint draw, needed because
@@ -101,13 +101,13 @@ the reason `rule_mlp` is a genuine SECOND regularisation lever alongside early s
 decay: linear-in-`d` growth would multiply router parameters by 32x at `d=32` (the toy-design
 spec's own starvation cell) and make the "does regularising a bigger router help" question moot by
 re-introducing the same over-parameterisation ruling 3 exists to fix. Defined for arbitrary `d`
-(`width.md` SS3.10) even though the 1-D slice only ever calls it at `d=1`.
+(`docs/flexnn/width/plan.md` SS3.10) even though the 1-D slice only ever calls it at `d=1`.
 
 **Non-goals (authoring contract):** no edits to `routing.py`/`width_wsel6.py`/`width_wsel7.py`/any
 plan doc; no grid beyond the one real smoke cell (the root runs the grid, backgrounded); no
 tolerance sweep (MASTER Decision 18).
 
-**Multi-feature extension (GO rendered, `shared/wsel19-toy-design.md` amended spec).** `--dim
+**Multi-feature extension (GO rendered, `docs/flexnn/width/history/wsel19-toy-design.md` amended spec).** `--dim
 {1,2,8,32} --geometry {axis,oblique}` (required together; both omitted => the 1-D slice above,
 byte-identical) route a cell through `width_wsel19_toys` (`wt` below) instead of the 1-D sweep
 cache. The per-width error table comes from `w_max` dedicated `FlexibleWidthNN(widths=(k,))` nets
@@ -125,7 +125,7 @@ The §5 validity checks run IN ORDER and are recorded in every multi-feature cel
   1. **Identity (§5.1):** `wt.identity_holds` at a fixed check size -- asserts, does not gate
      (holds by construction; a `False` here means the construction itself is broken, so it raises
      rather than being recorded as a soft status).
-  2. **d=1 calibration cell (§5.2, v2 two-block -- redesign spec `shared/wsel19-toy-redesign.md`):**
+  2. **d=1 calibration cell (§5.2, v2 two-block -- redesign spec `docs/flexnn/width/specs/wsel19-toy-redesign.md`):**
      `--calibrate` runs the per-width sweep at `d=1, geometry=axis` TWICE per canonical seed: the
      REGIME block at `n_train=750` (600 gradient-visible points under the shared every-5th val
      split -- R2's pin to the canonical carve, killing the traced 600-vs-1200 confound) judged by
@@ -451,7 +451,7 @@ def _get_or_build_sweep_cache(
             n_report=d["n_report"],
         )
 
-    cfg = w6._TIER_CONFIG[w6.Tier.ONE]  # canonical tier-1 hetero cell (width.md SS3.8): n_train=1500, n_test=500, sigma=0.05.
+    cfg = w6._TIER_CONFIG[w6.Tier.ONE]  # canonical tier-1 hetero cell (docs/flexnn/width/plan.md SS3.8): n_train=1500, n_test=500, sigma=0.05.
     n_train = cfg.n_train if n_train is None else n_train
     n_test = cfg.n_test if n_test is None else n_test
     can_reuse_wsel6 = n_train == cfg.n_train and n_test == cfg.n_test
@@ -914,7 +914,7 @@ def _mf_new_model(in_dim: int, width: int, seed: int, *, max_epochs: int, patien
     inference runs.
 
     `batch_size` defaults to the PORTED-arm's full-batch constant -- WSEL-21's escalation ladder
-    (`docs/plans/capacity_programme/shared/wsel21-escalation.md` §4) is the only caller that
+    (`docs/flexnn/width/specs/wsel21-escalation.md` §4) is the only caller that
     overrides it; every pre-existing call site is byte-identical.
     """
     return FlexibleWidthNN(
@@ -1319,7 +1319,7 @@ def _run_calibration_block(
 def run_calibration(
     *, w_max: int = W_MAX, seeds: tuple[int, ...] = SEEDS, n_train_regime: int = _CALIBRATION_N_TRAIN_REGIME, n_train_anchor: int | None = None, results_dir: str = RESULTS_DIR
 ) -> dict[str, Any]:
-    """§5.2 v2 (redesign spec `shared/wsel19-toy-redesign.md`): the TWO-BLOCK d=1 calibration cell, gating every multi-feature cell.
+    """§5.2 v2 (redesign spec `docs/flexnn/width/specs/wsel19-toy-redesign.md`): the TWO-BLOCK d=1 calibration cell, gating every multi-feature cell.
 
     REGIME block (`n_train_regime`, default 750 -> 600 gradient-visible == the canonical carve;
     R2's pin): judged by the R3 practical-floor differentiation criterion; PASS requires
@@ -1479,7 +1479,7 @@ def _mf_cell_json_path(results_dir: str, d: int, geometry: wt.Geometry, backend:
 
 
 # ---------------------------------------------------------------------------
-# WSEL-21 -- the d>=8 training-protocol escalation ladder (`docs/plans/capacity_programme/shared/
+# WSEL-21 -- the d>=8 training-protocol escalation ladder (`docs/flexnn/
 # wsel21-escalation.md`). Rung (ii) authoring ONLY: parameter-threading (above) + this section's
 # rung-runner CLI + the escalation ledger writer. NO rung is executed here beyond `--selftest`'s
 # tiny synthetic-data wiring checks -- the ROOT runs the real calibration cell (d=8, axis, seed=2,

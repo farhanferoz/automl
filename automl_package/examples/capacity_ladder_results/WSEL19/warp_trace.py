@@ -1,10 +1,10 @@
 """WSEL-19 d=1 calibration-failure trace — verifies (or refutes) the warp hypothesis, no retraining.
 
-**Background.** `docs/plans/capacity_programme/width.md`'s WSEL-19 multi-feature block records the
+**Background.** `docs/flexnn/width/plan.md`'s WSEL-19 multi-feature block records the
 d=1 calibration cell FAILING its own pre-registered check (2/3 seeds show no best-width
 differentiation between the easy and width-hungry regions) and an UNVERIFIED mechanism hypothesis
 (the "Mechanism hypothesis" paragraph): the amended toy-design's own §2 warp caveat
-(`docs/plans/capacity_programme/shared/wsel19-toy-design.md` §2, adjudicator finding F3) — the
+(`docs/flexnn/width/history/wsel19-toy-design.md` §2, adjudicator finding F3) — the
 inverse-CDF lift makes the model see the easy region's flat-linear target through a sigmoid-like
 reparameterization, plausibly destroying its easy/cheap character so every region wants width. This
 script traces that hypothesis on the cells already trained (the calibration run's own LIFTED d=1
@@ -116,7 +116,7 @@ PRACTICAL_FLOOR_FRACTIONS = (0.1, 0.2, 0.3)
 PRIMARY_FRACTION = 0.2
 GAP_THRESH = 1  # hard_floor_width - easy_floor_width >= this counts as "differentiates"; <= 0 counts as "tied".
 MIN_SEEDS_FOR_PATTERN = 2  # out of 3 -- a pattern must hold on a MAJORITY of seeds, matching the calibration
-# artifact's own "regime differentiates on >= 2 seeds" bar (width.md's calibration table).
+# artifact's own "regime differentiates on >= 2 seeds" bar (docs/flexnn/width/plan.md's calibration table).
 
 
 def _load_canonical_models(seed: int, w_max: int) -> tuple[dict[int, Any], dict[int, dict[str, Any]], list[str]]:

@@ -1,6 +1,6 @@
 """T1 path-1 — one-seed R=8 multi-restart disambiguation (GD-unlearnable vs single-restart-unlucky).
 
-(docs/plans/perinput_selector_2026-07-10/EXECUTION_PLAN.md WS-B, task T1; disposition:
+(docs/probreg/per_input_k/history/perinput_selector_2026-07/EXECUTION_PLAN.md WS-B, task T1; disposition:
 capacity_ladder_results/T1/FAIL_I_ADJUDICATION.md Q2 "Step A / path 1")
 
 T1 bar-(i) FAILED 0/3 (`capacity_ladder_results/T1/FAIL_I_ADJUDICATION.md`): region B (the

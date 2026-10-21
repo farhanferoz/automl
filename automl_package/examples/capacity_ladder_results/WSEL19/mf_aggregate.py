@@ -1,7 +1,7 @@
 """WSEL-19 v2 multi-feature slice: the pre-registered A1 verdict aggregation.
 
 Reads every untagged per-cell JSON in this directory, applies the redesign spec's §5.5
-aggregation rule (`shared/wsel19-toy-redesign.md` amendment A1: verdict weight only for cells
+aggregation rule (`docs/flexnn/width/specs/wsel19-toy-redesign.md` amendment A1: verdict weight only for cells
 with regime_visible & fit ok & routing ok; a (d, geometry) level is DECIDED only if >= 2 of 3
 seeds yield regime-visible, non-void triples — the survivor-bias closure), prints the
 ruling-relevant readouts, and writes the aggregate ledger `frozen_mf.json` next to the cells.
@@ -95,7 +95,7 @@ for d in (2, 8, 32):
     obl_dec = level_alive.get((d, "oblique"), (False, []))[0]
     print(f"d={d}: axis {'DECIDED' if axis_dec else 'OPEN'}, oblique {'DECIDED' if obl_dec else 'OPEN'}")
 
-# --- the frozen aggregate ledger (the citable source for width.md's verdict leaves) ---
+# --- the frozen aggregate ledger (the citable source for docs/flexnn/width/plan.md's verdict leaves) ---
 out = {
     "aggregation_rule": "redesign spec A1: verdict weight iff regime_visible & fit ok & routing ok; level DECIDED iff >= 2/3 seeds verdict-weight",
     "n_cells": len(cells),

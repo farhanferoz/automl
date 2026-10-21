@@ -1,6 +1,6 @@
 """F3: global + per-bin reads on the F2 nested depth-ladder tables (WS2 capacity-ladder program, task F3).
 
-(docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md WS2, F3 section)
+(docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md WS2, F3 section)
 
 Pure post-hoc reader — no model training. F2 (`capacity_ladder_f2.py`) already trained the
 NESTED-strategy `FlexibleHiddenLayersNN` depth ladder on toys G / G-flat / H and saved one

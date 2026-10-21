@@ -1,6 +1,6 @@
 """Tests for the ordering-constraint identifiability penalty.
 
-Mathematical spec (from docs/probreg_identifiability_research.md §3.3):
+Mathematical spec (from docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md §3.3):
 
 For each head i, let S_i be the training samples with p_i(x) in the top
 decile. Define the probability-weighted mean
@@ -186,7 +186,7 @@ def test_penalty_k_equals_1_no_pairs():
 
 def test_probreg_ordering_weight_auto_enables_for_recommended_combo():
     """Auto-resolution: weight=1.0 for SEP_HEADS + Gauss-LTV + RegOnly (Cell B),
-    weight=0.0 elsewhere. See docs/probreg_identifiability_research.md §7.7.
+    weight=0.0 elsewhere. See docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md §7.7.
     """
     from automl_package.enums import UncertaintyMethod
     from automl_package.models.probabilistic_regression import (

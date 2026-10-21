@@ -1,10 +1,10 @@
-"""WSEL-9 -- real data + baselines (`docs/plans/capacity_programme/width.md` WSEL-9; spec `docs/width_benchmark/benchmark_spec.md`).
+"""WSEL-9 -- real data + baselines (`docs/flexnn/width/plan.md` WSEL-9; spec `docs/flexnn/width/specs/benchmark_spec.md`).
 
 Compares the three §1 width-choosing models -- W-SHARED, W-PERINPUT, W-SWEEP -- against the
 baseline set the task names -- LightGBM (no architecture-vs-input-size problem, native
 regularization), a plain single-output NN (the key control: same capacity as the dial net's
 widest head, none of its selection machinery), and unregularized linear regression (the floor) --
-on five real regression datasets frozen in the spec (`docs/width_benchmark/benchmark_spec.md`
+on five real regression datasets frozen in the spec (`docs/flexnn/width/specs/benchmark_spec.md`
 SS1). The spec is the single source of truth for the split protocol, standardization, the
 variance/objective choice, per-model configuration and the output schema; this module implements
 exactly what it freezes and does not restate its rationale.
@@ -108,7 +108,7 @@ _SELFTEST_FRACTION_PCT = 40  # arbitrary but fixed synthetic selection-set fract
 
 
 class Dataset(enum.Enum):
-    """Closed set: the five real datasets frozen by `docs/width_benchmark/benchmark_spec.md` SS1."""
+    """Closed set: the five real datasets frozen by `docs/flexnn/width/specs/benchmark_spec.md` SS1."""
 
     DIABETES = "diabetes"
     YACHT = "yacht"
@@ -187,7 +187,7 @@ def _read_selection_fraction(path: str) -> dict[str, Any]:
     """Reads WSEL-6's frozen selection-set fraction. `SystemExit` if the artifact is missing."""
     if not os.path.exists(path):
         raise SystemExit(
-            f"{path} is missing. width.md SS3.6 requires WSEL-9 to read the selection-set fraction "
+            f"{path} is missing. docs/flexnn/width/plan.md SS3.6 requires WSEL-9 to read the selection-set fraction "
             "from WSEL-6's frozen artifact -- run WSEL-6 (or point --wsel6-path at a build that has) first."
         )
     with open(path) as f:
@@ -202,7 +202,7 @@ def _read_width_ladder(dir_: str) -> dict[str, Any]:
     matches = sorted(glob.glob(os.path.join(dir_, "hetero_*.json")))
     if not matches:
         raise SystemExit(
-            f"No per-cell JSON found under {dir_}. width.md SS3.6 requires WSEL-9 to read the width "
+            f"No per-cell JSON found under {dir_}. docs/flexnn/width/plan.md SS3.6 requires WSEL-9 to read the width "
             "ladder (w_max) from WSEL-8's artifact -- run WSEL-8 (or point --wsel8-dir at a build that has) first."
         )
     with open(matches[0]) as f:
@@ -217,7 +217,7 @@ def _read_router_constants(path: str) -> dict[str, Any]:
 
     `FlexibleWidthNN.fit_router()` never takes hidden/epochs/lr arguments -- it always builds a
     `DistilledCapacityRouter` at THAT class's own constructor defaults (`routing.py:57-60`), so
-    calling it plainly already IS "the frozen router defaults as-is" per width.md WSEL-7's
+    calling it plainly already IS "the frozen router defaults as-is" per docs/flexnn/width/plan.md WSEL-7's
     2026-07-22 sign-off ruling 1 ("the frozen default STAYS ... `new_default` is NOT adopted").
     This function does not choose a config -- there is none to choose -- it verifies, at startup,
     that WSEL-7's own artifact still records that shipped default and that `routing.py`'s ACTUAL
@@ -225,7 +225,7 @@ def _read_router_constants(path: str) -> dict[str, Any]:
     """
     if not os.path.exists(path):
         raise SystemExit(
-            f"{path} is missing. width.md SS3.6 requires WSEL-9's router-consuming arm (W-PERINPUT, "
+            f"{path} is missing. docs/flexnn/width/plan.md SS3.6 requires WSEL-9's router-consuming arm (W-PERINPUT, "
             "inside --arm dial) to verify the router-constants artifact WSEL-7 owns -- run WSEL-7 "
             "(or point --wsel7-path at a build that has) first."
         )
@@ -243,7 +243,7 @@ def _read_router_constants(path: str) -> dict[str, Any]:
     if recorded != actual:
         raise SystemExit(
             f"routing.py's shipped router defaults {actual} no longer match WSEL-7's recorded "
-            f"frozen_default_at_authoring_time {recorded} -- width.md WSEL-7 ruling 1 ('the frozen "
+            f"frozen_default_at_authoring_time {recorded} -- docs/flexnn/width/plan.md WSEL-7 ruling 1 ('the frozen "
             "default STAYS') no longer describes the code as it stands; this needs a fresh ruling, "
             "not a silent re-read."
         )
@@ -251,7 +251,7 @@ def _read_router_constants(path: str) -> dict[str, Any]:
         "source": os.path.abspath(path),
         "invariant": bool(frozen["invariant"]),
         "ratified_default": {"hidden": int(shipped["hidden"]), "depth": int(shipped["depth"]), "epochs": int(shipped["epochs"]), "lr": float(shipped["lr"])},
-        "ruling": "width.md WSEL-7 2026-07-22 sign-off ruling 1: frozen default STAYS, new_default NOT adopted",
+        "ruling": "docs/flexnn/width/plan.md WSEL-7 2026-07-22 sign-off ruling 1: frozen default STAYS, new_default NOT adopted",
     }
 
 

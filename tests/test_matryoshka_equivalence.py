@@ -6,7 +6,7 @@
 MASKED hidden vector, columns `>= k` zeroed) are the SAME design: a dedicated per-width readout on
 the shared trunk's hidden vector. They differ in ONLY one thing -- the certified head carries
 `w_max - k` extra weight columns that can never influence a width-`k` output, because the input
-those columns would multiply is already zero (`docs/plans/capacity_programme/width.md` ~2292-2301).
+those columns would multiply is already zero (`docs/flexnn/width/plan.md` ~2292-2301).
 
 This file is that proof:
   - `test_masked_head_equals_dedicated_prefix_head`: for every `k`, the certified head's width-`k`

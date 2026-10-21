@@ -20,7 +20,7 @@ from automl_package.utils.capacity_selection import cheapest_within_tolerance
 from automl_package.utils.pytorch_utils import get_device
 from automl_package.utils.transforms import symlog
 
-# Re-calibrated for flexnn-package.md FP-12's fixed-sigma MIXTURE scorer (sigma=1.0) against
+# Re-calibrated for docs/flexnn/package/plan.md FP-12's fixed-sigma MIXTURE scorer (sigma=1.0) against
 # measured error-table means on TestFitRouterSymlogSpaceAlignment's fixture (400 heavy-tailed
 # points, max_k=3, 150 epochs), fix present vs fix removed:
 #   data seed 0: correct 3.849 | unit-mismatched 160.6
@@ -48,7 +48,7 @@ class TestBugs1to4DynamicStrategiesNoCrash:
         """Each dynamic n_classes strategy should train without crash.
 
         GUMBEL_SOFTMAX/SOFT_GATING/STE/REINFORCE are RETIRED under MASTER Decision 29
-        (flexnn-package.md FP-12) -- `allow_retired_capacity_selection=True` is the escape hatch
+        (docs/flexnn/package/plan.md FP-12) -- `allow_retired_capacity_selection=True` is the escape hatch
         that keeps this labelled-comparison-arm coverage running; NESTED needs no flag (a
         no-op there since it isn't a retired member).
         """
@@ -644,7 +644,7 @@ class TestNestedKDistilledRouting:
 
 
 class TestFitRouterSymlogSpaceAlignment:
-    """Regression for F9-fix-b (docs/plans/capacity_programme/flexnn-core.md): `fit()`
+    """Regression for F9-fix-b (docs/flexnn/archive/flexnn-core.md): `fit()`
     symlog-transforms y internally when `target_transform="symlog"`, so `forward_at_k`'s
     outputs live in symlog space -- but `fit_router()` used to score the caller's raw-space
     `y_val` against those symlog-space outputs with no transform and no exception, silently
@@ -778,7 +778,7 @@ class TestFitRouterSymlogSpaceAlignment:
 
 
 class TestArbiterAdvantageSymlogSpaceAlignment:
-    """Regression for D2 (docs/plans/capacity_programme/probreg.md §3): `held_out_arbiter_advantage`
+    """Regression for D2 (docs/probreg/shared/state.md §3): `held_out_arbiter_advantage`
     forces `forward_at_k`, whose outputs live in symlog space when `target_transform="symlog"`
     (fit() transforms y_train/y_val before training, :526-529) -- but
     `_per_sample_log_likelihood_at_k` used to score the caller's raw-space `y` against those
@@ -898,7 +898,7 @@ class TestCeStopGradDynamicKSentinelFilter:
     ])
     def test_ce_stop_grad_with_dynamic_k_trains(self, heteroscedastic_data, dynamic, k_reg):
         """CE_STOP_GRAD, `dynamic` and `k_reg` are all RETIRED under MASTER Decision 29
-        (flexnn-package.md FP-12); this regression guard deliberately exercises them together as
+        (docs/flexnn/package/plan.md FP-12); this regression guard deliberately exercises them together as
         the labelled comparison arm the escape hatch exists for."""
         x, y, _, _ = heteroscedastic_data
         model = ProbabilisticRegressionModel(
@@ -1303,8 +1303,8 @@ class TestGlobalSelectionEndToEndThroughFit:
 
 
 class TestDecision29Guard:
-    """MASTER Decision 29's one-enforcement-point guard, and probreg.md P10's head-layout gate
-    (merged into the same guard, flexnn-package.md FP-12). FlexNN depth's identical guard
+    """MASTER Decision 29's one-enforcement-point guard, and docs/probreg/shared/plan.md P10's head-layout gate
+    (merged into the same guard, docs/flexnn/package/plan.md FP-12). FlexNN depth's identical guard
     (`layer.py`'s `_RetiredDepthSelectionStrategy`) is tested in `test_fixed_sigma_scorer.py`.
     """
 
@@ -1327,7 +1327,7 @@ class TestDecision29Guard:
     def test_retired_regularization_raises_at_construction(self, regularization):
         """Reachable even under NESTED (not just the retired selection methods): `NestedStrategy`
         sets a per-sample one-hot `mode_selection_probs` too, so NESTED + a regularizer is a LIVE
-        combination the guard must block independently (flexnn-package.md FP-12's report)."""
+        combination the guard must block independently (docs/flexnn/package/plan.md FP-12's report)."""
         with pytest.raises(ValueError, match="RETIRED"):
             ProbabilisticRegressionModel(
                 input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,

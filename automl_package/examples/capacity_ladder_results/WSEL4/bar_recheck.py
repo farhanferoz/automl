@@ -1,6 +1,6 @@
 """Wave-A recompute of WSEL-4's reproduction gaps in the ratified per-point-LL bar.
 
-`docs/plans/capacity_programme/width.md` WSEL-4, sign-off item 4 (2026-07-22, user): the landed
+`docs/flexnn/width/plan.md` WSEL-4, sign-off item 4 (2026-07-22, user): the landed
 2%-relative-NLL reproduction bar (`reproduction.json`'s `relative_error`/`within_bar`) was ruled
 arbitrary and replaced with an absolute, consumer-anchored standard --
 
@@ -112,7 +112,7 @@ _ASSUMPTIONS = [
     "for this toy, since it needs no model internals at all.",
     "`reference_seed_untrustworthy` is read directly from "
     "`W_CONVERGED/w_converged_summary.json`'s top-level `untrustworthy_seeds` list (verified content "
-    "below, not assumed from the dispatching message) -- per width.md's WSEL-4 carry-forward "
+    "below, not assumed from the dispatching message) -- per docs/flexnn/width/plan.md's WSEL-4 carry-forward "
     "caveat, those seeds' historical numbers are not trajectory-certified, so a bar failure on one "
     "of them reflects on the historical reference's own certification, not solely on the port.",
 ]

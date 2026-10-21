@@ -1,7 +1,7 @@
 """Tests for the structure phase's model additions (PS-A1): HeadSpread.ALL_CONSTANT,
 ProbRegLossType.FIXED_SIGMA_MIXTURE, and the narrowed uncertainty-method force-override.
 
-See docs/plans/capacity_programme structure.md PS-A1.
+See docs docs/probreg/fixed_k/plan.md PS-A1.
 """
 
 import pytest
@@ -94,7 +94,7 @@ def test_mechanism_control_layout_produces_a_valid_cell():
     Regression guard: the battery's per-class diagnostics called `.shape` on the None head-output
     tensor and crashed every mechanism-control cell. The fix nulls the per-class diagnostics and
     scores the single pooled prediction as the degenerate 1-component fixed-sigma mixture, so the
-    D2 yardstick stays defined across all three layouts (structure.md D-PS-10).
+    D2 yardstick stays defined across all three layouts (docs/probreg/fixed_k/plan.md D-PS-10).
     """
     import math
 

@@ -1,6 +1,6 @@
 """T2 — multi-dimensional count toys: the per-input selector port de-risk.
 
-(docs/plans/perinput_selector_2026-07-10/EXECUTION_PLAN.md WS-B, task T2; pre-registration in
+(docs/probreg/per_input_k/history/perinput_selector_2026-07/EXECUTION_PLAN.md WS-B, task T2; pre-registration in
 capacity_ladder_results/T2/PREREGISTRATION.md)
 
 Everything in the per-input selector program so far is 1-D. The real-model ports are gated

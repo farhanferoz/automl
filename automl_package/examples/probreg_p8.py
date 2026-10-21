@@ -1,4 +1,4 @@
-"""P8 — does explicit regularisation move the selected k? (`probreg.md` Task P8, MASTER Decision 21).
+"""P8 — does explicit regularisation move the selected k? (`docs/probreg/PLAN.md` Task P8, MASTER Decision 21).
 
 The programme's research training is entirely unregularised (no weight decay, dropout, norm
 layers, or mini-batching), so cheapest-within-tolerance may partly select small k because small

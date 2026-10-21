@@ -1,6 +1,6 @@
 """WSEL-19 multi-feature toy construction v2 — the canonical toy embedded into `d` dimensions by a rotation (the rotated-box construction).
 
-`docs/plans/capacity_programme/shared/wsel19-toy-redesign.md` (amended, GO, 2026-07-22) is the
+`docs/flexnn/width/specs/wsel19-toy-redesign.md` (amended, GO, 2026-07-22) is the
 build authority for this module; read it before changing anything here. The v1 probability-
 integral-transform lift (`wsel19-toy-design.md`) FAILED its own pre-registered d=1 calibration —
 the traced mechanism (`capacity_ladder_results/WSEL19/warp_trace.json`) is two-sided width
@@ -101,7 +101,7 @@ _SELFTEST_SEED = 0
 
 
 class Geometry(enum.Enum):
-    """Closed set of `v` geometries (`width.md` / toy-design §3). Sparse-oblique is EXCLUDED (recorded decision)."""
+    """Closed set of `v` geometries (`docs/flexnn/width/plan.md` / toy-design §3). Sparse-oblique is EXCLUDED (recorded decision)."""
 
     AXIS = "axis"  # v = e_1
     OBLIQUE = "oblique"  # v = s / sqrt(d), s a per-seed deterministic +-1 sign pattern

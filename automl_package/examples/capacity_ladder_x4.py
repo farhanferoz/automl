@@ -1,6 +1,6 @@
 """X4: E-lane non-nested discriminator on the identical K4 data (WS1 capacity-ladder follow-up, task X4).
 
-(docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md §8.5 X4; pre-registration in
+(docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md §8.5 X4; pre-registration in
  capacity_ladder_results/X4/PREREGISTRATION.md)
 
 K4 (`capacity_ladder_k4.py`) trains a NESTED-k surrogate on toy E (moving modes: two components

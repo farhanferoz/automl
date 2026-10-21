@@ -1,14 +1,14 @@
 """DistilledCapacityRouter -- Decision-13 selection as a package API (capacity-programme Task F3).
 
 Post-hoc, never-in-training per-input capacity selection: MASTER Decision 13
-(`docs/plans/capacity_programme/MASTER.md`) is that capacity routers -- width, depth, joint,
+(`docs/flexnn/PLAN.md`) is that capacity routers -- width, depth, joint,
 transformer -- are DISTILLED from a held-out per-capacity error table, never learned jointly with
 the underlying model (in-training selection strategies such as GumbelSoftmax/SoftGating/STE/
 REINFORCE stay exactly as they are; this is an alternative, post-hoc path). One router class
 serves every 1-D capacity axis in this programme -- FlexNN depth
 (`flexible_neural_network.py::FlexibleHiddenLayersNN.fit_router`), `FlexibleWidthNN` width
 (`flexible_width_network.py::FlexibleWidthNN.fit_router`), and (task F9) ProbReg's k -- via a
-`capacity_grid: list[tuple[int, ...]]` representation that also leaves room for a future 2-D
+`capacity_grid: list[tuple[int, ...]]` redocs/probreg/history/presentation that also leaves room for a future 2-D
 (width, depth) joint grid without any joint-specific code here (an explicit F3 non-goal).
 
 Labeling rule (COPIED, not imported, with provenance cited): the cheapest capacity within
@@ -52,7 +52,7 @@ both now share the same `_CapacityRouterMLP` and the same `_fit_from_targets` tr
 blend-likelihood evaluation path `fit()`/`route()` alone do not provide).
 
 What is deliberately NOT ported -- experiment-protocol, not library, and it must stay that way
-(see `docs/plans/capacity_programme/shared/router-capabilities.md` for the full classification):
+(see `docs/flexnn/package/router-capabilities.md` for the full classification):
 soft-target *construction* (`capacity_ladder_k6._soft_targets`'s per-tercile EM-stacked
 responsibilities, `capacity_ladder_t2._knn_soft_targets`'s kNN generalization of it) stays with
 the drivers -- `fit_soft()` trains on whatever `(N, n_capacities)` distribution the caller
@@ -197,7 +197,7 @@ class DistilledCapacityRouter:
                 actual scoring lives inside `eval_fn`).
             capacity_grid: candidate capacities, cheapest first, e.g. `[(4,), (7,), (10,)]` for a
                 1-D depth/width grid (a future joint grid would use `[(w, d), ...]` tuples -- the
-                tuple representation is chosen so that extension needs no change here).
+                tuple redocs/probreg/history/presentation is chosen so that extension needs no change here).
             tolerance: relative tolerance for the cheapest-within-tolerance labeling rule.
             cost_fn: `cost_fn(capacity) -> float`, used by `mean_deployed_cost`. `None` disables
                 `mean_deployed_cost` (a `RuntimeError` if called).
@@ -232,7 +232,7 @@ class DistilledCapacityRouter:
         trains directly on whatever `(N, n_capacities)` distribution the caller supplies.
         Constructing that distribution (e.g. K6's per-tercile EM-stacked responsibilities, T2's
         kNN generalization of it) is experiment-protocol and stays with the caller; see
-        `docs/plans/capacity_programme/shared/router-capabilities.md`.
+        `docs/flexnn/package/router-capabilities.md`.
 
         Args:
             x_val: `(N,)` or `(N, in_dim)` held-out inputs.

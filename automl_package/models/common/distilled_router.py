@@ -1,7 +1,7 @@
 """Thin re-export shim — `DistilledCapacityRouter` now lives in `automl_package.models.flexnn.routing`.
 
 Kept here (rather than deleted) so every existing `from automl_package.models.common.
-distilled_router import ...` call site keeps resolving unchanged (2026-07-21, `docs/plans/
+distilled_router import ...` call site keeps resolving unchanged (2026-07-21, `docs/
 capacity_programme/flexnn-package.md` Task FP-11 — the FlexNN family gets one home, MASTER
 Decision 19's boundary rule; the `automl_package/examples/convergence.py` precedent: move the
 logic, leave the shim, do not rewrite callers).

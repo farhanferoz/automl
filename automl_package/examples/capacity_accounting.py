@@ -1,7 +1,7 @@
 """S2 -- the ONE source of params/FLOPs numbers for reports (b)/(c) and the strand-4 deploy bars.
 
 Thin re-export shim over `automl_package.utils.capacity_accounting` -- the accounting logic itself
-moved there in `docs/plans/capacity_programme/flexnn-package.md` Task FP-1 (the
+moved there in `docs/flexnn/package/plan.md` Task FP-1 (the
 `automl_package/examples/convergence.py` precedent: move the logic, leave a shim, keep every
 existing script's `import capacity_accounting as ca` / `from automl_package.examples
 .capacity_accounting import ...` resolving unchanged).
@@ -151,7 +151,7 @@ def run_selftest() -> bool:
     expected_flexnn_pred_flops_d2 = 4 + 16 + 4 + expected_predictor_macs
     results.append(("FlexNN (with predictor) executed_flops(d=2)", executed_flops(module_pred, 2) == expected_flexnn_pred_flops_d2))
 
-    # --- Depth-net shape descriptor (docs/plans/capacity_programme/depth.md Task D2, not built yet) ---
+    # --- Depth-net shape descriptor (docs/flexnn/depth/history/depth.md Task D2, not built yet) ---
     depth_desc = DepthNetShapeDescriptor(input_size=2, hidden_size=4, output_size=1, max_depth=3)
     # block0 (2,4): 2*4+4=12. 2x chained (4,4): (4*4+4)=20 each -> 40. output head (4,1): 4*1+1=5.
     expected_depth_desc_params = 12 + 2 * 20 + 5
@@ -160,7 +160,7 @@ def run_selftest() -> bool:
     expected_depth_desc_flops_d2 = 8 + 16 + 4
     results.append(("DepthNetShapeDescriptor executed_flops(d=2)", executed_flops(depth_desc, 2) == expected_depth_desc_flops_d2))
 
-    # --- MoE shape descriptor (docs/plans/capacity_programme/flexnn-moe.md Task M2, not built yet) ---
+    # --- MoE shape descriptor (docs/flexnn/moe/plan.md Task M2, not built yet) ---
     moe_desc = MoEShapeDescriptor(d_in=3, expert_hidden=4, n_experts=8)
     # router (3,8): 3*8+8=32. per-expert: (3,4)=3*4+4=16 + (4,1)=4*1+1=5 = 21.
     expected_moe_desc_params = 32 + 8 * 21

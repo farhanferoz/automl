@@ -1,6 +1,6 @@
 """F2 — nested-depth training + coherence bar on the input-varying-capacity toys.
 
-(docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md WS2, F2 section)
+(docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md WS2, F2 section)
 
 Trains the (already-implemented, already-tested) `NESTED` layer-selection strategy on toys
 G / G-flat / H (`_capacity_ladder_toys.py`, validated by F1): per-sample depth

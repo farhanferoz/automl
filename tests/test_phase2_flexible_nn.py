@@ -159,7 +159,7 @@ class TestDepthComplexityControl:
     def test_elbo_uniform_prior_does_not_collapse(self, piecewise_data):
         """Regression test for the M0 depth-collapse bug: the earlier linspace(3,1)
         ELBO prior caused complete depth-collapse to its argmax regardless of input
-        (flexnn-moe.md Done ledger M0). With the uniform prior, depth selection on a
+        (docs/flexnn/moe/plan.md Done ledger M0). With the uniform prior, depth selection on a
         2-cluster dataset (linear region wants shallow, sinusoidal wants deep) must
         stay input-dependent rather than collapsing to a single prior-favored depth.
         """
@@ -418,7 +418,7 @@ class TestFlexibleNNModelComparison:
 
         This originally asserted the specific direction mean_depth_linear <
         mean_depth_sinusoidal. That direction was an artifact of the removed linspace(3,1)
-        ELBO prior's depth-collapse (flexnn-moe.md M0; superseded by the uniform-prior fix
+        ELBO prior's depth-collapse (docs/flexnn/moe/plan.md M0; superseded by the uniform-prior fix
         in flexible_neural_network.py). Under the corrected uniform prior the direction is
         not a robust property of this toy -- it flips roughly 50/50 across seeds under
         GumbelSoftmax (3/6) and is no better under SoftGating (4/6), and both fail at the

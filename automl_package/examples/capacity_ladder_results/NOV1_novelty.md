@@ -3,7 +3,7 @@
 Working positioning note for the program report (REPORT-2). States what is new here relative
 to the closest published work, grounded in the three completed lanes (WS1 ProbReg-k, WS2
 FlexNN-depth, WS3 variance). Literature anchors are those already used in the program's own
-design docs (`STACKING_NOTE_2026-07-05.md`, `docs/research_plan.md`); the one external claim
+design docs (`STACKING_NOTE_2026-07-05.md`, `docs/applications/research_plan.md`); the one external claim
 asserted below (hierarchical stacking = input-dependent weights) was checked against the source.
 
 ## Thesis (one line)
@@ -93,4 +93,4 @@ as "we found no prior work doing X", not as an absolute non-existence.
 - Yao, Vehtari, Simpson, Gelman (2018), *Using stacking to average Bayesian predictive distributions*,
   Bayesian Analysis — global stacking (via `STACKING_NOTE_2026-07-05.md`).
 - Rippel & Adams (2014) nested dropout; Stirn et al. (2023) faithful heteroscedastic regression;
-  early-exit line (BranchyNet, PABEE, PonderNet, CALM) — via `docs/research_plan.md`.
+  early-exit line (BranchyNet, PABEE, PonderNet, CALM) — via `docs/applications/research_plan.md`.

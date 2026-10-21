@@ -305,7 +305,7 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                 if self.depth_regularization == DepthRegularization.ELBO and n_probs is not None:
                     # Uniform prior over depth. The earlier linspace(3,1) prefer-shallow prior
                     # is REMOVED: M0 revalidation measured complete depth-collapse to that prior
-                    # regardless of input (report_b_results/, flexnn-moe.md Done ledger M0) --
+                    # regardless of input (report_b_results/, docs/flexnn/moe/plan.md Done ledger M0) --
                     # see the identical fix and removal comment on the shared-weights sibling,
                     # flexible_neural_network.py's FlexibleHiddenLayersNN._fit_single.
                     depth_prior_logits = torch.zeros(self.max_hidden_layers, dtype=torch.float, device=_batch_x.device)

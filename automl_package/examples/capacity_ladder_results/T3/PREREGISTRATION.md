@@ -1,6 +1,6 @@
 # T3 pre-registration — moving-mode power curve (count-lane analog of X10)
 
-**Task:** `docs/plans/perinput_selector_2026-07-10/EXECUTION_PLAN.md` §2 T3. X4/X4b ran the
+**Task:** `docs/probreg/per_input_k/history/perinput_selector_2026-07/EXECUTION_PLAN.md` §2 T3. X4/X4b ran the
 non-nested per-input arbiter (mixture-vs-best-single-Gaussian held-out advantage, multi-restart
 keep-best-by-train-MAP) on toy E (moving modes: two components merge at both ends of x and resolve
 only mid-band) at a single size, N_TR=1000/N_TE=2500, and closed the model-capture question there

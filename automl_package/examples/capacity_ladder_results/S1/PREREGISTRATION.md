@@ -1,6 +1,6 @@
 # S1 preregistration — evaluation protocol + target-construction factorial (ProbReg)
 
-Source: `docs/plans/perinput_selector_2026-07-10/EXECUTION_PLAN.md`, §1 WS-A, task **S1**.
+Source: `docs/probreg/per_input_k/history/perinput_selector_2026-07/EXECUTION_PLAN.md`, §1 WS-A, task **S1**.
 Written BEFORE any real run, verbatim from the ratified plan (2026-07-10). Do not edit after
 a real run starts; outcomes are read against this text, not the reverse.
 

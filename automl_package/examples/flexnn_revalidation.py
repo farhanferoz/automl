@@ -1,10 +1,10 @@
 r"""M0: FlexNN post-Phase-9-bug re-validation of the piecewise-dataset ELBO depth-selection claim.
 
-Context (memory `project_phase9_bugs`; `docs/plans/capacity_programme/flexnn-moe.md` Task M0):
+Context (memory `project_phase9_bugs`; `docs/flexnn/moe/plan.md` Task M0):
 `FlexibleHiddenLayersNN`'s `n_predictor` sub-network was excluded from the optimizer (frozen) plus
 had a tuple-unpack off-by-one until the Phase-9 fix (commit 07c0b09, "phase 9 autonomous: FlexNN
 optimizer fix", 2026-04-18). Every FlexNN depth-regularization number that predates that commit —
-including the headline claim in `docs/research_plan.md` Executive Summary ("FlexibleNN's ELBO
+including the headline claim in `docs/applications/research_plan.md` Executive Summary ("FlexibleNN's ELBO
 depth regularization works as advertised on the piecewise dataset") — is untrustworthy and must be
 re-measured against CURRENT code, not cited.
 

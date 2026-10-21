@@ -1,5 +1,5 @@
-"""WSEL-16 Step 1 -- the stop-gradient identity test, BEFORE any training (`docs/plans/capacity_programme/
-width.md` ~1592-1597).
+"""WSEL-16 Step 1 -- the stop-gradient identity test, BEFORE any training (`docs/
+docs/flexnn/width/plan.md` ~1592-1597).
 
 `A_STOPGRAD`'s per-width loss is `sum_k MSE(detach(S_k - c_k) + c_k, y)`, where `S_k = b + sum_{j<=k}
 c_j` is `NestedWidthNet`'s plain width-k running sum and `c_j = w_j * h_j` unit j's own contribution.

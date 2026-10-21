@@ -1,6 +1,6 @@
 """Report (a) battery: ProbReg (fixed-k, dynamic-k) vs 4 baselines on toys (Task P2).
 
-(`docs/plans/capacity_programme/probreg-report.md` Task P2; depends on P0/P1/S1-S3.)
+(`docs/probreg/archive/probreg-report.md` Task P2; depends on P0/P1/S1-S3.)
 
 Searched before writing (minimum-viable-code ladder rung 2 — reuse, don't reinvent):
 `automl_package/examples/model_comparison.py` (fixed-k ProbReg builder, tree/NN baseline
@@ -11,7 +11,7 @@ documented best combo), `automl_package/examples/full_benchmark.py` (the toy sui
 `automl_package/examples/nested_width_net.py` (`make_hetero3`, the WP-3 high-noise-region
 stressor). All four toy generators and the k=5 fixed-ProbReg / dynamic-ProbReg builder shapes
 are IMPORTED/adapted from those modules, not reimplemented. Metrics are the canonical S1
-callables (`shared/metrics-accounting.md`): `Metrics.calculate_ece()` (PIT-ECE, NOT
+callables (`docs/probreg/shared/metrics-accounting.md`): `Metrics.calculate_ece()` (PIT-ECE, NOT
 `calibration.py:ece_regression` — S1's named duplicate to avoid), `calculate_picp_at_alphas`
 (`picp@90` is already in its default-alpha output), `calculate_mpiw(alpha=0.1)` for the 90%
 pairing (not emitted by default). Stats/seed-count/convergence-flag conventions are S3's; the
@@ -23,13 +23,13 @@ CLASSIFIER over k classes with per-class regression heads, combined by the Law o
 Variance (LTV) into one collapsed Gaussian (mu, sigma). Never "Gaussian mixture" anywhere
 below. Fixed-k and dynamic-k are two DISTINCT models throughout.
 
-Hetero-NLL protocol (P1's finding, `shared/hetero_nll_diagnosis.md`): ProbReg's mean is a
+Hetero-NLL protocol (P1's finding, `docs/probreg/history/diagnoses_2026-07/hetero_nll_diagnosis.md`): ProbReg's mean is a
 bottlenecked function of the k-way class posterior, so a coarse fixed k under-resolves the
 mean on wiggly targets. The fix is not a code change — it's val-selecting k per toy from a
 small grid before scoring, and evaluating the COLLAPSED Gaussian (`predict`/
 `predict_uncertainty`) for `run_cell`'s reported metrics.
 
-⚠️ **UPDATED 2026-07-21 (flexnn-package.md FP-12, MASTER Decision 24) — `select_k_for_toy`'s
+⚠️ **UPDATED 2026-07-21 (docs/flexnn/package/plan.md FP-12, MASTER Decision 24) — `select_k_for_toy`'s
 k-SELECTION step is the one exception to "never predict_distribution" above.** The capacity
 readout for CHOOSING k is now the per-sample fixed-σ MIXTURE log-likelihood (`TOY_SIGMA` below),
 which requires the genuine per-component mixture `predict_distribution` exposes -- selecting on
@@ -129,7 +129,7 @@ STANDARD_TOYS = (Toy.PIECEWISE, Toy.EXPONENTIAL)
 ALL_TOYS = (*HOME_TURF_TOYS, *STANDARD_TOYS)
 
 # ONE sigma per toy, per benchmark_spec.md §2 ("on toys, the known construction value") -- fed to
-# `fixed_sigma_mixture_log_likelihood` (MASTER Decision 24; flexnn-package.md FP-12). Same value
+# `fixed_sigma_mixture_log_likelihood` (MASTER Decision 24; docs/flexnn/package/plan.md FP-12). Same value
 # for every arm on that toy (a per-arm sigma is FORBIDDEN).
 #
 # MULTIMODAL/EXPONENTIAL/PIECEWISE are homoscedastic by construction (`full_benchmark.py`'s
@@ -369,7 +369,7 @@ def compute_cell_metrics(x_test: np.ndarray, y_test: np.ndarray, y_pred: np.ndar
 def select_k_for_toy(toy: Toy, cfg: RunConfig, n: int, sigma: float) -> dict[str, Any]:
     """Fits ProbReg fixed-k at each K_GRID candidate on a dedicated protocol-seed draw.
 
-    Picks the argmin fixed-sigma MIXTURE NLL (MASTER Decision 24; flexnn-package.md FP-12) --
+    Picks the argmin fixed-sigma MIXTURE NLL (MASTER Decision 24; docs/flexnn/package/plan.md FP-12) --
     NOT `predict_uncertainty`'s fitted sigma, which is what this function selected on before FP-12
     (a per-arm learned variance, exactly the violation Decision 24 forbids). Scores via
     `predict_distribution`'s `(weights, means)` -- its `stds` (learned) are ignored, `sigma` is

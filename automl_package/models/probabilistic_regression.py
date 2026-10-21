@@ -74,7 +74,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
     `capacity_selection=CapacitySelection.PER_INPUT`, call `fit_router()`, and `predict(x)` routes
     per-input k with no caller flag (capacity-programme Task FP-3).
 
-    **RETIRED, not merely "not recommended" (MASTER Decision 29, flexnn-package.md FP-12):**
+    **RETIRED, not merely "not recommended" (MASTER Decision 29, docs/flexnn/package/plan.md FP-12):**
     SOFT_GATING, GUMBEL_SOFTMAX, STE, REINFORCE, `NClassesRegularization` (K_PENALTY/ELBO), and the
     cross-entropy `optimization_strategy` modes (COMPOSITE_LOSS/GRADIENT_STOP/CE_STOP_GRAD) now
     raise `ValueError` at construction -- `NClassesSelectionMethod` has two live members under the
@@ -89,7 +89,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         per k, so per-k re-binned CE targets redefine class identity across k (a node-0 conflict).
         The validated recipe of record is dynamic n_classes selection with
         `optimization_strategy=REGRESSION_ONLY` (see
-        docs/plans/width_dial_2026-07-11/cascade_execution_plan_2026-07-11.md §3.1).
+        docs/flexnn/width/history/width_dial_2026-07/cascade_execution_plan_2026-07-11.md §3.1).
     """
 
     _defaults: ClassVar[dict[str, Any]] = {
@@ -128,7 +128,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         "use_anchored_heads": False,
         "head_spread": HeadSpread.PER_INPUT,
         "fixed_sigma_train": None,
-        # Ordering-constraint identifiability (see docs/probreg_identifiability_research.md §3.3, §7.7).
+        # Ordering-constraint identifiability (see docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md §3.3, §7.7).
         # None = auto: enable (weight=1.0) only for the (SEPARATE_HEADS, Gaussian-LTV, REGRESSION_ONLY)
         # triple — the single configuration where the penalty measurably helps. Redundant under
         # CE_STOP_GRAD, harmful under MDN; auto-resolution sets it to 0 there. Pass a float to
@@ -174,7 +174,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             logger.warning(
                 f"Selected optimization_strategy ({kwargs.get('optimization_strategy')}) normally pairs with a "
                 f"probabilistic uncertainty method, but uncertainty_method={kwargs.get('uncertainty_method').value} "
-                "is permitted for labelled comparison arms (structure.md PS-A1) -- uncertainty_method is left as-is."
+                "is permitted for labelled comparison arms (docs/probreg/fixed_k/plan.md PS-A1) -- uncertainty_method is left as-is."
             )
 
         output_size = 2 if kwargs.get("uncertainty_method") == UncertaintyMethod.PROBABILISTIC else 1
@@ -245,7 +245,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             self.n_classes_selection_method == NClassesSelectionMethod.NESTED
             and self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT
         ):
-            # probreg.md P10 (merged into FP-12): no per-class (mu, sigma) is produced by this
+            # docs/probreg/shared/plan.md P10 (merged into FP-12): no per-class (mu, sigma) is produced by this
             # layout, so "the first c rungs are a genuine c-component model" is vacuous.
             # predict_distribution refuses the identical layout for the identical reason -- see
             # its own NotImplementedError below. Unlike the three retirements above, this guard
@@ -255,11 +255,11 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 "n_classes_selection_method=NESTED with regression_strategy=SINGLE_HEAD_FINAL_OUTPUT is BLOCKED: "
                 "no per-class (mu, sigma) is produced, so 'the first c rungs are a genuine c-component model' is "
                 "vacuous (see predict_distribution's matching refusal for the same layout, and MASTER Decision 29 "
-                "/ probreg.md P10). SINGLE_HEAD_N_OUTPUTS remains legal under NESTED as a labelled comparison arm."
+                "/ docs/probreg/shared/plan.md P10). SINGLE_HEAD_N_OUTPUTS remains legal under NESTED as a labelled comparison arm."
             )
 
         if self.prob_reg_loss_type == ProbRegLossType.FIXED_SIGMA_MIXTURE and self.fixed_sigma_train is None:
-            raise ValueError("prob_reg_loss_type=FIXED_SIGMA_MIXTURE requires fixed_sigma_train (no default -- structure.md §4.3).")
+            raise ValueError("prob_reg_loss_type=FIXED_SIGMA_MIXTURE requires fixed_sigma_train (no default -- docs/probreg/fixed_k/plan.md §4.3).")
 
         if self.use_monotonic_constraints and self.regression_strategy != RegressionStrategy.SEPARATE_HEADS:
             logger.warning("Monotonic constraints are only supported for the 'SEPARATE_HEADS' regression strategy.")
@@ -279,7 +279,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         elif self.ordering_constraint_weight > 0.0 and self.prob_reg_loss_type == ProbRegLossType.MDN:
             logger.warning(
                 "ordering_constraint_weight=%.3f with MDN loss is empirically harmful "
-                "(see docs/probreg_identifiability_research.md §9.1 cells E vs F). "
+                "(see docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md §9.1 cells E vs F). "
                 "Pass ordering_constraint_weight=0.0 to silence this warning.",
                 self.ordering_constraint_weight,
             )
@@ -447,7 +447,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             regression_loss = mdn_nll(y_true_squeezed, probs_for_mdn, mus, log_vars)
         elif self.prob_reg_loss_type == ProbRegLossType.FIXED_SIGMA_MIXTURE and per_head_outputs is not None:
             if self.fixed_sigma_train is None:
-                raise ValueError("prob_reg_loss_type=FIXED_SIGMA_MIXTURE requires fixed_sigma_train (no default -- structure.md §4.3).")
+                raise ValueError("prob_reg_loss_type=FIXED_SIGMA_MIXTURE requires fixed_sigma_train (no default -- docs/probreg/fixed_k/plan.md §4.3).")
             logits_for_mix = classifier_logits_out
             if self.optimization_strategy in (
                 ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
@@ -533,7 +533,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
 
         # 3b. Ordering-constraint identifiability penalty. See
-        # docs/probreg_identifiability_research.md §3.3. Only SEPARATE_HEADS has a
+        # docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md §3.3. Only SEPARATE_HEADS has a
         # permutation symmetry to break.
         ordering_weight = getattr(self, "ordering_constraint_weight", 0.0)
         if (
@@ -670,7 +670,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
         # MASTER Decision 29 -- search-space repair, the SAME guard `__init__` enforces (the live
         # exposure: a tuning run is the only way the programme could reach a retired member
-        # otherwise). Under NESTED, SINGLE_HEAD_FINAL_OUTPUT is additionally excluded (probreg.md
+        # otherwise). Under NESTED, SINGLE_HEAD_FINAL_OUTPUT is additionally excluded (docs/probreg/PLAN.md
         # P10) -- that one has NO escape hatch, so it is dropped even when
         # `allow_retired_capacity_selection=True`.
         regression_strategy_choices = [s.value for s in RegressionStrategy]
@@ -782,7 +782,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 "k, so per-k re-binned CE targets redefine class identity across k (node-0 "
                 "conflict). This combination is NOT validated. The validated recipe of record is "
                 "optimization_strategy=REGRESSION_ONLY (see "
-                "docs/plans/width_dial_2026-07-11/cascade_execution_plan_2026-07-11.md §3.1).",
+                "docs/flexnn/width/history/width_dial_2026-07/cascade_execution_plan_2026-07-11.md §3.1).",
                 self.n_classes_selection_method.value,
                 self.optimization_strategy.value,
             )
@@ -1118,7 +1118,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         entirely separate from the trained selection strategy. `eval_fn` forces every sample
         through a fixed rung -- via `n_classes_strategy.mixture_components_at_rung` (bypassing the
         selection strategy for that call) -- and scores the genuine per-component mixture with the
-        fixed-sigma mixture NLL (MASTER Decision 24; flexnn-package.md FP-12), never a learned
+        fixed-sigma mixture NLL (MASTER Decision 24; docs/flexnn/package/plan.md FP-12), never a learned
         variance (unlike `FlexibleHiddenLayersNN`/`FlexibleWidthNN`'s squared-error `eval_fn`,
         which have no predictive variance to score against).
 
@@ -1127,7 +1127,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         are a genuine c-component mixture for every c"), which only the NESTED training scheme
         guarantees. Reading a per-rung ladder off one of the OTHER dynamic strategies would
         reproduce the R1 catastrophe those strategies were never audited against: prefix-slicing
-        an unordered/non-nested mixture is invalid (`docs/plans/capacity_programme/...`,
+        an unordered/non-nested mixture is invalid (`docs/...`,
         `automl_package/examples/capacity_ladder_results/R1_verdict.md`).
 
         Args:
@@ -1207,15 +1207,15 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         Reads a held-out `(x_val, y_val)` set (capacity-programme Task PA). Built on
         `NestedStrategy.all_rung_log_likelihood` (`automl_package/models/flexnn/strategies/n_classes.py`)
         -- the per-rung `(batch, n_classes)` held-out fixed-sigma MIXTURE log-likelihood table
-        (MASTER Decision 24; flexnn-package.md FP-12) -- NEVER on `held_out_arbiter_advantage`, a
+        (MASTER Decision 24; docs/flexnn/package/plan.md FP-12) -- NEVER on `held_out_arbiter_advantage`, a
         different, per-input readout that cannot answer a global "which k" question
-        (`docs/plans/capacity_programme/probreg.md` §1 ⚠️, D5).
+        (`docs/probreg/PLAN.md` §1 ⚠️, D5).
 
         Selection rule: the smallest (cheapest) k whose held-out score is not meaningfully worse
         than the best, "meaningfully" = exceeds twice a bootstrap-estimated standard error of the
         paired difference -- `automl_package.utils.capacity_selection.cheapest_within_tolerance`
         (capacity-programme FP-9.a; rule of record
-        `docs/reports/probreg_kselection/probreg_kselection.md` §3.2). `fit_sweep_selector` (M3)
+        `docs/probreg/shared/reports/probreg_kselection/probreg_kselection.md` §3.2). `fit_sweep_selector` (M3)
         applies the SAME rule and the SAME primitive to its own curve, so the two are selected
         consistently (though not on directly comparable units -- see that method's docstring).
 
@@ -1298,7 +1298,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         is kept (capacity-programme Task PA). Generalises `report_a_benchmark.select_k_for_toy`
         (`automl_package/examples/report_a_benchmark.py:331`) into a package method: unlike that
         script's argmin-val-NLL rule, this applies the strand's own cheapest-within-tolerance rule
-        (`docs/plans/capacity_programme/probreg.md` §1) via
+        (`docs/probreg/PLAN.md` §1) via
         `automl_package.utils.capacity_selection.cheapest_within_tolerance` -- the SAME primitive
         `fit_global_selector` (M1) uses, so the two are selected consistently.
 
@@ -1317,11 +1317,11 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         arguably right (it is a diagnostic switch, not a model hyper-parameter). No CV/HPO bug
         follows, and none is filed.
         Each is trained on the FULL
-        `(x_train, y_train)` this method receives -- expensive by design (`probreg.md` §1: M3 is
+        `(x_train, y_train)` this method receives -- expensive by design (`docs/probreg/PLAN.md` §1: M3 is
         the reference the cheap arms are measured against, exempt from the matched-cost budget).
 
         Scored via the per-sample fixed-sigma MIXTURE log-likelihood (MASTER Decision 24;
-        flexnn-package.md FP-12), computed from each sub-model's own `predict_distribution`
+        docs/flexnn/package/plan.md FP-12), computed from each sub-model's own `predict_distribution`
         (`weights`/`means` -- its `stds`, a LEARNED per-arm variance, are deliberately ignored;
         scoring uses the caller-supplied shared `sigma` instead). `predict_distribution` requires
         `regression_strategy in {SEPARATE_HEADS, SINGLE_HEAD_N_OUTPUTS}` (no components under

@@ -1,6 +1,6 @@
 # T2 pre-registration — multi-dimensional count toys (the port de-risk)
 
-Source: `docs/plans/perinput_selector_2026-07-10/EXECUTION_PLAN.md`, §2 WS-B, task **T2**.
+Source: `docs/probreg/per_input_k/history/perinput_selector_2026-07/EXECUTION_PLAN.md`, §2 WS-B, task **T2**.
 Written BEFORE any real run, verbatim from the ratified plan (2026-07-10). Do not edit after a
 real run starts; outcomes are read against this text, not the reverse.
 

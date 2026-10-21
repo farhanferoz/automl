@@ -1,6 +1,6 @@
 # W2 pre-registration — per-input WIDTH dial on the heterogeneous (line + sine) toy
 
-(`docs/plans/width_dial_2026-07-11/EXECUTION_PLAN.md` §6; driver `hetero_width_experiment.py`, net
+(`docs/flexnn/width/history/width_dial_2026-07/EXECUTION_PLAN.md` §6; driver `hetero_width_experiment.py`, net
 `nested_width_net.py`. Written BEFORE the real 3-seed run — this file records the bars as designed,
 not as observed. A "known risk" section at the bottom documents what the required `--smoke` check
 (EXECUTION_PLAN.md §Phase B verify) already showed, exactly as W1's own pre-registration carried

@@ -1,6 +1,6 @@
 """D1 — the depth-programme positive control: a depth-hungry-but-GD-learnable regression toy.
 
-(`docs/plans/capacity_programme/depth.md` task D1.) The old depth lane died for lack of one: its
+(`docs/flexnn/depth/history/depth.md` task D1.) The old depth lane died for lack of one: its
 tent-map target was representable at depth but GD-UNLEARNABLE at every depth (packed self-similar
 frequency content hits the same spectral-bias wall `nested_width_net.py`'s `make_hetero` docstring
 records for width) — so every depth-architecture result downstream of it was a null. This module
@@ -38,7 +38,7 @@ plan, first pass wins):
      EXCLUDED from every probe bar (only the pure-additive and pure-multiplicative sides count).
 
 **Candidate 4 — fixed-width / vary-depth** (`FIXEDWIDTH_HETERO`; the follow-up after candidates 1-3
-hit the kill criterion — see `docs/depth_capacity/depth_toy_negative_note.md`). Candidates 1-3 all
+hit the kill criterion — see `docs/flexnn/depth/reports/depth_toy_negative_note.md`). Candidates 1-3 all
 tried to INVENT a function that is depth-hungry in an absolute sense; two of them died on the
 spectral-bias wall (composing a sine saturates / seed-unstable optimization) — i.e. the target was
 not cleanly GD-learnable at ALL. Candidate 4 inverts the strategy: it reuses the WIDTH toy's
@@ -64,9 +64,9 @@ control, not the thing that must stall):
   - CONTROL wide-shallow-fits: a WIDE shallow net (width `FIXEDWIDTH_CONTROL_W >> w`, depth 1) reaches
     `M_hard <= FIT_PASS_MULTIPLE * FLOOR` — proves the target IS learnable, so P2's stall is a
     depth-for-width substitution, not the candidate-1/2 un-learnability failure. `FIXEDWIDTH_W` is
-    LOCKED to the seed-0 pilot (`pilot_fixedwidth`) result and recorded in `depth.md`.
+    LOCKED to the seed-0 pilot (`pilot_fixedwidth`) result and recorded in `docs/flexnn/depth/history/depth.md`.
 
-**Probe bars** (candidates 1-3; `run_probe`; PRE-REGISTERED, `depth.md` task D1 spec, 2 seeds each):
+**Probe bars** (candidates 1-3; `run_probe`; PRE-REGISTERED, `docs/flexnn/depth/history/depth.md` task D1 spec, 2 seeds each):
   - P1 learnable-deep: the depth-`PROBE_DEPTHS[-1]` (=4) NARROW net (width `NARROW_WIDTH`=8 per
     layer) reaches `M_hard <= FIT_PASS_MULTIPLE * NOISE_SIGMA**2` at TRUSTWORTHY convergence
     (`convergence.py::ConvergenceTracker`, full-trajectory rule — a `hit_cap` or still-improving
@@ -82,10 +82,10 @@ control, not the thing that must stall):
 
 A candidate PASSES only if all four hold on BOTH seeds in `SEEDS`. Kill criterion (all three
 candidates exhaust probes on 2 seeds with no pass): STOP, do not build any depth architecture on a
-non-hungry toy, write the negative note + escalate — see `depth.md` task D1 for the full protocol.
+non-hungry toy, write the negative note + escalate — see `docs/flexnn/depth/history/depth.md` task D1 for the full protocol.
 
 **Non-goals** (this file only): no architecture/3-arm work (task D2+); MSE-only, no NLL; no
-depth > 6; the tent map is not reused here (refuted per `docs/plans/width_mse_2026-07-16/
+depth > 6; the tent map is not reused here (refuted per `docs/flexnn/width/history/width_mse_2026-07/
 EXECUTION_PLAN.md` §9 roadmap item 1).
 
 Usage:
@@ -125,7 +125,7 @@ REGION_TRANSITION = 2  # candidate 3 only: the smoothstep blend band, excluded f
 NOISE_SIGMA = 0.05
 FLOOR = NOISE_SIGMA**2
 
-NARROW_WIDTH = 8  # "width fixed at 8/layer" (depth.md P1 spec)
+NARROW_WIDTH = 8  # "width fixed at 8/layer" (docs/flexnn/depth/history/depth.md P1 spec)
 PROBE_DEPTHS = (1, 2, 3, 4)  # uniform probe ladder across all 3 candidates (P1 reads depth=4)
 PARAM_MATCH_TOL = 0.05  # P2 spec: wide-shallow width matched within 5% of the depth-4 param count
 
@@ -166,7 +166,7 @@ MULT_BAND = 0.5  # half-width of the smoothstep continuity blend in x1
 # `NOISE_SIGMA` in the selftest so `FLOOR` stays the shared analytic floor. `FIXEDWIDTH_W` is a
 # PLACEHOLDER pending the seed-0 pilot (`pilot_fixedwidth`): the locked value is the smallest width at
 # which depth-1 STALLS (>= HUNGRY_STALL_MULTIPLE*FLOOR) while depth-`FIXEDWIDTH_DEPTHS[-1]` FITS
-# (<= FIT_PASS_MULTIPLE*FLOOR); record the locked value + pilot evidence in `depth.md`.
+# (<= FIT_PASS_MULTIPLE*FLOOR); record the locked value + pilot evidence in `docs/flexnn/depth/history/depth.md`.
 FIXEDWIDTH_W = 4  # small fixed width (depth-1 must stall, deepest must fit) — PLACEHOLDER, lock after the pilot.
 FIXEDWIDTH_CONTROL_W = 32  # wide-shallow CONTROL width (>> FIXEDWIDTH_W); must FIT the sine (proves learnability, not depth).
 FIXEDWIDTH_DEPTHS = (1, 2, 3, 4)  # depth ladder at the FIXED small width; P1 reads the deepest, P2 reads depth 1.

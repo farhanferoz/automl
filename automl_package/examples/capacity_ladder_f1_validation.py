@@ -1,5 +1,5 @@
 """F1 validation — a fixed-capacity MLP depth sweep on the Toy G / G-flat / H input-varying-
-capacity toys (docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md §3 WS2 F1).
+capacity toys (docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md §3 WS2 F1).
 
 PRE-REGISTERED (written before running, per §0b):
   (Pred) A fixed-capacity sweep of plain MLPs reproduces the qualitative need ordering on Toy G:

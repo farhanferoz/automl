@@ -1,7 +1,7 @@
 """Ground-truth tests for WS3/V1 global-variance-estimation mechanisms.
 
 Checks the four mechanisms ranked in
-`docs/plans/capacity_ladder_2026-07-09/EXECUTION_PLAN.md` sec 4 (V1) against ANALYTIC truth on
+`docs/probreg/history/capacity_ladder_2026-07/plans/EXECUTION_PLAN.md` sec 4 (V1) against ANALYTIC truth on
 large-N well-specified linear-Gaussian data: (i) in-sample MLE sigma_hat^2 is biased low by the
 classical (N-p)/N factor; (ii) the MacKay alpha,beta evidence fixed-point recovers sigma_true^2 and
 corrects the MLE bias; (iii)/(iv) held-out and K-fold cross-fitted sigma_hat^2 recover sigma_true^2.

@@ -1,6 +1,6 @@
 """T1 — the provably-deep-required toy: the depth-lane discriminator.
 
-(docs/plans/perinput_selector_2026-07-10/EXECUTION_PLAN.md WS-B, task T1; pre-registration in
+(docs/probreg/per_input_k/history/perinput_selector_2026-07/EXECUTION_PLAN.md WS-B, task T1; pre-registration in
 capacity_ladder_results/T1/PREREGISTRATION.md)
 
 F2's depth lane (`capacity_ladder_f2.py`, `capacity_ladder_results/F2/`) measured a NULL per-input

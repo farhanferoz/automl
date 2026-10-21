@@ -1,5 +1,5 @@
 """Characterization test for the FP-1 move (capacity-programme
-`docs/plans/capacity_programme/flexnn-package.md` Task FP-1): the params/FLOPs accounting logic
+`docs/flexnn/package/plan.md` Task FP-1): the params/FLOPs accounting logic
 moved from `automl_package/examples/capacity_accounting.py` into
 `automl_package/utils/capacity_accounting.py`, leaving a re-export shim at the old location.
 
@@ -185,8 +185,8 @@ class TestFlexibleWidthNNRegistration:
 
 
 class TestEndToEndSelectionCost:
-    """WSEL-5 (`docs/plans/capacity_programme/width.md`): `global_cheap_cost`/`per_input_cost`/
-    `global_sweep_cost` wire width.md Section 1's three models (W-SHARED/W-PERINPUT/W-SWEEP) onto
+    """WSEL-5 (`docs/flexnn/width/plan.md`): `global_cheap_cost`/`per_input_cost`/
+    `global_sweep_cost` wire docs/flexnn/width/plan.md Section 1's three models (W-SHARED/W-PERINPUT/W-SWEEP) onto
     the FP-9 selection-cost primitives (`router_fit_cost`/`held_out_read_cost`/`sweep_cost`), each
     producing one FINITE total (training + selection) rather than the primitives in isolation.
     Hand-computed expected values follow this file's own `TestKnownAnswersUnchanged` convention:
@@ -238,7 +238,7 @@ class TestEndToEndSelectionCost:
         assert result.total_macs == expected_training_macs + expected_selection_macs
 
     def test_all_three_width_models_return_finite_total_cost_including_selection(self):
-        """width.md Section 1's three width models, each costed end-to-end off ONE real `FlexibleWidthNN`."""
+        """docs/flexnn/width/plan.md Section 1's three width models, each costed end-to-end off ONE real `FlexibleWidthNN`."""
         rng = np.random.default_rng(0)
         x = rng.normal(size=(40, 1)).astype(np.float32)
         y = (2.0 * x[:, 0] + rng.normal(scale=0.05, size=40)).astype(np.float32)
@@ -246,7 +246,7 @@ class TestEndToEndSelectionCost:
         model = FlexibleWidthNN(widths=[2, 4], max_epochs=5)
         model.fit(x, y)
         n_train_samples, n_epochs = 40, 5
-        # W-SHARED/W-PERINPUT read off this SAME trained net (width.md Sec.1); `sweep_cost` over
+        # W-SHARED/W-PERINPUT read off this SAME trained net (docs/flexnn/width/plan.md Sec.1); `sweep_cost` over
         # its own widths grid is one legitimate caller-side way to price that training run -- see
         # `global_cheap_cost`'s module note for why the module itself does not assume this for you.
         training_macs = pkg.sweep_cost(model.model, model.widths, n_train_samples, n_epochs)

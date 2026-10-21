@@ -1,7 +1,7 @@
 """Variational-EM k-selector (Basis A): one-model harness for the controlled toy.
 
 Implements the closed-form variational EM of
-docs/kselection_variational_em_2026-06-13/kselection_variational_em.{md,pdf}:
+docs/probreg/history/kselection_variational_em_2026-06/kselection_variational_em.{md,pdf}:
 
   E-step (closed form, needs the targets, detached):
       r_ic ∝ φ_ic · exp(ψ(γ_c)),     φ_ic = N(y_i; μ_c(x_i), σ_c²(x_i))

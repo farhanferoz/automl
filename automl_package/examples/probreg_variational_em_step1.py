@@ -1,6 +1,6 @@
 """Step-1 validation of the variational-EM k-selector (Basis A grounding).
 
-Runs the controlled test of docs/kselection_variational_em_2026-06-13 (note §9) on the
+Runs the controlled test of docs/probreg/history/kselection_variational_em_2026-06 (note §9) on the
 constant-baseline regime, where the data are i.i.d. draws from one fixed mixture (the
 setting the α₀ pruning theory applies to). The bypass is ON throughout.
 

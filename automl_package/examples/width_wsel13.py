@@ -1,12 +1,12 @@
-"""WSEL-13 — is the induced importance ordering real? (`docs/plans/capacity_programme/width.md:1089-1156`).
+"""WSEL-13 — is the induced importance ordering real? (`docs/flexnn/width/plan.md:1089-1156`).
 
 The certified width design's whole mechanistic account — and the argument that it ports to a
-transformer (`docs/plans/capacity_programme/shared/width_transformer_port.md` SS1-SS2) — rests on one
+transformer (`docs/flexnn/transformer/specs/width_transformer_port.md` SS1-SS2) — rests on one
 property nobody has measured: because hidden unit `j` only receives gradient from widths `k >= j`,
 importance should DECREASE with unit index. This driver trains the certified `SharedTrunkPerWidthHeadNet`
 on the SS3.8 canonical toy suite (tier 1 + tier 2, per WSEL-13's ROOT ruling), then runs two non-circular
 diagnostics on the frozen trunk. The two tiers train under DIFFERENT schedules and objectives (RE-
-AUTHORIZED 2026-07-22, `width.md` SS3.8): tier 1 is k-dropout SANDWICH schedule, plain MSE loss
+AUTHORIZED 2026-07-22, `docs/flexnn/width/plan.md` SS3.8): tier 1 is k-dropout SANDWICH schedule, plain MSE loss
 (`automl_package.examples.kdropout_converged_width_experiment._train_kdropout_to_convergence`, imported
 not reimplemented); tier 2 is the ALL schedule (every width, every step) under the fixed-sigma weighted
 squared error (SS3.7, `width_candidates.weighted_squared_error`), via this module's own
@@ -129,12 +129,12 @@ def _assert_tier_objective_available(tier: Tier) -> None:
     objectives to do it. Tier 1's `hetero` toy has one constant sigma, so plain MSE is exactly
     equivalent. Tier 2's `hetero3` toy has TWO sigmas, so its sanctioned objective is a fixed-sigma
     WEIGHTED squared error, `(pred - y)**2 / sigma_true(x)**2`, which down-weights the noisy region
-    100x -- `width.md:377-379` states outright that this is NOT the same objective as plain MSE.
+    100x -- `docs/flexnn/width/plan.md:377-379` states outright that this is NOT the same objective as plain MSE.
 
     That weighted loss is implemented ONCE, in `automl_package/examples/width_candidates.py`
     (`weighted_squared_error`), and imported (SS3.7, SS3.9 -- never re-derived per driver). It landed
     with WSEL-16's authoring and WSEL-13 tier 2 was separately RE-AUTHORIZED 2026-07-22
-    (`width.md` SS3.8's RESOLUTION UPDATE / RE-AUTHORIZED paragraphs) -- so this guard no longer
+    (`docs/flexnn/width/plan.md` SS3.8's RESOLUTION UPDATE / RE-AUTHORIZED paragraphs) -- so this guard no longer
     refuses tier 2 unconditionally. It still refuses MECHANICALLY: tier 2 proceeds only if
     `weighted_squared_error` actually imports right now, so a future revert or breakage of
     `width_candidates.py` fails loudly here rather than silently falling through to plain MSE. `run_cell`
@@ -164,7 +164,7 @@ _HETERO3_NOISY_REGION = 2  # nwn.make_hetero3's region id for the noisy-easy tai
 
 
 def _sigma_true_tensor(toy: nwn.Toy, region: np.ndarray, sigma: float, norm: dict) -> torch.Tensor:
-    """Per-point TRUE noise sigma (`width.md` SS3.7), IN STANDARDIZED-y UNITS (`/ norm["sy"]`) -- never estimated, never learned.
+    """Per-point TRUE noise sigma (`docs/flexnn/width/plan.md` SS3.7), IN STANDARDIZED-y UNITS (`/ norm["sy"]`) -- never estimated, never learned.
 
     `hetero`: `sigma` (the toy's own constant) everywhere -- both regions share it. `hetero3`: region 2
     (noisy-easy) is `HETERO3_NOISY_SIGMA`, regions 0/1 are `HETERO_NOISE_SIGMA` -- read from the
@@ -202,7 +202,7 @@ def _train_all_schedule_weighted_to_convergence(
     """Tier-2-ONLY trainer: `WidthSchedule.ALL`, every width every step, under the SS3.7 fixed-sigma weighted squared error; gated by PER-WIDTH held-out convergence.
 
     Tier 1 keeps training through `kce._train_kdropout_to_convergence` under the certified SANDWICH
-    schedule, unchanged (see `run_cell`). Tier 2's RE-AUTHORIZED spec (`width.md` SS3.8 "RE-AUTHORIZED
+    schedule, unchanged (see `run_cell`). Tier 2's RE-AUTHORIZED spec (`docs/flexnn/width/plan.md` SS3.8 "RE-AUTHORIZED
     2026-07-22") trains under ALL instead, and `kce._train_kdropout_to_convergence` cannot express the
     weighted objective at all (its `LossType` is `{NLL, MSE}` only, and
     `kdropout_converged_width_experiment.py` is out of this task's write set to extend) -- so this
@@ -349,7 +349,7 @@ def run_cell(
     reimplemented -- `_train_kdropout_to_convergence` is imported and called as-is, `schedule`
     overridable for the nested-vs-sandwich ablation this task's `--schedule` flag exists for.
 
-    Tier 2 (RE-AUTHORIZED `width.md` SS3.8): trains under `WidthSchedule.ALL` on the fixed-sigma
+    Tier 2 (RE-AUTHORIZED `docs/flexnn/width/plan.md` SS3.8): trains under `WidthSchedule.ALL` on the fixed-sigma
     weighted objective (SS3.7) -- neither expressible through `_train_kdropout_to_convergence`
     (`LossType` has no weighted member), so `_train_all_schedule_weighted_to_convergence` (this module)
     is called instead. `schedule` is IGNORED for tier 2 -- ALL is mandatory, not a choice (see `main`).
@@ -489,7 +489,7 @@ def run_cell(
             "kendall_tau_greedy_vs_index": {"tau": float(kendall_res.statistic), "p": float(kendall_res.pvalue)},
             "mean_relative_prefix_gap": mean_relative_prefix_gap,
         },
-        "training_schedule": effective_schedule.value,  # tier 2 is always "all" (RE-AUTHORIZED, width.md SS3.8); tier 1 reads --schedule.
+        "training_schedule": effective_schedule.value,  # tier 2 is always "all" (RE-AUTHORIZED, docs/flexnn/width/plan.md SS3.8); tier 1 reads --schedule.
         "objective": objective,  # "mse" (tier 1) or "weighted_squared_error" (tier 2) -- machine-readable per the RE-AUTHORIZED labelling requirement.
         "provenance": run_provenance(),
     }
@@ -500,7 +500,7 @@ def _schedule_suffix(schedule: nwn.WidthSchedule) -> str:
     """Filename suffix per training schedule.
 
     The certified schedule keeps the ORIGINAL, suffix-free filenames on purpose: those exact paths are
-    cited in `width.md` and in `shared/width_transformer_port.md`, and the plan's citation gate checks
+    cited in `docs/flexnn/width/plan.md` and in `docs/flexnn/transformer/specs/width_transformer_port.md`, and the plan's citation gate checks
     that cited paths resolve. Renaming them to be symmetric would break both. The alternative schedule
     is additive.
     """
@@ -513,7 +513,7 @@ def _canonical_schedule_for_tier(tier: Tier) -> nwn.WidthSchedule:
     Tier 1 trains under the certified SANDWICH schedule by default (`SCHEDULE`), overridable via
     `--schedule` for the nested-vs-sandwich ablation this task also runs -- callers wanting a specific
     tier-1 alternate-schedule file pass their own `schedule` to `_cell_json_path`/`_state_path` directly,
-    bypassing this helper. Tier 2 is fixed at ALL by the RE-AUTHORIZED ruling (`width.md` SS3.8) -- not
+    bypassing this helper. Tier 2 is fixed at ALL by the RE-AUTHORIZED ruling (`docs/flexnn/width/plan.md` SS3.8) -- not
     a user choice -- so its canonical (and only) on-disk schedule is always ALL, regardless of what
     `--schedule` defaults to.
     """
@@ -568,7 +568,7 @@ def run_selftest() -> bool:
 
     ok = conv_ok and ordering_ok and greedy_ok
 
-    # Tier-2 wiring (RE-AUTHORIZED, width.md SS3.8): the weighted objective actually engages, and the
+    # Tier-2 wiring (RE-AUTHORIZED, docs/flexnn/width/plan.md SS3.8): the weighted objective actually engages, and the
     # ALL schedule -- not sandwich -- is what tier-2 training sees. No real cell is run beyond the tiny
     # w_max=2 toy below.
     #
@@ -684,7 +684,7 @@ def summarize() -> None:
             "toy": _TIER_CONFIG[Tier.TWO].toy.value,
             "n_train": _TIER_CONFIG[Tier.TWO].n_train,
             "n_test": _TIER_CONFIG[Tier.TWO].n_test,
-            # RE-AUTHORIZED 2026-07-22 (width.md SS3.8): tier 2 trains under ALL, not the tier-1 SANDWICH
+            # RE-AUTHORIZED 2026-07-22 (docs/flexnn/width/plan.md SS3.8): tier 2 trains under ALL, not the tier-1 SANDWICH
             # default -- named explicitly here since this config block tabulates both tiers together.
             "schedule": nwn.WidthSchedule.ALL.value,
             "objective": "weighted_squared_error",
@@ -732,7 +732,7 @@ def main() -> None:
             "'nested' draws ONE width per example per pass, so the last unit trains ~1/w_max of the time. "
             "The decreasing-importance prediction is derived for the 'nested' case; running both is what separates "
             "'the mechanism does not exist' from 'our schedule trains the asymmetry away'. "
-            "Not selectable for tier 2, which is fixed at 'all' by the RE-AUTHORIZED ruling (width.md SS3.8) -- "
+            "Not selectable for tier 2, which is fixed at 'all' by the RE-AUTHORIZED ruling (docs/flexnn/width/plan.md SS3.8) -- "
             "passing anything but the default alongside --tier 2 is a hard error."
         ),
     )
@@ -755,7 +755,7 @@ def main() -> None:
     _assert_tier_objective_available(tier)
     if tier is Tier.TWO and args.schedule != SCHEDULE.value:
         parser.error(
-            f"--schedule is fixed at {nwn.WidthSchedule.ALL.value!r} for tier 2 (RE-AUTHORIZED, width.md SS3.8) "
+            f"--schedule is fixed at {nwn.WidthSchedule.ALL.value!r} for tier 2 (RE-AUTHORIZED, docs/flexnn/width/plan.md SS3.8) "
             "and is not user-selectable; omit --schedule for a tier-2 cell."
         )
     os.makedirs(RESULTS_DIR, exist_ok=True)

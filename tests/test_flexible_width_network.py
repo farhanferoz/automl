@@ -282,12 +282,12 @@ class TestFlexibleWidthNNGlobalCheap:
     """
 
     GLOBAL_CHEAP_WIDTHS = (2, 4, 6, 8, 10, 12)
-    _FLAT_BEYOND_INDEX_3 = np.array([10.0, 5.0, 2.0, 1.0, 1.0, 1.0])  # flexnn-package.md FP-9's own known-answer curve
+    _FLAT_BEYOND_INDEX_3 = np.array([10.0, 5.0, 2.0, 1.0, 1.0, 1.0])  # docs/flexnn/package/plan.md FP-9's own known-answer curve
 
     @classmethod
     def _stub_flat_beyond_index_3(cls, model, n_selection=200, noise=0.01, seed=0):
         """Monkeypatches `_per_sample_error_at_width` with a KNOWN per-width error curve, flat
-        beyond index 3 -- the exact curve shape `flexnn-package.md` FP-9's own known-answer test
+        beyond index 3 -- the exact curve shape `docs/flexnn/package/plan.md` FP-9's own known-answer test
         uses for `cheapest_within_tolerance` -- so this test exercises WSEL-3's plumbing (does it
         build the error table and call the shared selector correctly?) against a known answer,
         rather than a trained net's noisy curve, whose flatness point cannot be controlled.

@@ -1,4 +1,4 @@
-"""WSEL-4 — make W-SWEEP a usable reference (`docs/plans/capacity_programme/width.md` WSEL-4).
+"""WSEL-4 — make W-SWEEP a usable reference (`docs/flexnn/width/plan.md` WSEL-4).
 
 W-SWEEP (§1) is the expensive width-selection reference: a SEPARATE model dedicated to each width,
 trained ORDINARILY at that one fixed width (no width-dropout, no multi-width schedule), scored held
@@ -396,7 +396,7 @@ def _run_ported_cell(args: argparse.Namespace) -> dict[str, Any]:
         calculate_feature_importance=False,
         capacity_selection=CapacitySelection.FIXED,
         # Tanh, NOT the class's ReLU default: the control arm's width classes are Tanh
-        # (`automl_package/models/flexnn/width/architectures.py:48`), and `width.md` §1's confound
+        # (`automl_package/models/flexnn/width/architectures.py:48`), and `docs/flexnn/width/plan.md` §1's confound
         # doctrine forbids an arm differing from its comparator in more than one respect. The first
         # ported run (ReLU, retained under `WSEL4/relu_confounded_run/`) under-fit the TRAIN set at
         # every width >= 4 (ratios up to 24x vs control) — activation was the second difference.
@@ -566,7 +566,7 @@ def _summarize(results_dir: str, toy: nwn.Toy) -> dict[str, Any]:
         print("!" * 78)
         print("POSITIVE CONTROL VIOLATION (MASTER Decision 14): ported cells are on disk while the")
         print(f"control has NOT cleanly reproduced W_CONVERGED (missing={len(missing_control)}, ")
-        print(f"all_within_{REPRODUCTION_BAR:.0%}_bar={control_all_within_bar}). Per width.md's WSEL-4")
+        print(f"all_within_{REPRODUCTION_BAR:.0%}_bar={control_all_within_bar}). Per docs/flexnn/width/plan.md's WSEL-4")
         print("branch table (§3.5): report the discrepancy and HALT WSEL-8.")
         print("!" * 78)
 

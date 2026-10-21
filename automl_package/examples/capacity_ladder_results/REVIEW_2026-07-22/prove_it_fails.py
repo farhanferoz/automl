@@ -1,5 +1,5 @@
-"""Reproduces the WSEL-12 'prove-it-fails' demonstration that the width.md task report says was
-run but does not show recorded output for on disk (grep of docs/plans/capacity_programme/ and
+"""Reproduces the WSEL-12 'prove-it-fails' demonstration that the docs/flexnn/width/plan.md task report says was
+run but does not show recorded output for on disk (grep of docs/ and
 tests/test_nested_width_single_trunk.py turned up no captured failing-test output, only prose
 asserting it happened). Monkeypatches an off-by-one mask mutant into SharedTrunkPerWidthHeadNet
 (read-only against the repo -- patches the imported class in-process, writes nothing to disk) and

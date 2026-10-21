@@ -302,7 +302,7 @@ class SeparateHeadsRegressionModule(nn.Module):
         """Initializes the SeparateHeadsRegressionModule."""
         super().__init__()
         if head_spread is not HeadSpread.PER_INPUT and (use_anchored_heads or use_monotonic_constraints):
-            raise ValueError("head_spread != PER_INPUT is incompatible with anchored/monotonic heads (structure.md PS-A1).")
+            raise ValueError("head_spread != PER_INPUT is incompatible with anchored/monotonic heads (docs/probreg/fixed_k/plan.md PS-A1).")
         self.heads = nn.ModuleList()
         self.n_classes = n_classes
         self.regression_output_size = regression_output_size

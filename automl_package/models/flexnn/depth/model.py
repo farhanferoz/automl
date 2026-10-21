@@ -312,7 +312,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
                 if self.depth_regularization == DepthRegularization.ELBO and n_probs is not None:
                     # Uniform prior over depth. The earlier linspace(3,1) prefer-shallow prior
                     # is REMOVED: M0 revalidation measured complete depth-collapse to that prior
-                    # regardless of input (report_b_results/, flexnn-moe.md Done ledger M0) --
+                    # regardless of input (report_b_results/, docs/flexnn/moe/plan.md Done ledger M0) --
                     # the identical trap already removed from ProbReg's k-prior (see
                     # probabilistic_regression.py, NClassesRegularization.ELBO history).
                     depth_prior_logits = torch.zeros(self.max_hidden_layers, dtype=torch.float, device=_batch_x.device)

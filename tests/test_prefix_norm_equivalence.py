@@ -1,12 +1,12 @@
-"""WSEL-15 Step 1 -- does the prefix-normalisation trick actually work? (`docs/plans/capacity_programme/
-width.md` ~1466-1471.)
+"""WSEL-15 Step 1 -- does the prefix-normalisation trick actually work? (`docs/
+docs/flexnn/width/plan.md` ~1466-1471.)
 
 Arm B (`PrefixNormMode.RUNNING_TOTALS`) computes every width's RMS normaliser `r_k` from ONE
 `cumsum(h**2)` pass over the shared hidden vector, dividing by the ACTIVE count `k` -- never `w_max`.
 Arm D (`PrefixNormMode.NAIVE`) computes the IDENTICAL formula the textbook way: loop over `k`, slice
 `h[:, :k]`, take its RMS directly. Both live in `automl_package/examples/width_candidates.py`'s
 `PrefixNormWidthNet` -- `mode` is the only thing that differs between them, so if the two ever
-disagree, the vectorised trick (repair 2 of `shared/width_transformer_port.md` SS5) is wrong. This is
+disagree, the vectorised trick (repair 2 of `docs/flexnn/transformer/specs/width_transformer_port.md` SS5) is wrong. This is
 the load-bearing check WSEL-15 stops and reports on if it fails -- nothing else in that task runs
 before this passes.
 
@@ -27,7 +27,7 @@ arm D is not a discriminating oracle and Step 1's pass above would be meaningles
 review: arm C's affine must be applied BEFORE the mask (`width_candidates.py`'s
 `_normalized_masked`), never after -- `gamma_k * 0 == 0` so the scale alone is harmless in either
 order, but `+ beta_k` applied AFTER masking ADDS `beta_k` into every column `>= k`, un-zeroing exactly
-the columns `docs/plans/capacity_programme/width.md:532` requires to "provably cannot influence the
+the columns `docs/flexnn/width/plan.md:532` requires to "provably cannot influence the
 output" the instant `beta` moves off its zero init -- which is why this test sets `beta` to distinct
 NON-ZERO values explicitly; a zero-init beta cannot discriminate the two orderings at all.
 

@@ -4,7 +4,7 @@ Ports the G-WIDTH certified `SharedTrunkPerWidthHeadNet` architecture
 (`automl_package/examples/nested_width_net.py:222`) into the package's `PyTorchModelBase` model
 family: ONE shared trunk `Linear(input_size, w_max)` (`w_max = max(widths)`), a per-width prefix
 mask (`hidden[:, w:] = 0`) applied before EACH width's OWN dedicated readout head
-`Linear(w_max, output_size)`. `docs/width_mse_2026-07-16/verdict_variable_width_mse.md` certified
+`Linear(w_max, output_size)`. `docs/flexnn/width/reports/verdict_variable_width_mse.md` certified
 this specific arm (shared trunk + per-width heads) reaches the per-region noise floor on every
 seed, unlike a fully-shared readout (`NestedWidthNet`), which plateaus 3.7-5.9x above floor --
 localizing that earlier failure to the shared READOUT, not the shared trunk.
@@ -32,7 +32,7 @@ out of scope for this port (Task F2 spec).
 the same two-call shape: call `fit_global_selector(x_val, y_val)` after `.fit()`, then plain
 `predict(x)` -- no caller flag. It scores every configured width's held-out error on `(x_val,
 y_val)` and hands that curve to the shared `cheapest_within_tolerance` selector
-(`automl_package/utils/capacity_selection.py`) at twice a bootstrap standard error (`width.md`
+(`automl_package/utils/capacity_selection.py`) at twice a bootstrap standard error (`docs/flexnn/width/plan.md`
 Section 1's global-arm selection rule; MASTER Decision 18) -- picking ONE width for the whole
 dataset, not per input. Do not confuse this with `PER_INPUT`: that labels every row independently
 via `DistilledCapacityRouter`; this reads one held-out curve and returns a single index.
@@ -77,8 +77,8 @@ def _multi_width_criterion(base_criterion: nn.Module) -> Callable[[torch.Tensor,
 class FlexibleWidthNN(PyTorchModelBase):
     """A PyTorch neural network with per-input selectable width (active hidden units).
 
-    A single shared trunk maps input to a `w_max`-dimensional hidden representation; each
-    configured width `w` reads that representation through its OWN dedicated head after zeroing
+    A single shared trunk maps input to a `w_max`-dimensional hidden redocs/probreg/history/presentation; each
+    configured width `w` reads that redocs/probreg/history/presentation through its OWN dedicated head after zeroing
     hidden units `w:` (the prefix mask). See module docstring for the certified architecture and
     training-regime provenance.
     """
@@ -130,7 +130,7 @@ class FlexibleWidthNN(PyTorchModelBase):
             self.heads = nn.ModuleDict({str(w): nn.Linear(self.w_max, outer_instance.output_size) for w in self.widths})
 
         def hidden(self, x: torch.Tensor) -> torch.Tensor:
-            """`(N, input_size) -> (N, w_max)` post-activation trunk representation, shared across all widths."""
+            """`(N, input_size) -> (N, w_max)` post-activation trunk redocs/probreg/history/presentation, shared across all widths."""
             return self.activation(self.trunk_linear(x))
 
         def forward_width(self, x: torch.Tensor, width: int) -> torch.Tensor:
@@ -416,7 +416,7 @@ class FlexibleWidthNN(PyTorchModelBase):
         resulting `(N, len(self.widths))` held-out error curve to the shared
         `automl_package.utils.capacity_selection.cheapest_within_tolerance` selector -- the smallest
         width whose held-out error is not meaningfully worse than the best width's, "meaningfully" =
-        exceeding twice a bootstrap-estimated standard error (`width.md` Section 1's global-arm
+        exceeding twice a bootstrap-estimated standard error (`docs/flexnn/width/plan.md` Section 1's global-arm
         selection rule; MASTER Decision 18). Neither the tolerance rule nor its bootstrap
         standard-error estimator is re-derived here -- both are imported from FP-9's shared module,
         per WSEL-3's own doctrine.

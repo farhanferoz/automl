@@ -1,20 +1,20 @@
 """The ONE home for candidate width architectures under test.
 
-`docs/plans/capacity_programme/width.md` SS3.9, MASTER Decision 19's boundary rule. Candidates that
+`docs/flexnn/width/plan.md` SS3.9, MASTER Decision 19's boundary rule. Candidates that
 pass their gating task get PROMOTED into
 `automl_package/models/architectures/nested_width_net.py` by a later task (WSEL-17); until then they
 live here, never in a driver and never in a file of their own -- SS3.9's inventory already carries one
 duplicate architecture pair and no task may add another.
 
-WSEL-15 (`docs/plans/capacity_programme/width.md` ~1416-1515) is this module's first tenant: the
+WSEL-15 (`docs/flexnn/width/plan.md` ~1416-1515) is this module's first tenant: the
 prefix-RMS-normalisation variants that test whether the certified nested-width design survives a
 normalisation layer, the one obstacle standing between this design and a transformer port
-(`docs/plans/capacity_programme/shared/width_transformer_port.md` SS5). All three variants below are a
+(`docs/flexnn/transformer/specs/width_transformer_port.md` SS5). All three variants below are a
 THIN WRAPPER over the certified `SharedTrunkPerWidthHeadNet` -- composition (`self.base = ...`), never
 a copy -- reusing its trunk, its activation and its per-width `mean_heads` unchanged; the only thing
 this module adds is what happens to the hidden vector between the trunk and each head.
 
-**The exact formula (no discretion, `width.md` ~1445-1463).** For width `k`, root-mean-square
+**The exact formula (no discretion, `docs/flexnn/width/plan.md` ~1445-1463).** For width `k`, root-mean-square
 normalisation with NO mean subtraction:
 
     r_k(x) = sqrt( (1/k) * sum_{j<=k} h_j(x)^2 + eps ),  eps = PREFIX_NORM_EPS = 1e-5
@@ -33,7 +33,7 @@ Mean-centred (mean-subtracting) normalisation is explicitly OUT of scope for WSE
 second cumulative sum and interacts with the head's bias term, moving two things at once; see the
 module docstring of `automl_package/examples/width_wsel15.py`.
 
-**WSEL-16's two additions (`docs/plans/capacity_programme/width.md` ~1553-1587, ~1598-1600; §3.7's
+**WSEL-16's two additions (`docs/flexnn/width/plan.md` ~1553-1587, ~1598-1600; §3.7's
 RESOLUTION UPDATE 2026-07-22 assigns the tier-2 objective to this task).** `MonotoneGateWidthNet` is
 the `A_GATES` stage-1 arm -- the ONLY new architecture WSEL-16 adds (its other four arms are package
 classes or, for `A_STOPGRAD`, a loss-shape change on `NestedWidthNet` with NO new class -- see
@@ -59,7 +59,7 @@ PREFIX_NORM_EPS = 1e-5  # WSEL-15 spec, no discretion: eps inside the sqrt.
 
 
 class PrefixNormMode(enum.Enum):
-    """Closed set of prefix-normalisation variants under test (`width.md` ~1445-1463; WSEL-15 arms B/C/D)."""
+    """Closed set of prefix-normalisation variants under test (`docs/flexnn/width/plan.md` ~1445-1463; WSEL-15 arms B/C/D)."""
 
     RUNNING_TOTALS = "running_totals"  # arm B: r_k from ONE cumsum(h**2) pass, no affine.
     AFFINE = "affine"  # arm C: arm B's r_k, plus a per-width SCALAR gamma_k/beta_k (2 params/width).
@@ -96,7 +96,7 @@ class PrefixNormWidthNet(nn.Module):
             self.beta = nn.Parameter(torch.zeros(self.w_max))
 
     def hidden(self, x: torch.Tensor) -> torch.Tensor:
-        """`(N, 1) -> (N, w_max)` post-activation hidden representation (the wrapped net's, unchanged)."""
+        """`(N, 1) -> (N, w_max)` post-activation hidden redocs/probreg/history/presentation (the wrapped net's, unchanged)."""
         return self.base.hidden(x)
 
     def _running_totals_r(self, h: torch.Tensor) -> torch.Tensor:
@@ -125,7 +125,7 @@ class PrefixNormWidthNet(nn.Module):
         The affine is applied BEFORE the mask, and the mask is applied LAST, unconditionally -- this
         order is load-bearing, not stylistic. `gamma_k * 0 == 0` so the scale alone would be harmless
         either way, but `+ beta_k` is not: applying the affine after masking would ADD `beta_k` into
-        every column `>= k`, un-zeroing exactly the columns `width.md:532` requires to "provably cannot
+        every column `>= k`, un-zeroing exactly the columns `docs/flexnn/width/plan.md:532` requires to "provably cannot
         influence the output" -- reviving `mean_heads[k-1]`'s weights there the instant `beta` moves off
         its zero init. `tests/test_prefix_norm_equivalence.py::
         test_affine_beyond_k_columns_stay_zero_with_nonzero_beta` pins this with a non-zero beta (a
@@ -146,7 +146,7 @@ class PrefixNormWidthNet(nn.Module):
     def forward_width(self, x: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
         """`(mean, log_var)` at one FIXED width `k` (1..w_max) via width-k's own (wrapped) mean head.
 
-        `log_var` is a dummy zero, matching `SharedTrunkPerWidthHeadNet` (MSE-only, `width.md` SS3.7).
+        `log_var` is a dummy zero, matching `SharedTrunkPerWidthHeadNet` (MSE-only, `docs/flexnn/width/plan.md` SS3.7).
         """
         if not (1 <= k <= self.w_max):
             raise ValueError(f"k={k} out of range [1, {self.w_max}]")
@@ -206,7 +206,7 @@ def _executed_flops_prefix_norm(net: PrefixNormWidthNet, config: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# WSEL-16 `A_GATES` -- a thin monotone-decay wrapper over `NestedWidthNet` (`width.md` ~1579-1587).
+# WSEL-16 `A_GATES` -- a thin monotone-decay wrapper over `NestedWidthNet` (`docs/flexnn/width/plan.md` ~1579-1587).
 # The ONLY new architecture this task adds (§3.9's reuse inventory); everything else it needs is
 # either a package class or, for `A_STOPGRAD`, a loss-shape change with no new class at all.
 # ---------------------------------------------------------------------------
@@ -222,7 +222,7 @@ class MonotoneGateWidthNet(nn.Module):
     (`softplus(nu) = ln(2) / (w_max - 1)`, the `w_max=12` case reproducing the spec's literal `g_12 =
     0.5`). `g_j` is monotonically DECREASING in `j` by construction (a `softplus` keeps its rate
     positive) -- no penalty term is added to the loss for this (the strand's no-arbitrary-penalty rule,
-    `docs/plans/capacity_programme/width.md` §1); training uses `A_JOINT`'s plain summed loss.
+    `docs/flexnn/width/plan.md` §1); training uses `A_JOINT`'s plain summed loss.
 
     ⚠️ **This is OUR SIMPLIFICATION of the published monotone-gate mechanism, which derives its gate
     from a variational bound -- we are not reproducing that derivation, only borrowing the idea that a
@@ -230,7 +230,7 @@ class MonotoneGateWidthNet(nn.Module):
     width_transformer_port.md` §1). Label it as a simplification wherever this arm is reported.**
 
     MSE-only, like every class in this module and its base (`log_var` is a dummy zero, never in the
-    loss graph, per `width.md` §3.7).
+    loss graph, per `docs/flexnn/width/plan.md` §3.7).
     """
 
     def __init__(self, w_max: int = W_MAX_DEFAULT, activation: type[nn.Module] = nn.Tanh) -> None:
@@ -251,7 +251,7 @@ class MonotoneGateWidthNet(nn.Module):
         self.nu = nn.Parameter(torch.tensor(init_nu, dtype=torch.float32))
 
     def hidden(self, x: torch.Tensor) -> torch.Tensor:
-        """`(N, 1) -> (N, w_max)` post-activation hidden representation (the wrapped net's, unchanged)."""
+        """`(N, 1) -> (N, w_max)` post-activation hidden redocs/probreg/history/presentation (the wrapped net's, unchanged)."""
         return self.base.hidden(x)
 
     def _gates(self, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
@@ -315,7 +315,7 @@ def _executed_flops_monotone_gate(net: MonotoneGateWidthNet, config: int) -> int
 
 
 # ---------------------------------------------------------------------------
-# WSEL-16 tier-2/3 objective -- the fixed-sigma weighted squared error (`width.md` §3.7, assigned to
+# WSEL-16 tier-2/3 objective -- the fixed-sigma weighted squared error (`docs/flexnn/width/plan.md` §3.7, assigned to
 # this task by §3.8's RESOLUTION UPDATE 2026-07-22). Implemented ONCE; every driver imports it.
 # ---------------------------------------------------------------------------
 
@@ -323,12 +323,12 @@ def _executed_flops_monotone_gate(net: MonotoneGateWidthNet, config: int) -> int
 def weighted_squared_error(pred: torch.Tensor, y: torch.Tensor, sigma_true: torch.Tensor) -> torch.Tensor:
     """Fixed-sigma weighted squared error: `(pred - y)^2 / sigma_true(x)^2`, mean-reduced.
 
-    `sigma_true` is read from the toy generator's own `region` output (`width.md` §3.7) -- e.g.
+    `sigma_true` is read from the toy generator's own `region` output (`docs/flexnn/width/plan.md` §3.7) -- e.g.
     `make_hetero3`'s noisy-easy region uses `HETERO3_NOISY_SIGMA`, its other two regions use
     `HETERO_NOISE_SIGMA` -- NEVER estimated or learned. Up to the constant `1 / (2 * sigma^2)` this is
     the Gaussian log-likelihood with sigma held at the truth, so on `make_hetero`'s single constant
     sigma it is exactly proportional to plain MSE (tier 1 uses plain MSE directly for that reason,
-    `width.md` §3.7); on `make_hetero3`'s two-sigma toy it down-weights the noisy region ~100x, which
+    `docs/flexnn/width/plan.md` §3.7); on `make_hetero3`'s two-sigma toy it down-weights the noisy region ~100x, which
     plain MSE does not.
 
     Args:

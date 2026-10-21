@@ -1,9 +1,9 @@
 """W1 — nested-width probabilistic net: the WIDTH analog of the depth lane's NESTED schedule.
 
-(docs/plans/width_dial_2026-07-11/EXECUTION_PLAN.md §2a)
+(docs/flexnn/width/history/width_dial_2026-07/EXECUTION_PLAN.md §2a)
 
 **The four architecture classes moved to `automl_package.models.architectures.nested_width_net`**
-(2026-07-21, `docs/plans/capacity_programme/flexnn-package.md` Task FP-2 -- the boundary rule,
+(2026-07-21, `docs/flexnn/package/plan.md` Task FP-2 -- the boundary rule,
 MASTER Decision 19). This module re-exports them (below) so every existing `import nested_width_net
 as nwn` / `nwn.NestedWidthNet` call site keeps resolving unchanged (the `automl_package/examples/
 convergence.py` precedent: move the logic, leave the shim, do not rewrite callers). Everything else
@@ -92,13 +92,13 @@ _CONSISTENCY_TOL = 1e-5
 
 HETERO_NOISE_SIGMA = 0.05
 HETERO_R_DEFAULT = 4.0 * math.pi
-HETERO3_NOISY_SIGMA = 0.5  # WP-3 noisy-easy region: 10x the quiet-region sigma (docs/plans/width_mse_2026-07-16 §WP-3).
+HETERO3_NOISY_SIGMA = 0.5  # WP-3 noisy-easy region: 10x the quiet-region sigma (docs/flexnn/width/history/width_mse_2026-07 §WP-3).
 
 
 class Toy(enum.Enum):
     """Which synthetic generator a run uses (`--toy`; closed set, width-MSE program WP-3/WP-4).
 
-    `docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §WP-3, §WP-4.
+    `docs/flexnn/width/history/width_mse_2026-07/EXECUTION_PLAN.md` §WP-3, §WP-4.
     """
 
     HETERO = "hetero"  # 2-region easy-linear + hard-sine (`make_hetero`); WP-2/WP-4 ladder toy.
@@ -108,7 +108,7 @@ class Toy(enum.Enum):
 class WidthSchedule(enum.Enum):
     """Which per-step width-sampling schedule `train_nested_width` uses (closed set, not a string).
 
-    `docs/plans/width_dial_2026-07-11/EXECUTION_PLAN.md` §6.
+    `docs/flexnn/width/history/width_dial_2026-07/EXECUTION_PLAN.md` §6.
     """
 
     NESTED = "nested"  # W1: per-example uniform width draw each epoch (default; sinc keeps using this).
@@ -135,7 +135,7 @@ def _width_mse(net: NestedWidthNet | IndependentWidthNet | SharedTrunkPerWidthHe
     Architecture-agnostic — both `NestedWidthNet` and `IndependentWidthNet` expose `forward_width` —
     the MSE twin of `converged_width_experiment._width_nll`, which trains widths via Gaussian NLL.
     `logvar_head` is not read here, so it is never in this loss's autograd graph and stays untouched
-    (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §0: no variance fitting anywhere).
+    (`docs/flexnn/width/history/width_mse_2026-07/EXECUTION_PLAN.md` §0: no variance fitting anywhere).
     """
     mean, _log_var = net.forward_width(x_t, k)
     return ((mean.squeeze(1) - y_t) ** 2).mean()
@@ -161,7 +161,7 @@ def make_hetero(n: int, seed: int, r: float = HETERO_R_DEFAULT, sigma: float = H
         sigma: Gaussian noise std, COMMON-MODE across both regions (default `HETERO_NOISE_SIGMA=0.05`).
             The width-MSE program's WP-4 data-size x noise ladder sweeps this on BOTH regions
             uniformly, so the analytic per-region noise floor stays `sigma**2` and the fit-bar formula
-            (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §5) remains computable.
+            (`docs/flexnn/width/history/width_mse_2026-07/EXECUTION_PLAN.md` §5) remains computable.
 
     Returns:
         `(x, y, region)`, each shape `(n,)`, `x`/`y` float32. `region` is an int array: `0` = easy
@@ -192,7 +192,7 @@ def make_hetero3(n: int, seed: int, r: float = HETERO_R_DEFAULT) -> tuple[np.nda
     The noise-free signal is continuous at both seams: at `x=0` easy and hard both give `0`; at `x=r`
     the hard sine gives `0.5*sin(r)=0.5*sin(4*pi)=0` and the noisy-easy line starts at `(0.5/r)*0=0`.
 
-    THE POINT (`docs/plans/width_mse_2026-07-16/EXECUTION_PLAN.md` §WP-3): noise is COMMON-MODE across
+    THE POINT (`docs/flexnn/width/history/width_mse_2026-07/EXECUTION_PLAN.md` §WP-3): noise is COMMON-MODE across
     widths at a fixed input, so no width fits it down — the noisy-easy per-width MSE curve is FLAT at a
     high level (`~HETERO3_NOISY_SIGMA**2`), and the honest capacity verdict there is "stay NARROW". A
     dial that keys on capacity-hunger reads this correctly; a dial that keys on raw error magnitude
