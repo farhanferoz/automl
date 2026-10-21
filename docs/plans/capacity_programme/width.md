@@ -1997,6 +1997,59 @@ MEASUREMENT FIRST, then close the training recipe. No further mechanism design u
     Passes → (B) is a certified stand-in and step 1b runs in the harness with no driver port. Fails →
     the disagreement is itself a finding about harness/stop-rule/carve differences, it is recorded,
     and the `width_wsel8.py` port to `hetero3` is then required. **Neither branch may be assumed.**
+  - ✅ **STEP 1b ANSWERED 2026-07-25 (root-run, 40 cells, both toys at ten seeds, denominator (B)):
+    THE MID HUMP REPLICATES ON THE SECOND TOY — but only once the METRIC is fixed, and fixing it is
+    the load-bearing part of this result.**
+    - **⚠️ METRIC RULING — binding on every `hetero3` arm in this strand, INCLUDING the running
+      wave-5 data ladder.** On `hetero3` the whole-test-draw field `test_mse_by_width` **cannot
+      resolve this question and must never be ratioed there.** `make_hetero3` gives one of its three
+      equal-width regions a noise std of `HETERO3_NOISY_SIGMA` (10× the quiet regions), so the toy's
+      effective noise VARIANCE is `(2·HETERO_NOISE_SIGMA² + HETERO3_NOISY_SIGMA²)/3` = 0.085 <!-- numcheck-ignore: DERIVED construction constant, computed from the two generator sigmas in `nested_width_net.py`; the same closed form `report_a_benchmark.py` already installs as `TOY_SIGMA[Toy.HETERO3]`. Not a ledger result. -->
+      — **98% of it contributed by the one region the toy's own docstring builds to be unfittable**
+      (*"no width fits it down … the noisy-easy per-width MSE curve is FLAT at a high level"*).
+      Measured, not assumed: that region's per-width curve is flat to 1.02× and sits at 1.02× its own
+      floor on **both** arms, i.e. it is common-mode noise identical across architectures. Including
+      it adds the SAME constant to numerator and denominator and mechanically crushes every ratio
+      toward 1.0 — which is exactly what the whole-draw table showed (every width ≤1.11×, most
+      near-equivalent), and reading that as "sharing is free on the second toy" would have been wrong.
+      **The discriminating readout is `hard_curve_mse`**: same out-of-sample draw, same
+      `_score_all_widths_mse` call, same PHYSICAL units as `test_mse_by_width`
+      (`kdropout_converged_width_experiment.py:756` vs `:717`), restricted to the fittable hard-sine
+      region, floor `HETERO_NOISE_SIGMA²`. **Already stored on every landed cell — no re-run is owed.**
+    - **This is NOT metric-shopping, and the falsifier is stated so the claim is checkable:** on
+      `hetero`, which has no unfittable region and where the whole-draw metric IS valid, the two
+      metrics **agree** in shape and verdict — mid hump peaking at w5–w6, decaying monotonically to
+      ~1.06 at w12 either way. A metric switch that changed the answer only where it was chosen would
+      be suspect; this one is a no-op everywhere it can be tested, and the justification is structural
+      (read off the generator) rather than post-hoc.
+    - **The profile — hard-region, 10 seeds, UNFILTERED, Wilcoxon signed-rank on log-ratios, Holm
+      across the 12 widths.** Medians, because the mean is tail-driven at the wide-spread widths:
+      | toy (n_train) | w5 | w6 | w7 | w8 | w9 | w10 | w11 | w12 |
+      |---|---|---|---|---|---|---|---|---|
+      | `hetero` (1500) | 3.58 | 2.35 | 2.10 | 1.50 | 1.23 | 1.12 | 1.08 | 1.06 |
+      | `hetero3` (2250) | 2.05 | 2.07 | 1.68 | 1.88 | 1.48 | 1.48 | 1.41 | 1.13 |
+      Holm-surviving on `hetero`: w1, w5–w10, w12. On `hetero3`: w6, w8, w9, w10, w11.
+      **Not quotable in either direction:** w2–w4 on both toys (spreads 2×–75×, means 2–3× their own
+      medians), and w12 on `hetero3` (spread 6.1×, not established). w6 on `hetero3` survives Holm but
+      is tail-driven (mean 3.70 vs median 2.07) — quote the median only.
+    - **Convergence footing — the precondition, checked before any ratio was read.** The paired audit
+      (recomputed from the raw trajectories, not from the stored flags) rates
+      **`hetero3` n2250 the best-matched pair in the entire grid**: trustworthy 89.2% vs 88.3%
+      (gap 0.8%, threshold 10%), diverged 13 vs 13, still-improving 0 vs 1 → `[OK] symmetric health`.
+      `hetero` n1500 is also `[OK]` (gap 7.5%). **So the second-toy hump is not a convergence
+      artifact** — on the one axis most likely to manufacture it, the two arms are level.
+    - **The (A)-vs-(B) certification gate: FAILED — and the failure is DIAGNOSTIC, not
+      disqualifying.** On `hetero`, dedicated ÷ same-harness-`independent` is far outside 2·SE at
+      several widths (w4 4.95×, w5 2.89×, w10 2.66×, w3 1.60×). Per the failure branch this is
+      recorded as a finding about harness differences: the WSEL-8 dedicated nets are the **weaker and
+      worse-behaved** side — occasional catastrophic runs their own gate passes as `trustworthy`, and
+      6/120 cells hitting the epoch cap against 0/240 in this harness.
+      ⛔ **The branch's mandated `width_wsel8.py` → `hetero3` port is therefore NOT executed, and that
+      is a DECISION owed to the user rather than a silent drop.** Its purpose was to give `hetero3` a
+      no-sharing denominator; (B) has now supplied one at 10 seeds with the best convergence match in
+      the grid, so the port would add a *second, demonstrably defective* denominator to a question
+      already answered by a sound one. **Recommendation: cancel the port. Reopen only if (B) is
+      itself impeached.**
 - **Step 1c — THE IN-SAMPLE (WEIGHT-SHARING) DISCRIMINATOR.** *(User's experiment, proposed
   2026-07-25; root's refinement of the inference RATIFIED by the user the same day. Slotted here
   2026-07-25 — it had been carried only as a resume-queue line and a prerequisite note in the OPEN
@@ -2037,6 +2090,28 @@ MEASUREMENT FIRST, then close the training recipe. No further mechanism design u
     the arms disagree on any frozen config key the run is VOID, not re-graded.
   - **Cost: no extra training.** These are the same arms step 1b already needs; the in-sample read is
     an additional field on runs that must happen anyway.
+  - ✅ **STEP 1c ANSWERED ON `hetero` 2026-07-25 — BRANCH (i), and ONE mechanism, not two.** The joint
+    net is worse on data it was FITTED to by essentially the same multiplicative factor as on unseen
+    data. An earlier "two mechanisms — a generalisation gap at the wide end" reading was **REFUTED**,
+    not merely left unsupported: it rested on comparing a significant out-of-sample result against a
+    non-significant in-sample one, which is the Gelman & Stern error. The correct quantity is the
+    per-seed difference-in-differences `d = [log J_out − log C_out] − [log J_in − log C_in]`, tested
+    with the same primary test; **all 12 widths land in [0.951, 1.036], <!-- numcheck-ignore: DERIVED four-arm quantity — a per-seed ratio-of-ratios between the joint and control arms across the in-sample and out-of-sample splits. It exists in no single ledger cell by construction, so there is no `.json` to cite; recomputable from the WSEL23_SHARING hetero n1500 arms via scratchpad `paired_test.py`. --> nothing survives Holm, and the
+    CIs are tight (2% at w1, 4% at w12) — positive evidence of ABSENCE, not a power failure.**
+    ⇒ **A uniform FITTING deficit**, which is branch (i): the shared features cannot fit, so the
+    indicated remedy is per-width private capacity, NOT weighting. *(⛔ Do not re-derive this by
+    comparing two significance thresholds — MASTER's standing ban.)*
+  - ⚠️ **STEP 1c IS NOT ANSWERABLE ON `hetero3` FROM CACHE — stated so the second toy is not silently
+    credited with a replication it did not supply.** Per step 1b's metric ruling, `hetero3` needs a
+    region-resolved readout, and the only ones stored (`hard_curve_mse`, `easy_curve_mse`) are
+    computed on the TEST draw (`err2_te`, `kdropout_converged_width_experiment.py:756-757`); the
+    in-sample field `train_mse_by_width_physical` is whole-draw and is therefore compressed toward 1.0
+    by the same unfittable-region constant as its out-of-sample twin. **Their agreement on `hetero3`
+    is trivially true and carries NO information about the mechanism — it must not be quoted as
+    replicating the `hetero` result.** The fix is a small additive change (mirror the region-resolved
+    lines against the training split) but it needs the trained net, so it costs a 20-cell re-run.
+    **Not scheduled — the mechanism verdict is already decisive on `hetero`; reopen only if the
+    one-mechanism reading is challenged.**
 - **Step 1d — THE TWO-TRAINING-SIZE RUN.** *(Queued 2026-07-25 off the capacity result and the
   width-4 coin flip; slotted here the same day — it, too, had been carried only as a resume-queue
   line.)* Everything measured in this strand sits at ONE training size, so no claim about the
@@ -2051,6 +2126,23 @@ MEASUREMENT FIRST, then close the training recipe. No further mechanism design u
     hold as training size rises? **Failure branch:** if the hump moves with data size, the deficit is
     a data-regime property and step 3's private-capacity remedy is answering the wrong question —
     record that and re-scope, do not build candidate 3 anyway.
+  - 🔄 **STEP 1d IN FLIGHT 2026-07-25 — two of four rungs landed, and the SMALL-DATA RUNG IS
+    UNUSABLE AS RUN.** The ladder is `hetero` at `n_train ∈ {200, 500, 1500, 4000}`; 200 and 1500 have
+    landed, 500 and 4000 are still running.
+    - ⛔ **`n_train=200` is `[CONFOUNDED]` and NO ratio from it may be quoted.** The paired convergence
+      audit puts the two arms on visibly unequal footing — trustworthy 54.2% (`independent`) vs 32.5%
+      (`shared_trunk`), a 21.7% gap against a 10% threshold, with 45 vs 67 diverged (seed,width)
+      cells. A ratio across that gap measures which arm converged, not which architecture is better.
+      **This is the rung the headline question most needs**, so the honest status is that the
+      small-data end is currently unanswered, NOT that it shows a large deficit.
+    - **Do not read the ladder from the two landed rungs.** Between `n=200` and `n=1500` the profile
+      does not move uniformly — the mid hump grows while the wide end shrinks — which is a shape
+      change, not the single "grows/shrinks/holds" the done-state asks for, and half of it comes from
+      a confounded rung. **The done-state needs all four rungs and a per-seed test of the DIFFERENCE
+      across sizes** (⛔ never "significant at one n, not at another" — the same Gelman & Stern ban).
+    - **Owed at the small-data end, when the ladder is read:** either a convergence repair at
+      `n_train=200` (both arms to symmetric footing) or an explicit record that the rung is
+      unresolvable under this protocol. Both are done-states; neither may be skipped silently.
 - **Step 2 — declare the training recipe on that evidence.** Root's pre-registered expectation,
   recorded now so it cannot be fitted afterwards: **the recipe is already settled and the answer is
   unglamorous — ALL schedule plus the landed fixes, NO weighting.** If step 1 confirms parity at the

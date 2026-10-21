@@ -53,12 +53,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import enum
 import json
 import math
 import os
 import sys
 import time
+from collections.abc import Iterator
 
 import numpy as np
 import torch
@@ -355,6 +357,8 @@ def _train_kdropout_to_convergence(
     schedule: nwn.WidthSchedule = nwn.WidthSchedule.SANDWICH,
     uniform_draw_n: int = _DEFAULT_UNIFORM_SCHEDULE_DRAW_N,
     weight_table: dict[int, float] | None = None,
+    per_width_restore: bool = False,
+    per_width_snapshots: dict[int, dict] | None = None,
 ) -> tuple[dict[int, cvg.ConvergenceResult], int | None]:
     """One joint k-dropout run (SANDWICH default), gated by PER-WIDTH held-out convergence.
 
@@ -401,12 +405,31 @@ def _train_kdropout_to_convergence(
             below always calls `_width_loss` with NO weight (defaults to `1.0`), so convergence is
             monitored on PLAIN MSE regardless of `loss`, keeping `min_delta` meaningful without
             re-tuning it (`wsel23-candidate1-derived-weighting.md` §3.4).
+        per_width_restore: per-width checkpoint restore (opt-in, default `False`). The shared arms
+            (`Arch.SHARED_TRUNK`/`Arch.NESTED`/`Arch.AFFINE_SEAM`) normally score every width off ONE
+            whole-net snapshot taken at the epoch minimising the MEAN per-width held-out loss
+            (`best_net_state` below) -- `Arch.INDEPENDENT`'s disjoint sub-nets already restore each
+            width's own best independently, an asymmetry that penalises the shared arms and is not part
+            of the intended architectural comparison. When `True` AND `arch is not Arch.INDEPENDENT`,
+            this additionally snapshots the WHOLE net at each width's OWN best epoch (the existing
+            shared-checkpoint bookkeeping keeps running unchanged alongside it, so `best_mean_val_epoch`
+            is still recorded exactly as before) and surfaces those snapshots through
+            `per_width_snapshots`. A no-op under `Arch.INDEPENDENT` or when `False` -- the single most
+            important requirement is that `False` (the default) reproduces the pre-existing behaviour
+            bit-for-bit.
+        per_width_snapshots: out-parameter the CALLER passes in and this function fills IN PLACE with
+            `{width: whole_net_state_dict}` whenever `per_width_restore` is `True` and `arch is not
+            Arch.INDEPENDENT` (left untouched -- i.e. still empty -- in every other case, including
+            `per_width_restore=True` with `arch is Arch.INDEPENDENT`). An out-parameter rather than a
+            third return value or a wider tuple: five other drivers unpack this function's existing
+            2-tuple return, and that contract must keep working unchanged.
 
     Returns:
-        `({width -> ConvergenceResult}, best_mean_val_epoch)`. Best weights are already restored (per
-        width for `Arch.INDEPENDENT`, whole-net for `Arch.NESTED`). `best_mean_val_epoch` is the epoch
-        of the whole-net checkpoint for `Arch.NESTED`, else `None` (inapplicable under per-width
-        checkpointing).
+        `({width -> ConvergenceResult}, best_mean_val_epoch)` -- UNCHANGED 2-tuple shape regardless of
+        `per_width_restore` (see `per_width_snapshots` above for how the new data is surfaced instead).
+        Best weights are already restored (per width for `Arch.INDEPENDENT`, whole-net for the shared
+        arms). `best_mean_val_epoch` is the epoch of the whole-net checkpoint for the shared arms, else
+        `None` (inapplicable under per-width checkpointing).
     """
     if schedule not in _IMPLEMENTED_SCHEDULES:
         raise NotImplementedError(
@@ -425,6 +448,11 @@ def _train_kdropout_to_convergence(
 
     trackers = {k: cvg.ConvergenceTracker(patience=patience, min_delta=min_delta) for k in range(1, w_max + 1)}
     best_states: dict[int, dict | None] = dict.fromkeys(range(1, w_max + 1))
+    # Per-width checkpoint restore bookkeeping (`per_width_restore`): only ever filled in the
+    # non-INDEPENDENT branch below, and only when the flag is on. Allocating it unconditionally costs
+    # nothing (no tensor op, no RNG draw) and keeps the off-path (`per_width_restore=False`) code
+    # identical either way.
+    per_width_best_states: dict[int, dict | None] = dict.fromkeys(range(1, w_max + 1))
     best_mean_val = math.inf
     best_mean_val_epoch: int | None = None
     best_net_state: dict | None = None
@@ -461,7 +489,9 @@ def _train_kdropout_to_convergence(
                         best_states[k] = {n: t.detach().clone() for n, t in net.subnets[k - 1].state_dict().items()}
             else:
                 for k, v in per_width_val.items():
-                    trackers[k].update(epoch, v)
+                    improved = trackers[k].update(epoch, v)
+                    if per_width_restore and improved:
+                        per_width_best_states[k] = {n: t.detach().clone() for n, t in net.state_dict().items()}
                 mean_val = sum(per_width_val.values()) / w_max
                 if mean_val < best_mean_val:
                     best_mean_val = mean_val
@@ -479,6 +509,14 @@ def _train_kdropout_to_convergence(
     elif best_net_state is not None:
         net.load_state_dict(best_net_state)
     net.eval()
+    # Surface the per-width snapshots through the out-parameter (never widening the 2-tuple return --
+    # see `per_width_snapshots`'s docstring). Stays empty for `Arch.INDEPENDENT` (never filled above) and
+    # for `per_width_restore=False` (loop body above never ran), so the caller's `if per_width_snapshots:`
+    # check alone is enough to tell whether per-width restore actually applies to this run.
+    if per_width_restore and per_width_snapshots is not None:
+        for k, state in per_width_best_states.items():
+            if state is not None:
+                per_width_snapshots[k] = state
     return {k: trackers[k].result(final_epoch=final_epoch) for k in range(1, w_max + 1)}, best_mean_val_epoch
 
 
@@ -515,6 +553,23 @@ def _validate_fused_heads(arch: Arch, schedule: nwn.WidthSchedule, *, fused_head
         )
 
 
+@contextlib.contextmanager
+def _width_snapshot_loaded(net: torch.nn.Module, snapshot: dict) -> Iterator[None]:
+    """Temporarily loads `snapshot` into `net`; restores `net`'s ORIGINAL state on exit.
+
+    Used only under `--per-width-restore`, to score one width off its own best-epoch whole-net snapshot
+    without leaking the swap into any other code: whatever runs after the `with` block (the router fit/
+    eval, the deploy bars, the next width's snapshot) must see `net` exactly as it was on entry -- the
+    single shared `best_mean_val_epoch` checkpoint `_train_kdropout_to_convergence` already restored.
+    """
+    original = {n: t.detach().clone() for n, t in net.state_dict().items()}
+    net.load_state_dict(snapshot)
+    try:
+        yield
+    finally:
+        net.load_state_dict(original)
+
+
 def run_case(
     seed: int,
     w_max: int,
@@ -535,6 +590,7 @@ def run_case(
     uniform_draw_n: int = _DEFAULT_UNIFORM_SCHEDULE_DRAW_N,
     fused_heads: bool = False,
     weight_table: dict[int, float] | None = None,
+    per_width_restore: bool = False,
 ) -> dict:
     """Trains the k-dropout net to per-width convergence, then scores the frozen net for the pre-registered bars.
 
@@ -559,6 +615,18 @@ def run_case(
     `weight_table` (WSEL-23 candidate 1, default `None`): per-width training weight, read only when
     `loss is LossType.WEIGHTED` (`_weight_for`); `None` (the default, including under every other
     `loss`) is a no-op. Recorded on the returned `case` for provenance.
+
+    `per_width_restore` (default `False`, opt-in): scores each width off a whole-net snapshot taken at
+    THAT width's own best epoch (`_train_kdropout_to_convergence`'s `per_width_snapshots` out-param)
+    instead of the single shared `best_mean_val_epoch` checkpoint every width is normally scored from.
+    Applies ONLY to the plain per-width fields -- `train_mse_by_width_standardised`,
+    `held_out_mse_by_width_standardised`, `train_mse_by_width_physical`, `held_out_mse_by_width_physical`,
+    `test_mse_by_width`, `hard_curve_mse`, `easy_curve_mse` -- via `_width_snapshot_loaded`, which
+    restores `net` to the shared checkpoint afterwards; the router/deploy bars (`fit_bar`, `curve_gate`,
+    `dial_bar`, `deploy_bar`, `deploy_sweep`) are UNCHANGED, still scored off the one shared checkpoint,
+    because a deployed router can only ever run ONE net state per request. A no-op for `Arch.INDEPENDENT`
+    (already restores per-width its own way) and reproduces the pre-existing behaviour bit-for-bit when
+    `False`. Recorded on the returned `case` for provenance.
     """
     _validate_fused_heads(arch, schedule, fused_heads=fused_heads)
     if toy is nwn.Toy.HETERO3:
@@ -594,6 +662,11 @@ def run_case(
     # otherwise -- `_train_kdropout_to_convergence`'s existing signature/return contract is untouched
     # (WSEL-23's `weight_table` is a new KEYWORD-ONLY param with a `None` default appended at the end,
     # so every other in-flight caller of this function, none of which passes it, is unaffected).
+    # Out-parameter `_train_kdropout_to_convergence` fills in place when `per_width_restore` is True and
+    # `arch is not Arch.INDEPENDENT`; stays `{}` otherwise (see that function's docstring). Declared even
+    # when `per_width_restore=False` so the scoring block below has one `if per_width_snapshots:` check
+    # to make, rather than a second flag to thread through.
+    per_width_snapshots: dict[int, dict] = {}
     _train_t0 = time.perf_counter()
     conv, best_mean_val_epoch = _train_kdropout_to_convergence(
         net,
@@ -611,6 +684,8 @@ def run_case(
         schedule=schedule,
         uniform_draw_n=uniform_draw_n,
         weight_table=weight_table,
+        per_width_restore=per_width_restore,
+        per_width_snapshots=per_width_snapshots,
     )
     train_wall_clock_s = time.perf_counter() - _train_t0
     # W6: the deploy router's hidden sizes, scaled off the ck6 default (mult 1.0 reproduces it exactly).
@@ -622,21 +697,41 @@ def run_case(
     # w_max input columns can ever be non-zero (the rest are masked before the readout), so it is a
     # closed form in `w_max` alone, not read off `net`. Train/held-out MSE per width answer the
     # regularisation question (does bunching change the train-held_out gap) regardless of `--loss`.
-    with torch.no_grad():
-        train_mse_by_width_standardised = {k: float(nwn._width_mse(net, k, x_tr_t, y_tr_t).item()) for k in range(1, w_max + 1)}
-        held_out_mse_by_width_standardised = {k: float(nwn._width_mse(net, k, x_val_t, y_val_t).item()) for k in range(1, w_max + 1)}
     # 2026-07-25 units-bug fix (docs/plans/capacity_programme/width.md "OPEN BUG ... MIX UNITS"): the
-    # pair above is scored in STANDARDISED (normalized-y) space -- silently mixing units with
-    # `test_mse_by_width` below is the exact defect that produced the withdrawn ~10x 1/sy**2 verdict on
-    # 2026-07-24. PHYSICAL twins, via the SAME `_score_all_widths_mse` idiom `test_mse_by_width` uses
-    # (:702) so the unit conversion has one code path; `x_p1[~val_mask]`/`x_p1[val_mask]` are the RAW
+    # standardised pair below is scored in STANDARDISED (normalized-y) space -- silently mixing units
+    # with `test_mse_by_width` below is the exact defect that produced the withdrawn ~10x 1/sy**2 verdict
+    # on 2026-07-24. PHYSICAL twins, via the SAME `_score_all_widths_mse` idiom `test_mse_by_width` uses,
+    # so the unit conversion has one code path; `x_p1[~val_mask]`/`x_p1[val_mask]` are the RAW
     # (pre-standardisation) train/val arrays this same split was carved from at :575-582. The ambiguous
     # `*_by_width` names (no unit suffix) are retired outright rather than kept as an alias, so a stale
     # reader fails loudly instead of silently mixing units again.
-    err2_train_physical = sw._score_all_widths_mse(net, norm, x_p1[~val_mask], y_p1[~val_mask], device)
-    err2_held_out_physical = sw._score_all_widths_mse(net, norm, x_p1[val_mask], y_p1[val_mask], device)
-    train_mse_by_width_physical = {k: float(err2_train_physical[:, k - 1].mean()) for k in range(1, w_max + 1)}
-    held_out_mse_by_width_physical = {k: float(err2_held_out_physical[:, k - 1].mean()) for k in range(1, w_max + 1)}
+    if per_width_restore and per_width_snapshots:
+        # Per-width checkpoint restore: score width k off ITS OWN best-epoch whole-net snapshot rather
+        # than the one shared checkpoint -- same `nwn._width_mse`/`sw._score_all_widths_mse` idioms as
+        # the off-path branch below, just re-run once per width under `_width_snapshot_loaded` (which
+        # restores `net` to the shared checkpoint on every exit, so nothing after this block, or the
+        # next width's snapshot load, ever sees a mutated net).
+        train_mse_by_width_standardised = {}
+        held_out_mse_by_width_standardised = {}
+        train_mse_by_width_physical = {}
+        held_out_mse_by_width_physical = {}
+        for k in range(1, w_max + 1):
+            with _width_snapshot_loaded(net, per_width_snapshots[k]):
+                with torch.no_grad():
+                    train_mse_by_width_standardised[k] = float(nwn._width_mse(net, k, x_tr_t, y_tr_t).item())
+                    held_out_mse_by_width_standardised[k] = float(nwn._width_mse(net, k, x_val_t, y_val_t).item())
+                err2_train_physical_k = sw._score_all_widths_mse(net, norm, x_p1[~val_mask], y_p1[~val_mask], device)
+                err2_held_out_physical_k = sw._score_all_widths_mse(net, norm, x_p1[val_mask], y_p1[val_mask], device)
+                train_mse_by_width_physical[k] = float(err2_train_physical_k[:, k - 1].mean())
+                held_out_mse_by_width_physical[k] = float(err2_held_out_physical_k[:, k - 1].mean())
+    else:
+        with torch.no_grad():
+            train_mse_by_width_standardised = {k: float(nwn._width_mse(net, k, x_tr_t, y_tr_t).item()) for k in range(1, w_max + 1)}
+            held_out_mse_by_width_standardised = {k: float(nwn._width_mse(net, k, x_val_t, y_val_t).item()) for k in range(1, w_max + 1)}
+        err2_train_physical = sw._score_all_widths_mse(net, norm, x_p1[~val_mask], y_p1[~val_mask], device)
+        err2_held_out_physical = sw._score_all_widths_mse(net, norm, x_p1[val_mask], y_p1[val_mask], device)
+        train_mse_by_width_physical = {k: float(err2_train_physical[:, k - 1].mean()) for k in range(1, w_max + 1)}
+        held_out_mse_by_width_physical = {k: float(err2_held_out_physical[:, k - 1].mean()) for k in range(1, w_max + 1)}
     case = {
         "seed": seed,
         "arch": arch.value,
@@ -676,6 +771,10 @@ def run_case(
         # weight actually applied (None unless loss=weighted and a real table was supplied), recorded so
         # a landed cell is reproducible without re-reading whatever weight artifact happened to be on disk.
         "weight_table": weight_table,
+        # Per-width checkpoint restore (additive only -- no key above this line changed): which
+        # scoring rule actually produced the per-width fields below, so a landed cell is never ambiguous
+        # about it. See `run_case`'s docstring for exactly which fields this does/doesn't affect.
+        "per_width_restore": per_width_restore,
     }
 
     if loss is LossType.NLL:
@@ -710,11 +809,24 @@ def run_case(
     err2_by_width_te = {k: err2_te[:, k - 1] for k in range(1, w_max + 1)}
     # floor_hard computed above from `toy`/`sigma` (sigma**2 for HETERO; quiet HETERO_NOISE_SIGMA**2 for HETERO3).
 
+    # Per-width checkpoint restore, report-only twin of `err2_by_width_te`: a deployed router can only
+    # ever run ONE net state per request, so `fit_bar`/`curve_gate`/`dial_bar`/`deploy_bar`/`deploy_sweep`
+    # below stay on the SHARED checkpoint (`err2_te`/`err2_by_width_te`, untouched) regardless of
+    # `per_width_restore` -- only the plain per-width fields (`test_mse_by_width`, `hard_curve_mse`,
+    # `easy_curve_mse`) read `err2_by_width_te_for_report`, which equals `err2_by_width_te` itself
+    # (same object -- bit-identical) unless `per_width_restore` actually produced snapshots.
+    err2_by_width_te_for_report = err2_by_width_te
+    if per_width_restore and per_width_snapshots:
+        err2_by_width_te_for_report = {}
+        for k in range(1, w_max + 1):
+            with _width_snapshot_loaded(net, per_width_snapshots[k]):
+                err2_by_width_te_for_report[k] = sw._score_all_widths_mse(net, norm, x_te, y_te, device)[:, k - 1]
+
     # The only per-width quantity safe to compare against an external denominator: `x_te` is a disjoint
     # draw (`seed + 500`) touched by neither training nor checkpoint selection, and it is in PHYSICAL y
     # units — matching the dedicated-net `held_out_mse` these ratios divide by. Before this existed, the
     # closure divided a selection-set numerator by a test-set denominator (2026-07-25 ruling).
-    case["test_mse_by_width"] = {k: float(err2_by_width_te[k].mean()) for k in range(1, w_max + 1)}
+    case["test_mse_by_width"] = {k: float(err2_by_width_te_for_report[k].mean()) for k in range(1, w_max + 1)}
 
     fit_bar = sw._fit_bar_mse(err2_by_width_te, region_te, w_max, floor_hard)
     curve_gate = sw._curve_shape_gate_mse(err2_by_width_te, region_te, w_max)
@@ -753,8 +865,8 @@ def run_case(
     case.update(
         {
             "norm": norm,
-            "hard_curve_mse": [float(err2_te[region_te == 1][:, k - 1].mean()) for k in range(1, w_max + 1)],
-            "easy_curve_mse": [float(err2_te[region_te == 0][:, k - 1].mean()) for k in range(1, w_max + 1)],
+            "hard_curve_mse": [float(err2_by_width_te_for_report[k][region_te == 1].mean()) for k in range(1, w_max + 1)],
+            "easy_curve_mse": [float(err2_by_width_te_for_report[k][region_te == 0].mean()) for k in range(1, w_max + 1)],
             "fit_bar": fit_bar,
             "curve_gate": curve_gate,
             "dial_bar": dial_bar,
@@ -1021,6 +1133,14 @@ def main() -> None:
         "defaults were deleted, not superseded (both derivations were circular; see width.md WSEL-23). Name a source "
         "deliberately and be able to say where its weights came from.",
     )
+    parser.add_argument(
+        "--per-width-restore",
+        action="store_true",
+        help="Score the shared arms (shared_trunk/nested/affine_seam) with each width read from a whole-net snapshot "
+        "taken at THAT width's own best epoch, instead of the one shared best_mean_val_epoch snapshot every width is "
+        "normally scored from. Default off (existing paths byte-identical). No-op for --arch independent, which "
+        "already restores each width's own best independently.",
+    )
     args = parser.parse_args()
 
     if args.selftest:
@@ -1058,7 +1178,7 @@ def main() -> None:
     print(
         f"[kdropout-converged] device={device} arch={arch.value} loss={loss.value} toy={toy.value} sigma={sigma:g} "
         f"seeds={seeds} w_max={w_max} n_train={n_train} n_test={n_test} max_epochs_cap={max_epochs} check_every={args.check_every} "
-        f"tag={tag} fused_heads={fused_heads}",
+        f"tag={tag} fused_heads={fused_heads} per_width_restore={args.per_width_restore}",
         flush=True,
     )
     os.makedirs(results_dir, exist_ok=True)
@@ -1070,7 +1190,7 @@ def main() -> None:
             seed, w_max, n_train, n_test, max_epochs, device,
             arch=arch, loss=loss, check_every=args.check_every, patience=args.patience, min_delta=args.min_delta, toy=toy, sigma=sigma,
             schedule=schedule, router_hidden_mult=args.router_hidden_mult, uniform_draw_n=args.uniform_draw_n, fused_heads=fused_heads,
-            weight_table=weight_table,
+            weight_table=weight_table, per_width_restore=args.per_width_restore,
         )
         per_case.append(case)
         if loss is LossType.NLL:
@@ -1113,6 +1233,10 @@ def main() -> None:
                 # Additive only: which weight artifact this run actually read, None
                 # unless loss=weighted (per_case[*]["weight_table"] already carries the resolved table).
                 "a2_law_path": _resolve_a2_law_path(args.a2_law_path) if loss is LossType.WEIGHTED else None,
+                # Additive only: which checkpoint-restore rule produced the per-width fields in every
+                # per_case[*] cell below (per_case[*]["per_width_restore"] also carries it per-cell, since
+                # this run-level flag is constant across every seed in one saved file).
+                "per_width_restore": args.per_width_restore,
                 # WSEL-12 cost instrumentation (Step 3, additive only -- no key above this line changed):
                 # per-seed training wall clock, index-aligned with "seeds" above, and the trunk-eval count
                 # one training STEP pays (constant across seeds for one config: same arch/schedule/w_max).
