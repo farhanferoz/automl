@@ -200,7 +200,7 @@ cited at `SESSION_JOURNAL_2.md:87`. The dead-candidate disposition above is exac
 search form produces and is reported unchanged; this citation does not overrule it -- it
 is recorded so FP-8 does not treat this row as clear without also checking that citation.
 
-#### `automl_package/examples/noisy_data_example.py`
+#### `automl_package/examples/noisy_data_example.py` — DELETED 2026-10-21 (imported the removed `JAXLinearRegression`; could not run) <!-- citecheck-ignore -->
 
 ```
 grep -rn -E "(^[[:space:]]*(import|from)[[:space:]]+noisy_data_example\\b)|(automl_package\\.examples\\.noisy_data_example\\b)|(\\bnoisy_data_example\\.py\\b)" --include='*.py' --include='*.md' --include='*.sh' --include='*.txt' automl_package/ docs/ tests/ | grep -v "^automl_package/examples/noisy_data_example\\.py:"
@@ -287,7 +287,7 @@ Output: `<empty>`
 Protected (PROTECTED.tsv): no
 Disposition: **dead-candidate**
 
-#### `automl_package/examples/run_automl.py`
+#### `automl_package/examples/run_automl.py` — DELETED 2026-10-21 (imported `automl_package/automl.py`, removed in `ed84fca`; could not run) <!-- citecheck-ignore -->
 
 ```
 grep -rn -E "(^[[:space:]]*(import|from)[[:space:]]+run_automl\\b)|(automl_package\\.examples\\.run_automl\\b)|(\\brun_automl\\.py\\b)" --include='*.py' --include='*.md' --include='*.sh' --include='*.txt' automl_package/ docs/ tests/ | grep -v "^automl_package/examples/run_automl\\.py:"

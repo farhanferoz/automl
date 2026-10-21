@@ -144,12 +144,6 @@ $$
 
 *   **PyTorchLinearRegression**: A linear regression model implemented using PyTorch, allowing for GPU acceleration and integration with PyTorch's ecosystem.
 
-
-*   **PyTorchLogisticRegression**: A logistic regression model implemented using PyTorch, suitable for binary classification.
-
-
-*   **SKLearnLogisticRegression**: Scikit-learn's Logistic Regression for classification, supporting various penalties.
-
 ### **Tree-Based Models**
 
 *   **XGBoostModel**: Wrapper for XGBoost (Extreme Gradient Boosting), configurable for regression and classification. 
@@ -1168,10 +1162,7 @@ print("AutoML package imported successfully!")
 
 ## **15. Usage**
 
-Refer to the `automl_package/examples` directory for detailed scripts:
-
-*   `run_automl.py`: Demonstrates the core AutoML functionality for both regression and classification tasks.
-*   `noisy_data_example.py`: Provides a use case for comparing advanced regression models on noisy data.
+Refer to the `automl_package/examples` directory for detailed scripts.
 
 ### **Basic AutoML Workflow**
 
@@ -1306,7 +1297,6 @@ automl_clf = AutoML(task_type=TaskType.CLASSIFICATION, metric='accuracy', n_tria
                      feature_scaler=X_scaler_clf, use_wandb=False) # Set use_wandb to False for local demo
 
 models_for_clf = [
-    ModelName.SKLEARN_LOGISTIC_REGRESSION,
     ModelName.PYTORCH_NEURAL_NETWORK,
     ModelName.FLEXIBLE_NEURAL_NETWORK, # NEW MODEL INCLUDED
     ModelName.XGBOOST,
@@ -1407,8 +1397,6 @@ The project is organized as follows:
         -   `linear_regression.py`: Implements `JAXLinearRegression`.
         -   `normal_equation_linear_regression.py`: Implements `NormalEquationLinearRegression`.
         -   `pytorch_linear_regression.py`: Implements `PyTorchLinearRegression`.
-        -   `pytorch_logistic_regression.py`: Implements `PyTorchLogisticRegression`.
-        -   `sklearn_logistic_regression.py`: Implements `SKLearnLogisticRegression`.
         -   `xgboost_model.py`: Implements `XGBoostModel`.
         -   `lightgbm_model.py`: Implements `LightGBMModel`.
         -   `catboost_model.py`: Implements `CatBoostModel`.

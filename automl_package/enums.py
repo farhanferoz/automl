@@ -76,7 +76,6 @@ class ModelName(Enum):
     XGBOOST = "XGBoostModel"
     LIGHTGBM = "LightGBMModel"
     CATBOOST = "CatBoostModel"
-    SKLEARN_LOGISTIC_REGRESSION = "SKLearnLogisticRegression"
     CLASSIFIER_REGRESSION = "ClassifierRegression"
     PROBABILISTIC_REGRESSION = "ProbabilisticRegression"
 

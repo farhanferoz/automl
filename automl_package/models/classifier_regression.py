@@ -123,7 +123,7 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
     def name(self) -> str:
         """Returns the name of the model."""
         try:
-            if self.base_classifier_class.__name__ in [ModelName.XGBOOST.value, ModelName.LIGHTGBM.value, ModelName.CATBOOST.value, ModelName.SKLEARN_LOGISTIC_REGRESSION.value]:
+            if self.base_classifier_class.__name__ in [ModelName.XGBOOST.value, ModelName.LIGHTGBM.value, ModelName.CATBOOST.value]:
                 base_name = self.base_classifier_class(is_classification=True).name
             elif self.base_classifier_class.__name__ == ModelName.PYTORCH_NEURAL_NETWORK.value:
                 base_name = self.base_classifier_class(input_size=10, output_size=1, task_type=TaskType.CLASSIFICATION).name

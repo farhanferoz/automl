@@ -39,7 +39,8 @@ def test_v_toy0_reproducible_and_seed_varying():
 
 def test_v_toy0_recovers_known_w_and_sigma_at_large_n():
     # OLS on a large draw must recover the fixed, known coefficients and noise scale.
-    n, sigma_true = 200_000, 1.0
+    # sigma_true != 1 so a sampler that ignores its `sigma` argument fails.
+    n, sigma_true = 200_000, 1.3
     x, y = td.make_v_toy0(n=n, sigma=sigma_true, seed=7)
     x64, y64 = x.astype(np.float64), y.astype(np.float64)
     w_hat, _, _, _ = np.linalg.lstsq(x64, y64, rcond=None)
@@ -62,6 +63,7 @@ def test_v_toy1_sigma_bounds_and_monotone():
     # sigma(x) = 0.1 + 0.3*sigmoid(4x): bounded in (0.1, 0.4), strictly increasing on [0, 1].
     grid = np.linspace(0.0, 1.0, 200)
     sigma = td.v_toy1_sigma(grid)
+    assert np.allclose(sigma, 0.1 + 0.3 / (1.0 + np.exp(-4.0 * grid)), atol=1e-9)
     assert np.all(sigma > 0.1) and np.all(sigma < 0.4)
     assert np.all(np.diff(sigma) > 0)
     assert abs(sigma[0] - (0.1 + 0.3 / (1.0 + np.exp(0.0)))) < 1e-8
