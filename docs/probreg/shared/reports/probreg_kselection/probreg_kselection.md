@@ -272,7 +272,7 @@ gives the best possible summary using that many, the same way keeping only the f
 few components of a standard dimension-reduction technique does [@rippel2014nested].
 Here the same "resample how much of the model you are allowed to use, every step"
 idea is applied to which *classes* of a classifier are visible, rather than which
-features of a redocs/probreg/history/presentation are visible.
+features of a representation are visible.
 
 ## 3.2 Checking that this costs nothing important
 

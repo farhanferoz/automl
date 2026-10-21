@@ -290,7 +290,7 @@ locked disposition. <!-- numcheck-ignore: file:line anchors verified by reading,
 autonomous run without user design review is how this becomes a mess):**
 - Order-aware classifier target (cumulative-link / ordinal CE over the ordered slices; verified
   absent: `grep -rin "ordinal|cumulative.link|coral" automl_package/` → no hits).
-- Head input redocs/probreg/history/presentation (feeding features beyond `p_i` to heads).
+- Head input representation (feeding features beyond `p_i` to heads).
 - Real-data validation (Problem 2's P4 owns it).
 
 ## 4. READOUTS, σ POLICY, DECISION ALGORITHM — all locked

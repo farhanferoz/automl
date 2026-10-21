@@ -96,7 +96,7 @@ class PrefixNormWidthNet(nn.Module):
             self.beta = nn.Parameter(torch.zeros(self.w_max))
 
     def hidden(self, x: torch.Tensor) -> torch.Tensor:
-        """`(N, 1) -> (N, w_max)` post-activation hidden redocs/probreg/history/presentation (the wrapped net's, unchanged)."""
+        """`(N, 1) -> (N, w_max)` post-activation hidden representation (the wrapped net's, unchanged)."""
         return self.base.hidden(x)
 
     def _running_totals_r(self, h: torch.Tensor) -> torch.Tensor:
@@ -251,7 +251,7 @@ class MonotoneGateWidthNet(nn.Module):
         self.nu = nn.Parameter(torch.tensor(init_nu, dtype=torch.float32))
 
     def hidden(self, x: torch.Tensor) -> torch.Tensor:
-        """`(N, 1) -> (N, w_max)` post-activation hidden redocs/probreg/history/presentation (the wrapped net's, unchanged)."""
+        """`(N, 1) -> (N, w_max)` post-activation hidden representation (the wrapped net's, unchanged)."""
         return self.base.hidden(x)
 
     def _gates(self, dtype: torch.dtype, device: torch.device) -> torch.Tensor:

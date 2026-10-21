@@ -159,7 +159,7 @@ Option 1/3 decision. *(Strands 1, 2, 3, and 5's M0-M2 are complete; live forward
    it.
 
 <!-- from docs/plans/capacity_programme/MASTER.md lines 162-171 -->
-5. **Depth/joint strands are structured around #2's pattern** (shared redocs/probreg/history/presentation +
+5. **Depth/joint strands are structured around #2's pattern** (shared representation +
    per-capacity readout heads), conditioned on G-WIDTH; written contingencies apply if it fails.
    *(Amended 2026-07-17: holds for WIDTH only — the depth transfer prediction was REFUTED 3/3;
    shared readout is the depth winner. Joint prior = per-width heads × depth-shared readout;

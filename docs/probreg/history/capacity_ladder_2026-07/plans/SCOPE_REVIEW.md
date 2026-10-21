@@ -32,7 +32,7 @@ per-rung NLL within 2·SE of the unconstrained per-rung model, and the trained
 nested fit matched the closed-form maximum-likelihood optimum digit-for-digit);
 training cost is FLAT in the ladder cap (measured 77.8/74.8/82.6 s at cap 4/8/16 —
 unused rungs are masked, not paid for). Literature agrees for neural widths
-(nested dropout; slimmable networks; Matryoshka redocs/probreg/history/presentation learning — §5).
+(nested dropout; slimmable networks; Matryoshka representation learning — §5).
 Qualifications: (i) the draw distribution over capacities is a SCHEDULE, not a
 prior — uniform draws are the measured-safe default; geometric/harmonic draws were
 rejected in autocast because tail rungs starve exactly where the knee is read;
@@ -196,7 +196,7 @@ proposes generic toys and loses the ability to grade reads against truth.
 ## 3. What the document gets right (kept as-is)
 
 The primary recommendation (nested ladder as the trained object; selection
-separated from redocs/probreg/history/presentation learning; post-hoc knee + post-hoc stacking as the
+separated from representation learning; post-hoc knee + post-hoc stacking as the
 two global readers; conditioned arm as a control only; trained mixture rejected
 as the operational method; the four-module decomposition of the problem). All of
 this now has measured support from two projects and the plan adopts it without
@@ -250,7 +250,7 @@ fallback arms in the plan, not as citations.
   off or use per-depth statistics), the sandwich rule, and in-place
   distillation. No direct evidence for small BN-free tabular MLPs — a real
   pilot risk, not an established result.
-- **Matryoshka redocs/probreg/history/presentation learning** (Kusupati et al. 2022): strong
+- **Matryoshka representation learning** (Kusupati et al. 2022): strong
   large-scale confirmation for embeddings/classification/retrieval, INCLUDING
   the caveat that uniform per-prefix loss under-serves the smallest prefix
   (their boosted variant recovers ~3%). NO published validation for regression

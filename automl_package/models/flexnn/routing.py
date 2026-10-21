@@ -8,7 +8,7 @@ REINFORCE stay exactly as they are; this is an alternative, post-hoc path). One 
 serves every 1-D capacity axis in this programme -- FlexNN depth
 (`flexible_neural_network.py::FlexibleHiddenLayersNN.fit_router`), `FlexibleWidthNN` width
 (`flexible_width_network.py::FlexibleWidthNN.fit_router`), and (task F9) ProbReg's k -- via a
-`capacity_grid: list[tuple[int, ...]]` redocs/probreg/history/presentation that also leaves room for a future 2-D
+`capacity_grid: list[tuple[int, ...]]` representation that also leaves room for a future 2-D
 (width, depth) joint grid without any joint-specific code here (an explicit F3 non-goal).
 
 Labeling rule (COPIED, not imported, with provenance cited): the cheapest capacity within
@@ -197,7 +197,7 @@ class DistilledCapacityRouter:
                 actual scoring lives inside `eval_fn`).
             capacity_grid: candidate capacities, cheapest first, e.g. `[(4,), (7,), (10,)]` for a
                 1-D depth/width grid (a future joint grid would use `[(w, d), ...]` tuples -- the
-                tuple redocs/probreg/history/presentation is chosen so that extension needs no change here).
+                tuple representation is chosen so that extension needs no change here).
             tolerance: relative tolerance for the cheapest-within-tolerance labeling rule.
             cost_fn: `cost_fn(capacity) -> float`, used by `mean_deployed_cost`. `None` disables
                 `mean_deployed_cost` (a `RuntimeError` if called).

@@ -145,7 +145,7 @@ failure (R5).
 
 **Mechanism.** Readout interference is **width-specific**. A weight-shared recurrent block presents
 every depth with the *same* state space, so one readout serves all depths without conflict — hence
-`shared_readout` wins. Width prefixes hand each capacity a *different* redocs/probreg/history/presentation fighting over one
+`shared_readout` wins. Width prefixes hand each capacity a *different* representation fighting over one
 readout — hence width's shared readout broke. This asymmetry replaces "one mechanism governs both
 axes" as report (b)'s spine, and sets the **G-JOINT design prior** carried into `docs/flexnn/joint/plan.md`:
 per-width heads × depth-shared readout.

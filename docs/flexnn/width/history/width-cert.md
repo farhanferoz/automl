@@ -130,7 +130,7 @@ class SharedReadoutPerWidthAffineNet(nn.Module):
         self.affine_bias = nn.Parameter(torch.zeros(self.w_max))
 
     def hidden(self, x: torch.Tensor) -> torch.Tensor:
-        """`(N, 1) -> (N, w_max)` post-activation hidden redocs/probreg/history/presentation (as `NestedWidthNet.hidden`)."""
+        """`(N, 1) -> (N, w_max)` post-activation hidden representation (as `NestedWidthNet.hidden`)."""
         return self.activation(self.trunk(x))
 
     def forward_width(self, x: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:

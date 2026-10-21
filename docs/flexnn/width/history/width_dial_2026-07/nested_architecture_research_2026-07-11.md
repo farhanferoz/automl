@@ -23,7 +23,7 @@ Status: pillar 3 complete; pillars 1–2 and the cross-pillar synthesis to follo
 
 ### Per-paper findings
 
-**Matryoshka Redocs/probreg/history/presentation Learning (MRL).** Kusupati et al., *NeurIPS 2022*, arXiv:2205.13147.
+**Matryoshka Representation Learning (MRL).** Kusupati et al., *NeurIPS 2022*, arXiv:2205.13147.
 - Mechanism: one shared backbone `F`, and a **dedicated linear head `W(m)` per nesting scale `m`**,
   trained by a joint loss that sums, over O(log d) prefix sizes, the loss of the first-`m` dims:
   `min Σ_i Σ_m c_m · L(W(m)·F(x_i)_{1:m} ; y_i)`.
@@ -246,7 +246,7 @@ confidence: stated-as-intuition, no literature citation in the notes).** Two tra
   rotation-degeneracy argument. So low-rank nests cleanly **because the covariance is a linear-algebraic
   object**; a nonlinear MLP has no such rotational/SVD structure, which is the mechanistic reason the same
   uniform-prefix-dropout does *not* induce a clean ordering for MLP width. The notes do not cite the
-  ordered-redocs/probreg/history/presentation literature — the connection is drawn here.
+  ordered-representation literature — the connection is drawn here.
 
 **Evidence it reaches ~ML optimum.** Moment-anchored: nested MV matches its own fit split 0.987 (closed-form
 ML = 1.000 by construction) (`results:526-538`). The trained rank-dropout ssr sweep across ρ={0,.25,.5,1,2,4}
@@ -331,7 +331,7 @@ are (1)+(2)+(3), not more loss-shaping.
 
 ### Design implications — candidate architectures (PROPOSED, for owner review before any build)
 
-Goal: satisfy the invariant while keeping ONE shared redocs/probreg/history/presentation (efficiency + cheap prefix inference),
+Goal: satisfy the invariant while keeping ONE shared representation (efficiency + cheap prefix inference),
 i.e. earn back what independent-width throws away.
 
 1. **Frozen residual cascade (boosting-style) — primary candidate.** Block k is trained to fit the

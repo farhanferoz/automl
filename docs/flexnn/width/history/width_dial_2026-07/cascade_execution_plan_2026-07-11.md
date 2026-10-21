@@ -453,7 +453,7 @@ Identical bars and thresholds to the W batteries (comparability is the point):
 - Decision rule (pre-registered): if both arms pass i+ii, the arm of record = better deploy LL, ties
   (within 2·SE) broken toward the **cascade** (guaranteed identity/ordering + fewer params). If only
   one passes, it is the arm of record. If neither passes construction, the finding is "per-rung heads
-  and frozen additivity do NOT rescue shared-redocs/probreg/history/presentation nesting" — a real (negative) answer to
+  and frozen additivity do NOT rescue shared-representation nesting" — a real (negative) answer to
   the middle-ground question; fold into the report, do not iterate ad hoc.
 
 ### 4.5 Phases + verify commands

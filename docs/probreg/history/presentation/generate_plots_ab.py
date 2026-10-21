@@ -67,7 +67,7 @@ def simulate_data(
 
 
 class SimpleDiscreteRegressor:
-    """Minimal standalone DiscreteRegressor for generating docs/probreg/history/presentation plots.
+    """Minimal standalone DiscreteRegressor for generating presentation plots.
 
     Discretises the target into k balanced classes, trains a classifier,
     then learns empirical mapping functions from predicted probability to

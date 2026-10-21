@@ -112,7 +112,7 @@ If BOTH arms pass bars (i) and (ii): the arm of record is whichever has the bett
 held-out LL; ties (within 2*SE) are broken toward the CASCADE (guaranteed identity/ordering, and
 `~6K` params vs Matryoshka's `~(4W+2) + sum_k 2(k+1)` — plan §2.8's accounting table). If only ONE
 arm passes bars (i) and (ii), it is the arm of record. If NEITHER arm passes CONSTRUCTION, the
-finding is: "per-rung heads and frozen additivity do NOT rescue shared-redocs/probreg/history/presentation nesting" — a
+finding is: "per-rung heads and frozen additivity do NOT rescue shared-representation nesting" — a
 real (negative) answer to the middle-ground question raised by W1/W2's shared-trunk failure — and
 gets folded into the report as-is, not iterated on ad hoc.
 

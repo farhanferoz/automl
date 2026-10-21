@@ -78,7 +78,7 @@ may reflect that large learnable per-input depth requirements are hard to constr
 2. RULE on the path (1/2/3, or another). Is the plan's width-6/tent⁶ redesign to be followed as-written
    (I argue no — wrong direction), or superseded?
 3. GOVERNANCE: within-plan correction the orchestrator applies, or a USER-LEVEL G-FORK? This
-   challenges the ratified toy premise ("provably-deep-required" conflated redocs/probreg/history/presentation with
+   challenges the ratified toy premise ("provably-deep-required" conflated representation with
    learnability) and the ratified FAIL(i) procedure. The user is away → if G-FORK, PARK T1, keep other
    lanes (P1 etc.) moving.
 4. H2 gating: H2 was conditional on T1 passing BOTH bars. Bar (i) failed ⇒ H2 stays locked regardless;

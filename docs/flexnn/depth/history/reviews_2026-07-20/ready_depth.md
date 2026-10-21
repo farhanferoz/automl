@@ -86,7 +86,7 @@ But the verdict's own *mechanism* explanation, at
 and `docs/flexnn/depth/history/depth.md:29-31`:
 > readout interference is WIDTH-SPECIFIC — a weight-shared recurrent block presents every depth with
 > the SAME state space, so one readout serves all depths; width prefixes hand each capacity a
-> DIFFERENT redocs/probreg/history/presentation fighting over one readout.
+> DIFFERENT representation fighting over one readout.
 
 A feed-forward net with **distinct weights per layer** (the strand's primary object, §1a line 33) is
 the *prefix* case, not the weight-shared case — each depth hands the readout a different

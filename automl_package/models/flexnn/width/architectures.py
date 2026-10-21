@@ -68,7 +68,7 @@ class NestedWidthNet(nn.Module):
         self.logvar_head = nn.Linear(self.w_max, 1)
 
     def hidden(self, x: torch.Tensor) -> torch.Tensor:
-        """`(N, 1) -> (N, w_max)` post-activation hidden redocs/probreg/history/presentation (the trunk's full output)."""
+        """`(N, 1) -> (N, w_max)` post-activation hidden representation (the trunk's full output)."""
         return self.activation(self.trunk(x))
 
     def forward_width(self, x: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -297,7 +297,7 @@ class SharedTrunkPerWidthHeadNet(nn.Module):
             self.mean_heads = nn.ModuleList(nn.Linear(self.w_max, 1) for _ in range(self.w_max))
 
     def hidden(self, x: torch.Tensor) -> torch.Tensor:
-        """`(N, in_dim) -> (N, w_max)` post-activation hidden redocs/probreg/history/presentation (identical to `NestedWidthNet.hidden` at the default `in_dim=1`)."""
+        """`(N, in_dim) -> (N, w_max)` post-activation hidden representation (identical to `NestedWidthNet.hidden` at the default `in_dim=1`)."""
         return self.activation(self.trunk(x))
 
     def _fused_weight(self) -> torch.Tensor:
@@ -411,7 +411,7 @@ class SharedReadoutPerWidthAffineNet(nn.Module):
         self.affine_bias = nn.Parameter(torch.zeros(self.w_max))
 
     def hidden(self, x: torch.Tensor) -> torch.Tensor:
-        """`(N, 1) -> (N, w_max)` post-activation hidden redocs/probreg/history/presentation (as `NestedWidthNet.hidden`)."""
+        """`(N, 1) -> (N, w_max)` post-activation hidden representation (as `NestedWidthNet.hidden`)."""
         return self.activation(self.trunk(x))
 
     def forward_width(self, x: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:

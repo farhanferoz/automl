@@ -406,7 +406,7 @@ decisions this task must settle and record, each with the width strand's answer 
   and the mechanism does not carry over.** `verdict_per_input_depth.md:40-43`: one shared network can
   serve every depth *"precisely because the weight-shared recurrent block presents every depth with
   the **same** state space, so one readout suffices."* `docs/flexnn/depth/history/depth.md:29-31` states the contrast: readout
-  interference is *"WIDTH-SPECIFIC … width prefixes hand each capacity a DIFFERENT redocs/probreg/history/presentation
+  interference is *"WIDTH-SPECIFIC … width prefixes hand each capacity a DIFFERENT representation
   fighting over one readout."*
   **A feed-forward net with distinct weights per layer IS the prefix case** — each depth hands the
   readout a different representation. By the verdict's own mechanism the shared readout is predicted

@@ -33,7 +33,7 @@ This document scopes a line of work for a flexible neural architecture project i
 
 ## Objective
 
-The target problem is to turn a fixed-width feed-forward network into a flexible-width model whose active number of hidden units can vary by input. In the rank-ladder setting, this corresponded to learning a single ordered covariance ladder and then deciding how many columns to use; in the neural setting, the analogous goal is to learn a single ordered hidden redocs/probreg/history/presentation and then decide how many hidden units should be active for a given input.[1][4][5]
+The target problem is to turn a fixed-width feed-forward network into a flexible-width model whose active number of hidden units can vary by input. In the rank-ladder setting, this corresponded to learning a single ordered covariance ladder and then deciding how many columns to use; in the neural setting, the analogous goal is to learn a single ordered hidden representation and then decide how many hidden units should be active for a given input.[1][4][5]
 
 A useful design principle from nested dropout is that smaller subnetworks should be prefixes of larger subnetworks, rather than unrelated masked variants. This creates an ordered family of subnetworks in which lower-capacity models remain valid truncations of higher-capacity ones, which is important for interpretability, adaptive computation, and post-hoc routing.[1][2]
 
@@ -109,7 +109,7 @@ Third, it is computationally efficient. Each example pays only for one sampled w
 
 ## Post-hoc width selection after nested training
 
-A major advantage of the nested setup is that width selection can be separated from redocs/probreg/history/presentation learning. After training the ordered network once, each candidate width can be evaluated on held-out data, and a width decision rule can be applied without retraining the base model.
+A major advantage of the nested setup is that width selection can be separated from representation learning. After training the ordered network once, each candidate width can be evaluated on held-out data, and a width decision rule can be applied without retraining the base model.
 
 ### A3-style held-out knee
 
@@ -176,7 +176,7 @@ This preserves the prefix interpretation exactly: unit $$k+1$$ can only be activ
 
 Several related ideas should be kept conceptually separate during scoping.
 
-- **Ordered redocs/probreg/history/presentation learning**: learn hidden units so that prefixes are meaningful.[1][2]
+- **Ordered representation learning**: learn hidden units so that prefixes are meaningful.[1][2]
 - **Global width selection**: choose one width for all inputs using held-out evaluation.
 - **Post-hoc soft width weighting**: fit a global mixture over widths after training.[6][7]
 - **Per-input routing**: predict width as a function of the input, using labels or soft targets derived from held-out scoring.[11][12]

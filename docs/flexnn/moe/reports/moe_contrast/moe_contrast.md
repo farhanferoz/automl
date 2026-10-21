@@ -104,7 +104,7 @@ not the model-size sense of "capacity" used everywhere else in this note. We kee
 because it is the literature's.) Inputs
 routed to a full expert are not processed by the layer at all: "If too many tokens are routed to
 an expert (referred to later as dropped tokens), computation is skipped and the token
-redocs/probreg/history/presentation is passed directly to the next layer through the residual connection"
+representation is passed directly to the next layer through the residual connection"
 [@fedus2021switch]. Probabilistically, the predictive distribution for a dropped input is
 replaced, silently and data-dependently, by whatever the surrounding network does with an
 unprocessed representation. No likelihood statement covers this; it is a throughput constraint

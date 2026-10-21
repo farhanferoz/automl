@@ -242,7 +242,7 @@ class NestedStrategy(BaseSelectionStrategy):
     no penalty), so `n_predictor_layers` must be 0, same as `NoneStrategy`.
 
     All `max_hidden_layers` per-depth outputs are computed once via the same
-    cached-redocs/probreg/history/presentation loop the soft strategies use (`all_depth_outputs`), so the
+    cached-representation loop the soft strategies use (`all_depth_outputs`), so the
     per-sample gather that follows is a free reshape of one forward pass — the prefix
     property this relies on is the one audited in `_flexnn_prefix_selftest.py`.
     `all_depth_log_likelihood` reuses that same cache to export the eval-time all-depth

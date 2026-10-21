@@ -647,7 +647,7 @@ class ReadoutMode(enum.StrEnum):
     depth result favours a shared readout, but its own stated mechanism ("the weight-shared
     recurrent block presents every depth with the SAME state space, so one readout suffices",
     `docs/flexnn/depth/reports/verdict_per_input_depth.md:40-43`) does not carry over to an architecture
-    with DISTINCT weights per layer, where each depth hands the readout a DIFFERENT redocs/probreg/history/presentation
+    with DISTINCT weights per layer, where each depth hands the readout a DIFFERENT representation
     — exactly the width-strand failure mode (`docs/flexnn/depth/history/depth.md:29-31`). Neither member of this enum is the
     default; both are run.
     """

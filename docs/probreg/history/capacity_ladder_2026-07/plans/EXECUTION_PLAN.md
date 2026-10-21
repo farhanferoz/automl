@@ -194,7 +194,7 @@ survey report — key integration points):**
 | Ordering penalty auto-weight is 1.0 ONLY for (SEPARATE_HEADS, GAUSSIAN_LTV, REGRESSION_ONLY); with MDN loss it defaults 0 and warns (empirically harmful per `docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md` §9.1) — the C1 conflict resolves itself under mixture scoring | `probabilistic_regression.py:129-142` |
 | `n_classes_predictor` layout = logits for k∈{2..k_max} + ONE bypass logit LAST; all consumers assume this order | `probabilistic_regression_net.py:66-75` |
 | Sentinel gotcha: `DIRECT_REGRESSION_K_SENTINEL = 2**30`; must be checked with `!=`, never `<` (historical `< inf` bug) | `base_selection_strategy.py:12`, `probabilistic_regression.py:225-227` |
-| FlexNN capacity = DEPTH (shared `hidden_size`); prefix property CONFIRMED — soft strategies run blocks sequentially, cache every intermediate redocs/probreg/history/presentation, apply the shared output layer per depth (= a free all-depth score table per forward); `hard_forward()` batches by depth bucket and runs only layers 1..d | `flexible_neural_network.py:101-151`, `layer_selection_strategies.py:79-181` |
+| FlexNN capacity = DEPTH (shared `hidden_size`); prefix property CONFIRMED — soft strategies run blocks sequentially, cache every intermediate representation, apply the shared output layer per depth (= a free all-depth score table per forward); `hard_forward()` batches by depth bucket and runs only layers 1..d | `flexible_neural_network.py:101-151`, `layer_selection_strategies.py:79-181` |
 | `IndependentWeightsFlexibleNN` = separate full stacks per depth = the conditioned CONTROL; no batched fixed-depth fast path | `independent_weights_flexible_neural_network.py:124-184` |
 | FlexNN supports `(mean, log_var)` output (`UncertaintyMethod.PROBABILISTIC`) — NLL scoring native; blocks MAY contain BatchNorm (ladder arms must pin BN off or use per-depth stats) | `flexible_neural_network.py:82-84,101-111` |
 | FlexNN inlines its own batch loop (per-sample depth draws go here); ProbReg uses the shared `base_pytorch` loop | `flexible_neural_network.py:236-285`, `base_pytorch.py:168-186` |
@@ -398,7 +398,7 @@ bar passes, as in autocast).
 ### F0 🔜 — prefix-property + scoring audit (RESOLVED by the 2026-07-09 survey; remaining work = record + selftest)
 Facts of record (survey; verify by selftest, not re-reading): (i) depth d
 reuses blocks 1..d — the soft strategies already cache EVERY intermediate
-redocs/probreg/history/presentation and score the shared output layer per depth
+representation and score the shared output layer per depth
 (`layer_selection_strategies.py:79-181`), i.e. the all-depth score table is a
 free by-product of one forward pass; (ii) the model emits `(mean, log_var)`
 under `UncertaintyMethod.PROBABILISTIC` (`flexible_neural_network.py:82-84`) —
@@ -678,7 +678,7 @@ Load-bearing:
    Nested Dropout.* arXiv:1402.0915 — ordered-prefix training; PCA-equivalence
    for semi-linear autoencoders; supervised follow-up arXiv:1412.7155 (unit
    sweeping).
-4. Kusupati et al. (2022, NeurIPS). *Matryoshka Redocs/probreg/history/presentation Learning.*
+4. Kusupati et al. (2022, NeurIPS). *Matryoshka Representation Learning.*
    arXiv:2205.13147 — prefix quality preservation at scale + the
    smallest-prefix boosting caveat.
 5. Yu & Huang (2019, ICCV). *Universally Slimmable Networks and Improved

@@ -28,7 +28,7 @@ opposite. `shared_readout` is the STRONGEST arm on every seed (S5 val_acc 1.000 
 ≥0.990 at ℓ=10, all 3 seeds) while `per_length_head` merely passes. Mechanism reading: readout
 interference is WIDTH-SPECIFIC — a weight-shared recurrent block presents every depth with the
 SAME state space, so one readout serves all depths; width prefixes hand each capacity a
-DIFFERENT redocs/probreg/history/presentation fighting over one readout. This asymmetry replaces "one mechanism
+DIFFERENT representation fighting over one readout. This asymmetry replaces "one mechanism
 governs both axes" as report (b)'s spine and sets the G-JOINT design prior (per-width heads ×
 depth-shared readout — carried into `docs/flexnn/joint/plan.md`). Stability caveat travelling with the
 prior: 1 of 6 shared_readout runs (Z120 seed 1) hit an optimization blow-up (val CE 1.34 → 5.85

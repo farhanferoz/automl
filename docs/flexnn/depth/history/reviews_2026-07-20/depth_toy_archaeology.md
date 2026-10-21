@@ -105,7 +105,7 @@ this citation and "all four 1-D smooth-regression candidates failed" claim again
 ### "The pre-registered transfer prediction — REFUTED 3/3" (docs/flexnn/depth/history/depth.md:23-35) — a DIFFERENT transfer question than the headline (about readout architecture, not toy construction)
 - Prediction (written before battery ran): shared-readout arm would FAIL the fit bar (mirroring width's failure where FlexNN's shared output_layer causes readout interference) while per-length/per-capacity heads would pass.
 - OUTCOME: OPPOSITE. shared_readout is the STRONGEST arm on every seed (S5 val_acc 1.000 at ℓ=4/6/8, >=0.990 at ℓ=10, all 3 seeds); per_length_head merely passes.
-- Mechanism: "readout interference is WIDTH-SPECIFIC — a weight-shared recurrent block presents every depth with the SAME state space, so one readout serves all depths; width prefixes hand each capacity a DIFFERENT redocs/probreg/history/presentation fighting over one readout."
+- Mechanism: "readout interference is WIDTH-SPECIFIC — a weight-shared recurrent block presents every depth with the SAME state space, so one readout serves all depths; width prefixes hand each capacity a DIFFERENT representation fighting over one readout."
 - This sets the design prior for docs/flexnn/joint/plan.md's joint strand: per-width heads x depth-shared readout (asymmetric).
 - Stability caveat: 1/6 shared_readout runs (Z120 seed1) hit an optimization blow-up (val CE 1.34->5.85 @ epoch3500, never recovered) — motivated Task D6 (divergence guard).
 

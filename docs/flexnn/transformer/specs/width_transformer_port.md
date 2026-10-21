@@ -255,7 +255,7 @@ three things width has to engineer:
 1. **The narrow computation is literally a sub-computation of the wide one.** No vector is truncated,
    so every normalisation layer sees a full-width vector and its statistics are unchanged. The whole
    of §5 simply does not arise.
-2. **Every rung comes off one forward pass**, read from the running redocs/probreg/history/presentation after each block —
+2. **Every rung comes off one forward pass**, read from the running representation after each block —
    which is why MASTER Decision 20 already assigns depth the all-rungs-every-step schedule.
 3. **Shapes match, so ONE output projection serves every rung.** Width's expensive case (per-rung
    vocabulary projections, §4) has no depth analogue.
@@ -268,7 +268,7 @@ with **per-rung** readouts — and shared readouts are exactly what makes the de
 - The depth substrate is not currently in a state to build on: its positive control fails, and it
   failed in the configuration already known to be wrong (shared readout, regularisation pinned off).
   MASTER Decision 14 applies — that battery measures the protocol, not the arms. Fix first.
-- A redocs/probreg/history/presentation partway up the stack is not automatically in a form the final output layer can
+- A representation partway up the stack is not automatically in a form the final output layer can
   read. The fix (a small per-exit normalisation) is cheap but is a real step, not nothing.
 - Depth only *saves* compute if you can stop early per input — for a transformer, per token. That is
   the halting question already parked in `docs/flexnn/joint/plan.md`.

@@ -77,8 +77,8 @@ def _multi_width_criterion(base_criterion: nn.Module) -> Callable[[torch.Tensor,
 class FlexibleWidthNN(PyTorchModelBase):
     """A PyTorch neural network with per-input selectable width (active hidden units).
 
-    A single shared trunk maps input to a `w_max`-dimensional hidden redocs/probreg/history/presentation; each
-    configured width `w` reads that redocs/probreg/history/presentation through its OWN dedicated head after zeroing
+    A single shared trunk maps input to a `w_max`-dimensional hidden representation; each
+    configured width `w` reads that representation through its OWN dedicated head after zeroing
     hidden units `w:` (the prefix mask). See module docstring for the certified architecture and
     training-regime provenance.
     """
@@ -130,7 +130,7 @@ class FlexibleWidthNN(PyTorchModelBase):
             self.heads = nn.ModuleDict({str(w): nn.Linear(self.w_max, outer_instance.output_size) for w in self.widths})
 
         def hidden(self, x: torch.Tensor) -> torch.Tensor:
-            """`(N, input_size) -> (N, w_max)` post-activation trunk redocs/probreg/history/presentation, shared across all widths."""
+            """`(N, input_size) -> (N, w_max)` post-activation trunk representation, shared across all widths."""
             return self.activation(self.trunk_linear(x))
 
         def forward_width(self, x: torch.Tensor, width: int) -> torch.Tensor:

@@ -451,7 +451,7 @@ Needed for comparison with quantile regression baselines (see §4). At `τ = 0.5
 
 **Normalized NLL / CRPS across datasets.** For each dataset, compute `(score − best_score) / (worst_score − best_score)`, average across datasets for a model-level ranking. Standard in multi-dataset benchmark tables (used e.g. by Salinas et al. 2020 for DeepAR benchmarks).
 
-**Critical-difference diagram** (Demšar 2006). Visual docs/probreg/history/presentation of average ranks across datasets with statistical significance bars. Required in any paper comparing more than three models on more than three datasets.
+**Critical-difference diagram** (Demšar 2006). Visual presentation of average ranks across datasets with statistical significance bars. Required in any paper comparing more than three models on more than three datasets.
 
 ### 3.6 Sanity checks / debugging metrics (not for the paper, but for day-to-day)
 

@@ -105,11 +105,11 @@ task/data with the width mask in two places; J-3 is a different width mechanism.
 - Piloted only if J-1's pilot shows the width dial is not real (narrow readout reads A tracks at ≥ the
   Bayes ceiling for A=1) — i.e. J-1 passes fit but fails the width-separation bar (§4 W-bar).
 
-### J-3 (DIFFERENT mechanism) — variable-group-order tracks, width = redocs/probreg/history/presentation richness
+### J-3 (DIFFERENT mechanism) — variable-group-order tracks, width = representation richness
 - **Generative spec.** Single track (K=1). Width-demand = the **order of the group** the input's word
   lives in: draw a sub-alphabet from a nested chain of groups (e.g. Z₂ ⊂ Z₆ ⊂ A5-involutions), width-demand
   = the order class (small order → narrow state suffices; A5 → wide). Depth-demand = commitment length as
-  in G-DEPTH. Width here is the sinc-toy analog — *richness of the redocs/probreg/history/presentation the state must hold* —
+  in G-DEPTH. Width here is the sinc-toy analog — *richness of the representation the state must hold* —
   rather than parallel count.
 - **Risk:** group-order and commitment length can correlate (larger groups mix faster), so orthogonality
   is NOT free — needs its own arithmetic probe (drawn order ⊥ drawn length) BEFORE pilot (MOD-5). Weaker;

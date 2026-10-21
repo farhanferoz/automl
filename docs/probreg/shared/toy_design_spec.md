@@ -84,7 +84,7 @@ natively and a smooth regressor must approximate with sharp transitions.
 
 If $r(x)$ were monotone in $x$, the mean would be a monotone staircase and a plain network could fit
 it by brute force with enough capacity, making the comparison a capacity contest rather than a
-redocs/probreg/history/presentation one. $\phi$ makes the level assignment **fine-grained in $x$** (many thin alternating
+representation one. $\phi$ makes the level assignment **fine-grained in $x$** (many thin alternating
 strips) without changing the marginal level distribution.
 
 Primary choice: $\phi(u) = \{m u\}$ (fractional part), $m$ an integer **strip multiplicity**. $m$ is

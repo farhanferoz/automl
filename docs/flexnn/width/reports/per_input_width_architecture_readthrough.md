@@ -144,13 +144,13 @@ pick how far up the ladder each input climbs. If you instead train a separate mo
 you pay K× the parameters, get no cheap "run the first `k`" shortcut, and have no single object to route
 within. Nesting is what turns "per-input capacity" from K separate models into one truncatable model —
 it is the whole reason the per-input dial is cheap rather than a K-fold cost. The question is whether a
-*shared, truncatable* redocs/probreg/history/presentation can actually stay coherent as you truncate it. The next subsection
+*shared, truncatable* representation can actually stay coherent as you truncate it. The next subsection
 is the tool that answers "when does it, and when does it not."
 
 ### 2.2 The coherence invariant — what separates the cases that nest from the ones that don't
 
 Before the methods, the principle that predicts which ones should work. We want one shared
-redocs/probreg/history/presentation that can be *truncated* to any width and still be a valid model at that width — a
+representation that can be *truncated* to any width and still be a valid model at that width — a
 "nested" ladder of models, `width-1 ⊂ width-2 ⊂ … ⊂ width-K`. Across every case we studied (here and
 in two sister problems — a low-rank covariance ladder and a classifier-over-bins), a nested ladder is
 **coherent** only when, for every rung `i`, all three of these hold:
@@ -554,12 +554,12 @@ and everything is trained **jointly**, minimizing the unweighted sum of all 12 r
 L(x, y)  =  Σ_{k=1}^{12}  ℓ( μ_k(x), s_k(x) ; y )                             (14)
 ```
 
-(the per-rung weights `c_k` of Matryoshka redocs/probreg/history/presentation learning are all set to 1 here — an unexplored
+(the per-rung weights `c_k` of Matryoshka representation learning are all set to 1 here — an unexplored
 dial, pre-registered as uniform). Prefix inference at width `k` computes `k` hidden units and one
 `(k → 2)` head, so it stays cheap.
 
 **What it fixes and what it doesn't.** The per-width heads remove the shared-read-out entanglement —
-each width gets its own read-out basis, which is the mechanism the Matryoshka-redocs/probreg/history/presentation result
+each width gets its own read-out basis, which is the mechanism the Matryoshka-representation result
 rides on. But all widths' gradients still hit the one shared trunk jointly, forever, so the trunk's
 hidden units get **no** stable identity and **no** ordering. On the scorecard: self-contained partly
 fixed; identity and ordering not. That is exactly why it is the informative contrast to the cascade.
