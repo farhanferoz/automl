@@ -1,7 +1,7 @@
-# ProbReg toy design under MSE-only, constant-σ scope — design spec
+# ProbReg toy design under squared error — design spec
 
-**Status: DRAFT for user review. ⛔ Do not build until signed off.** Written 2026-07-20 after the σ
-scope change (`docs/probreg/shared/benchmark_spec.md` §2) invalidated the existing toys.
+**Status: DRAFT for user review. ⛔ Do not build until signed off.** Written 2026-07-20 because the existing toys
+have a zero conditional mean (§1).
 
 Owner: `docs/probreg/PLAN.md`. Model definitions: that file §1.
 
@@ -30,8 +30,7 @@ The variance-matched controls (`_toy_datasets.py:181-184`) set
 $\sigma_{\text{broad}}(x) = \sigma\sqrt{1 + s(x)^2/4}$, i.e. they are **heteroscedastic by
 construction** — also out of scope now.
 
-⇒ Both families are retired for this benchmark. They remain valid for the distributional work when
-σ-fitting is taken up as its own programme.
+⇒ Both families are retired for this benchmark.
 
 ---
 
@@ -47,8 +46,7 @@ decomposition approximates better than a single head.** That is true when the ta
 *quantised*: it lives on a small set of well-separated levels, and the difficulty is in deciding
 *which* level, not in interpolating between them.
 
-This is not a workaround for the σ restriction — it is the original "classification as a
-regulariser" claim stated in a form squared error can see.
+This is the original "classification as a regulariser" claim stated in a form squared error can see.
 
 ---
 
@@ -237,7 +235,7 @@ measuring required resolution — a substantive negative that redirects the prog
 
 ## 10. Non-goals
 
-No variance/σ fitting (that is the separate programme this scope change created). No multimodal
+No multimodal
 targets — the mean is single-valued by construction here. No real data. No new selection algorithm.
 No change to the model definitions in `docs/probreg/PLAN.md` §1.
 

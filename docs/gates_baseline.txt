@@ -71,7 +71,6 @@ shared/p9-cleanup-manifest.tsv                                       # docs/prob
 
 # --- docs/probreg/fixed_k/plan.md P11 Create target (parked 2026-07-21, root) -------------------------------------
 # Head-structure comparison driver. Created by P11; deps P7 + P10, so not yet written.
-automl_package/examples/probreg_p11.py                                # P11
 
 # --- docs/flexnn/package/plan.md FP-12 Create target (parked 2026-07-21, root) ----------------------------
 # Fixed-sigma mixture scorer test. Created by FP-12 (wave zero for ProbReg).
@@ -79,7 +78,6 @@ automl_package/examples/probreg_p11.py                                # P11
 # --- docs/probreg/fixed_k/plan.md Create targets (parked 2026-07-21, root) ------------------------------------
 # Each verified: named in a PS task's Files line AND consumed by that task's verify command.
 # Remove each entry the moment the artifact lands.
-docs/flexnn/ps-certification-memo.md       # PS-4 (memo)
 
 # --- docs/flexnn/width/plan.md WSEL-19 D1 Create targets (wave D, root 2026-07-22) ------------------------------
 # The bake-off driver + its aggregate ledger. Created by the D2 authoring contract / the root's

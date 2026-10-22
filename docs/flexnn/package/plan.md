@@ -1661,7 +1661,7 @@ create a parallel one**, and this task is the reason FP-9's "built once" rule ex
 **Files (write set):** `automl_package/utils/losses.py` (extend) ·
 `automl_package/models/flexnn/strategies/n_classes.py` ·
 `automl_package/models/probabilistic_regression.py` · `automl_package/examples/report_a_benchmark.py` ·
-`tests/test_fixed_sigma_scorer.py` (new)
+`test_fixed_sigma_scorer.py` (new; deleted 2026-10-22, ProbReg cleanup)
 
 **Spec.**
 1. **The scorer.** `fixed_sigma_mixture_log_likelihood(y, probs, mus, sigma) -> per-sample (N,)` in

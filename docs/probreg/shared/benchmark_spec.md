@@ -28,14 +28,10 @@ the "reuse" column was opened and read while writing this spec.
 | Baseline-comparison harness shape (build model → `fit` → `predict` → `predict_uncertainty` → metric dict → per-dataset DataFrame → CSV) | `automl_package/examples/model_comparison.py:174-247` | The driver **extends this shape**. `evaluate_model` (`:174-185`) is the exact contract to generalise. |
 | Baseline model builders | `model_comparison.py:105-121` (`build_xgboost`, `build_lightgbm`, `build_nn_constant`) | Reused as the starting point; hyperparameters are *replaced* by the tuned search spaces of §6. |
 | shared-k ProbReg builder | `model_comparison.py:159-167` (`build_prob_regression`) | Reused; `n_classes` becomes a tuned hyperparameter (§3.1). |
-| ~~CRPS (closed form / quadrature)~~ | `automl_package/utils/scoring.py:18`, `:40` | **NOT USED — removed with σ (§2, §4.2b).** |
-| ~~Winkler / pinball~~ | `automl_package/utils/scoring.py:119,158` | **NOT USED — removed with σ.** |
-| **Fixed-σ mixture NLL (the primary metric)** | `automl_package/utils/losses.py:104` `mdn_nll` | Pass a constant variance broadcast across components (§4.1). This is the one scoring helper the driver needs. |
-| Predictive-distribution protocol (`cdf`/`ppf`/`log_prob`/`mean`/`variance`) | `automl_package/utils/distributions.py:19-49` (`PredictiveDistribution`, `GaussianDistribution`, `MixtureOfGaussiansDistribution`) | PIT is computed through `.cdf`. |
 | Convergence gating (trajectory, `converged`/`hit_cap`/`still_improving`/`diverged`/`trustworthy`, `summary()`) | `automl_package/utils/convergence.py:36-80`, re-exported by `automl_package/examples/convergence.py` | The Decision 9/17 gate. `fit_to_convergence` at `convergence.py:153`. |
 | variable-k mechanism | `ProbabilisticRegressionModel.fit_router` (`automl_package/models/probabilistic_regression.py:754`) + `predict(inference_mode="routed")` (`:598`) + `DistilledCapacityRouter` (`automl_package/models/common/distilled_router.py:106`) | Decision-13 distilled router; no new selection code. |
 | K6 positive control | `automl_package/examples/capacity_ladder_k6.py` (`--selftest`, `main()` writes `k6_summary.json`) + certified artifact `automl_package/examples/capacity_ladder_results/K6/k6_summary.json` | The Decision-14 known-good arm (§8.1). |
-| ~~PICP / ECE~~ | `automl_package/utils/metrics.py:163,171` | **NOT USED — removed with σ (§4.2b).** Both measure calibration of a per-input spread; under a shared constant σ they would measure the constant. |
+
 
 ### 1.2 Genuinely new (must be built by the driver task)
 
@@ -44,10 +40,7 @@ the "reuse" column was opened and read while writing this spec.
    `ucimlrepo` is **not installed** in `~/dev/.venv` (checked 2026-07-20); see §10.3.
 2. **A matched-wall-clock tuning loop** (§6). `model_comparison.py` has no tuning at all; `BaseModel`'s
    Optuna path is trial-count-bounded, not wall-clock-bounded.
-3. ~~**PIT / regression-ECE and multi-α PICP**~~ — **REMOVED 2026-07-20 with σ (§2, §4.2b). The
-   driver must NOT build these.** *Superseded text:* PIT / regression-ECE on the Kuleshov
-   formulation and multi-α PICP (§4.5) — the existing
-   `metrics.py` versions do not implement these.
+3. Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 4. **Per-seed results JSONs** carrying trajectories and convergence flags (§9), not just means.
 5. ~~**CatBoost probabilistic arm wiring**~~ — **REMOVED 2026-07-20: CatBoost is dropped from the
    model set (§2).** Retained struck-through so the removal is legible rather than silent.
@@ -60,74 +53,22 @@ the "reuse" column was opened and read while writing this spec.
 
 ## 2. Model set (6) — frozen
 
-> ## ⚠️ SCOPE CHANGE 2026-07-20 (user, live): NO VARIANCE FITTING, AND TWO BASELINES
+> ## ⚠️ SCOPE CHANGE 2026-07-20 (user, live): TWO BASELINES
 >
-> **1. σ IS NOT FITTED — it is a single shared constant. The benchmark stays distributional.**
-> Learning σ in-sample has the same pathology as learning k in-sample: the objective rewards
-> memorising, residuals shrink, and σ follows them down, so there is no in-sample signal separating
-> "genuinely low noise" from "I overfit". That makes σ-fitting its own programme, not a free rider
-> on this one (consistent with `docs/flexnn/PLAN.md` Decision 2).
->
-> **The fix is to remove the per-input σ knob, not the distribution.** Each ProbReg arm predicts a
-> weighted set of components `{p_c(x), μ_c(x)}`; scoring uses the mixture density with **one σ,
-> shared across all components, all inputs and all arms**:
->
-> $$-\log \sum_{c \le k} p_c(x)\, \mathcal N\!\big(y;\, \mu_c(x),\, \sigma^2\big), \qquad \sigma \text{ FIXED}$$
->
-> A single global constant, fixed before scoring, **cannot be dragged down by in-sample
-> overfitting** — there is no per-input parameter to shrink. The pathology is removed; the ability to
-> see distributional shape is kept.
->
-> **Why this matters and why the first draft of this block was wrong.** An earlier version of this
-> section inferred "no σ fitting ⇒ score on squared error". That inference was not the user's
-> instruction and it was **wrong in a way that would have destroyed the experiment**: squared error
-> reads only the conditional mean, k is a dial on distributional *shape*, and the existing toys have
-> a conditional mean of identically zero (`automl_package/examples/_toy_datasets.py:174-178`) — the
-> whole toy suite would have had zero power and returned a clean-looking tie. Recorded so the
-> inference is not repeated.
->
-> **Consequences, all binding:**
-> - **Primary metric: fixed-σ mixture NLL.** Implementation exists —
->   `automl_package/utils/losses.py:104` `mdn_nll` computes `-mean log Σ_j p_j N(y; μ_j, σ_j²)`; pass
->   a shared constant variance instead of learned per-component ones.
-> - **RMSE is retained as a point-accuracy column** (user, 2026-07-20), never as the k readout.
-> - **Still removed:** metrics that require a *per-input* σ to be meaningful — interval coverage
->   (PICP/MPIW), PIT and regression-ECE, Winkler. Under a constant σ these measure the constant, not
->   the model.
-> - **The k-selection score stays a likelihood**, now at fixed σ: M1's arbiter, M2's router and M3's
->   sweep all score the fixed-σ mixture likelihood per rung. The three call sites that read `log_var`
->   (`automl_package/models/probabilistic_regression.py:828`, `:843`) substitute the constant.
-> - **The published toy numbers REMAIN comparable** — same units (nats of held-out likelihood), so
->   `docs/probreg/shared/reports/probreg_kselection/probreg_kselection.md` §3.2's tolerance rule transfers unchanged.
->   *(An earlier draft said re-anchoring was required. That was a consequence of the squared-error
->   error and no longer applies.)*
-> - **The existing toys are RETAINED.** They are homoscedastic by construction, which is exactly what
->   a fixed σ wants, and they keep the multimodality question the strand is about.
->
-> **σ's value, per dataset (binding, or the comparison is confounded):** ONE σ per dataset, fixed by
-> the SAME rule for every arm — on toys the known construction value; on real data the held-out
-> root-mean-square residual of the plain-NN baseline (§2.5), computed once and reused for all six
-> arms. **A per-arm σ is forbidden**: each arm scoring under its own σ makes the likelihoods
-> incomparable. Record the value in every results JSON. **Robustness check (required):** re-score at
-> σ×0.5 and σ×2; if the ranking of arms changes, the ranking is an artefact of the σ choice and must
-> be reported as such rather than as a result.
->
-> 🔬 **Honest limitation for the report:** a single σ is mis-specified wherever real noise varies with
-> the input. That mis-specification is identical across all arms so the comparison stays fair, but
-> absolute likelihood values are not interpretable as calibrated fit — only their differences are.
-> This is exactly the boundary the σ programme will remove.
+> **1.** The "no variance fitting, fixed shared σ" half of this scope change, with its scoring rule, σ-value rule and
+> limitation note: removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 >
 > **2. Baselines cut from four to two.** Three boosting libraries measured nearly the same thing.
 > One well-tuned tree model plus a linear model spans the range that matters.
 > - **CatBoost is DROPPED** — its only reason for inclusion was its probabilistic output mode
->   (`RMSEWithUncertainty`, §1.2 item 5), which is moot with σ out of scope.
+>   (`RMSEWithUncertainty`, §1.2 item 5).
 > - **XGBoost is DROPPED** in favour of one tree learner (below).
 > - **Linear regression is ADDED** — the floor. If a dataset's target is essentially linear in its
 >   features, every elaborate model converging to the same score is the finding, and without a
 >   linear baseline that is invisible.
 >
 > **Resulting set: M1, M2, M3, one gradient-boosted tree, one plain NN, linear regression = 6.**
-> The neural network STAYS — with σ gone it becomes a plain single-output regressor, and it is the
+> The neural network STAYS — a plain single-output regressor, and it is the
 > single most important baseline in the set: ProbReg at k=1 is essentially that model, so it is the
 > direct "does the classification bottleneck buy anything at all?" control.
 
@@ -137,10 +78,7 @@ NGBoost, MDN, Deep Ensembles, quantile NN, MC-Dropout, GP, CQR are explicit non-
 (`research_plan.md` §4 future work; F12 non-goals).
 
 All six emit a per-input point prediction. That is the invariant that makes the squared-error metric
-set comparable across the whole table. *(This line previously read "a per-input `(μ, σ)` pair … makes
-NLL, CRPS and PIT comparable" — superseded by the σ scope change above. §4 still describes the old
-distributional metric set and is **STALE**; rewriting it is a task, not an edit, and it is tracked as
-P0b in `docs/probreg/PLAN.md`.)*
+set comparable across the whole table.
 
 ### 2.0a Naming map — binding for the whole document
 
@@ -204,7 +142,7 @@ ProbabilisticRegressionModel(
     max_n_classes_for_probabilistic_path=10,                     # FROZEN, §3.2
     uncertainty_method=UncertaintyMethod.PROBABILISTIC,
     regression_strategy=RegressionStrategy.SEPARATE_HEADS,
-    optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+    optimization_strategy=ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,   # owner ruling 2026-10-22
     base_classifier_params={"hidden_layers": ..., "hidden_size": ...},   # TUNED
     regression_head_params={"hidden_layers": ..., "hidden_size": ...},   # TUNED
     target_transform=<None | "symlog">,           # FROZEN PER DATASET, §5.4
@@ -344,9 +282,7 @@ essentially this model, so it is the direct control for the question the whole a
 on: **does the classification bottleneck buy anything over a plain regression head?** If ProbReg
 cannot beat this, k-selection has nothing to select for.
 
-*(Changed 2026-07-20: this arm was previously specified with a two-output heteroscedastic head. With
-σ out of scope it is a single-output regressor, which is also the cleaner control — same head shape
-as ProbReg's per-class regressors, differing only in the bottleneck.)*
+
 
 ### 2.6 Model 6 — linear regression (the floor)
 
@@ -367,7 +303,7 @@ beat least squares on a dataset has not earned its complexity there.
 | §3.1 **M3 sweep grid** (was: shared-k `n_classes` range) | `{1, 2, 3, 5, 7, 10}` | **Changed 2026-07-20 with the §2 rewrite.** No longer an Optuna range — no ProbReg arm tunes `n_classes` (C1). It is now M3's sweep: the k values at which a dedicated model is trained. `1` (the bypass) is ADDED so M3 competes over the same rung set M1 and M2 reach (C3); the old grid's omission of it was the confound. Still capped at 10 = `max_n_classes_for_probabilistic_path`. |
 | §3.2 `max_n_classes_for_probabilistic_path` | `10` **+ a binding ceiling check** | Package default (`probabilistic_regression.py:67`), not a code limit — it is a constructor argument and the rung grid is derived from it, so nothing is hardcoded. **But a frozen ceiling censors the answer if it binds.** ⇒ **CEILING CHECK (binding, added 2026-07-20):** if any (dataset, seed) selects `k = k_max` for M1 or M3, or M2 routes a material share of inputs to the top rung, the ceiling **is** the result and the true answer is unknown. That cell is **re-run at a raised ceiling** (`k_max = 20`) and the raise is reported. Never report a selected k equal to the ceiling as if it were a free choice. *(Related hardcode worth knowing: the Optuna search space falls back to a literal `10` upper bound at `probabilistic_regression.py:464` when `n_classes_inf` is infinite. It does not bite here — no arm tunes this — but it is a real hardcode and would bite anyone who did.)* |
 | §3.3 `regression_strategy` | `SEPARATE_HEADS` | The only strategy with per-class `(μ, σ)` (`predict_distribution` rejects `SINGLE_HEAD_FINAL_OUTPUT`, `probabilistic_regression.py:656-659`) and the certified configuration of record. Not swept. |
-| §3.4 `optimization_strategy` | `REGRESSION_ONLY` | **Identical across all three ProbReg arms**, and it must stay that way — but for two different reasons, which the earlier wording conflated. **CORRECTED 2026-07-20:** this cell read *"Mandatory under k-dropout"*, which is imprecise now that M3 does not use k-dropout. For **M1 and M2** (k-dropout) it is mandatory: the class docstring records that dynamic-k + CE is **not validated** (`probabilistic_regression.py:54-62`), and freezing `REGRESSION_ONLY` is what keeps the k ladder coherent by making the cross-entropy branch never fire (the cross-k class-identity conflict, `docs/probreg/shared/state.md` §2.5 / D4). For **M3** (ordinary per-k models) the CE branch is not the hazard, but the setting is held identical anyway **so the objective is not a second difference between the reference and the arms it is the reference for**. *(This cell previously claimed the two ProbReg arms "differ in exactly one thing". That was **false** — they also differed in training scheme. It is true of the §2.0 three-model set, which is the point of the rewrite.)* |
+| §3.4 `optimization_strategy` | `CE_STOP_GRAD` | Owner ruling 2026-10-22: the classifier is trained on the class labels (cross-entropy on y bins) and its probabilities reach the heads without gradient. **Identical across all three ProbReg arms**, so the objective is not a second difference between the reference and the arms it is the reference for. *(The earlier `REGRESSION_ONLY` row and its reasoning: removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).)* |
 | §3.5 router hyperparameters | package defaults, untuned | §2.2. |
 | §3.6 device | `AUTOML_DEVICE=cpu` | MASTER environment rule (`docs/RULES.md:46`). |
 
@@ -375,90 +311,17 @@ beat least squares on a dataset has not earned its complexity there.
 
 ## 4. Metrics — definitions and direction
 
-> **REWRITTEN 2026-07-20 for the fixed-σ decision (§2).** σ is not fitted; it is one shared
-> constant. The benchmark therefore stays **distributional** — the metric that reads distributional
-> shape is the point of the whole strand and squared error cannot see it.
->
-> *A first draft of this section replaced everything with squared error. That was an over-reading of
-> the σ decision and is recorded in §2 as an error, because it would have removed the only readout
-> capable of answering the question.*
+The fixed-σ mixture-likelihood metric set that stood in §4.0, §4.1 and §4.3: removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
+The yardstick is held-out regression error (owner ruling 2026-10-22).
 
-### 4.0 The comparability rule (binding, restated)
+### 4.2 RMSE — point accuracy
 
-Every headline number is computed from the **same object for all six models: a predictive density
-with ONE shared, fixed σ**, in the original target units.
-
-- **ProbReg arms (M1–M3)** supply the genuine mixture `Σ_{c≤k} p_c(x) N(μ_c(x), σ²)` — the components
-  are the model's, σ is the shared constant. **This is a real improvement over the superseded
-  design**, which was forced onto a moment-matched single Gaussian because
-  `predict_distribution` raises under both dynamic-k and symlog
-  (`automl_package/models/probabilistic_regression.py:660-663`, `:664-668`). Fixing σ sidesteps that
-  entirely: the mixture is assembled from `forward_at_k`'s per-component means, which are available
-  in every configuration. The old "mixture NLL only in a separate secondary table" carve-out is
-  therefore **withdrawn** — every arm is scored on its true mixture.
-- **Baselines** supply `N(μ(x), σ²)` — the same density with a single component.
-
-Both are the same kind of object, scored by the same function at the same σ, so no approximation
-step stands between any two arms.
-
-### 4.1 Fixed-σ mixture NLL — the primary metric
-
-$$\mathrm{NLL} \;=\; -\frac{1}{n}\sum_i \log \sum_{c \le k} p_c(x_i)\,\mathcal N\!\big(y_i;\, \mu_c(x_i),\, \sigma^2\big)$$
-
-nats per test point, original target units. **Lower is better.** Implementation:
-`automl_package/utils/losses.py:104` `mdn_nll`, passing a constant variance broadcast across
-components. Primary for every outcome in §7 that concerns k.
-
-**σ is the §2 constant** — one value per dataset, identical across arms, recorded in every results
-JSON, with the required ×0.5/×2 ranking-stability check.
-
-### 4.2 RMSE — point accuracy, reported alongside
-
-`RMSE = sqrt(mean((y − μ̄)²))` where `μ̄(x) = Σ_c p_c(x) μ_c(x)` is the mixture mean. Original target
+`RMSE = sqrt(mean((y − μ̄)²))` where `μ̄(x) = Σ_c p_c(x) μ_c(x)` is the class-weighted prediction. Original target
 units. **Lower is better.**
 
-Kept at the user's instruction (2026-07-20) as an honest point-accuracy column: it answers "does the
-bottleneck cost anything in plain accuracy?", which is a real question and is not visible in the
-likelihood. **It is never the k readout** — a symmetric multimodal target has a mean a single head
-predicts perfectly, so RMSE is structurally blind to k. Report both; a disagreement between them is
-itself a finding and belongs in the report body.
+### 4.2b and 4.3 (removed metrics; the k-selection score)
 
-### 4.2b Removed metrics — do not reintroduce
-
-`CRPS`, `PICP`/MPIW, `PIT`/regression-ECE and `Winkler` are **out of scope** (§2): each measures
-calibration of a *per-input* spread, and with σ a shared constant they would measure the constant
-rather than the model. The helpers
-still exist in `automl_package/utils/scoring.py` and `automl_package/utils/metrics.py` and are used
-by other work; **this benchmark must not call them.** *(Historical note, retained so the removal is
-legible: NLL was defined here as `mean(0.5·log(2πσ²) + (y − μ)²/(2σ²))` in nats, labelled
-"moment-matched Gaussian NLL". For symlog arms `μ` and `σ` were the
-Monte-Carlo push-through moments the model already returns (`probabilistic_regression.py:617-627`,
-`:713-716`) — i.e. this is a Gaussian approximation to a non-Gaussian pushed-forward density, and the
-approximation was applied identically to all arms on that dataset. All of this is inert while σ is
-out of scope.)*
-
-### 4.3 The k-selection score — the same fixed-σ likelihood, everywhere
-
-All three ProbReg arms score candidate rungs by the **per-sample fixed-σ mixture log-likelihood** on
-the selection split — the same quantity §4.1 reports, evaluated per rung. The three code sites that
-currently read a learned `log_var`
-(`automl_package/models/probabilistic_regression.py:828` for the router's error table and `:843`
-for the arbiter's per-rung readout) substitute the shared constant. **No other change**: the metric
-family, its units and its direction are unchanged.
-
-**Consequence for the tolerance rule (§2.1): it transfers UNCHANGED.** The curve is still in nats of
-held-out likelihood, so the published figures in
-`docs/probreg/shared/reports/probreg_kselection/probreg_kselection.md` §3.2 remain directly comparable and the
-twice-a-bootstrap-standard-error rule keeps both its form and its scale. *(A superseded draft
-required re-anchoring on a squared-error scale — that followed from the squared-error error recorded
-in §2 and no longer applies.)*
-
-**Why the selection score must be the likelihood and not RMSE.** Selecting k on squared error would
-be selecting on a quantity that is structurally blind to k for symmetric targets: the mixture mean
-is the same whether the model resolves one component or five. The selection curve would be flat, the
-cheapest-within-tolerance rule would return k=1 everywhere, and the result would look like a clean
-finding. This is the same failure that made the old toys degenerate, and it is why RMSE is a
-reporting column only (§4.2).
+Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 ### 4.4 Cost — first-class, not a footnote
 
@@ -475,7 +338,7 @@ arm's accuracy without its cost.
 - **Routing spread (M2 only):** fraction of test inputs sent to each rung, mean routed k, bypass
   fraction. Feeds §7.7's prediction.
 - **Ceiling flag:** whether the selected k equalled `k_max` (§3.2's ceiling check).
-  mean routed k, and the bypass fraction (rung `(1,)`). Descriptive; feeds the §7.6 prediction.
+  mean routed k, and the bypass fraction (rung `(1,)`). Descriptive; feeds the §7.7 prediction.
 
 ### 4.7 Cost columns (recorded, not scored)
 
@@ -583,7 +446,7 @@ All eight still have working public download links and all carry `ucimlrepo` imp
   hidden layer, 50 units — 100 for Protein) trained for 40 passes. Our arms are tuned inside a
   wall-clock budget. §7.5 pre-registers that **no "we beat PBP" claim may be made**; the column
   exists so a reader can see we are in the right order of magnitude. Sign convention: PBP reports
-  test *log-likelihood* (higher better); our NLL is its negative (lower better).
+  test *log-likelihood* (higher better).
 
 ---
 
@@ -630,7 +493,7 @@ early stopping, router fitting, or k selection.**
 
 ### 6.3 Preprocessing (frozen)
 
-Features and target are z-scored using **train-portion statistics only**; predictions and σ are
+Features and target are z-scored using **train-portion statistics only**; predictions are
 de-standardised before any metric is computed, so every number in §4 is in original target units.
 Missing values: Tier 1/Tier 2 rows with any missing feature or target are dropped at load time and
 the dropped count is recorded. No feature selection, no categorical encoding (all frozen datasets are
@@ -696,9 +559,7 @@ search effort.
 
 *(XGBoost and CatBoost rows removed — both models are dropped, §2.)*
 
-Selection criterion inside the search: **held-out fixed-σ mixture NLL on `val`** for all six models
-— the primary metric (§4.1), per Decision 17's rule that the convergence/selection criterion is
-computed on the metric the outcome reads.
+Selection criterion inside the search: the fixed-σ mixture NLL that stood here was removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md); to be restated on held-out regression error.
 
 **M3's search runs ONCE, not per k.** M3 trains `|grid|` models; tuning each independently would
 multiply its already-large cost and would also let it tune its way to a better k for a reason
@@ -707,7 +568,7 @@ varies across its fits.
 
 ### 6.6 Statistical testing — and its arithmetic limit
 
-Wilcoxon signed-rank, paired on seeds, of each ProbReg arm's NLL against each baseline's, and of
+Wilcoxon signed-rank, paired on seeds, of each ProbReg arm's held-out error against each baseline's, and of
 variable-k against shared-k. Two-sided, reported with the paired mean difference and its std.
 
 **Binding restriction.** The exact two-sided Wilcoxon signed-rank test on `n` pairs cannot return a
@@ -730,51 +591,10 @@ re-cut the bar.
 **Cases** = 11 dataset arms: 3 Tier 1 + 8 Tier 2 (Wine red and Wine white counted separately). A case
 where the Kepler leakage gate (§5.2) fires is dropped from the denominator and reported separately.
 
-> **UPDATED 2026-07-20 for the §2 model set (three ProbReg arms, two baselines) and the fixed-σ
-> metric (§4.1).** Every outcome below now reads **fixed-σ mixture NLL**, which is the same family
-> and the same units (nats of held-out likelihood) as the metric these thresholds were originally
-> calibrated against — so **the numeric thresholds carry over unchanged and are NOT re-cut.** Where a
-> comparison referred to a dropped baseline, the comparison set is restated; where the two-arm
-> shared/variable framing no longer applies, the outcome is restated on the three-arm set. **Any
-> outcome whose *meaning* changes is marked as a NEW outcome rather than silently re-pointed** — the
-> rule from `docs/probreg/PLAN.md`.
+### 7.1–7.3 H1a, H1b, H2
 
-Primary metric throughout: **fixed-σ mixture NLL** (§4.1), paired by seed. Effect sizes are in
-nats. The 0.02-nat threshold is chosen because K6's synthetic per-input-router wins were
-0.03–0.10 nats — the per-case figures 0.856<0.885, 0.860<0.949, 0.826<0.922 at
-`automl_package/examples/capacity_ladder_results/RESULTS.md:96`, characterised as the "0.03–0.10 nat"
-range at `RESULTS.md:572`. 0.02 sits just below the smallest of them, so it is a deliberately
-generous — not a tailored — bar.
-
-### 7.1 H1a — does K6's "tie-or-beat" transfer to real data? (the reproduce-or-contradict claim)
-
-K6's certified finding: the distilled per-input router was **≤ global-k on 9/9** synthetic cases.
-
-- **WIN (reproduced):** variable-k's paired-mean NLL ≤ shared-k's + 0.01 nat on **≥ 10 of 11** cases.
-- **CONTRADICTED:** variable-k is worse by > 0.01 nat on **≥ 3 of 11** cases.
-- **NULL (partial transfer):** anything between. Report the exact count; do not round it into either verdict.
-
-### 7.2 H1b — does per-input k *strictly pay* on real data?
-
-- **WIN:** variable-k's paired-mean NLL is lower by **≥ 0.02 nat on ≥ 4 of 11** cases, **and** no case
-  is worse by ≥ 0.02 nat, **and** on Tier 2 at least one of those cases has Wilcoxon p < 0.05.
-- **LOSS:** the mirror image (shared-k lower by ≥ 0.02 on ≥ 4 of 11, none reversed by ≥ 0.02).
-- **NULL:** anything else, including `|Δ| < 0.02` everywhere. A NULL here with a WIN in §7.1 is the
-  "tie, don't beat" outcome and must be reported in exactly those words.
-
-### 7.3 H2 — ProbReg vs the baselines on predictive fit
-
-Compare `min(NLL over M1, M2, M3)` against `min(NLL over LightGBM, plain NN, linear regression)`,
-per case, by paired-mean. *(Comparison set restated for §2's baselines; thresholds unchanged.)*
-
-- **WIN:** the best ProbReg arm has lower NLL on **≥ 7 of 11** cases.
-- **LOSS:** the best baseline has lower NLL on **≥ 7 of 11** cases.
-- **NULL:** neither (i.e. 5–6 each way).
-
-**Read the linear baseline first.** On any case where linear regression is within 0.02 nat of the
-best arm, that dataset is essentially linear and its row carries no information about k — report it
-as such and exclude it from the denominator of H1a/H1b, recording how many were excluded. Without
-this, near-linear datasets pad the "tie" count and make a null look like a robust finding.
+Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md). These outcomes (and the note on the 0.02-nat threshold) were stated on the fixed-σ mixture NLL, in nats.
+The new review restates them on held-out regression error.
 
 ### 7.4 H3 — the bottleneck does not cost point accuracy
 
@@ -783,23 +603,11 @@ this, near-linear datasets pad the "tie" count and make a null look like a robus
 - **FAIL:** otherwise. A FAIL is a headline caveat, not a footnote: it would mean the classification
   bottleneck costs accuracy.
 
-*(Restated for the new baseline set. Note this outcome reads RMSE deliberately — it is the one place
-point accuracy is the question being asked, rather than a blind proxy for k.)*
+*(Restated for the new baseline set.)*
 
-### 7.4b H6 — does the cheap global read match the expensive sweep? (**NEW OUTCOME**, 2026-07-20)
+### 7.4b H6
 
-Marked NEW rather than folded into an existing one, because nothing in the previous spec tested it
-and re-pointing an old outcome at it would misrepresent its provenance. This is the efficiency claim
-that motivates M1's existence.
-
-- **AGREEMENT:** M1's selected k equals M3's on **≥ 8 of 11** cases, and where they differ the
-  resulting NLL gap is < 0.02 nat.
-- **DISAGREEMENT:** M1's k differs from M3's on **≥ 4 of 11** cases with an NLL gap ≥ 0.02 nat —
-  i.e. the cheap read is not a substitute and the expensive sweep is doing real work.
-- **NULL:** anything between.
-
-Report alongside it the **cost ratio** (M3's total fit time ÷ M1's), per case. An agreement result is
-only interesting in proportion to what it saves.
+Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 ### 7.5 H4 — Superconductivity, symlog, and the published reference
 
@@ -810,21 +618,14 @@ Hamidieh 2018's XGBoost out-of-sample RMSE is **≈ 9.5 K** (verified verbatim, 
 - **NOT MET:** otherwise.
 - **Binding qualifier:** Hamidieh's split protocol was **not** verified (§12 OPEN-4). This is therefore
   a **reference point, not a head-to-head result**, and must be labelled so wherever it appears. The
-  head-to-head comparison on this dataset is against our own in-run XGBoost arm, under §7.3.
+  head-to-head comparison on this dataset is against our own in-run XGBoost arm.
 
 **Also pre-registered here:** no "we beat PBP / Deep Ensembles" claim may be made from the Tier-2
 table (§5.5). Those columns are descriptive context. Stated in advance so it cannot be relaxed later.
 
-### 7.6 H5 — Kepler, the multimodality claim
+### 7.6 H5
 
-Conditional on the §5.2 leakage gate **not** firing:
-
-- **WIN:** the better ProbReg arm beats the best of the four baselines on NLL by **≥ 0.05 nat on
-  ≥ 4 of 5** seeds, **and** the shared-k arm's selected `n_classes` is **≥ 3** on ≥ 4 of 5 seeds
-  (i.e. the win is accompanied by the model actually using multiple classes).
-- **LOSS:** a baseline is better on NLL on ≥ 4 of 5 seeds.
-- **NULL:** otherwise, including a win at selected `n_classes = 2` — which would say the advantage did
-  not come from multimodality and must be reported that way.
+Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 ### 7.7 Falsifiable prediction (recorded, not a bar)
 
@@ -865,22 +666,17 @@ bit-identically, max abs diff 0.0 across 45 values**. Reproduction tolerance her
 
 Before the battery, each of the six models is fitted once on the smallest dataset (Yacht, n=308) and
 must return, of the right shape and all finite: a point prediction `μ`, and — for the three ProbReg
-arms — per-component means `μ_c` and weights `p_c` summing to 1. **σ is not checked per arm**: it is
-the shared constant (§2), and the preflight instead asserts it is set, positive, and identical
-across arms. *(Superseded: this check previously targeted CatBoost's two-column
+arms — per-class means `μ_c` and weights `p_c` summing to 1. *(Superseded: this check previously targeted CatBoost's two-column
 `RMSEWithUncertainty` unpacking; that model is dropped.)* Cheap; blocking.
 
 ### 8.3 Decision 17 — the convergence gate is computed on the metric the bar reads
 
-Bars in §7 read **NLL** (H1a, H1b, H2, H5) and **RMSE** (H3, H4). Therefore:
+Bars in §7 read **RMSE** (H3, H4). Therefore:
 
-- **Neural arms** (both ProbReg arms, the PyTorch NN): the driver records **both** a held-out NLL
-  trajectory and a held-out RMSE trajectory, via `ConvergenceResult`
-  (`automl_package/utils/convergence.py:36`). Two flag sets are computed and stored:
-  `trustworthy_nll` and `trustworthy_rmse` (`converged ∧ ¬hit_cap ∧ ¬still_improving ∧ ¬diverged`,
-  `convergence.py:68-71`).
-  A cell may be used for an NLL bar only if `trustworthy_nll`; for an RMSE bar only if
-  `trustworthy_rmse`. Non-trustworthy cells are **quarantined and reported**, never silently dropped
+- **Neural arms** (both ProbReg arms, the PyTorch NN): the driver records a held-out RMSE trajectory via
+  `ConvergenceResult` (`automl_package/utils/convergence.py:36`) and stores `trustworthy_rmse`
+  (`converged ∧ ¬hit_cap ∧ ¬still_improving ∧ ¬diverged`, `convergence.py:68-71`).
+  A cell may be used for an RMSE bar only if `trustworthy_rmse`. Non-trustworthy cells are **quarantined and reported**, never silently dropped
   and never averaged in.
 - **Tree arms:** the analogue is early stopping. Record `best_iteration` and
   `hit_cap = (best_iteration == n_estimators - 1)`. A tree arm that hit its `n_estimators` cap is not
@@ -892,10 +688,10 @@ Bars in §7 read **NLL** (H1a, H1b, H2, H5) and **RMSE** (H3, H4). Therefore:
 
 ### 8.4 Decision 9 — no conclusion from an endpoint
 
-The headline H1a/H1b comparison gets, on each of the 3 Tier-1 datasets at seed 0, one
+The headline M1-vs-M2 comparison gets, on each of the 3 Tier-1 datasets at seed 0, one
 **early-stopping-OFF confirmation run** at **≥ 4×** the self-terminated epoch count for both ProbReg
 arms, with the full trajectory saved. If the confirmation run reverses the sign of the shared-k /
-variable-k difference on any Tier-1 dataset, the H1a/H1b verdict is **held** and escalated to the
+variable-k difference on any Tier-1 dataset, the headline verdict is **held** and escalated to the
 adjudicator (unattended-run contract rule 4) rather than reported.
 
 ### 8.5 Decision 15 — protocol parity when reusing a substrate
@@ -921,7 +717,7 @@ One JSON per (dataset, model, seed) under
 `automl_package/examples/probreg_benchmark_results/<dataset>/<model>_seed<k>.json`, each containing:
 
 - **per-seed numbers, never only means** (F12 verify line);
-- all §4.1–4.5 metrics, plus §4.6 secondaries where defined and §4.7 cost columns;
+- all §4.2–4.5 metrics, plus §4.7 cost columns;
 - the full convergence trajectory and both flag sets (§8.3);
 - the selected hyperparameters, `n_trials_completed`, and the wall-clock budget actually consumed;
 - the concurrency level and `OMP_NUM_THREADS` at run time (§6.4 rule 3);
@@ -962,11 +758,7 @@ docstring/API defect for a separate task — **fixing it is a non-goal of F12.**
 
 ### 10.2 CONSTRAINT — no mixture distribution under dynamic-k or symlog
 
-`predict_distribution` raises `NotImplementedError` for `n_classes_selection_method != NONE`
-(`probabilistic_regression.py:660-663`) and for `target_transform="symlog"`
-(`:664-668`). This is why §4.0 fixes the moment-matched Gaussian as the common object. It also means
-the §4.6 mixture secondaries are available on **shared-k, non-symlog datasets only** — i.e. the eight
-Tier-2 cases and Airfoil, not Kepler or Superconductivity.
+Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 ### 10.3 DEPENDENCY — `ucimlrepo` is not installed
 
@@ -1066,6 +858,9 @@ must be re-verified first.
 | Reviewer | F12-a adjudication pass |
 | Date | 2026-07-20 |
 | Conditions | C1–C12 below are binding and must land in this document **before the battery runs**. PARK-1 must be settled by the user before **any Kepler compute** is spent; it does not block the driver build or the other ten cases. |
+
+Outcomes H1a, H1b, H2, H5 and H6, cited in the conditions below, were removed from §7 on 2026-10-22 (mixture framing;
+docs/probreg/cleanup_plan.md); the conditions are kept as the review record.
 
 Scope of this review: the design only. No experiment was run. Every ruling below was re-derived from
 the cited artifact at HEAD on 2026-07-20; where the spec's own citation was checked and found wrong,
@@ -1199,32 +994,7 @@ and without** the flagged cases, and a variable-k loss on a flagged case is reco
 applied to the router). §8.3 already records the router's training CE and `cal` label-agreement;
 require both to be printed next to every flagged case.
 
-**C5 — §7's 0.02-nat rationale misstates the K6 evidence it is calibrated on.** §7 asserts "K6's
-synthetic per-input-router wins were 0.03–0.10 nats" and that "0.02 sits just below the smallest of
-them". Recomputed directly from
-`automl_package/examples/capacity_ladder_results/K6/k6_summary.json` (`nll_global − nll_soft`, all
-nine cases):
-
-| case | soft | global | win (nat) |
-|---|---:|---:|---:|
-| E-s2 | 0.6099 | 0.6121 | 0.00215 |
-| E-s1 | 0.6113 | 0.6157 | 0.00437 |
-| C-s2 | 0.6075 | 0.6142 | 0.00674 |
-| C-s1 | 0.6073 | 0.6254 | 0.01809 |
-| C-s0 | 0.6163 | 0.6385 | 0.02218 |
-| D-s0 | 0.8561 | 0.8849 | 0.02883 |
-| E-s0 | 0.6014 | 0.6444 | 0.04304 |
-| D-s1 | 0.8599 | 0.9486 | 0.08880 |
-| D-s2 | 0.8259 | 0.9218 | 0.09592 |
-
-The wins span **0.00215–0.09592**, not 0.03–0.10; **5 of 9** reach 0.02 and **3 of 9** reach 0.029.
-The "0.03–0.10 nat" figure at `RESULTS.md:572` is explicitly about the **toy-D** cases only ("the 1-D
-toy-D K6/S1 wins"), and the three per-case figures the spec quotes are the three D cases. The
-**threshold itself survives** — 5/9 ≈ 0.56 of K6's cases clear 0.02, which projects to ≈ 6 of 11, so
-H1b's "≥ 4 of 11" remains attainable if real data reproduces K6 — but the stated justification is
-false as written and this is a frozen pre-registration document. Fix (mechanical): replace the
-sentence with the table above and the true statement, i.e. that 0.02 sits below the smallest of K6's
-**three toy-D** wins (0.029) while 5 of 9 K6 cases clear it.
+**C5 —** Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 **C6 — the symlog asymmetry confounds H2 on exactly the two cases where it is largest, and no bar
 isolates it.** §5.4 freezes `target_transform="symlog"` for the two ProbReg arms on Superconductivity
@@ -1312,56 +1082,23 @@ tolerance. The tolerance is the driver task's to pick, but it must be written do
 
 ### 14.3 PARK — the one item the user must decide (Kepler only)
 
-**PARK-1 — the benchmark, as specified, cannot evidence multimodality on the dataset chosen to test
-it.** This is the sharpest methodological risk in the document and it is not fixable by editing prose.
+**PARK-1 — Kepler.** The multimodality argument that stood here (moment-matched Gaussian versus mixture readout) and its options 2 and 3: removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
-The argument, in full. §4.0 binds every headline metric to the moment-matched Gaussian
-`N(μ(x), σ(x)²)`. For any predictive density `p` with mean `μ` and variance `σ²`, the expected NLL of
-the moment-matched Gaussian is `E_p[−log N(μ,σ²)] = ½·log(2πσ²) + ½ = ½·log(2πeσ²)`, which is exactly
-the differential entropy of that Gaussian; the expected NLL of `p` itself is `h(p)`. By the
-maximum-entropy property of the Gaussian at fixed first two moments,
-`½·log(2πeσ²) − h(p) = KL(p ‖ N(μ,σ²)) ≥ 0`, with equality iff `p` is Gaussian. **The gap between the
-mixture read and the moment-matched read is precisely the non-Gaussianity — i.e. precisely the
-multimodality.** Under §4.0, any model that recovers the same conditional mean and variance scores
-identically to the mixture, so a genuinely multimodal ProbReg predictive density earns **nothing** on
-the headline metric for being multimodal.
-
-§4.6's secondary mixture table does **not** rescue this, and the reason is structural: mixture metrics
-require `predict_distribution`, which raises `NotImplementedError` under dynamic-k
-(`probabilistic_regression.py:660-663`) **and** under `target_transform="symlog"` (`:664-668`). §5.4
-freezes symlog on **both** Kepler and Superconductivity. So the secondary table covers Airfoil (the
-deliberately unimodal negative control) and the eight Tier-2 sets (selected for literature
-comparability, not multimodality) — and is **exactly disjoint from the one dataset chosen because its
-target is multimodal**. §7.6 H5 is titled "the multimodality claim" and reads a metric that is blind
-to multimodality on a dataset with no mixture readout. Its `n_classes ≥ 3` side-condition is a partial
-guard on *usage*, not evidence of a *density* benefit.
-
-Compounding this on the same dataset: C7 shows the leakage gate as written will very likely not fire,
+C7 shows the leakage gate as written will very likely not fire,
 and if it is corrected to log space it will very likely fire hard, because `koi_prad` is a near-exact
-closed-form function of two of the nine frozen features. Both halves are the same Kepler decision.
-
+closed-form function of two of the nine frozen features. 
 The user must choose one of:
 1. **Change Kepler's feature set** — drop `koi_depth` and `koi_srad`, predicting `koi_prad` from the
    remaining seven. This turns a forward-model consistency check into a genuine prediction task and
    makes the leakage gate moot. Costs: the frozen §5.2 feature list changes, and the task gets harder.
-2. **Drop symlog on Kepler** (§5.4), so shared-k regains `predict_distribution` and §4.6's mixture
-   NLL/CRPS becomes available exactly where the multimodality claim lives. Costs: contradicts §5.4's
-   own log-scale rationale; variable-k still cannot emit a mixture under any setting.
-3. **Reframe H5 and accept the limit** — H5 stops being "the multimodality claim" and becomes "does
-   the classification bottleneck yield a better conditional mean/variance on a multimodal target",
-   with a pre-registered ban on any density-level multimodality claim in the report, mirroring §7.5's
-   ban on "we beat PBP". Costs: T1.1's stated reason for existing is not tested by this benchmark, and
-   that must be said in the report.
-4. **Drop the Kepler arm from F12** and defer the multimodality question to a task that first lifts
-   the `predict_distribution` restrictions (adjacent to F9-fix-b, which already owns the symlog
-   defect). Costs: 10 cases instead of 11; every §7 denominator changes.
+2. and 3. Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
+4. **Drop the Kepler arm from F12.** Costs: 10 cases instead of 11; every §7 denominator changes.
 
-Options 1 and 2 change frozen sections; 3 changes what a headline claims; 4 changes scope. All four
-are principal-investigator calls, which is why this is PARKed rather than written as a condition.
+Option 1 changes frozen sections; 4 changes scope. Both are principal-investigator calls, which is why this is PARKed rather than written as a condition.
 
 **Gate:** the driver build proceeds now. The ten non-Kepler cases proceed once C1–C12 land. **No
-Kepler compute until PARK-1 is answered**, and whichever option is chosen is written into §5.2 / §5.4 /
-§7.6 before that arm runs.
+Kepler compute until PARK-1 is answered**, and whichever option is chosen is written into §5.2 / §5.4
+before that arm runs.
 
 ### 14.4 Coverage statement
 
@@ -1369,7 +1106,6 @@ This review verified the spec's internal consistency and its external citations;
 that no further defect exists. Verification restores precision, not recall. The gaps found that **no
 listed bar would have caught** are C3 (bypass availability read as per-input k), C4 (router
 starvation read as an architecture verdict), C6 (target transform read as a bottleneck advantage),
-C8 (tuning budget read as an architecture verdict) and PARK-1 (a multimodality claim on a
-multimodality-blind metric) — five, in a document that is otherwise unusually careful. That density
+and C8 (tuning budget read as an architecture verdict) — four, in a document that is otherwise unusually careful. That density
 suggests the bar-reading rules, specifically, would repay one more adversarial pass once C1–C12 are
 written in; the dataset, metric and protocol sections did not show the same pattern.

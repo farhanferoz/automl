@@ -1,3 +1,5 @@
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
 # Choosing the number of classes of a classification-bottleneck regressor by inference
 
 \begin{center}

@@ -1,3 +1,5 @@
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
 # Per-input-k ProbReg — journal
 
 A factual record of the per-input-k variant: a small router, distilled from held-out per-k
@@ -10,10 +12,10 @@ definitions); earlier router plans are in `docs/probreg/per_input_k/history/`.
 
 Paths are relative to the repository root (`/home/ff235/dev/MLResearch/automl` on the DGX,
 `/mnt/dgx/home/ff235/dev/MLResearch/automl` from the laptop). Line numbers are as of `5fc982e`.
-The base model is described in `docs/probreg/fixed_k/journal.md` §2 and the nested network this
-variant reads in `docs/probreg/global_k/journal.md` §2.1–2.2.
+The base model is described in `docs/probreg/history/journals_2026-10-21/fixed_k_journal.md` §2 and the nested network this
+variant reads in `docs/probreg/history/journals_2026-10-21/global_k_journal.md` §2.1–2.2.
 
-**Labels used below** (defined in `docs/probreg/global_k/journal.md`): **OLD-SCHEDULE** (nested
+**Labels used below** (defined in `docs/probreg/history/journals_2026-10-21/global_k_journal.md`): **OLD-SCHEDULE** (nested
 training with a per-sample random k draw; every nested result to date), **LEARNED-σ** (the plans'
 "old-objective"), **SURROGATE** (produced on the stand-alone `NestedKSurrogate` or the June
 variational-EM mixture, whose per-component heads read x and learn a variance — not on the library
@@ -88,7 +90,7 @@ when needed (defect D2, fixed 2026-07-20, `docs/probreg/shared/state.md` §3).
 
 The router reads the nested network of M1: per-sample random k draw (OLD-SCHEDULE), collapsed
 Gaussian per rung with learned variance in the training path, `REGRESSION_ONLY`, and `NESTED`
-requires a learned variance (`docs/probreg/global_k/journal.md` §2.1).
+requires a learned variance (`docs/probreg/history/journals_2026-10-21/global_k_journal.md` §2.1).
 
 ### 2.4 The surrogate the evidence was produced on
 
@@ -108,7 +110,7 @@ inputs (p_i only) and in the training readout (collapsed Gaussian rather than mi
 - **April:** soft gating and Gumbel selectors trained jointly with the model "cap-track" — the
   expected k follows (k_max+2)/2 regardless of the data
   (`docs/probreg/history/kselection_findings_2026-04/probreg_kselection_findings.md`; details in
-  `docs/probreg/global_k/journal.md` §3.1). The note found the **bypass head** was the part that
+  `docs/probreg/history/journals_2026-10-21/global_k_journal.md` §3.1). The note found the **bypass head** was the part that
   responded to noise ("bypass mass collapses 0.75 → 0.08 as σ rises 0.1 → 2.0"), per input.
 - **Report (a) (16 July):** its "adaptive" arm was ELBO + soft gating with a bypass and k_max 12,
   scored against trees (`docs/probreg/fixed_k/reports/report_a/report_a_probreg_toys.md` §2.3).
@@ -161,7 +163,7 @@ SURROGATE, OLD-SCHEDULE, LEARNED-σ.
 | T2 more input dimensions | does the read survive nuisance dimensions (kNN neighbourhoods) | toy D in 2-D: advantage over global on 3 of 3 seeds at 6–9 SE, broad twin no advantage; null by 5-D and 10-D; a rotated 5-D test is "VOID" (the rotated toy had k\*=1 everywhere) | `RESULTS.md:557-608`; `automl_package/examples/capacity_ladder_results/T2/t2_summary.json` |
 | X4, X4b non-nested arm on toy E | is the toy-E failure specific to nesting | recovers 1 of 3 seeds; after 8 restarts the seed-1 collapse is repaired but no hump appears; "W8 (E-fragility nesting-specific) NOT supported" | `RESULTS.md:335-360`; `automl_package/examples/capacity_ladder_results/X4b/x4b_summary.json` |
 | T3 power curve on toy E | was toy E under-powered | non-nested multi-restart instrument at N = 1000, 4000, 16000: gold-standard recovery 2/3, 3/3, 3/3; arbiter-style read 1/3, 3/3, 3/3; control flat at every N; binding condition: "do not read as overturning X4b's fragility finding" | `RESULTS.md:469-510`; `automl_package/examples/capacity_ladder_results/T3/t3_summary.json` |
-| H1 two-phase recipe on the **library model** | freeze the nested ProbReg, then distil a gate on a held-out half | beats the jointly trained gate on toy D on 3 of 3 seeds by 0.08–0.10 nats; matches a standalone router (≤ 0.0036 nats, 9 of 9); on C_broad never worse than the best fixed k; heads trained on half the data of the other arms; k=1 asymmetry noted (§2 of `docs/probreg/global_k/journal.md`) | `RESULTS.md:610-664`; `automl_package/examples/capacity_ladder_results/H1/h1_summary.json` |
+| H1 two-phase recipe on the **library model** | freeze the nested ProbReg, then distil a gate on a held-out half | beats the jointly trained gate on toy D on 3 of 3 seeds by 0.08–0.10 nats; matches a standalone router (≤ 0.0036 nats, 9 of 9); on C_broad never worse than the best fixed k; heads trained on half the data of the other arms; k=1 asymmetry noted (§2 of `docs/probreg/history/journals_2026-10-21/global_k_journal.md`) | `RESULTS.md:610-664`; `automl_package/examples/capacity_ladder_results/H1/h1_summary.json` |
 
 Further facts the sources attach:
 - **RESULTS.md is not internally consistent across its own updates.** Its status table (line 12)

@@ -13,52 +13,17 @@ needed finding and noting.** They live in ONE module,
 `automl_package/examples/_toy_datasets.py`, imported by ~35 drivers, each carrying its ROLE in its own
 docstring. Roles below are quoted from those docstrings, not inferred.)*
 
-**This suite is RICHER than width's** and the difference matters: these toys carry **per-input ground
-truth** `k*(x)`, and three of them are **matched positive/negative pairs** — a bimodal toy and a
-single-mode twin matched in mean and variance — so a selector that keys on spread rather than on
-mixture structure is caught by construction. Width has no equivalent.
+Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 **Fixed on every cell of every tier:** seeds **0, 1, 2** · the strand's convergence gate with
-`hit_cap: false` required · `OMP_NUM_THREADS=4` pinned · **selection on the per-sample fixed-σ
-mixture log-likelihood** on the selection split, with **RMSE reported alongside as a point-accuracy
-column, NEVER as the k readout**.
+`hit_cap: false` required · `OMP_NUM_THREADS=4` pinned.
 
-⚠️ **CORRECTED 2026-07-21 (root, at the user's instruction to audit this strand for variance and
-regularisation problems). The previous text said "selection on the point-prediction metric (squared
-error), never Gaussian NLL" — that was WRONG in both halves and it is the most dangerous kind of
-wrong, because a battery driven to green on it would have produced a clean-looking false finding.**
-
-- **The squared-error half inverted the ratified rule.** `docs/probreg/shared/benchmark_spec.md`
-  §4.3 requires all three arms to score rungs on the fixed-σ mixture log-likelihood, and §4.2 keeps
-  RMSE as a reporting column *"never the k readout"*. §4.3 states the consequence of getting this
-  wrong in terms this strand cannot afford to ignore: *"Selecting k on squared error would be
-  selecting on a quantity that is structurally blind to k for symmetric targets: the mixture mean is
-  the same whether the model resolves one component or five. The selection curve would be flat, the
-  cheapest-within-tolerance rule would return k=1 everywhere, and the result would look like a clean
-  finding."* **⇒ Squared-error selection does not merely weaken this strand — it manufactures its
-  headline conclusion out of a metric artefact.**
-- **The "never Gaussian NLL" half over-banned, by conflating two different things.** What P8's
-  reopening actually forbids is a likelihood read at a **LEARNED** `log_var` — that is variance
-  fitting, and it is what the σ-scope decision removed. A likelihood at **FIXED** σ fits nothing: σ
-  is one shared constant, so the metric is not a variance metric at all. **The test is not "is it a
-  likelihood?" but "is σ learned?"**
-
-**The rule, stated so it cannot be misread again:**
-
-| | selection / k readout | reported alongside | status |
-|---|---|---|---|
-| fixed-σ mixture log-likelihood | ✅ **the readout, everywhere** | — | σ is a constant; nothing is fitted |
-| RMSE / squared error | 🚫 **never** — structurally blind to k | ✅ honest point-accuracy column | a disagreement between the two is itself a finding |
-| likelihood at a **learned** `log_var` | 🚫 **forbidden** | 🚫 | this is the violation that voided P8 |
-
-**Tolerance rule is unaffected:** the curve stays in nats, so cheapest-within-tolerance at twice a
-bootstrap standard error transfers **unchanged**, with its published figures still comparable
-(spec §4.3).
+The fixed-σ readout rule, its correction note and its rule table: removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 - **TIER 1 — the reference cell.** `make_toy_b` (`automl_package/examples/_toy_datasets.py:49`) with
   `baseline="zero"`: "conditional Gaussian mixture with **KNOWN intrinsic k**", the mixture sitting
   still so the data are i.i.d. draws from one fixed mixture — the grounding regime where the pruning
-  theory applies. **The only toy with unambiguous ground-truth k.** Every task that trains runs this.
+  theory applies. Every task that trains runs this.
 - **TIER 2 — the three negative controls.** Required by any task claiming **the dial works**. Each is
   a trap for a different wrong mechanism:
   - `make_toy_a` (`:35`) — "smooth unimodal with controlled homoscedastic noise", the "no intrinsic k"
@@ -104,21 +69,7 @@ bootstrap standard error transfers **unchanged**, with its published figures sti
 <!-- from docs/plans/capacity_programme/probreg.md lines 1340-1365 -->
 ### PT — ⏸ PARKED. Toys are RETAINED; the redesign answers a different question.
 
-**Resolution 2026-07-20 (user).** σ is not fitted, but scoring stays **distributional** with one
-shared fixed σ (`docs/probreg/shared/benchmark_spec.md` §2, §4.1). The three existing toys are
-homoscedastic by construction — exactly what a fixed σ wants — so **they are retained unchanged and
-the multimodality question they were built for survives intact.**
-
-**What actually happened, recorded because it is the instructive part.** The user's decision was
-"do not fit σ". The orchestrator inferred "therefore score on squared error", and from that
-correctly derived that the toys were degenerate: their two modes are equal-weight and symmetric
-about zero (`automl_package/examples/_toy_datasets.py:174-178`), so the conditional mean is
-identically zero and squared error has **zero power** to detect k. The derivation was sound; **the
-premise was an unrequested inference.** The user challenged it, and the third option — keep the
-mixture likelihood, fix σ to a shared constant — removes the in-sample-overfitting pathology
-without removing the readout. **Lesson: when a scope decision seems to invalidate an established
-artifact, re-examine the inference chain before discarding the artifact.** The cost here was one
-spec; had it gone the other way it would have been the whole toy suite and the question with it.
+The three existing toys are retained unchanged. The 2026-07-20 fixed-σ resolution and its narrative: removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 **The spec is not wasted:** `docs/probreg/shared/toy_design_spec.md` designs toys where
 resolution helps the *conditional mean*, with an analytic floor and a falsifiable

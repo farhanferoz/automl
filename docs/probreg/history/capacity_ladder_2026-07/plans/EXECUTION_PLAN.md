@@ -1,3 +1,5 @@
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
 # Capacity-ladder execution plan — ⛔ FROZEN / SUPERSEDED. NEVER DISPATCH FROM THIS FILE.
 
 > **FROZEN 2026-07-20. This is HISTORY, not a plan.** Every lane in it is complete and audited

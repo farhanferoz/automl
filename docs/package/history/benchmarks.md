@@ -1,3 +1,5 @@
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
 # Benchmarks
 
 Empirical results from the AutoML package across designed problems. All numbers come from the

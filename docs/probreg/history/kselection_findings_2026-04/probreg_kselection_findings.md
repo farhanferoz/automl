@@ -1,3 +1,5 @@
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
 > **Superseded.** This note predates the July 2026 capacity-ladder certification of
 > the k-selection lane (nested-k training, the arbiter readout, the distilled
 > router). It is kept as historical record of the April 2026 exploration, not as

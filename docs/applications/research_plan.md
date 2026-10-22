@@ -34,7 +34,7 @@ It ends with a paper strategy and an execution roadmap.
 
 **Two papers, two models.** These are independent contributions that warrant separate publications:
 
-- **Paper A (ProbReg):** *”Classification-Based Probabilistic Regression via the Law of Total Variance.”* Claim: learned per-class variance combined via discrete mixture decomposition dominates other tabular uncertainty estimators (NGBoost, MDN, Deep Ensembles) on heteroscedastic, multi-modal problems. Dynamic k (ELBO + SoftGating) provides automatic bin complexity. Astrophysics headline: **photometric redshift estimation** (multimodal posteriors from color-redshift degeneracies; §6.2).
+- **Paper A (ProbReg):** *”Classification-Based Probabilistic Regression via the Law of Total Variance.”* Claim: learned per-class variance combined via the law of total variance dominates other tabular uncertainty estimators (NGBoost, MDN, Deep Ensembles) on heteroscedastic, multi-modal problems. Dynamic k (ELBO + SoftGating) provides automatic bin complexity. Astrophysics headline: **photometric redshift estimation** (multimodal posteriors from color-redshift degeneracies; §6.2).
 
 - **Paper B (FlexibleNN):** *”Input-Dependent Depth Selection for Compute-Adaptive Neural Networks.”* Claim: ELBO-regularized depth gating learns to allocate more layers to complex inputs and fewer to simple inputs, yielding compute savings at inference without accuracy loss. Astrophysics headline: **galaxy cluster mass estimation** (complexity varies with cluster richness and dynamical state; §6.3). Future work: applying the same depth-gating mechanism to FT-Transformer blocks (§5).
 
@@ -259,7 +259,7 @@ Three layers:
 
 **Paper A (ProbReg) — problems where learned uncertainty structure matters:**
 - Problems with **heteroscedastic noise** (noise varies with input) → show n_classes adapts: more bins where noise is complex, fewer where it's simple.
-- Problems with **multimodal targets** → show per-class regression heads capture distinct modes that a single Gaussian misses.
+- Problems with **multimodal targets**: Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 - Problems with **heavy-tailed / wide-range targets** → show symlog + learned variance handles extreme values.
 - **Simplicity baseline:** On well-behaved (homoscedastic, unimodal) problems, ProbReg with k=2 should reduce to near-Gaussian behavior, matching standard baselines. This demonstrates adaptability without overhead.
 
@@ -287,7 +287,7 @@ Each is designed to have a specific failure mode that the research models should
 **B2 — Oscillator with phase ambiguity (d=8, n=10k).** Target: oscillation frequency `f` of a damped harmonic oscillator observed at 8 time points `t_i`:
 `y(t_i) = A · exp(−γ · t_i) · cos(2πf · t_i + φ) + ε`. Features are `y(t_i)` plus the times. The frequency `f` has an aliasing ambiguity (`f` and `N/Δt − f` are indistinguishable at finite sampling), so the posterior over `f` is **genuinely bimodal** for certain observations. Targets: `f ~ U(0.1, 0.9)`, `A ~ U(0.5, 1.5)`, `γ ~ U(0.05, 0.3)`, `φ ~ U(0, 2π)`.
 
-*Why:* physically motivated (oscillator measurements are ubiquitous), has a known bimodal likelihood, and the aliasing is a real-world source of multimodality — exactly where a mixture / classification-based head should beat a Gaussian-only baseline.
+*Why:* physically motivated (oscillator measurements are ubiquitous), has a known bimodal likelihood, and the aliasing is a real-world source of multimodality — exactly where a classification-based head should beat a Gaussian-only baseline.
 
 **B3 — Two-phase transition (d=12, n=10k).** A regression problem that switches regime at an unknown feature threshold: `y = f_1(x)` for `x · w < τ`, `y = f_2(x)` for `x · w ≥ τ`, with `f_1` simple linear and `f_2` non-linear. Additive noise scales with distance from the threshold: near the transition, noise is high (regime ambiguity); far from it, noise is low. Target: `y`.
 
@@ -511,7 +511,7 @@ Currently supported baselines: XGBoost, LightGBM, CatBoost, Linear/Logistic Regr
 
 **NGBoost (Duan et al., 2020).** Natural gradient boosting that produces a parametric predictive distribution (Gaussian, lognormal, etc.). The direct tree-based analogue of ProbReg and the most important baseline to beat — if ProbReg doesn’t beat NGBoost on NLL/CRPS for heteroscedastic tabular data, there is no paper. Install via `ngboost` pip package. Thin wrapper to match `BaseModel` interface.
 
-**MDN — Mixture Density Network (Bishop 1994).** Neural network that outputs the parameters of a Gaussian mixture. This is the closest neural-network baseline to ProbReg (both produce multi-modal predictive distributions) and is the *right* comparison for demonstrating that the classification-based decomposition is better than a raw Gaussian mixture head. Implementation: ~150 lines on top of `PyTorchModelBase`.
+**MDN — Mixture Density Network (Bishop 1994).** Neural network that outputs the parameters of a Gaussian mixture. This is the closest neural-network baseline to ProbReg and is the *right* comparison for demonstrating that the classification-based decomposition is better than a raw Gaussian mixture head. Implementation: ~150 lines on top of `PyTorchModelBase`.
 
 **Quantile Regression NN (Koenker 2005, pinball-loss NN).** Predicts multiple quantiles (e.g. 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95) simultaneously via the pinball loss. Distribution-free (no Gaussian assumption). Closest non-parametric neural baseline. Important for showing that ProbReg’s parametric form isn’t the bottleneck. Also ~150 lines.
 
@@ -747,12 +747,12 @@ Our FlexibleNN should demonstrate compute-adaptive inference on this problem. Ad
 (c) Empirical validation on UCI benchmarks (Layer 3) + heteroscedastic/multimodal synthetic problems (Layer 1).
 (d) Photometric redshift headline experiment on DC2/SDSS via RAIL, comparing against Zephyr, nflow-z, ANNz2, GPz, DCMDN, Jones+ 2024 BNN.
 
-**Story arc:** Motivation (tabular UQ is underserved; trees have NGBoost but NNs lack a principled discrete-mixture approach) → framework (classification bottleneck + per-class heads) → theory (law of total variance, ELBO k-selection) → ablations (regression strategies, loss types, dynamic-k strategies — §1.2 tables) → UCI benchmarks → photo-z headline → discussion.
+**Story arc:** Motivation (tabular UQ is underserved; trees have NGBoost but NNs lack a principled classification-based approach) → framework (classification bottleneck + per-class heads) → theory (law of total variance, ELBO k-selection) → ablations (regression strategies, loss types, dynamic-k strategies — §1.2 tables) → UCI benchmarks → photo-z headline → discussion.
 
 **Reviewer attack surface:**
 - Novelty vs DreamerV3 two-hot → explicit: DreamerV3 uses *fixed* bin midpoints; we learn per-bin regression heads with variance.
-- Novelty vs MDN → explicit: MDN learns Gaussian components end-to-end; we impose a classification bottleneck that regularizes the mixture structure.
-- Why not normalizing flows? → discuss: flows are more flexible but harder to interpret; our approach gives a discrete mixture with physically interpretable bins.
+- Novelty vs MDN → explicit: MDN learns Gaussian components end-to-end; we impose a classification bottleneck that regularizes the regression.
+- Why not normalizing flows? → discuss: flows are more flexible but harder to interpret; our approach gives physically interpretable bins.
 
 ### Paper B — FlexibleNN
 
@@ -829,7 +829,7 @@ These are tracked separately from the main roadmap. They emerged from the 2026-0
 The 2026-04-16 ablation showed SINGLE_FINAL has 2.3× better MSE on exponential (n=800) and better NLL on heteroscedastic (n=1000). SEP_HEADS's per-class specialization appears to overfit when data is scarce. Hypotheses to test:
 - Parameter count: SEP_HEADS has k× more regression-head parameters than SINGLE_FINAL. Control by matching total params.
 - Per-class gradient signal: if P(class_i) is small for most inputs, head_i gets very little gradient per batch. Check by logging per-head gradient norms.
-- Bottleneck effect: SINGLE_FINAL forces the classifier to produce a useful mixture; SEP_HEADS lets each head compensate for a weak classifier. Test with frozen vs learned classifier.
+- Bottleneck effect: SINGLE_FINAL forces the classifier to produce useful class probabilities; SEP_HEADS lets each head compensate for a weak classifier. Test with frozen vs learned classifier.
 
 Deliverable: short analysis section in Paper A explaining *when* SEP_HEADS wins (expected: large n, well-separated classes).
 
@@ -894,7 +894,7 @@ Rolled in from the earlier high/medium/low list.
 
 **High priority**
 - Complete California Housing benchmark (killed at 66 min on ProbReg dynamic-k). Add per-model timeout or drop dyn-k for n>10k.
-- Add ProbReg's `predict_distribution()` method for mixture evaluation on multimodal problems. MDN got 12% CRPS improvement with proper mixture evaluation; ProbReg's classification bottleneck IS a mixture and should be evaluated the same way.
+- Mixture evaluation of ProbReg on multimodal problems: Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 - Multi-seed averaging (5-20 seeds) for all reported numbers. Current results are single-seed.
 - Fix `PyTorchNeuralNetwork.predict()` shape: returns (N,1) not (N,). Minor but pre-existing.
 

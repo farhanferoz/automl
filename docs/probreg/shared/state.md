@@ -43,11 +43,8 @@ moving them would have broken ~30 citations including ten frozen preregistration
 
 **Still-live reasoning in the frozen files — read, never dispatch:**
 - `docs/flexnn/width/history/width_dial_2026-07/cascade_execution_plan_2026-07-11.md` §3.1 — the cross-k
-  class-identity conflict (one component asked to be correct at several resolutions at once) **and
-  its resolution**: `optimization_strategy=REGRESSION_ONLY` makes the cross-entropy branch never
-  fire. Now baked into the source (`automl_package/models/probabilistic_regression.py:53-60`,
-  `:531-543`). **This is why §1 freezes `REGRESSION_ONLY` for all three models** — it is not a
-  stylistic choice, it is the thing that keeps the k ladder coherent.
+  class-identity conflict (one component asked to be correct at several resolutions at once). Its
+  resolution there (regression-only supervision) is withdrawn: removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 - The same file's §4.7 — four ProbReg library fixes, **all verified landed at HEAD 2026-07-20**,
   none of which had a completion record in any plan document until that check.
 - `docs/probreg/history/diagnoses_2026-07/hetero_nll_diagnosis.md` — the diagnosed, accepted
@@ -85,14 +82,13 @@ callers today. Whoever builds PA's M1 selector on top of it must apply the now-f
 pattern there too, or D2 reopens in the function that actually matters. It is PA's problem to close
 as part of building the mechanism.)*
 
-**D4 — OPEN, inherited, user-gated.** The cross-k class-identity conflict is only *avoided*, not
-fixed: it is dodged by freezing `REGRESSION_ONLY` (§2.5). For any configuration that DOES activate
-cross-entropy, the defect is live, and what shipped is a runtime warning only — the guard is at
-`automl_package/models/probabilistic_regression.py:535` and the `logger.warning` it fires at `:536`
-— not a behaviour change. The two candidate
-fixes on record are k-stable binning, or documenting that k-dropout requires likelihood-only
-training. **Not in scope for this strand's battery** (which is `REGRESSION_ONLY` throughout) but it
-must not be re-discovered a fourth time — it is recorded here as the owner.
+**D4 — OPEN, inherited, user-gated.** The cross-k class-identity conflict: with cross-entropy
+supervision and k-dropout, the percentile bin boundaries are recomputed for each candidate k, so
+"class i" names a different slice of y at each k. What shipped is a runtime warning only — not a
+behaviour change. The two candidate fixes on record are k-stable binning, or documenting that
+k-dropout requires likelihood-only training. It must not be re-discovered a fourth time — it is
+recorded here as the owner. *(Rewritten 2026-10-22: the earlier text said the conflict was dodged by
+freezing `REGRESSION_ONLY`; that default is withdrawn, see `docs/probreg/cleanup_plan.md`.)*
 
 **D3 — two failing tests, both pre-existing, neither caused by current work.**
 - `test_probabilistic_nll_beats_constant_on_heteroscedastic` — root-caused and deliberately

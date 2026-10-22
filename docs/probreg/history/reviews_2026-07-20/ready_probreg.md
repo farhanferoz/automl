@@ -1,3 +1,5 @@
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
 # Autonomy readiness review — docs/probreg/PLAN.md (2026-07-20)
 
 Reviewed every OPEN task (PA, PB, PC, P1, P2, P3, P4, P5, P6). P0/P0b DONE claims spot-checked

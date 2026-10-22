@@ -1,3 +1,5 @@
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
 # Phase 2 Handover Plan — $k$-dimension sweep
 
 **Audience.** A Sonnet follow-up session that will **execute** P2.1, P2.3

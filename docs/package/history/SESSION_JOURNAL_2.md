@@ -1,3 +1,5 @@
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
 # Autonomous session journal (Apr 18)
 
 Mirrors the work_order.md queue. Each section is "what was done, why, how verified".

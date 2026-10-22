@@ -47,8 +47,7 @@ Legend: **S** = <1 day, **M** = 1-3 days, **L** = 1+ week. Check boxes are inten
 - [ ] **8. I8 — Re-test Gumbel + ELBO after N1/N2 fixes** — S
   N1 was fixed in Phase 6; #5 fixes N2. Retest whether Gumbel+ELBO is still broken or partly recovered. Informs research plan narrative on Gumbel recommendations.
 
-- [ ] **9. Add ProbReg's `predict_distribution()` method + re-run multimodal** — S
-  MDN got 12% CRPS improvement with proper mixture evaluation. ProbReg's classification bottleneck IS a mixture and must be evaluated with `MixtureOfGaussiansDistribution`. Biggest evaluation gap currently.
+- [ ] **9.** Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 - [ ] **10. Implement Layer 1 synthetic datasets B1-B6** — M
   From research plan §2.2:
@@ -185,7 +184,7 @@ If forced to pick one item per week:
 | 2 | #2, #3 (I1-I2 head structure) | Explains the SEP vs SINGLE_FINAL finding. Could reshape the paper's regression-strategy story. |
 | 3 | #4 (I3 FlexNN visualization) | Paper B headline evidence. Without this we can't claim depth adapts to complexity. |
 | 4 | #5-#8 (bug fixes + strategy re-tests) | Removes caveats from ablation tables. |
-| 5 | #9 (ProbReg mixture eval) + #10 (synthetics B1-B6) | Biggest evaluation + data gaps. |
+| 5 | #10 (synthetics B1-B6) | Biggest data gap. |
 | 6-7 | #14, #15 (full ablation sweeps) | Primary paper tables. |
 | 8 | #16 (HPO) | Credible untuned → tuned numbers. |
 | 9-10 | #23-#26 (Phase 10 photo-z) | Paper A headline experiment. |

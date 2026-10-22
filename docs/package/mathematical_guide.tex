@@ -130,7 +130,7 @@ Symbol & Meaning \\
 $\bx \in \R^d$ & Input feature vector ($d$ features) \\
 $y \in \R$ & Scalar regression target \\
 $N$ & Number of training samples \\
-$K$ & Number of classes / bins / mixture components \\
+$K$ & Number of classes / bins \\
 $D$ & Number of hidden layers (depth) in FlexibleNN \\
 $M$ & Number of ensemble members or MC samples \\
 $\pi_k(\bx)$ & Probability of class $k$ given input $\bx$ \\
@@ -596,8 +596,7 @@ When using dynamic $K$ or a fixed $K < K_{\max}$, classes $k > K$ are masked:
 Masking shares the logits across $K$, but the percentile \emph{bin boundaries} do not nest:
 they are recomputed independently for each candidate $K$ (the $K{=}2$ edges are not a subset of
 the $K{=}3$ edges), so ``class $k$'' denotes a different slice of the target at each $K$. This
-is harmless under likelihood-only training (\texttt{REGRESSION\_ONLY}), where boundaries never
-enter the loss, but it makes the cross-entropy term unsound under dynamic $K$ — see the caveat
+makes the cross-entropy term unsound under dynamic $K$ — see the caveat
 at Eq.~\eqref{eq:total_loss}.
 \end{implnote}
 
@@ -667,13 +666,14 @@ When \texttt{optimization\_strategy = GRADIENT\_STOP}:
 $\tilde{\pi}_k = \mathrm{stopgrad}(\pi_k)$.
 The classifier is updated only by cross-entropy; regression heads only by NLL.
 
+When \texttt{optimization\_strategy = CE\_STOP\_GRAD} (the default): the classifier is trained on
+bin cross-entropy only, and its probabilities are detached before the heads, so no regression
+gradient reaches the classifier; the heads are trained by the regression loss.
+
 When \texttt{optimization\_strategy = REGRESSION\_ONLY}: the cross-entropy term is disabled
-entirely and the classifier is trained only through the combined predictive likelihood (the
-gradient of $\mathcal{L}_{\mathrm{regression}}$ flowing back through the class probabilities).
-No class-membership targets — and hence no bin boundaries — enter the loss. This is the
-\emph{validated configuration for dynamic $K$}: it is the training mode of the two-stage
-recipe of record (frozen likelihood-only fit, then a post-hoc distilled selector), and it is
-structurally exempt from the class-identity conflict described at Eq.~\eqref{eq:total_loss}.
+entirely and the classifier is trained only through the regression loss (the gradient of
+$\mathcal{L}_{\mathrm{regression}}$ flowing back through the class probabilities). No
+class-membership targets --- and hence no bin boundaries --- enter the loss.
 
 \subsection{Monotonic Constraints}
 
@@ -1075,12 +1075,8 @@ $\mathcal{L}_{\mathrm{CE}}$ term is structurally unsound: each sample's target $
 from the percentile boundaries of that sample's selected $K$, and those boundary sets do not
 nest across $K$. Logit~0 is therefore supervised as ``bottom $1/K$ of $y$'' for whatever $K$
 each sample selects — the same component asked to mean different things at different
-resolutions, with nothing in the input distinguishing the regime. The validated configuration
-for dynamic $K$ is \texttt{REGRESSION\_ONLY} (cross-entropy disabled; see \emph{Optimization
-Strategies}), under which class identity is carried by the shared masked-prefix logits alone
-and remains stable across $K$. Cross-entropy-active dynamic $K$ should be treated as
-unsupported pending a $K$-stable class semantics (e.g.\ boundaries anchored to a single
-$K_{\max}$ grid, or refinement binning).
+resolutions, with nothing in the input distinguishing the regime. Candidate remedies: boundaries
+anchored to a single $K_{\max}$ grid, or refinement binning.
 \end{implnote}
 
 \subsection{Boundary Regularization Loss}
@@ -1233,7 +1229,7 @@ $\mathcal{L}_{\mathrm{MDN}} = -\frac{1}{N}\sum_{i} \log\left(\sum_{m} w_m(\bx_i)
 $\hat{\sigma}^2 = \sum_m w_m \sigma_m^2 + \sum_m w_m(\mu_m - \hat{\mu})^2$.
 
 \textbf{vs ProbReg:} MDN has no structural constraint on components;
-ProbReg imposes a classification bottleneck that regularizes the mixture.
+ProbReg imposes a classification bottleneck that regularizes the regression.
 
 %=============================================================================
 \section{Deep Ensembles (Lakshminarayanan et al., 2017)}

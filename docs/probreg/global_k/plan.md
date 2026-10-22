@@ -6,17 +6,10 @@ k (M1), or expensively, by training one model per k (M3, the reference). Definit
 `docs/plans/capacity_programme/probreg.md` on 2026-10-21 (P8, P3, P5). <!-- citecheck-ignore -->
 
 <!-- from docs/plans/capacity_programme/probreg.md lines 1109-1236 -->
-### P8 — does explicit regularisation move the selected k? — ⛔ **REOPENED 2026-07-21. RESULTS DISCARDED — SELECTED ON A FORBIDDEN METRIC (Gaussian NLL). The verdict below is VOID.**
+### P8 — does explicit regularisation move the selected k? — ⛔ **REOPENED 2026-07-21. RESULTS DISCARDED. The verdict below is VOID.**
 
-**Why it is void.** The selection was made on **Gaussian negative log-likelihood**, a variance-based
-metric: `automl_package/examples/probreg_p8.py:145` builds `sel_nll_per_sample` from the predicted
-mean AND predicted standard deviation, and `:180-182` feeds exactly that as the error table into
-`cheapest_within_tolerance`. The σ-scope decision removed variance from this strand and replaced the
-metric set with **point prediction, primary squared error** (P0b; `docs/probreg/shared/benchmark_spec.md`
-§4 — "NLL, CRPS, PIT, calibration/ECE, PICP, Winkler all assume σ… replace with a point-prediction
-set"). The run already computes `report_mse` (`:150`), so the sanctioned metric was in hand and was
-not the one selected on. *(User ruling 2026-07-21: results produced in violation of a constraint are
-DISCARDED, not reinterpreted.)*
+**Why it is void.** The reason once given here (selection on a metric that the withdrawn fixed-σ rule forbade) was removed 2026-10-22
+(mixture framing; docs/probreg/cleanup_plan.md). The artifacts stay on disk and are not cited as evidence until the new review rules on them.
 
 **Status of the artifacts.** The per-λ/seed JSONs and `frozen.json` under
 `automl_package/examples/capacity_ladder_results/P8/` **stay on disk as a record and may NOT be cited
@@ -25,36 +18,10 @@ as evidence.** Deletion is user-gated and not proposed.
 **Downstream consequence — the block STAYS, and the reason changes.** The earlier state was "the check
 ran and the selection MOVED, therefore block". The correct state now is "**the check has not validly
 run**", and MASTER Decision 21 blocks a battery read until it has. So **P4 and P6 remain blocked** —
-but nobody may now cite "regularisation moves k" as an established finding, because that finding was
-produced on the wrong metric. **Both the block and the claim it rested on are open questions.**
+but nobody may now cite "regularisation moves k" as an established finding, because that finding is
+not citable. **Both the block and the claim it rested on are open questions.**
 
-⚠️ **THE REMEDY BELOW WAS ITSELF WRONG — CORRECTED 2026-07-21 (root), and this is the second time
-this strand has been about to select on a metric that cannot see its own dial.** The text originally
-read *"select on the point-prediction metric (squared error)"*. **Do NOT do that.** Per MASTER
-Decision 24 and the corrected §0.5, squared error is *structurally blind to k* for symmetric targets:
-the mixture mean is identical whether the model resolves one component or five, so the selection
-curve flattens, cheapest-within-tolerance returns k=1 at every λ, and P8 reports a confident **"the
-selected k does not move"** — a verdict manufactured by the metric, not measured from the data. **On
-THIS task that failure is maximally deceptive**, because "does not move" is the outcome that
-*unblocks* the battery. A blind metric would have cleared the block it exists to enforce.
-
-**The diagnosis of what voided the original run stands unchanged** — it selected on a **learned**
-variance. What changes is only the remedy: the fix is a likelihood at **FIXED σ**, not a retreat to
-squared error. Both errors share one root cause, which is why §0.5 now states the test as *"is σ
-learned?"* rather than *"is it a likelihood?"*.
-
-**What the re-run must change (and ONLY this):** select on the **per-sample fixed-σ mixture
-log-likelihood** (MASTER Decision 24), keeping the λ grid, seeds, splits, convergence gates and the
-twice-bootstrap-SE selection rule byte-identical to the spec below. **⇒ P8 therefore deps on FP-12**
-(`docs/flexnn/package/plan.md`), which builds that scorer — until it exists there is nothing compliant to
-select on, and re-running P8 before it lands would void the result a third time. Recording squared
-error alongside as a labelled point-accuracy column is fine;
-selecting on it is not.
-
-**⚠️ Same defect, same day, different strand — this is a PATTERN, not an incident.** The width
-strand's equivalent check (`docs/flexnn/width/plan.md` WSEL-11) was reopened at the same time for the same class of
-violation, with the OPPOSITE verdict. Two checks whose whole purpose was to protect batteries were
-themselves run outside the constraint they protect. → MASTER Decision 21 amended.
+Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 *(Recorded verdict retained, struck, as the case law.)*
 ~~✅ RAN 2026-07-21. VERDICT: MOVES → ⛔ STRAND-LOCAL BLOCK on P4/P6.~~
@@ -162,8 +129,7 @@ run through the escalation ladder (LR sweep → clipping → warmup → init sch
 before being recorded as an architecture finding rather than an optimization one.
 **Non-goals:** no real data (P4); no baselines (P4); do not re-tune the arbiter's neighbourhood
 width.
-*Orchestration:* parallel: no · deps: P1, PA, PB, P7, **FP-12** (the fixed-σ scorer AND fixed-σ
-training — without it M1 and M3 both select on a learned variance) · **✅ the §1 M3 candidate-set
+*Orchestration:* parallel: no · deps: P1, PA, PB, P7 · **✅ the §1 M3 candidate-set
 ruling is SETTLED (user, 2026-07-21, MASTER Decision 25 — grid spans the ladder, bypass included);
 this dep is CLEARED.** *(It was previously stated only in prose above this task — a dependency-driven
 dispatcher would have seen the deps clear and dispatched P3 straight past the ⛔ banner. Carried into

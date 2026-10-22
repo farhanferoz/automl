@@ -924,15 +924,15 @@ Output: 6 matches. First 3:
 Protected (PROTECTED.tsv): no
 Disposition: **live**
 
-#### `automl_package/examples/exponential_symlog_probe.py`
+#### `exponential_symlog_probe.py` (deleted 2026-10-22, ProbReg cleanup)
 
 ```
 grep -rn -E "(^[[:space:]]*(import|from)[[:space:]]+exponential_symlog_probe\\b)|(automl_package\\.examples\\.exponential_symlog_probe\\b)|(\\bexponential_symlog_probe\\.py\\b)" --include='*.py' --include='*.md' --include='*.sh' --include='*.txt' automl_package/ docs/ tests/ | grep -v "^automl_package/examples/exponential_symlog_probe\\.py:"
 ```
 Output: 2 matches. First 3:
 ```
-  docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md:824:Script: `automl_package/examples/exponential_symlog_probe.py`.
-  docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md:1159:| symlog probe | `automl_package/examples/exponential_symlog_probe.py` |
+  docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md:824:Script: `exponential_symlog_probe.py` (deleted 2026-10-22, ProbReg cleanup).
+  docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md:1159:| symlog probe | `exponential_symlog_probe.py` (deleted 2026-10-22, ProbReg cleanup) |
 ```
 Protected (PROTECTED.tsv): no
 Disposition: **live**
@@ -1256,7 +1256,7 @@ Output: 1 matches. First 3:
 Protected (PROTECTED.tsv): no
 Disposition: **live**
 
-#### `automl_package/examples/probreg_identifiability_sweep.py`
+#### `probreg_identifiability_sweep.py` (deleted 2026-10-22, ProbReg cleanup)
 
 ```
 grep -rn -E "(^[[:space:]]*(import|from)[[:space:]]+probreg_identifiability_sweep\\b)|(automl_package\\.examples\\.probreg_identifiability_sweep\\b)|(\\bprobreg_identifiability_sweep\\.py\\b)" --include='*.py' --include='*.md' --include='*.sh' --include='*.txt' automl_package/ docs/ tests/ | grep -v "^automl_package/examples/probreg_identifiability_sweep\\.py:"
@@ -1264,8 +1264,8 @@ grep -rn -E "(^[[:space:]]*(import|from)[[:space:]]+probreg_identifiability_swee
 Output: 5 matches. First 3:
 ```
   automl_package/examples/run_all_sweeps.sh:95:run_sweep "identifiability"   "automl_package.examples.probreg_identifiability_sweep"
-  docs/probreg/history/identifiability_2026-04/phase2_handover.md:113:`automl_package/examples/probreg_identifiability_sweep.py`:
-  docs/probreg/history/identifiability_2026-04/probreg_identifiability_implementation_plan.md:411:**File:** `automl_package/examples/probreg_identifiability_sweep.py`
+  docs/probreg/history/identifiability_2026-04/phase2_handover.md:113:`probreg_identifiability_sweep.py` (deleted 2026-10-22, ProbReg cleanup):
+  docs/probreg/history/identifiability_2026-04/probreg_identifiability_implementation_plan.md:411:**File:** `probreg_identifiability_sweep.py` (deleted 2026-10-22, ProbReg cleanup)
 ```
 Protected (PROTECTED.tsv): no
 Disposition: **live**

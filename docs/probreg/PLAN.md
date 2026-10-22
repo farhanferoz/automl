@@ -5,14 +5,22 @@ The one plan for the ProbReg stream: the end-to-end classification-bottleneck re
 the model definitions, the task order across sub-plans, the stream's decisions and its open
 questions. Work items live in the sub-plans. Rules that bind every stream: `docs/RULES.md`.
 
+> ⛔ **Owner ruling 2026-10-22 — overrides every decision and plan text below that conflicts with it.**
+> ProbReg is a **regression model regularised by classification**, not a mixture model. The classifier is
+> trained on class labels only (cross-entropy against y bins, `CE_STOP_GRAD`); its probabilities reach the
+> heads without gradient, so the regression error cannot pull them off the true bin probabilities. The
+> yardstick is held-out regression error. The fixed-σ mixture loss and readout, regression-only supervision as the default, and
+> Decision 29's retirement of cross-entropy training are withdrawn. Text below that rests on them is
+> superseded and is to be removed under an owner-approved plan (pending).
+
 ## Sub-plans
 
 | Sub-plan | What it covers | Status |
 |---|---|---|
-| `docs/probreg/fixed_k/plan.md` | the base model, k set by the user: the structure study (PS-1 to PS-4), the head-structure comparison (P11), the accepted failing test (P2) | structure study ran 3 of 4 stages; PS-4 certification not run, blocked on the PS-3 head-layout halt ruling |
-| `docs/probreg/global_k/plan.md` | one k per dataset, chosen on held-out data: the cheap nested read-out (M1) against the per-k sweep (M3); P3, P5, P8 | open; P8's results are void |
+| `docs/probreg/fixed_k/plan.md` | the base model, k set by the user: the accepted failing test (P2). The structure study and the head-structure comparison (P11) were removed 2026-10-22 | — |
+| `docs/probreg/global_k/plan.md` | one k per dataset, chosen on held-out data: the cheap nested read-out (M1) against the per-k sweep (M3); P3, P5, P8 | open; P8's earlier results are not citable (see its entry) |
 | `docs/probreg/per_input_k/plan.md` | a distilled router picks k per input (M2): how much selection data (PB), the router's architecture (PC) | open |
-| `docs/probreg/shared/plan.md` | work serving all three: code organisation (§0.5, P9), execution contract and frozen constants (§3.5, §3.6), P0, P0b, P0-b1, PA, P1, the training-schedule migration (P7), real data (P4), the report (P6), P10 | see each task's header |
+| `docs/probreg/shared/plan.md` | work serving all three: code organisation (§0.5, P9), execution contract and frozen constants (§3.5, §3.6), P0, P0-b1, PA, P1, the training-schedule migration (P7), real data (P4), the report (P6), P10 | see each task's header |
 | `docs/probreg/shared/toy_suite.md` | the canonical toy suite and its assignment; PT | — |
 | `docs/probreg/shared/state.md` | what is established (§2), which records to trust (§2.5), known defects (§3) | — |
 | `docs/probreg/review/` | the independent methodology review: terms of reference and inputs (kept local-only) | not yet run |
@@ -34,28 +42,19 @@ giving its original file and lines.
 | Former section | Now |
 |---|---|
 | header, §1 model definitions, §4 task order, §5 non-goals | this file |
-| §0.5 code organisation (with P9), §3.5, §3.6, P0, P0b, P0-b1, PA, P7, P1, P4, P6, P10 | `docs/probreg/shared/plan.md` |
+| §0.5 code organisation (with P9), §3.5, §3.6, P0, P0-b1, PA, P7, P1, P4, P6, P10 (P0b removed 2026-10-22) | `docs/probreg/shared/plan.md` |
 | the canonical toy suite, PT | `docs/probreg/shared/toy_suite.md` |
 | §2, §2.5, §3 | `docs/probreg/shared/state.md` |
-| P2, P11 | `docs/probreg/fixed_k/plan.md` (after the structure study) |
+| P2 (P11 removed 2026-10-22) | `docs/probreg/fixed_k/plan.md` |
 | P3, P5, P8 | `docs/probreg/global_k/plan.md` |
 | PB, PC | `docs/probreg/per_input_k/plan.md` |
-| MASTER Decisions 4, 24, 25, 26, 27, 29 | this file, at the end |
+| MASTER Decisions 4, 25, 27, 29 (24 and 26 removed 2026-10-22) | this file, at the end |
 
 Decision numbers are unchanged; `docs/RULES.md` lists which file holds each decision.
 
 ## Parked open question — learned σ
 
-σ is fixed for the current phase (owner ruling Q2, 2026-10-20, below), but learned σ remains a design
-option for later. Decision 26 (at the end of this file) records fixed σ as a settled
-model-definition change; the owner's ruling amends that to "a design option — start with it fixed".
-When it is reopened, start from report (a)
-(`docs/probreg/fixed_k/reports/report_a/report_a_probreg_toys.md`, run on the old learned-variance
-model) and the June–July variance lane: results `V0`–`V3` and `X2` in
-`automl_package/examples/capacity_ladder_results/`, and the verdict
-`automl_package/examples/capacity_ladder_results/R4_verdict.md` ("variance estimation without
-in-sample collapse"). The hazard that fixed σ creates — extra classes absorbing spread that has no
-modes behind it — must be guarded in the k-selection work, not assumed away.
+Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 <!-- from docs/plans/probreg_review/objectives.md (whole file) -->
 ## ProbReg — objectives of the work
@@ -69,28 +68,25 @@ that conflicts with them.** Every objective names its source so it can be checke
 | Q | Ruling | What it means for the work |
 |---|---|---|
 | Q1 | **Both** claims (calibrated uncertainty AND adaptive resolution) — **but one at a time, k first** | The current focus is k: Fixed-k as the substrate, then Global-k, then Per-input-k. Calibration (O1c) stays an objective, worked later. |
-| Q2 | **σ is a design option — start with it fixed** | Work proceeds at fixed σ, but fixed σ is NOT settled truth: learned σ remains a later design option. Hazards that fixed σ creates (e.g. extra components absorbing spread) must be guarded, not assumed away. |
 | Q3 | **The classification bottleneck must IMPROVE point accuracy**, not merely not hurt it | O1b is raised: the pre-registered bar (H3, "≤ 1.05× the best baseline") is weaker than the objective. The comparison that tests it is against a plain network of matched capacity (the no-classification/bypass arm). |
-| Q4 | **Open** — cross-entropy supervision of the classifier, or regression-loss only | To be settled by evidence; neither the 2026-07-21 retirement nor the structure study's finding is final. |
 | Q5 | **Toys only for now** | O4 (real data, baselines on real data) is out of scope for the current phase. |
-| Q6 | **Open** — is k claimed to be *useful* (prediction), *true* (structure), or both | Every k claim must say which kind it is; the two are tested differently. |
+| Q2, Q4, Q6 | Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md). | — |
 | — | **k is a hyperparameter, never learned with the regression means during fitting** — chosen from held-out data or genuine Bayesian evidence | Training always prefers more classes; any route by which the training objective chooses k (including early stopping or checkpoint choice on a loss averaged over k) violates this. |
 | — | **No hard thresholds or pass bars.** Results are judged by comparison — against a pure regression model, across ProbReg architectures, across ways of choosing k — using judgement, unless a difference is obvious | Numeric bars quoted below (e.g. "≥ 8 of 11 cases", "1.05×", "0.02 nats") are context from the old real-data spec, NOT bars for this phase. Comparisons are reported as paired differences with their seed-to-seed spread; each comparison states its possible outcomes and what each would mean before it is run. |
 
 ### The model, in one paragraph
 
-ProbReg is a regression model built as a classifier. The target range is divided into k classes. A
-network reads the input and outputs a probability for each class; each class has its own small
-regression head; the prediction combines the heads, weighted by the class probabilities, into a
-predictive distribution (a k-component mixture; its mean and spread follow from the law of total
-variance). The classification step is a bottleneck: the model must say *which part of the target
+ProbReg is a regression model regularised by classification (owner ruling 2026-10-22). The target range is divided into k ordered classes
+(bins of y). A network reads the input and outputs a probability for each class, trained on the class labels. Each class has its own
+small regression head that predicts a mean and a spread; the prediction combines the heads, weighted by the class probabilities, into
+one Gaussian (its mean and spread follow from the law of total variance). The classification step is a bottleneck: the model must say *which part of the target
 range* an input belongs to before it refines the value. k is therefore a **resolution dial**.
 
 Three variants, differing only in how k is chosen:
 
 | Name | How k is chosen | Plan code name |
 |---|---|---|
-| **Fixed-k ProbReg** | set by the user | the base model (`docs/probreg/PLAN.md` §1; `docs/probreg/fixed_k/plan.md` is the study of its design) |
+| **Fixed-k ProbReg** | set by the user | the base model (`docs/probreg/PLAN.md` §1; `docs/probreg/fixed_k/plan.md` is its sub-plan) |
 | **Global-k ProbReg** | one k for the dataset, chosen from held-out data — cheaply, by reading one nested network at every k; the expensive reference trains one model per k | M1 (cheap read-out) and M3 (sweep reference), `docs/probreg/PLAN.md` §1 |
 | **Per-input-k ProbReg** | a small router, distilled from held-out per-k errors, picks k for each input | M2, `docs/probreg/PLAN.md` §1 |
 
@@ -108,33 +104,24 @@ that was never written.
 ### Objectives
 
 #### O1 — Fixed-k: the classification bottleneck is a sound regression model
-- **O1a. Settle what the model is.** Classifier supervision, how spread is parameterised, the
-  likelihood form, identifiability constraints, the head layout — decided by pre-registered
-  experiment and certified as ONE configuration. *(Source: `docs/probreg/fixed_k/plan.md` "Goal";
-  "Problem 1 before Problem 2", `docs/probreg/fixed_k/plan.md` §1.)*
+- **O1a.** Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 - **O1b. It IMPROVES point accuracy** (owner, 2026-10-20, Q3) — over a plain network of matched
   capacity. *(The pre-registered real-data bar, `docs/probreg/shared/benchmark_spec.md` §7.4 H3, asks only
   "≤ 1.05× the best baseline"; that is now the floor, not the objective.)*
 - **O1c. It gives a better predictive distribution where the data has structure** — multimodal and
-  heteroscedastic targets — than standard regressors. *(Sources: H2 and H5 in `benchmark_spec.md` §7.3, §7.6;
+  heteroscedastic targets — than standard regressors. *(Source:
   report (a)'s calibration headline, `docs/probreg/fixed_k/reports/report_a/report_a_probreg_toys.md` Summary.)*
 
 #### O2 — Global-k: k can be chosen from data, cheaply and correctly
 - **O2a. Same quality.** Reading the nested network at a given k is as good as a model trained only
   for that k. *(Source: `docs/probreg/PLAN.md` §1 "(a) same quality".)*
-- **O2b. Same choice.** The cheap read-out picks the k the expensive sweep picks — on ≥ 8 of 11 real
-  cases, with a likelihood gap < 0.02 nats where they differ — and the cost ratio is reported.
-  *(Source: `docs/probreg/PLAN.md` §1 "(b) same choice"; `benchmark_spec.md` §7.4b, H6.)*
-- **O2c. The chosen k is right where the truth is known.** On the reference toy it returns the true
-  k; on smooth data it returns the smallest k; it does not raise k merely because the spread widens.
-  *(Source: the canonical toy suite tiers 1–2, `docs/probreg/PLAN.md` "THE CANONICAL TOY SUITE".)*
-  ⚠️ O2c is a different kind of claim from O2a/O2b — see Q6.
+- **O2b. Same choice.** The cheap read-out picks the k the expensive sweep picks, and the cost ratio is reported.
+  *(Source: `docs/probreg/PLAN.md` §1 "(b) same choice".)*
+- **O2c.** Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 #### O3 — Per-input-k: the model can spend resolution where the input needs it
-- **O3a. It recovers a known per-input k\*(x)** — rising, rising-then-falling, and a staircase that stops
-  at 3 rather than running to k_max. *(Source: toy suite tier 3, `docs/probreg/PLAN.md`.)*
-- **O3b. It never loses to global-k** (ties or beats on ≥ 10 of 11 real cases) **and strictly pays where
-  structure varies** (≥ 0.02 nats better on ≥ 4 of 11). *(Source: `benchmark_spec.md` §7.1–7.2, H1a/H1b.)*
+- **O3a.** Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
+- **O3b. It never loses to global-k, and pays where structure varies.**
 - **O3c. It routes smooth data to the no-classification (bypass) rung.** A falsifiable prediction,
   not a gate. *(Source: `benchmark_spec.md` §7.7.)*
 
@@ -146,15 +133,12 @@ that was never written.
   §7 "Paper A".)*
 
 ### Principles the owner has ruled, which every objective inherits
-1. **σ is fixed, never learned** — so spread must be explained by more components, not by one wider
-   component (MASTER Decision 26; but see open question Q2).
-2. **k is read on the fixed-σ mixture likelihood** — never on squared error (blind to k) and never on a
-   learned variance (MASTER Decision 24).
+1. Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
+2. Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 3. **k is chosen after training, never during** — in-training selection is retired (MASTER Decision 29).
 4. **Each variant is scored as a complete system, its selection machinery and cost included**
    (`docs/probreg/PLAN.md` §1).
-5. **Settle training before selection** (MASTER Decision 37, ruled for width; the structure phase is
-   the same principle for ProbReg).
+5. **Settle training before selection** (MASTER Decision 37, ruled for width).
 6. **Probabilistic inference only** — priors and likelihoods, no hand-weighted penalty terms
    (2026-07-03 framing above; `K_PENALTY` is retired by MASTER Decision 29).
 
@@ -163,27 +147,14 @@ that was never written.
 Kept for the reasoning behind each question; the rulings table at the top is authoritative.
 - **Q1. What is the primary claim: calibrated uncertainty, or adaptive resolution?** The April paper
   plan (`docs/applications/research_plan.md` §7) claims *"learned per-class variance … dominates other tabular uncertainty
-  estimators"*, with in-training dynamic k as a contribution. Since July both halves are retired
-  (σ fixed; in-training k retired). The live plan is about k as a resolution dial. Report (a)'s
-  headline was calibration, measured under the old learned-variance model.
-- **Q2. Is σ fixed, or is it a design choice still under test?** MASTER Decision 26 fixes it in
-  training; `docs/probreg/fixed_k/plan.md` §1 then SUSPENDED Decision 26 and made fixed σ one arm among three. The
-  structure study picked fixed σ by a simplicity tie-break, not a measured win.
+  estimators"*, with in-training dynamic k as a contribution. Since July the in-training k half is retired. The live plan is about k as a resolution dial. Report (a)'s
+  headline was calibration.
+- **Q2.** Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 - **Q3. "Classification as a regulariser" — must it HELP point accuracy, or only not hurt it?** The
   pre-registered bar (H3) only asks it not to hurt (≤ 1.05× the best baseline).
-- **Q4. Is the classifier trained against its classes (cross-entropy) or only through the regression
-  loss?** Cross-entropy was retired on 2026-07-21 because it imposes a fixed percentile carve-up of y
-  (MASTER Decision 29); the structure study then found the only designs whose classes stayed in order
-  were the cross-entropy ones (`docs/probreg/fixed_k/plan.md` §0, PS-1 evidence note).
-- **Q5. Real data before or after the toy results are settled?** Decision 3 puts real data in scope;
-  the structure phase paused all of it (`docs/probreg/fixed_k/plan.md` §1).
-- **Q6. Is the claim "k is a useful resolution" or "k equals the true number of modes" — or both?**
-  AutoCast's rank-ladder programme separates the two (`docs/probreg/review/sources/autocast_rank_ladder.md` §1, local-only): a <!-- citecheck-ignore: local-only review pack -->
-  chosen capacity can be right for *prediction* (held-out likelihood, calibration) while being wrong
-  about the *true* structure, and in AutoCast every reader lost the "true structure" claim once the
-  model's persistent approximation error reached about a quarter of the noise level. O2a/O2b/O3b are
-  prediction claims; O2c/O3a are true-structure claims. ProbReg's toys can supply what AutoCast's
-  could not — many draws of y at the same x — which would let the two be separated exactly.
+- **Q4.** Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
+- **Q5. Real data before or after the toy results are settled?** Decision 3 puts real data in scope.
+- **Q6.** Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 <!-- from docs/plans/capacity_programme/probreg.md lines 1-14 -->
 # Strand: ProbReg — per-input resolution (k) selection
@@ -207,28 +178,7 @@ the fix; the rule that keeps it fixed is the first line of this file.
 The comparison is between three ways of choosing **k**, the number of classes the model resolves
 the target into.
 
-⚠️ **σ IS FIXED IN TRAINING AS WELL AS IN SELECTION — MODEL-DEFINITION CHANGE (user, 2026-07-21;
-MASTER Decision 26).** ProbReg fits no variance anywhere. With σ a shared constant, each rung's NLL
-reduces to squared error up to a constant, so **training is MSE on the mixture mean**, the per-class
-heads predict **means only**, and the within-component term of the law-of-total-variance combination
-is the constant. Predictive spread is therefore the **between-component spread plus σ²** — still
-meaningful, never fitted.
-
-**Why (the reason is a confound, not tidiness):** a learned per-class variance lets **one component
-absorb dispersion by widening itself**, so the model fits spread-out data *without* needing more
-components — precisely the question the k dial exists to answer. Fixing σ forces dispersion to be
-explained by structure rather than by width.
-
-**Consequences that bind every task in this strand:**
-- **All prior k-dropout results are now OLD-OBJECTIVE** as well as old-schedule (Decision 20). Two
-  labels travel with historical numbers; neither may be dropped.
-- **The suite bar must be RE-BASELINED before this lands** — the two accepted heteroscedastic
-  failures test variance behaviour directly, and this changes what a component can express. The
-  "366 passed / 2 failed / 1 skipped, no new failures and no newly-passing tests" bar **does not
-  carry across this change.** Re-baseline, record the new expected result, and treat any other
-  movement as the regression signal.
-- **`docs/flexnn/package/plan.md` FP-12 now covers training as well as scoring**, which overlaps **P7**'s
-  rewrite of the training objective. Sequence deliberately or merge them; do not dispatch both.
+Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 ⚠️ **HEAD LAYOUT PINNED — all three models use `RegressionStrategy.SEPARATE_HEADS` (root, 2026-07-21,
 at the user's instruction to correct this omission).** The plan previously never named a head layout
@@ -331,17 +281,7 @@ included)") and implemented as rung 1 = the direct-regression head. **M3's grid 
 (`automl_package/examples/report_a_benchmark.py:102`), consumed by `select_k_for_toy` (`:331-350`),
 which fits a dedicated fixed-k model per grid point and takes the argmin validation NLL.
 
-⚠️ **SECOND DEFECT AT THE SAME SITE — M3's selector scores on a LEARNED variance (found 2026-07-21,
-root, during the user-instructed variance audit; independent of the grid question above).**
-`select_k_for_toy` selects by `calculate_nll(y_val, y_pred, y_std)` where
-`y_std = model.predict_uncertainty(x_val)` (`automl_package/examples/report_a_benchmark.py:341-345`)
-— i.e. the model's **fitted** variance. That is exactly the violation that voided P8 and that the
-σ-scope decision removed. **The benchmark spec's §4.3 lists three code sites that must substitute the
-shared constant** (the router's error table, the arbiter's per-rung readout, and the reported
-metric); **this driver is a FOURTH site and is not on that list**, so a reader following §4.3 to
-completion would still leave M3 selecting on a learned σ. **⇒ M3's selector must be migrated to the
-fixed-σ mixture log-likelihood in the same task that generalises it, and §4.3's site list must gain
-this entry.** Until then, no M3 number is compliant with §0.5's fixed protocol.
+Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 **Why this is not bookkeeping.** The cheap arms can select *"do not discretize at all"*; the
 reference structurally **cannot** select anything below k=5. On any cell where the honest answer is
@@ -448,24 +388,19 @@ it. This is the same failure that invalidated the depth pilot; it was about to r
 <!-- from docs/plans/capacity_programme/probreg.md lines 662-690 -->
 ## 4. Tasks
 
-Order is **`docs/flexnn/package/plan.md` FP-12 → P0 → P0b → P0-b1 → P1 → P2 → PA → P7 → PB ∥ PC ∥ P8 →
-P11 → P3 → P4 → P5 → P9 → P6** *(P10 removed 2026-07-21 — merged into FP-12)* *(amended
+Order is **`docs/flexnn/package/plan.md` FP-12 → P0 → P0-b1 → P1 → P2 → PA → P7 → PB ∥ PC ∥ P8 →
+P3 → P4 → P5 → P9 → P6** *(P10 removed 2026-07-21 — merged into FP-12)* *(amended
 2026-07-21: P7, the Decision-20 schedule migration, precedes every task that trains M1/M2; P8, the
 Decision-21 regularisation check, runs parallel and gates P4's read; P0-b1 and P1 were found
 already landed — see their headers)*.
 
-⚠️ **ORDER LINE CORRECTED 2026-07-21 (root, after an execution-level audit). P9, P10 and P11 all had
-full specs — write set, deps, verify line — and NONE of them appeared in this order line.** A
-dispatcher following the order literally would never have scheduled any of the three, and since P10
-gates P11, the omission also severed P11's only path into the sequence. *(Recorded as case law: a
+⚠️ **ORDER LINE CORRECTED 2026-07-21 (root, after an execution-level audit). P9 and P10 both had
+full specs — write set, deps, verify line — and NEITHER appeared in this order line.** A
+dispatcher following the order literally would never have scheduled either. *(Recorded as case law: a
 task is not scheduled because it is well-specified; it is scheduled because it is in the order. Both
 are required, and this file had drifted so that adding a task no longer meant adding it here.)*
 
-**Two things this linear line cannot express — read them before partitioning waves:**
-- **FP-12 is WAVE ZERO and lives in another strand.** It builds the fixed-σ scorer that MASTER
-  Decision 24 makes the capacity readout. Until it lands, **every task here that selects or reports a
-  chosen k reads through a mechanism that scores on a LEARNED variance** — the forbidden case. That
-  includes P8's re-run, P11, PB, PC, P3, P4, P5 and P7's re-validation.
+**One thing this linear line cannot express — read it before partitioning waves:**
 - **FP-12 then P7 are a STRICT SERIAL CHAIN** *(was three tasks; P10 merged into FP-12 on 2026-07-21)*: both write
   `automl_package/models/probabilistic_regression.py`. The write-set guard is **session-scoped, not
   liveness-scoped**, so they cannot be worker-written in one session even sequentially — they need
@@ -489,28 +424,7 @@ comparison arm. No variance-programme work (MASTER Decision 2).
    the variance programme.
 
 <!-- from docs/plans/capacity_programme/MASTER.md lines 372-441 -->
-24. **The capacity readout is a likelihood at FIXED σ — never squared error, never a learned variance
-    (root, 2026-07-21, promoted to MASTER after the strand file was found contradicting it).**
-    Promoted here *because* it was ratified only in `docs/probreg/shared/benchmark_spec.md` §4.2/§4.3
-    and `docs/probreg/shared/plan.md` §0.5 had drifted to the exact opposite. A rule that lives in one document does not
-    bind the plan; this register is where it binds.
-    - **The readout for choosing capacity is the per-sample fixed-σ mixture log-likelihood.**
-      σ is ONE SHARED CONSTANT, so nothing is fitted and this is not a variance metric.
-    - **Squared error / RMSE is a reporting column, NEVER the readout.** Spec §4.3: selecting on it
-      *"would be selecting on a quantity that is structurally blind to k for symmetric targets… the
-      selection curve would be flat, the cheapest-within-tolerance rule would return k=1 everywhere,
-      and the result would look like a clean finding."* A metric that cannot see the dial returns a
-      confident answer about the dial — the worst available failure mode.
-    - **A likelihood read at a LEARNED `log_var` is FORBIDDEN.** This is the violation that voided P8.
-      **The test is not "is it a likelihood?" but "is σ learned?"** — Decision 21's amendment (a check
-      runs on its own strand's sanctioned objective) is what this makes operational.
-    - **Both errors are live and were found by audit, not by a failing run** — which is the point:
-      neither would have thrown. The strand file mandated squared-error selection, and the reference
-      arm's own selector still scores on a fitted variance at a code site the spec's migration list
-      omits. **Every task that selects, scores, or reports a chosen capacity states its metric
-      explicitly, and "as the strand does" is not a statement.**
-    - **Width parity:** Decision 2 (amended) already fixes σ at the generator's true value for width.
-      Same principle, two dials — neither strand learns a variance it then selects on.
+24. Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 25. **M3's candidate set spans the same rungs the ladder is read over, bypass included (user,
     2026-07-21).** The cheap arms (M1/M2) read k ∈ {1..k_max} including the bypass rung; M3's grid
@@ -523,41 +437,13 @@ comparison arm. No variance-programme work (MASTER Decision 2).
       cheap arms look *worse*, which is why it is the conservative choice.
     - **Unblocks `docs/probreg/global_k/plan.md` P3 and P4**, whose deps carried this as an explicit blocking entry.
 
-26. **ProbReg trains at FIXED σ — a MODEL-DEFINITION change (user, 2026-07-21).** σ is not fitted
-    anywhere in ProbReg: not in selection (Decision 24), and now not in training either. This is the
-    ProbReg counterpart of Decision 2 (amended) for width — same principle, two dials, one premise.
-    - **The reason is a confound, not consistency.** With a learned per-class variance, **a single
-      component can absorb dispersion by widening itself**, so the model fits spread-out data without
-      needing more components — which is exactly the question "does this input need more k?" is trying
-      to measure. Fixing σ removes that escape hatch and forces dispersion to be explained by
-      **structure** (more components) rather than by **width** (one fatter component).
-    - **What it means mechanically:** with σ constant the rung NLL reduces to squared error up to a
-      constant, so training becomes MSE on the mixture mean. **⇒ ROOT-APPLIED IMPLEMENTATION RULING
-      (flagged for the user to overturn if unintended): the per-class heads predict MEANS ONLY, and
-      the within-component term in the law-of-total-variance combination becomes the shared constant.**
-      The alternative — keeping a `log_var` output that the loss no longer trains — would leave an
-      **untrained head that `predict_uncertainty` would happily expose**, which is a worse trap than
-      the one this decision removes.
-    - **Predictive spread stays meaningful:** it becomes the between-component spread plus the
-      constant. The variance *machinery* is not deleted (Decision 2's carry-over); it is simply never
-      fitted and never selected on.
-    - **⚠️ CONSEQUENCE — the suite bar must be RE-BASELINED before this lands.** The two accepted
-      heteroscedastic failures test variance behaviour directly, and this changes what the model can
-      express within a component. **The "no new failures, no newly-passing tests" bar cannot be
-      carried across this change** — re-baseline first, record the new expected result, and treat any
-      *other* movement as the regression signal.
-    - **All prior k-dropout numbers become OLD-OBJECTIVE** and are citable only when labelled as such
-      — the same treatment Decision 20's retired schedule already receives. Two labels now travel
-      with historical ProbReg results: old-schedule and old-objective.
-    - **Scope consequence:** `docs/flexnn/package/plan.md` **FP-12** grows from a scoring change to a scoring
-      **and training** change, and now overlaps `docs/probreg/PLAN.md` **P7** (which rewrites the training
-      objective for the schedule migration). **Those two must be sequenced deliberately or merged.**
+26. Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 27. **ProbReg head-layout arm list (user, 2026-07-21).** Separate per-class heads are the model of
     record (`docs/probreg/PLAN.md` §1). The single-head-with-per-class-outputs layout is **retained as a
     LABELLED comparison arm, never a default** — it distinguishes "components help" from
     "*independent* components help". The single-head-final-output layout stays **blocked under
-    `NESTED`** and serves only as P11's mechanism control, because it produces no components at all.
+    `NESTED`**, because it produces no components at all.
 
 
 <!-- from docs/plans/capacity_programme/MASTER.md lines 448-522 -->
@@ -570,7 +456,7 @@ comparison arm. No variance-programme work (MASTER Decision 2).
 
     | dial | in-training machinery this retires | where |
     |---|---|---|
-    | **ProbReg (k)** | `SOFT_GATING`, `GUMBEL_SOFTMAX`, `STE`, `REINFORCE` · `NClassesRegularization`'s `K_PENALTY` and `ELBO` (the enum's own docstring: *"only meaningful with an in-training selection method"*) · the cross-entropy training modes `COMPOSITE_LOSS` / `GRADIENT_STOP` / `CE_STOP_GRAD` | `automl_package/enums.py` · `automl_package/models/flexnn/strategies/n_classes.py` |
+    | **ProbReg (k)** | `SOFT_GATING`, `GUMBEL_SOFTMAX`, `STE`, `REINFORCE` · `NClassesRegularization`'s `K_PENALTY` and `ELBO` (the enum's own docstring: *"only meaningful with an in-training selection method"*) | `automl_package/enums.py` · `automl_package/models/flexnn/strategies/n_classes.py` |
     | **FlexNN depth** | `GumbelSoftmaxStrategy`, `SoftGatingStrategy`, `SteStrategy`, `ReinforceStrategy` · `DepthRegularization`'s `DEPTH_PENALTY`, `ELBO`, `COST_AWARE_ELBO` | `automl_package/models/flexnn/strategies/layer.py:52,98,144,278` · `automl_package/enums.py:96` |
     | **FlexNN width** | **nothing left to retire** — `WidthSelectionMethod` was removed entirely by FP-3 and width already selects only through the distilled router. Recorded so nobody hunts for a width equivalent that does not exist. | — |
 
@@ -579,21 +465,14 @@ comparison arm. No variance-programme work (MASTER Decision 2).
     post-fix ELBO collapsed to depth=1 on all five seeds), which is the depth-side instance of exactly
     the failure Decision 13 recorded for width.
 
-    **Why one rule and not three patches.** Three separate problems were found in one session — the
-    head layout with no components, cross-entropy against per-k rebinned targets, and in-training
-    k-selection — and **all three share a shape: the plan assumed a configuration, nothing enforced
+    **Why one rule and not two patches.** Two separate problems were found in one session — the
+    head layout with no components and in-training k-selection — and **both share a shape: the plan assumed a configuration, nothing enforced
     it, and `get_hyperparameter_search_space` could select the unsafe one.** A tuning run could reach
-    every one of them. One enforcement point closes all three.
+    either of them. One enforcement point closes both.
 
-    **Two distinct justifications, recorded separately so neither carries the other's weight:**
-    - *In-training selection* is retired because **it does not work** — Decision 13's finding
-      (failed for width; the FlexNN ELBO depth-selection claim refuted), which is why the arbiter and
-      the distilled router exist at all.
-    - *Cross-entropy* is retired on a **different and independent** argument: it trains the classifier
-      toward a **predetermined percentile carve-up of y**, which contradicts the premise that k is an
-      adaptive resolution dial driven by difficulty and signal-to-noise. **It is NOT part of the
-      in-training-selection programme** — it applies equally to a fixed-k model — so "it's legacy"
-      would have been the wrong reason.
+    **Justification.** *In-training selection* is retired because **it does not work** — Decision 13's finding
+    (failed for width; the FlexNN ELBO depth-selection claim refuted), which is why the arbiter and
+    the distilled router exist at all.
 
     **Consequence:** `NClassesSelectionMethod` has two live members under the ladder — `NONE` and
     `NESTED`. The design's actual API.
@@ -614,7 +493,7 @@ comparison arm. No variance-programme work (MASTER Decision 2).
     arbiter/distillation setup works, we delete all machinery we have for in-sample k selection."*
     - **The condition is the strand's own headline**, not a judgement call: the arbiter matches the
       expensive sweep, and the distilled router works per input — i.e. **P3 and P4 pass** on the
-      widened grid (Decision 25) at the fixed-σ readout (Decision 24).
+      widened grid (Decision 25).
     - **Applies to FlexNN's machinery on the same trigger** (user: *"this applies to both"*). Depth's
       in-training strategies and `DepthRegularization` become deletion-eligible on the same
       conclusion — **with one asymmetry that must not be glossed:** depth is PARKED, so its own
@@ -644,8 +523,8 @@ Where this stream's experiment scripts and results live; the code stays where it
 planned code move. Scripts are in `automl_package/examples/`; `LADDER/` is
 `automl_package/examples/capacity_ladder_results/`, whose `RESULTS.md` records what completed.
 
-- **fixed_k** — scripts: `probreg_structure_battery.py`; results: `LADDER/P2/`, `LADDER/PS1/`, `LADDER/PS2/`, `LADDER/PS3/`, `report_a_results/`
+- **fixed_k** — scripts: none; results: `LADDER/P2/`, `report_a_results/`
 - **global_k** — scripts: `probreg_p8.py`, `report_a_benchmark.py`; results: `LADDER/P8/`
-- **history** — scripts: `_kselection_metrics.py`, `_phase2_followups_chain.sh`, `_variational_em.py`, `_variational_em_perinput.py`, `capacity_ladder_v2.py`, `capacity_ladder_v3.py`, `capacity_ladder_variance_v0.py`, `capacity_ladder_variance_v1.py`, `capacity_ladder_x2.py`, `classifier_symmetry_check.py`, `dynamic_k_comparison.py`, `exponential_symlog_probe.py`, `gumbel_elbo_retest.py`, `head_degeneracy_diagnostic.py`, `head_structure_diagnostic.py`, `middle_class_centering.py`, `probabilistic_regression_showcase.py`, `probreg_ablation.py`, `probreg_elbo_prior_check.py`, `probreg_identifiability_sweep.py`, `probreg_k10_sweep.py`, `probreg_k20_sweep.py`, `probreg_k_sweep.py`, `probreg_kselection_comparison.py`, `probreg_kselection_diagnostic.py`, `probreg_kselection_experiments.py`, `probreg_kselection_prior_ablation.py`, `probreg_mixture_eval.py`, `probreg_ordering_ablation.py`, `probreg_snr_sweep.py`, `probreg_variational_em_step1.py`, `probreg_variational_em_step2_perinput_arbiter.py`, `probreg_variational_em_step3_perinput_model.py`, `probreg_variational_em_toy_e_hump.py`, `run_phase2_followups_safe.sh`, `run_probreg_k10_sweep_safe.sh`, `run_probreg_k_sweep_safe.sh`, `sep_heads_vs_single_final.py`; results: `LADDER/V0/`, `LADDER/V1/`, `LADDER/V2/`, `LADDER/V3/`, `LADDER/X2/`, `classifier_symmetry_results/`, `exponential_symlog_probe_results/`, `gumbel_elbo_retest_results/`, `head_degeneracy_results/`, `head_structure_results/`, `middle_class_centering_results/`, `prior_ablation_results/`, `probreg_ablation_results/`, `probreg_elbo_prior_check_results/`, `probreg_identifiability_results/`, `probreg_k10_sweep_results/`, `probreg_k20_sweep_results/`, `probreg_k_sweep_results/`, `probreg_kselection_diagnostic_results/`, `probreg_kselection_experiments_results/`, `probreg_ordering_ablation_results/`, `probreg_snr_sweep_results/`, `sep_heads_investigation/`, `variational_em_comparison_results/`, `variational_em_step1_results/`, `variational_em_step2_results/`, `variational_em_step3_results/`, `variational_em_toy_e_results/`
+- **history** — scripts: `_kselection_metrics.py`, `_phase2_followups_chain.sh`, `_variational_em.py`, `_variational_em_perinput.py`, `capacity_ladder_v2.py`, `capacity_ladder_v3.py`, `capacity_ladder_variance_v0.py`, `capacity_ladder_variance_v1.py`, `capacity_ladder_x2.py`, `classifier_symmetry_check.py`, `dynamic_k_comparison.py`, `gumbel_elbo_retest.py`, `head_degeneracy_diagnostic.py`, `head_structure_diagnostic.py`, `middle_class_centering.py`, `probabilistic_regression_showcase.py`, `probreg_ablation.py`, `probreg_elbo_prior_check.py`, `probreg_k10_sweep.py`, `probreg_k20_sweep.py`, `probreg_k_sweep.py`, `probreg_kselection_comparison.py`, `probreg_kselection_diagnostic.py`, `probreg_kselection_experiments.py`, `probreg_kselection_prior_ablation.py`, `probreg_mixture_eval.py`, `probreg_ordering_ablation.py`, `probreg_snr_sweep.py`, `probreg_variational_em_step1.py`, `probreg_variational_em_step2_perinput_arbiter.py`, `probreg_variational_em_step3_perinput_model.py`, `probreg_variational_em_toy_e_hump.py`, `run_phase2_followups_safe.sh`, `run_probreg_k10_sweep_safe.sh`, `run_probreg_k_sweep_safe.sh`, `sep_heads_vs_single_final.py`; results: `LADDER/V0/`, `LADDER/V1/`, `LADDER/V2/`, `LADDER/V3/`, `LADDER/X2/`, `classifier_symmetry_results/`, `gumbel_elbo_retest_results/`, `head_degeneracy_results/`, `head_structure_results/`, `middle_class_centering_results/`, `prior_ablation_results/`, `probreg_ablation_results/`, `probreg_elbo_prior_check_results/`, `probreg_k10_sweep_results/`, `probreg_k20_sweep_results/`, `probreg_k_sweep_results/`, `probreg_kselection_diagnostic_results/`, `probreg_kselection_experiments_results/`, `probreg_ordering_ablation_results/`, `probreg_snr_sweep_results/`, `sep_heads_investigation/`, `variational_em_comparison_results/`, `variational_em_step1_results/`, `variational_em_step2_results/`, `variational_em_step3_results/`, `variational_em_toy_e_results/`
 - **per_input_k** — scripts: `_capacity_ladder.py`, `_capacity_ladder_nested.py`, `capacity_ladder_h1.py`, `capacity_ladder_k1k2k3.py`, `capacity_ladder_k4.py`, `capacity_ladder_k5.py`, `capacity_ladder_k6.py`, `capacity_ladder_s1.py`, `capacity_ladder_s2.py`, `capacity_ladder_t2.py`, `capacity_ladder_t3.py`, `capacity_ladder_x4.py`, `capacity_ladder_x4b.py`; results: `LADDER/H1/`, `LADDER/K0/`, `LADDER/K1K2K3/`, `LADDER/K4/`, `LADDER/K5/`, `LADDER/K6/`, `LADDER/S1/`, `LADDER/S2/`, `LADDER/T2/`, `LADDER/T3/`, `LADDER/X4/`, `LADDER/X4b/`
 - **shared** — scripts: `_toy_datasets.py`

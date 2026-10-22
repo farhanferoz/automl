@@ -111,17 +111,17 @@ behaviour change to any driver that a live task will run; no merging of drivers 
 equivalent; **no touching `n_classes_strategies.py`** (FP-11 moves it, P7 rewrites it).
 *Orchestration:* parallel: **NO — and this is a hard single-writer constraint, not a preference** ·
 deps: **FP-11** and **P7 merged** (P7 rewrites the training schedule, which is what supersedes several
-of these drivers) **· AND P3, P4, P8, PB, PC, P11 ALL CLOSED** · tier: sonnet high for Steps 1-6,
+of these drivers) **· AND P3, P4, P8, PB, PC ALL CLOSED** · tier: sonnet high for Steps 1-6,
 **root + ATTENDED for Step 7** · scale: static · shape: execution ·
 
-⚠️ **P9 COLLIDES WITH SIX OPEN TASKS BY CONSTRUCTION (added 2026-07-21 after an execution-level
+⚠️ **P9 COLLIDES WITH FIVE OPEN TASKS BY CONSTRUCTION (added 2026-07-21 after an execution-level
 audit).** P9's write set is the glob `automl_package/examples/probreg_*.py` — which **matches every
 driver the open tasks create**: `probreg_p3.py` (P3), `probreg_benchmark.py` (P4), `probreg_p8.py`
-(P8), `probreg_pb.py` (PB), `probreg_pc.py` (PC), `probreg_p11.py` (P11). Nothing in the previous
+(P8), `probreg_pb.py` (PB), `probreg_pc.py` (PC). Nothing in the previous
 deps line prevented a wave-partitioner from scheduling P9 **concurrently** with any of them, and a
 relocate or `git mv` racing another task mid-write is the exact single-writer failure this programme
 has a hook to catch. P9's own eligibility checks would probably block a *deletion* of a live-cited
-file — but they do not protect a **rename**. **⇒ P9 runs LAST in this strand, after all six close.**
+file — but they do not protect a **rename**. **⇒ P9 runs LAST in this strand, after all five close.**
 verify: (1) `shared/p9-cleanup-manifest.tsv` exists and every DELETE row records all four checks;
 (2) every relocated study's JSONs resolve at their new path and no driver writes outside
 `capacity_ladder_results/`; (3) neither shell launcher contains the string `/home/`;
@@ -148,7 +148,7 @@ user-only for the end of the run.
 | **PC**: NOT invariant | adopt the **smallest** plateau configuration as THIS STRAND'S default, record it in `automl_package/examples/capacity_ladder_results/PC/frozen.json` under `new_default`, re-run PB at the new router. **This strand never writes `automl_package/models/common/distilled_router.py`** — any change to the SHARED default is landed by the root via `docs/flexnn/package/plan.md` FP-5 *(ruling 2026-07-21: three strands were each pre-authorised to "freeze globally" a file none may write — the classic false-parallel)* | old → new + why |
 | **P2**: the undocumented failing test | if it is a stale bar, write the acceptance note; if it is a real regression, fix it. **Never loosen the bar to make it pass.** | either way, a note on disk |
 | **ceiling binds** (selected k = k_max) | re-run that cell at `k_max = 20`; report the raise | which cells |
-| **Kepler feature leakage** (`benchmark_spec.md` §14.3, was PARK-1) | drop the two leaky features, and pre-register that this dataset tests conditional mean/variance, **not** a density-level multimodality claim | the pre-registration, before the run |
+| **Kepler feature leakage** (`benchmark_spec.md` §14.3, was PARK-1) | drop the two leaky features, and pre-register what this dataset tests | the pre-registration, before the run |
 | a spec section contradicts §1 | **§1 wins**; fix the spec in the same turn | the correction |
 
 **HALT and ask — these four only:**
@@ -243,62 +243,9 @@ no longer 0. *(Do NOT verify by grepping for the retired phrase — the Correcti
 deliberately, so such a grep always fires. This line originally did exactly that and was
 unrunnable.)*
 
-### P0b — ✅ DONE 2026-07-20. σ-scope sweep completed at requirement level.
+### P0b — the σ-scope sweep through the benchmark spec
 
-**Outcome differs from this task's original premise, and the difference is the point.** P0b was
-written assuming σ removal meant squared-error scoring. The user corrected that: σ is **not fitted**
-but scoring stays distributional with **one shared fixed σ** (`docs/probreg/shared/benchmark_spec.md`
-§2, §4.1). The sweep was then executed on the corrected premise.
-
-**Landed in the spec:** §2 scope block rewritten (fixed-σ mixture likelihood, the σ-value rule, the
-required ×0.5/×2 ranking-stability check, and the recorded reasoning error); §2.0a naming map added
-so remaining older prose cannot be misread; §4 rewritten to fixed-σ mixture NLL as primary with RMSE
-retained as a point-accuracy column and a note on why RMSE can never be the k readout; §4.3 selection
-score is the same likelihood at fixed σ, so the published tolerance rule transfers **unchanged**;
-§6.5 search spaces collapsed to one identical ProbReg space plus the two surviving baselines, with
-M3's single-search rule; §7 outcomes restated on the new arm set, thresholds carried over unchanged
-because the metric family and units are unchanged; **new outcome H6** (does the cheap read match the
-expensive sweep) marked NEW rather than folded into an old one; §1.1/§1.2/§8.2 build requirements for
-removed metrics and dropped models struck through rather than deleted.
-
-**Verified:** `grep` for live requirements naming a removed metric or a dropped model returns only
-struck-through or explicitly-superseded text. Plan gates 6/6.
-
-**Remaining (cosmetic, non-blocking):** ~41 occurrences of the old "shared-k"/"variable-k" wording
-survive in prose. §2.0a maps them binding-ly, so the document is safe to build from; a prose rename
-is a mechanical follow-up. **Do not attempt it with a blind find-and-replace** — §2.0a names the one
-class of passage where the old term is superseded rather than renamed.
-
-*Original task text follows, retained because its premise being wrong is itself the case law.*
-
-### ~~P0b — finish the σ-scope-change sweep through the spec~~ (original, premise superseded)
-
-**Why.** The user removed variance fitting from scope (variance is separate work). §2 of
-`docs/probreg/shared/benchmark_spec.md` is updated and the consequences are stated there, but the
-change reaches further into that document than one section, and a half-swept spec is worse than an
-unswept one — the driver would implement whichever half it read first.
-
-**Known stale regions, all in `docs/probreg/shared/benchmark_spec.md`:**
-- **§4 (metrics) — wholly stale.** NLL, CRPS, PIT, calibration/ECE, PICP, Winkler all assume σ.
-  Replace with a point-prediction set (primary: squared error; per-dataset RMSE; the existing
-  matched-split and seed machinery is unaffected).
-- **§6.5 search spaces** still list XGBoost and CatBoost rows; §1.2 item 5 still requires CatBoost
-  probabilistic wiring. Both models are dropped.
-- **§7's bars** are written on distributional metrics (H2/H3/H5 reference calibration-type claims)
-  and must be restated on the point-prediction set — or dropped if they no longer mean anything
-  without σ. **Do not silently re-point a bar at a different metric; a bar that changes metric is a
-  new bar and is labelled as one.**
-- **§5.4's `symlog` rows** stay — the transform is about target scale, not variance — but any text
-  justifying it by uncertainty conversion needs re-reading.
-
-**Doctrine:** the σ removal is a SCOPE decision, not a metric downgrade to be smuggled. Every bar
-that changes must be visibly restated, and the report must carry the caveat already recorded in §2:
-squared error scores the mean only, so an MSE-only benchmark **under-detects** what k buys.
-**Non-goals:** do not re-add any distributional metric "just for reference" — that reopens the scope.
-*Orchestration:* parallel: no (same file as P0) · deps: P0 · tier: sonnet · scale: static ·
-shape: execution · verify: `grep -niE "crps|pit|winkler|picp|calibration|NLL" docs/probreg/shared/benchmark_spec.md`
-returns only historical/superseded notes, no live requirement; and no dropped model name survives as
-a live spec row.
+Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 ### P0-b1 — ✅ DONE (premise found already satisfied on disk; verified 2026-07-21) — propagate the M3 training ruling into the benchmark spec
 
@@ -491,39 +438,13 @@ asserts a `CapacitySelection.PER_INPUT`-constructed, router-fitted model routes 
 
 
 <!-- from docs/plans/capacity_programme/probreg.md lines 1045-1108 -->
-### P7 — the WRITE side: migrate M1/M2 to the all-rungs schedule **AND to fixed-σ training**, re-validate ONCE (MASTER Decisions 20 + 26)
+### P7 — the WRITE side: migrate M1/M2 to the all-rungs schedule, re-validate ONCE (MASTER Decision 20)
 
-⚠️ **SCOPE WIDENED 2026-07-21 (root): P7 absorbs MASTER Decision 26 — σ fixed in TRAINING.** Both
-changes rewrite the same loss. **Landing them separately would waste a re-validation and create a
-confound**: whichever ran second would measure the schedule change and the σ change entangled, with
-no way to attribute a movement to either. **One change, one re-validation.**
-
-**What the σ half means concretely** (Decision 26):
-- With σ a shared constant, each rung's NLL reduces to squared error up to a constant ⇒ **training
-  becomes MSE on the mixture mean.**
-- **The per-class heads predict MEANS ONLY.** *(Root-applied implementation ruling, flagged in
-  Decision 26 for the user to overturn.)* The rejected alternative — keeping a `log_var` output the
-  loss no longer trains — leaves an **untrained head that `predict_uncertainty` still exposes**,
-  a worse trap than the one being removed.
-- **The within-component term of the law-of-total-variance combination becomes the constant**, so
-  predictive spread = between-component spread + σ². Never fitted, still meaningful.
-- **The variance machinery is NOT deleted** (Decision 2's carry-over) — never fitted, never selected
-  on. Deletion is out of scope and user-gated.
-
-**⚠️ RE-BASELINE THE SUITE — the standing bar does NOT carry across this change.** The two accepted
-heteroscedastic failures test variance behaviour directly, and this alters what a component can
-express. **Run the suite FIRST, record the new expected result in this task's completion note as the
-new baseline, and treat only movement beyond that as a regression.** 🚫 **Do NOT drive the old
-numbers back to green** — that would mean suppressing the very effect this change makes.
-
-**deps: `docs/flexnn/package/plan.md` FP-12 must be MERGED FIRST** — P7's re-validation selects a k, and until
-FP-12 lands there is no compliant metric to select on (it would score on a learned variance, the
-forbidden case). **P7 and FP-12 write the same model file and cannot share a session** under the
-session-scoped write guard.
+The σ half of this task (MASTER Decision 26, with its suite re-baseline and its dependency on FP-12's scorer) was removed 2026-10-22
+(mixture framing; docs/probreg/cleanup_plan.md): P7 is the schedule migration only.
 
 **Files (write set):** `automl_package/models/flexnn/strategies/n_classes.py` ·
-`automl_package/models/probabilistic_regression.py` *(added 2026-07-21 with the σ half — the loss and
-the head-output shape live here)* ·
+`automl_package/models/probabilistic_regression.py` ·
 `automl_package/enums.py` · `tests/test_phase3_dynamic_k.py` ·
 `automl_package/examples/capacity_ladder_results/P7/`
 **Spec:** Implement the ruled schedule for `NClassesSelectionMethod.NESTED`: per training step, ONE

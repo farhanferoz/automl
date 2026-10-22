@@ -1,3 +1,5 @@
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
 # Fixed-k ProbReg — journal
 
 A factual record of the fixed-k variant: what it is, how it is built, what has been tried in
@@ -34,7 +36,7 @@ own regression head; the heads are combined by class probability into a k-compon
 distribution. In the fixed-k variant **k is set by the user** and is not chosen by the model
 (`docs/probreg/PLAN.md`, "The model, in one paragraph" and the variants table). It is the
 substrate the other two variants are built on: global-k and per-input-k change only how k is
-chosen (`docs/probreg/global_k/journal.md`, `docs/probreg/per_input_k/journal.md`).
+chosen (`docs/probreg/history/journals_2026-10-21/global_k_journal.md`, `docs/probreg/history/journals_2026-10-21/per_input_k_journal.md`).
 
 What the owner requires of it (rulings of 2026-10-20, `docs/probreg/PLAN.md` rulings table and
 objectives O1a–O1c):
@@ -72,7 +74,7 @@ proposed letting heads depend on x
 "head input re-presentation (feeding features beyond p_i to heads)" as a proposal, not an arm
 (`docs/probreg/fixed_k/plan.md:289-294`). The July surrogate used for the k-selection
 experiments (`automl_package/examples/_capacity_ladder_nested.py:38`) does read x in its heads;
-see `docs/probreg/per_input_k/journal.md` §2.4.
+see `docs/probreg/history/journals_2026-10-21/per_input_k_journal.md` §2.4.
 
 ### 2.2 Defaults at HEAD
 

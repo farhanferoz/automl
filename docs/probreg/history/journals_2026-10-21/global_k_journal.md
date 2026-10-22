@@ -1,3 +1,5 @@
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
 # Global-k ProbReg — journal
 
 A factual record of the global-k variant: one k for the whole dataset, chosen from held-out data.
@@ -9,7 +11,7 @@ and the conclusions the sources drew, each attributed; it gives no verdicts. The
 
 Paths are relative to the repository root (`/home/ff235/dev/MLResearch/automl` on the DGX,
 `/mnt/dgx/home/ff235/dev/MLResearch/automl` from the laptop). Line numbers are as of `5fc982e`.
-The model the variant is built on is described in `docs/probreg/fixed_k/journal.md` §2.
+The model the variant is built on is described in `docs/probreg/history/journals_2026-10-21/fixed_k_journal.md` §2.
 
 **Labels used below:**
 - **OLD-SCHEDULE** — nested training with a per-sample random k draw. Decision 20 (2026-07-21,
@@ -22,7 +24,7 @@ The model the variant is built on is described in `docs/probreg/fixed_k/journal.
   (`automl_package/examples/_capacity_ladder_nested.py:38`) or the June variational-EM mixture,
   not on the library `ProbabilisticRegressionModel`. The surrogate's per-component heads read x
   and output a mean and a log-variance (`automl_package/examples/_capacity_ladder_nested.py:90-92`); the library's heads read only their class
-  probability (`docs/probreg/fixed_k/journal.md` §2.1).
+  probability (`docs/probreg/history/journals_2026-10-21/fixed_k_journal.md` §2.1).
 - **RETIRED** — in-training k selection or cross-entropy modes (Decision 29).
 - **VOID** — results the plan has discarded.
 
@@ -138,7 +140,7 @@ Facts about the pair that bear on comparing them:
 `held_out_arbiter_advantage` (`automl_package/models/probabilistic_regression.py:1436`) compares
 only the top rung against the bypass, per input, neighbour-averaged. The plan recorded that it is
 "not M1's selection mechanism" (defect D5, `docs/probreg/shared/state.md` §3); it is the per-input
-diagnostic of `docs/probreg/per_input_k/journal.md`.
+diagnostic of `docs/probreg/history/journals_2026-10-21/per_input_k_journal.md`.
 
 ## 3. Selection routes investigated
 
@@ -170,7 +172,7 @@ diagnostic of `docs/probreg/per_input_k/journal.md`.
   training targets at least as well as a coarser one" — and that the then-default blend of per-k
   summaries is "not even connected to a quantity that could reward the right amount of detail"
   (§2). It developed a global prior route ("Basis A: one shared set of weights", §5) before moving
-  to per-input weights (see `docs/probreg/per_input_k/journal.md` §3.2).
+  to per-input weights (see `docs/probreg/history/journals_2026-10-21/per_input_k_journal.md` §3.2).
 - **Its fixed-count comparison (§14, SURROGATE):** a mixture density network at a fixed number of
   components, with that number chosen by held-out tuning, matched the best achievable fit within
   about 0.02 nats on three toy families, but on the staircase family "held-out tuning cannot find a
@@ -217,7 +219,7 @@ diagnostic of `docs/probreg/per_input_k/journal.md`.
 
 Report (a) chose k per toy from {5, 8, 10, 12} by the lowest held-out NLL at the fitted variance,
 then froze it — the closest thing on record to an M3 run on the library model; SELECTED ON LEARNED
-σ, no bypass, LEGACY TOYS (details in `docs/probreg/fixed_k/journal.md` §3.5 and §4.2). Its chosen
+σ, no bypass, LEGACY TOYS (details in `docs/probreg/history/journals_2026-10-21/fixed_k_journal.md` §3.5 and §4.2). Its chosen
 values were 8, 10, 12, 10, 12 — "never the smallest option on the grid"
 (`docs/probreg/fixed_k/reports/report_a/report_a_probreg_toys.md` §7).
 

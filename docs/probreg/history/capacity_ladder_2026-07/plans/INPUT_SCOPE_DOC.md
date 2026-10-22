@@ -1,3 +1,5 @@
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
 # Flexible Architecture Scope Review — input document (2026-07-09)
 
 > Provenance: scope document provided by Jordan on 2026-07-09 as input to the

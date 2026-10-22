@@ -13,7 +13,7 @@ Decision numbers are unchanged from the former `MASTER.md`, so a citation such a
 | Decisions | File |
 |---|---|
 | 3, 8–21, 23, 30, 34, 37, 38 | this file |
-| 4, 24, 25, 26, 27, 29 | `docs/probreg/PLAN.md` |
+| 4, 25, 27, 29 (24 and 26 removed 2026-10-22) | `docs/probreg/PLAN.md` |
 | 1, 2, 5, 6, 7, 22, 28, 31, 32, 33, 35, 36 | `docs/flexnn/PLAN.md` |
 
 ## Where data, results and checkpoints live
@@ -47,8 +47,7 @@ outside `~/dev`, in `~/cache/automl/`.
    `docs/applications/research_plan.md` §6 Layer 2/3.)*
    *(**CORRECTED 2026-07-20, twice, both after the amendment above was written:**
    (i) the baseline set is **one tree model (LightGBM), a plain single-output NN, and linear
-   regression** — XGBoost and CatBoost were dropped the same day (`docs/probreg/shared/plan.md` P0b;
-   `docs/probreg/shared/benchmark_spec.md` baseline section). The list originally written here
+   regression** — XGBoost and CatBoost were dropped the same day (`docs/probreg/shared/benchmark_spec.md` baseline section). The list originally written here
    was already stale when written.
    (ii) "shared-k vs variable-k as two distinct models" is the **retired** framing. The live
    definition is the three-way model set, `docs/probreg/PLAN.md` §1.)*
@@ -200,18 +199,14 @@ outside `~/dev`, in `~/cache/automl/`.
     **AMENDED 2026-07-21 (user), after BOTH checks were found to have violated their own strand's
     constraint — a pattern, not an incident.** `docs/flexnn/width/plan.md` WSEL-11 *trained* on the Gaussian
     likelihood (fitting variance, which Decision 2 parks for width); `docs/probreg/global_k/plan.md` P8 *selected* on
-    Gaussian NLL (a variance metric, which the σ-scope decision removed from that strand). They
+    a metric later ruled out for that strand (the ruling's text: removed 2026-10-22, mixture framing;
+    docs/probreg/cleanup_plan.md). They
     returned OPPOSITE verdicts and between them either cleared or blocked three downstream tasks.
     **Both are REOPENED and their results DISCARDED.** Binding additions:
     - **A discriminating check runs on its own strand's sanctioned objective and metric.** Width and
-      the joint strand: mean-only, squared error. **ProbReg: the fixed-σ mixture log-likelihood —
-      ⚠️ AMENDED 2026-07-21, see Decision 24.** Depth: classification. A check measured on a
+      the joint strand: mean-only, squared error. ProbReg: removed 2026-10-22 (mixture framing;
+      docs/probreg/cleanup_plan.md); the new review names it. Depth: classification. A check measured on a
       different objective from the arms it protects proves nothing about them.
-      *(The original text here read "ProbReg: the point-prediction set." **That was wrong and it
-      survived being written into this register**, which is how `docs/probreg/shared/plan.md` §0.5 and P8 both came to
-      mandate squared-error selection. Decision 24 is the authority; this line is corrected rather
-      than deleted so the error is auditable. The diagnosis of what voided P8 stands — it selected on
-      a **learned** variance — but the remedy is a likelihood at FIXED σ, never squared error.)*
     - **The check's own compliance is part of its verify line** — the task states the objective and
       the run's provenance shows it. "The driver defaulted to it" is how both of these happened.
     - **RESULTS PRODUCED IN VIOLATION OF A CONSTRAINT ARE DISCARDED, NOT REINTERPRETED** (user ruling,
@@ -244,42 +239,12 @@ outside `~/dev`, in `~/cache/automl/`.
 
 
 <!-- from docs/plans/capacity_programme/MASTER.md lines 523-559 -->
-30. **THE SUITE BAR IS RE-BASELINED — measured 2026-07-21, by `docs/flexnn/package/plan.md` FP-12, NOT by P7
-    (root).** Decision 26 anticipated **P7** carrying this re-baseline. **FP-12's Decision-29 guard
-    reached it first**, because retiring a configuration breaks every test that constructs one. The
-    bar is recorded here, once, so no later task re-derives it or quietly restores the old one.
-
-    | | old bar (pre-wave-1) | **NEW BAR (measured, post-fix)** |
-    |---|---|---|
-    | passed | 366 | **372** |
-    | failed | 2 | **56** |
-    | skipped | 1 | **1** |
-
-    **EVERY failure is attributed. Zero unexplained** — this is the claim that makes the number
-    usable, and it was checked per-test, not assumed:
-    - **54 = the Decision-29 guard firing on retired configurations.** The ratified decision working,
-      not damage. Concentrated in `test_phase2_flexible_nn.py` (28), `test_phase4_regression.py` (8),
-      `test_ce_stop_grad.py` (6, whole file — its subject `CE_STOP_GRAD` is retired),
-      `test_phase1_probabilistic_regression.py` (4), `test_probreg_identifiability_integration.py`
-      (4, all `CE_STOP_GRAD` parametrisations), `test_ordering_constraint.py` (3),
-      `test_capacity_accounting.py` (1).
-    - **2 = the pre-accepted heteroscedastic pair**, still failing. **They were NOT driven green** —
-      Decision 26 forbids it, because forcing them green suppresses the effect the change exists to
-      make visible.
-
-    **⚠️ THIS BAR IS A WAYPOINT, NOT THE DESTINATION.** The 54 guard failures are tests that must be
-    *updated* — they construct retired members and need the explicit opt-out flag at those sites, or
-    rewriting against a surviving member. **A follow-up task owns that**, and it must run BEFORE any
-    later task reads "no new failures" as a signal, because 54 failures drown any real regression.
-    **Until then, the only usable regression signal is the ATTRIBUTION, not the count**: a new
-    failure that is not a retired-member construction is a real regression, whatever the total says.
-
-    **Case law from this measurement, worth more than the number:** the worker wrote a test asserting
-    that the now-broken default constructor *should* raise. **A test that asserts a regression is
-    correct behaviour permanently blinds the suite to it** — it goes green and no later run flags it.
-    Retiring a mechanism never licenses breaking a shipped class's constructor. The test was inverted
-    to assert the default constructs, plus a companion asserting **every method the search space
-    advertises actually constructs** — the property that was really violated.
+30. **Suite bar.** The re-baselined bar that stood here (it rested on Decision 26 and the
+    cross-entropy retirement): removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
+    **Case law that survives:** a test that asserts a regression is correct behaviour permanently
+    blinds the suite to it — it goes green and no later run flags it. Retiring a mechanism never
+    licenses breaking a shipped class's constructor; the default constructor must construct, and every
+    method the search space advertises must construct.
 
 
 <!-- from docs/plans/capacity_programme/MASTER.md lines 615-632 -->

@@ -1,3 +1,5 @@
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
 # REPORT-2 cold-read gate — status log (2026-07-10)
 
 Report: `capacity_ladder_report.pdf` (18 pp), guard-clean, 6 figures from real artifacts,

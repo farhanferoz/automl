@@ -2,6 +2,9 @@
 % Jordan Elridge
 % 10 July 2026
 
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
+
 <!-- report-figures: fig_mechanism fig_ws1 fig_ws2 fig_ws3 -->
 
 # Summary

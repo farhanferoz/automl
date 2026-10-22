@@ -21,6 +21,9 @@ header-includes:
   - \renewcommand{\arraystretch}{1.1}
 ---
 
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
+
 # 1. Executive summary {-}
 
 This document is the durable record of our investigation into the **head-index

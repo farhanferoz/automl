@@ -1,3 +1,5 @@
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
 # Bug ledger re-audit at HEAD (Task P0, `docs/probreg/archive/probreg-report.md`)
 
 Audited: the seven N1–N7 findings of `docs/applications/research_plan.md` §1.1, against the current

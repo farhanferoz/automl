@@ -1,3 +1,5 @@
+> Superseded framing (2026-10-22): text below that treats ProbReg as a mixture model (fixed-σ mixture loss/readout, regression-only supervision) is withdrawn; see the banner in docs/probreg/PLAN.md.
+
 # Hetero-NLL root-cause diagnosis (Task P1)
 
 **Status:** complete. Outcome 2 (config/protocol). Mechanism: mean-resolution bottleneck (not
