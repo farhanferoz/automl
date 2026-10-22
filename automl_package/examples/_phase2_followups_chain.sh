@@ -9,7 +9,7 @@ LOG_DIR=/home/ff235/dev/MLResearch/automl/automl_package/examples
 cd /home/ff235/dev/MLResearch/automl
 
 echo "=== CHAIN start $(date -Is) ==="
-for NAME in probreg_k20_sweep probreg_snr_sweep probreg_ordering_ablation; do
+for NAME in probreg_snr_sweep probreg_ordering_ablation; do
     OUT="${LOG_DIR}/${NAME}_results"
     mkdir -p "${OUT}"
     LOG="${OUT}/run.log"

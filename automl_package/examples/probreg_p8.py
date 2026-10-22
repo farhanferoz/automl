@@ -9,6 +9,9 @@ lambda in {0, 1e-4, 1e-2}, 2 seeds, unchanged convergence gates, and see whether
 global-arm selection rule (cheapest-within-tolerance at twice a bootstrap SE, MASTER Decision 18)
 picks a different k as lambda grows.
 
+The held-out score k is selected on is per-sample squared error of the model's point prediction
+(lower is better), i.e. held-out mean squared error; the Gaussian NLL is reported as context only.
+
 Searched before writing (minimum-viable-code ladder rung 2 -- reuse, don't reinvent):
 `automl_package/examples/report_a_benchmark.py` for the M3 per-k builder (`_probreg_fixed`,
 `NClassesSelectionMethod.NONE`), the toy suite (`Toy`, `make_dataset`, `PRODUCTION_N`) and the
@@ -107,6 +110,11 @@ def _weight_decay(lam: float) -> Any:
         yield
 
 
+def _per_sample_squared_error(y_true: np.ndarray, y_pred_mean: np.ndarray) -> np.ndarray:
+    """Elementwise squared error per example -- the held-out score k is selected on (lower is better)."""
+    return (np.asarray(y_true, dtype=np.float64).ravel() - np.asarray(y_pred_mean, dtype=np.float64).ravel()) ** 2
+
+
 def _per_sample_nll(y_true: np.ndarray, y_pred_mean: np.ndarray, y_pred_std: np.ndarray) -> np.ndarray:
     """Elementwise Gaussian NLL per example -- the un-averaged term inside `utils/metrics.py::calculate_nll`.
 
@@ -141,8 +149,7 @@ def _fit_one_k(
     hit_cap = len(val_loss_history) >= cfg.n_epochs
 
     y_pred_sel = model.predict(x_sel)
-    y_std_sel = model.predict_uncertainty(x_sel)
-    sel_nll_per_sample = _per_sample_nll(y_sel, y_pred_sel, y_std_sel)
+    sel_se_per_sample = _per_sample_squared_error(y_sel, y_pred_sel)
 
     y_pred_rep = model.predict(x_rep)
     y_std_rep = model.predict_uncertainty(x_rep)
@@ -158,7 +165,7 @@ def _fit_one_k(
         "epochs_trained": len(val_loss_history),
         "hit_cap": hit_cap,
         "val_loss_history": val_loss_history,
-        "selection_nll_per_sample": sel_nll_per_sample,  # kept in-memory only; not JSON-serialized (per-sample, large)
+        "selection_se_per_sample": sel_se_per_sample,  # kept in-memory only; not JSON-serialized (per-sample, large)
         "report_mse": report_mse,
         "report_nll": report_nll,
     }
@@ -177,7 +184,7 @@ def run_lambda_seed(lam: float, seed: int, cfg: RunConfig, n: int, k_grid: tuple
 
     # error_table columns MUST be cheapest-first (capacity_selection.cheapest_within_tolerance contract);
     # k_grid is already ascending (K_GRID = (5, 8, 10, 12)).
-    error_table = np.stack([per_k[k]["selection_nll_per_sample"] for k in k_grid], axis=1)
+    error_table = np.stack([per_k[k]["selection_se_per_sample"] for k in k_grid], axis=1)
     selected_idx = cheapest_within_tolerance(error_table, n_boot=BOOT_N, seed=BOOT_SEED)
     selected_k = k_grid[selected_idx]
     ceiling_bound = selected_k == max(k_grid)
@@ -208,7 +215,7 @@ def run_lambda_seed(lam: float, seed: int, cfg: RunConfig, n: int, k_grid: tuple
                 "hit_cap": per_k[k]["hit_cap"],
                 "report_mse": per_k[k]["report_mse"],
                 "report_nll": per_k[k]["report_nll"],
-                "selection_nll_mean": float(np.mean(per_k[k]["selection_nll_per_sample"])),
+                "selection_mse_mean": float(np.mean(per_k[k]["selection_se_per_sample"])),
             }
             for k in k_grid
         },

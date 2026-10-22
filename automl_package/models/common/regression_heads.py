@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as f
 
-from automl_package.enums import ActivationFunction, HeadSpread, Monotonicity, UncertaintyMethod
+from automl_package.enums import ActivationFunction, Monotonicity, UncertaintyMethod
 from automl_package.utils.pytorch_utils import apply_law_of_total_variance, get_activation_function_map, monotonic_linear
 
 _PROBABILISTIC_OUTPUT_SIZE = 2  # a probabilistic head emits (mean, log_variance) per class; 1 => mean only
@@ -297,12 +297,9 @@ class SeparateHeadsRegressionModule(nn.Module):
         constrain_middle_class: bool = True,
         centroids: list[float] | None = None,
         use_anchored_heads: bool = False,
-        head_spread: HeadSpread = HeadSpread.PER_INPUT,
     ) -> None:
         """Initializes the SeparateHeadsRegressionModule."""
         super().__init__()
-        if head_spread is not HeadSpread.PER_INPUT and (use_anchored_heads or use_monotonic_constraints):
-            raise ValueError("head_spread != PER_INPUT is incompatible with anchored/monotonic heads (docs/probreg/fixed_k/plan.md PS-A1).")
         self.heads = nn.ModuleList()
         self.n_classes = n_classes
         self.regression_output_size = regression_output_size
@@ -311,12 +308,6 @@ class SeparateHeadsRegressionModule(nn.Module):
             middle_point = (n_classes - 1) / 2.0
             is_middle_class = i == middle_point
             centroid_i = centroids[i] if centroids is not None and i < len(centroids) else 0.0
-
-            if head_spread is HeadSpread.ALL_CONSTANT:
-                head = ConstantHead(uncertainty_method, regression_output_size)
-                head.init_mean(centroid_i)
-                self.heads.append(head)
-                continue
 
             if use_anchored_heads:
                 # Anchored heads subsume constrain_middle_class — every head has a structural anchor.

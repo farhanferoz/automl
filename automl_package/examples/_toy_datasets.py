@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import numpy as np
+from scipy.special import log_ndtr
 
 
 def make_datasets() -> list[tuple[str, np.ndarray, np.ndarray]]:
@@ -587,3 +589,274 @@ def make_toy_d_ndim_broad(n: int = 2500, dim: int = 2, sigma: float = 0.3, separ
     var = _toy_d_ndim_total_var(k, sigma, separation)
     y = (np.sqrt(var) * rng.normal(0.0, 1.0, n)).astype(np.float32)
     return x, y
+
+
+# ---------------------------------------------------------------------------
+# Exact conditional laws ("truth densities") and the review's new toys
+# (docs/probreg/review/review.md Appendix C: T-N1 switch, T-N2 Student-t, T-N3 skewed, T-N4 edge).
+# Every Gaussian-mixture toy above is restated as a `GaussianMixtureLaw` so its exact log-density,
+# repeated draws at fixed x, and fixed-sigma approximations all come from one object. The generators
+# above are left untouched (their random streams reproduce every stored result).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GaussianMixtureLaw:
+    """The conditional law ``y | x`` of a Gaussian-mixture toy at ``n`` inputs.
+
+    Attributes:
+        weights: ``(n, m)`` component weights, rows summing to 1 (zeros allowed for absent components).
+        means: ``(n, m)`` component means.
+        sds: ``(n, m)`` component standard deviations.
+    """
+
+    weights: np.ndarray
+    means: np.ndarray
+    sds: np.ndarray
+
+    def log_density(self, y: np.ndarray) -> np.ndarray:
+        """Per-point exact ``log p(y_i | x_i)`` in nats, shape ``(n,)``."""
+        yr = np.asarray(y, dtype=np.float64).reshape(-1, 1)
+        with np.errstate(divide="ignore"):
+            log_w = np.log(self.weights)
+        log_comp = -0.5 * (math.log(2 * math.pi) + 2.0 * np.log(self.sds) + ((yr - self.means) / self.sds) ** 2)
+        a = log_w + log_comp
+        a_max = np.max(a, axis=1, keepdims=True)
+        return (a_max + np.log(np.sum(np.exp(a - a_max), axis=1, keepdims=True))).ravel()
+
+    def mean(self) -> np.ndarray:
+        """``E[y | x]`` per input, shape ``(n,)``."""
+        return np.sum(self.weights * self.means, axis=1)
+
+    def variance(self) -> np.ndarray:
+        """``Var(y | x)`` per input, shape ``(n,)`` (its mean over x is the squared-error Bayes risk)."""
+        return np.sum(self.weights * (self.sds**2 + self.means**2), axis=1) - self.mean() ** 2
+
+    def sample(self, rng: np.random.Generator) -> np.ndarray:
+        """One draw of ``y`` per input, float32 ``(n,)``."""
+        n = self.weights.shape[0]
+        cum = np.cumsum(self.weights, axis=1)
+        comp = np.minimum((rng.uniform(0.0, 1.0, (n, 1)) > cum).sum(axis=1), self.weights.shape[1] - 1)
+        rows = np.arange(n)
+        return (self.means[rows, comp] + self.sds[rows, comp] * rng.normal(0.0, 1.0, n)).astype(np.float32)
+
+
+def _law(weights: list[np.ndarray], means: list[np.ndarray], sds: list[np.ndarray]) -> GaussianMixtureLaw:
+    """Stacks per-component ``(n,)`` arrays into a :class:`GaussianMixtureLaw`."""
+    return GaussianMixtureLaw(np.stack(weights, axis=1), np.stack(means, axis=1), np.stack(sds, axis=1))
+
+
+def _baseline(xr: np.ndarray, baseline: str) -> np.ndarray:
+    """The ``"sin"``/``"zero"`` location baseline shared by toys A, B and the broad twin."""
+    if baseline == "sin":
+        return np.sin(2 * np.pi * xr)
+    if baseline == "zero":
+        return np.zeros_like(xr)
+    raise ValueError(f"baseline must be 'sin' or 'zero', got {baseline!r}")
+
+
+def toy_a_law(x: np.ndarray, sigma: float = 0.5) -> GaussianMixtureLaw:
+    """Exact law of :func:`make_toy_a`: ``N(sin 2πx, σ²)``."""
+    xr = np.asarray(x, dtype=np.float64).ravel()
+    return _law([np.ones_like(xr)], [np.sin(2 * np.pi * xr)], [np.full_like(xr, sigma)])
+
+
+def toy_b_law(x: np.ndarray, k_true: int = 3, separation: float = 4.0, sigma: float = 0.3, baseline: str = "sin") -> GaussianMixtureLaw:
+    """Exact law of :func:`make_toy_b`: ``k_true`` equal-weight components spaced ``separation·σ`` about the baseline."""
+    xr = np.asarray(x, dtype=np.float64).ravel()
+    base = _baseline(xr, baseline)
+    offsets = [(j - (k_true - 1) / 2.0) * separation * sigma for j in range(k_true)]
+    return _law([np.full_like(xr, 1.0 / k_true)] * k_true, [base + o for o in offsets], [np.full_like(xr, sigma)] * k_true)
+
+
+def broad_unimodal_law(x: np.ndarray, separation: float = 4.0, sigma: float = 0.3, baseline: str = "zero") -> GaussianMixtureLaw:
+    """Exact law of :func:`make_broad_unimodal`: one Gaussian moment-matched to the two-mode toy B."""
+    xr = np.asarray(x, dtype=np.float64).ravel()
+    return _law([np.ones_like(xr)], [_baseline(xr, baseline)], [np.full_like(xr, sigma * math.sqrt(1.0 + separation**2 / 4.0))])
+
+
+def _two_mode_law(sep: np.ndarray, sigma: float) -> GaussianMixtureLaw:
+    """Equal-weight pair at ``±sep·σ/2`` (the law :func:`_bimodal_targets` draws from)."""
+    half = 0.5 * sep * sigma
+    return _law([np.full_like(sep, 0.5)] * 2, [-half, half], [np.full_like(sep, sigma)] * 2)
+
+
+def _broad_law(sep: np.ndarray, sigma: float) -> GaussianMixtureLaw:
+    """One Gaussian variance-matched to :func:`_two_mode_law` (the law :func:`_broad_targets` draws from)."""
+    return _law([np.ones_like(sep)], [np.zeros_like(sep)], [sigma * np.sqrt(1.0 + sep**2 / 4.0)])
+
+
+def toy_c_law(x: np.ndarray, sigma: float = 0.3, sep_min: float = 0.3, sep_max: float = 4.0) -> GaussianMixtureLaw:
+    """Exact law of :func:`make_toy_c`."""
+    return _two_mode_law(sep_schedule(x, sep_min, sep_max), sigma)
+
+
+def toy_c_broad_law(x: np.ndarray, sigma: float = 0.3, sep_min: float = 0.3, sep_max: float = 4.0) -> GaussianMixtureLaw:
+    """Exact law of :func:`make_toy_c_broad`."""
+    return _broad_law(sep_schedule(x, sep_min, sep_max), sigma)
+
+
+def toy_e_law(x: np.ndarray, sigma: float = 0.3, sep_min: float = 0.3, sep_max: float = 4.0) -> GaussianMixtureLaw:
+    """Exact law of :func:`make_toy_e`."""
+    return _two_mode_law(sep_hump(x, sep_min, sep_max), sigma)
+
+
+def toy_d_law(x: np.ndarray, sigma: float = 0.3, separation: float = 4.0) -> GaussianMixtureLaw:
+    """Exact law of :func:`make_toy_d`: three component slots, unused ones at weight 0."""
+    xr = np.asarray(x, dtype=np.float64).ravel()
+    k = _staircase_k(xr)
+    weights, means = [], []
+    for j in range(3):
+        present = j < k
+        weights.append(np.where(present, 1.0 / k, 0.0))
+        means.append(np.where(present, (j - (k - 1) / 2.0) * separation * sigma, 0.0))
+    return _law(weights, means, [np.full_like(xr, sigma)] * 3)
+
+
+def switch_weight(x: np.ndarray, x_lo: float = 0.3, x_peak: float = 0.5, x_hi: float = 0.7, w_peak: float = 0.5) -> np.ndarray:
+    """T-N1's second-component weight: 0 outside ``(x_lo, x_hi)``, rising linearly to ``w_peak`` at ``x_peak``."""
+    xr = np.asarray(x, dtype=np.float64).ravel()
+    rise = w_peak * (xr - x_lo) / (x_peak - x_lo)
+    fall = w_peak * (x_hi - xr) / (x_hi - x_peak)
+    return np.clip(np.where(xr <= x_peak, rise, fall), 0.0, w_peak)
+
+
+def switch_bimodal_law(x: np.ndarray, a: float = 0.6, sigma: float = 0.3) -> GaussianMixtureLaw:
+    """T-N1, fixed-location varying-weight bimodal: ``(1 − w(x)) N(−a, σ²) + w(x) N(a, σ²)``.
+
+    k*(x) = 1 outside (0.3, 0.7) and 2 inside, in the component and the mode sense alike. In the
+    library's own family at k = 2 (constant heads at ``∓a``, second-class probability ``w(x)``).
+    """
+    w = switch_weight(x)
+    return _law([1.0 - w, w], [np.full_like(w, -a), np.full_like(w, a)], [np.full_like(w, sigma)] * 2)
+
+
+def edge_component_law(x: np.ndarray, w_e: float, a: float = 0.6, edge_loc: float = 1.8, sigma: float = 0.3) -> GaussianMixtureLaw:
+    """T-N4: the zero-baseline toy B plus a third component at ``edge_loc`` with weight ``w_e`` (k* = 3)."""
+    xr = np.asarray(x, dtype=np.float64).ravel()
+    w_main = np.full_like(xr, (1.0 - w_e) / 2.0)
+    return _law([w_main, w_main, np.full_like(xr, w_e)], [np.full_like(xr, -a), np.full_like(xr, a), np.full_like(xr, edge_loc)], [np.full_like(xr, sigma)] * 3)
+
+
+def _draw_x(n: int, rng: np.random.Generator) -> np.ndarray:
+    """``x ~ U[0, 1]`` as the ``(n, 1)`` float32 column every generator returns."""
+    return rng.uniform(0.0, 1.0, n).reshape(-1, 1).astype(np.float32)
+
+
+def make_switch_bimodal(n: int = 2000, a: float = 0.6, sigma: float = 0.3, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
+    """T-N1 sample (see :func:`switch_bimodal_law`)."""
+    rng = np.random.default_rng(seed)
+    x = _draw_x(n, rng)
+    return x, switch_bimodal_law(x, a, sigma).sample(rng)
+
+
+def make_edge_component(n: int, w_e: float, a: float = 0.6, edge_loc: float = 1.8, sigma: float = 0.3, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
+    """T-N4 sample (see :func:`edge_component_law`)."""
+    rng = np.random.default_rng(seed)
+    x = _draw_x(n, rng)
+    return x, edge_component_law(x, w_e, a, edge_loc, sigma).sample(rng)
+
+
+def student_t_log_density(y: np.ndarray, x: np.ndarray, nu: float = 3.0, scale: float = 0.3, baseline: str = "zero") -> np.ndarray:
+    """T-N2's exact per-point log-density: ``y = m(x) + scale·T_ν`` with ``m`` the ``"zero"``/``"sin"`` baseline."""
+    z = (np.asarray(y, dtype=np.float64).ravel() - _baseline(np.asarray(x, dtype=np.float64).ravel(), baseline)) / scale
+    const = math.lgamma((nu + 1) / 2) - math.lgamma(nu / 2) - 0.5 * math.log(nu * math.pi) - math.log(scale)
+    return const - 0.5 * (nu + 1) * np.log1p(z**2 / nu)
+
+
+def sample_student_t_given_x(x: np.ndarray, nu: float = 3.0, scale: float = 0.3, baseline: str = "zero", seed: int = 42) -> np.ndarray:
+    """T-N2 draws at an explicit ``x`` (repeated-draw helper)."""
+    xr = np.asarray(x, dtype=np.float64).ravel()
+    rng = np.random.default_rng(seed)
+    return (_baseline(xr, baseline) + scale * rng.standard_t(nu, xr.size)).astype(np.float32)
+
+
+def make_student_t_unimodal(n: int = 2000, nu: float = 3.0, scale: float = 0.3, baseline: str = "zero", seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
+    """T-N2 sample: one mode with heavy tails; out of the fixed-σ mixture family at every finite k."""
+    rng = np.random.default_rng(seed)
+    x = _draw_x(n, rng)
+    return x, (_baseline(x.ravel().astype(np.float64), baseline) + scale * rng.standard_t(nu, n)).astype(np.float32)
+
+
+def _skew_normal_constants(shape: float, sd: float) -> tuple[float, float]:
+    """``(s, E[Z])`` for T-N3: ``y = s(Z − E[Z])``, ``Z ~ skew-normal(shape)``, ``s`` set so ``sd(y) = sd``."""
+    delta = shape / math.sqrt(1.0 + shape**2)
+    mean_z = delta * math.sqrt(2.0 / math.pi)
+    return sd / math.sqrt(1.0 - mean_z**2), mean_z
+
+
+def skewed_unimodal_log_density(y: np.ndarray, shape: float = 5.0, sd: float = 0.6) -> np.ndarray:
+    """T-N3's exact per-point log-density (no x dependence): ``log 2 − log s + log φ(z) + log Φ(shape·z)``."""
+    s, mean_z = _skew_normal_constants(shape, sd)
+    z = np.asarray(y, dtype=np.float64).ravel() / s + mean_z
+    return math.log(2.0) - math.log(s) - 0.5 * (math.log(2 * math.pi) + z**2) + log_ndtr(shape * z)
+
+
+def sample_skewed_unimodal_given_x(x: np.ndarray, shape: float = 5.0, sd: float = 0.6, seed: int = 42) -> np.ndarray:
+    """T-N3 draws at an explicit ``x`` (the law does not depend on ``x``)."""
+    rng = np.random.default_rng(seed)
+    return _skewed_draws(np.asarray(x).ravel().size, shape, sd, rng)
+
+
+def _skewed_draws(n: int, shape: float, sd: float, rng: np.random.Generator) -> np.ndarray:
+    """Skew-normal by the ``δ|U₀| + √(1−δ²) U₁`` construction, centred and scaled to ``sd``."""
+    s, mean_z = _skew_normal_constants(shape, sd)
+    delta = shape / math.sqrt(1.0 + shape**2)
+    z = delta * np.abs(rng.normal(0.0, 1.0, n)) + math.sqrt(1.0 - delta**2) * rng.normal(0.0, 1.0, n)
+    return (s * (z - mean_z)).astype(np.float32)
+
+
+def make_skewed_unimodal(n: int = 2000, shape: float = 5.0, sd: float = 0.6, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
+    """T-N3 sample: one skewed mode; out of the fixed-σ mixture family at every finite k."""
+    rng = np.random.default_rng(seed)
+    x = _draw_x(n, rng)
+    return x, _skewed_draws(n, shape, sd, rng)
+
+
+@dataclass(frozen=True)
+class StudentTLaw:
+    """T-N2 at ``n`` inputs, with the same interface as :class:`GaussianMixtureLaw` (log-density, draws, mean, variance)."""
+
+    x: np.ndarray
+    nu: float = 3.0
+    scale: float = 0.3
+    baseline: str = "zero"
+
+    def log_density(self, y: np.ndarray) -> np.ndarray:
+        """Per-point exact log-density."""
+        return student_t_log_density(y, self.x, self.nu, self.scale, self.baseline)
+
+    def sample(self, rng: np.random.Generator) -> np.ndarray:
+        """One draw of ``y`` per input, float32 ``(n,)``."""
+        xr = np.asarray(self.x, dtype=np.float64).ravel()
+        return (_baseline(xr, self.baseline) + self.scale * rng.standard_t(self.nu, xr.size)).astype(np.float32)
+
+    def mean(self) -> np.ndarray:
+        """``E[y | x]`` (finite for ``nu > 1``)."""
+        return _baseline(np.asarray(self.x, dtype=np.float64).ravel(), self.baseline)
+
+    def variance(self) -> np.ndarray:
+        """``Var(y | x) = scale² ν / (ν − 2)`` (finite for ``nu > 2``)."""
+        return np.full(np.asarray(self.x).ravel().size, self.scale**2 * self.nu / (self.nu - 2.0))
+
+
+def level_staircase_mean(x: np.ndarray, strips: int = 4, resolutions: tuple[int, ...] = (1, 2, 4), gap: float = 1.0) -> np.ndarray:
+    """``E[y | x]`` of the level staircase (docs/probreg/shared/toy_design_spec.md §3; review Appendix C T-M3).
+
+    ``[0, 1]`` is cut into ``len(resolutions)`` equal zones; zone ``j`` carries ``R_j`` levels spaced ``gap`` apart
+    and centred on 0, assigned by ``r = 1 + floor(R_j · frac(strips · u))`` with ``u`` the within-zone coordinate,
+    so every level of a zone has probability ``1/R_j`` and ``strips`` sets how finely the levels alternate.
+    """
+    xr = np.clip(np.asarray(x, dtype=np.float64).ravel(), 0.0, np.nextafter(1.0, 0.0))
+    n_zones = len(resolutions)
+    zone = np.floor(xr * n_zones).astype(int)
+    u = xr * n_zones - zone
+    res = np.asarray(resolutions)[zone]
+    level = 1 + np.floor(res * np.mod(strips * u, 1.0)).astype(int)
+    return gap * (level - (res + 1) / 2.0)
+
+
+def level_staircase_law(x: np.ndarray, sigma: float = 0.3, strips: int = 4, resolutions: tuple[int, ...] = (1, 2, 4), gap: float = 1.0) -> GaussianMixtureLaw:
+    """T-M3: ``y = μ_{r(x)} + σ ε`` with constant ``σ``; the only squared-error floor is ``σ²`` (review F13e)."""
+    mean = level_staircase_mean(x, strips, resolutions, gap)
+    return _law([np.ones_like(mean)], [mean], [np.full_like(mean, sigma)])

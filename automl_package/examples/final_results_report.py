@@ -105,21 +105,6 @@ def _read_csv(path: Path) -> pd.DataFrame | None:
         return None
 
 
-def _headline_identifiability(results_dir: Path) -> tuple[pd.DataFrame | None, list[str]]:
-    df = _read_csv(results_dir / "summary.csv")
-    if df is None:
-        return None, []
-    findings: list[str] = []
-    if {"dataset", "cell", "mse_mean"}.issubset(df.columns):
-        nll_col = "nll_mean" if "nll_mean" in df.columns else "nll_own_mean"
-        cols = ["dataset", "cell", "mse_mean"] + ([nll_col] if nll_col in df.columns else [])
-        best = df.loc[df.groupby("dataset")["mse_mean"].idxmin()][cols].reset_index(drop=True)
-        for _, row in best.iterrows():
-            findings.append(f"best cell on {row['dataset']}: {row['cell']} (MSE={row['mse_mean']:.3f})")
-        return best, findings
-    return df, findings
-
-
 def _headline_classreg_k(results_dir: Path) -> tuple[pd.DataFrame | None, list[str]]:
     df = _read_csv(results_dir / "k_sweep.csv")
     if df is None or "mse" not in df.columns:
@@ -185,18 +170,6 @@ def _headline_hpo(results_dir: Path) -> tuple[pd.DataFrame | None, list[str]]:
 
 
 SWEEPS: list[dict[str, Any]] = [
-    {
-        "name": "identifiability",
-        "title": "ProbReg identifiability (8-cell matrix)",
-        "dir": EXAMPLES / "probreg_identifiability_results",
-        "description": (
-            "Tests three orthogonal fixes (MDN NLL, CE_STOP_GRAD, anchored heads) across "
-            "4 toy datasets × k ∈ {3, 5} × 3 seeds. Cells A-H labelled in the sweep docstring. "
-            "Headline = best cell per dataset by mean MSE."
-        ),
-        "extractor": _headline_identifiability,
-        "csv": ["results.csv", "summary.csv"],
-    },
     {
         "name": "classreg_k",
         "title": "ClassifierRegression k-sweep",

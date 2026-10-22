@@ -20,14 +20,13 @@ from automl_package.utils.capacity_selection import cheapest_within_tolerance
 from automl_package.utils.pytorch_utils import get_device
 from automl_package.utils.transforms import symlog
 
-# Re-calibrated for docs/flexnn/package/plan.md FP-12's fixed-sigma MIXTURE scorer (sigma=1.0) against
-# measured error-table means on TestFitRouterSymlogSpaceAlignment's fixture (400 heavy-tailed
-# points, max_k=3, 150 epochs), fix present vs fix removed:
-#   data seed 0: correct 3.849 | unit-mismatched 160.6
-#   data seed 1: correct 3.438 | unit-mismatched (same order, not separately measured)
-# (Pre-FP-12 values, at the retired learned-log_var Gaussian NLL, no longer apply: correct 1.057/
-# 0.959, unit-mismatched 20.920/15.369 -- the scoring FUNCTION changed, not just its inputs.)
-_SYMLOG_ROUTER_NLL_SANITY_BOUND = 10.0  # ~2.5x above the correct value, ~16x below the mismatched one
+# Calibrated for the squared-error rung score (held-out MSE, lower is better) against measured
+# error-table means on TestFitRouterSymlogSpaceAlignment's fixture (400 heavy-tailed points,
+# max_k=3, 150 epochs), fix present vs fix removed. The symlog-space targets are +-4x with a random
+# sign, so ~5.3 is irreducible:
+#   data seed 0: correct 5.91 | unit-mismatched 416.3
+#   data seed 1: correct 5.10 | unit-mismatched 323.1
+_SYMLOG_ROUTER_SE_SANITY_BOUND = 20.0  # ~3.4x above the correct value, ~16x below the mismatched one
 _BATCHED_TENSOR_NDIM = 2  # (N, regression_output_size) vs a bare (N,) tensor
 _MSE_CONVERGENCE_THRESHOLD = 10.0  # "didn't explode" bar for these small toy fits, not a tuned target
 _MIN_UNCERTAINTY_NOISE_CORRELATION = 0.2
@@ -436,7 +435,7 @@ def _two_regime_data(n: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
 
     x < 0.5: unimodal linear trend + small noise -- the bypass (k=1) wins here
     ([[project_kselection_bypass_confound]]: smooth unimodal data is a negative control for any
-    k>=2 mixture). x >= 0.5: bimodal (y = trend +/- 1.5, separation >> noise) -- no fixed k=1
+    k>=2 rung). x >= 0.5: bimodal (y = trend +/- 1.5, separation >> noise) -- no fixed k=1
     bypass can represent this, k=2 wins. No single GLOBAL fixed k is best on both regimes, so a
     per-input router should beat every global fixed k.
     """
@@ -493,16 +492,16 @@ class TestNestedKTraining:
                 calculate_feature_importance=False,
             )
 
-    def test_nested_bypass_rung_differs_from_mixture_rung(self, multimodal_data):
-        """forward_at_k(k=1) (bypass) and forward_at_k(k>=2) (mixture) must be genuinely
+    def test_nested_bypass_rung_differs_from_k3_rung(self, multimodal_data):
+        """forward_at_k(k=1) (bypass) and forward_at_k(k>=2) (classifier-weighted heads) must be genuinely
         different sub-networks, not the same computation under two names."""
         x, y = multimodal_data
         model = self._fit_nested(x, y, max_k=4, n_epochs=20)
         x_t = torch.tensor(x[:16], dtype=torch.float32).to(model.device)
         with torch.no_grad():
             out_bypass = model.model.forward_at_k(x_t, 1)
-            out_mixture = model.model.forward_at_k(x_t, 3)
-        assert not torch.allclose(out_bypass, out_mixture, atol=1e-4)
+            out_k3 = model.model.forward_at_k(x_t, 3)
+        assert not torch.allclose(out_bypass, out_k3, atol=1e-4)
 
     @pytest.mark.skipif(get_device().type == "cpu", reason="requires a non-CPU device (CUDA/XPU) to exercise cross-device placement in forward_at_k")
     def test_forward_at_k_runs_on_accelerator_device(self, multimodal_data):
@@ -555,14 +554,14 @@ class TestNestedKDistilledRouting:
         )
         model.fit(x, y)
         with pytest.raises(RuntimeError, match="NESTED"):
-            model.fit_router(x, y, sigma=1.0)
+            model.fit_router(x, y)
 
     def test_per_input_routes_with_no_caller_flag(self, heteroscedastic_data):
         """FP-3 test 1: a router-fitted model constructed with `CapacitySelection.PER_INPUT`
         routes on a plain `predict(x)` call, with no caller flag."""
         x, y, _, _ = heteroscedastic_data
         model = self._fit_nested(x, y, max_k=4, n_epochs=15, capacity_selection=CapacitySelection.PER_INPUT)
-        model.fit_router(x, y, sigma=1.0)
+        model.fit_router(x, y)
 
         y_pred = model.predict(x)
         assert y_pred.shape == (len(x),)
@@ -599,12 +598,12 @@ class TestNestedKDistilledRouting:
         )
         model.fit(x, y)
         with pytest.raises(RuntimeError, match="NESTED"):
-            model.held_out_arbiter_advantage(x.ravel(), y, sigma=1.0)
+            model.held_out_arbiter_advantage(x.ravel(), y)
 
     def test_held_out_arbiter_advantage_shape(self, heteroscedastic_data):
         x, y, _, _ = heteroscedastic_data
         model = self._fit_nested(x, y, max_k=4, n_epochs=15)
-        arb = model.held_out_arbiter_advantage(x.ravel(), y, sigma=1.0, width=1.0)
+        arb = model.held_out_arbiter_advantage(x.ravel(), y, width=1.0)
         assert arb.shape == (len(x),)
         assert not np.all(np.isnan(arb))
 
@@ -612,9 +611,9 @@ class TestNestedKDistilledRouting:
         """F9 verify bullet: reproduce the K6 result through the package API.
 
         A synthetic 2-regime case (`_two_regime_data`) where no single global fixed k is
-        optimal everywhere: the distilled-k routed model's held-out NLL must be at least as
-        good as the BEST achievable global fixed k (computed directly on the test set, which
-        gives the fixed-k baseline test-set-optimal information the router never sees --
+        optimal everywhere: the distilled-k routed model's held-out mean squared error must be at
+        least as good as the BEST achievable global fixed k (computed directly on the test set,
+        which gives the fixed-k baseline test-set-optimal information the router never sees --
         a conservative, favorable-to-the-baseline comparison).
         """
         x_train, y_train = _two_regime_data(600, seed=0)
@@ -623,23 +622,21 @@ class TestNestedKDistilledRouting:
 
         max_k = 3
         model = self._fit_nested(x_train, y_train, max_k=max_k, n_epochs=250, seed=0, capacity_selection=CapacitySelection.PER_INPUT)
-        model.fit_router(x_val, y_val, sigma=0.1)  # _two_regime_data's construction noise std
+        model.fit_router(x_val, y_val)
 
-        routed_nll = _compute_nll(model, x_test, y_test)
+        routed_mse = float(np.mean((model.predict(x_test) - y_test) ** 2))
 
-        global_nlls = []
+        global_mses = []
         x_test_t = torch.tensor(x_test, dtype=torch.float32).to(model.device)
         for k in range(1, max_k + 1):
             with torch.no_grad():
-                out = model.model.forward_at_k(x_test_t, k)
-            mean = out[:, 0].cpu().numpy()
-            log_var = out[:, 1].cpu().numpy()
-            global_nlls.append(float(np.mean(0.5 * (log_var + (y_test - mean) ** 2 / np.exp(log_var)))))
-        best_global_nll = min(global_nlls)
+                mean = model.model.forward_at_k(x_test_t, k)[:, 0].cpu().numpy()
+            global_mses.append(float(np.mean((y_test - mean) ** 2)))
+        best_global_mse = min(global_mses)
 
-        assert routed_nll <= best_global_nll + 0.05, (
-            f"routed NLL ({routed_nll:.4f}) worse than the best global fixed k NLL "
-            f"({best_global_nll:.4f}) by more than tolerance; per-k global NLLs={global_nlls}"
+        assert routed_mse <= best_global_mse + 0.05, (
+            f"routed MSE ({routed_mse:.4f}) worse than the best global fixed k MSE "
+            f"({best_global_mse:.4f}) by more than tolerance; per-k global MSEs={global_mses}"
         )
 
 
@@ -707,14 +704,14 @@ class TestFitRouterSymlogSpaceAlignment:
 
         monkeypatch.setattr(DistilledCapacityRouter, "fit", _spy_fit)
 
-        router_raw = model.fit_router(x, y, sigma=1.0)
+        router_raw = model.fit_router(x, y)
         routing_raw = router_raw.route_index(x)
 
         y_pretransformed = symlog(torch.tensor(y, dtype=torch.float32)).numpy()
         original_transform = model.target_transform
         model.target_transform = None
         try:
-            router_pretransformed = model.fit_router(x, y_pretransformed, sigma=1.0)
+            router_pretransformed = model.fit_router(x, y_pretransformed)
         finally:
             model.target_transform = original_transform
         routing_pretransformed = router_pretransformed.route_index(x)
@@ -744,16 +741,15 @@ class TestFitRouterSymlogSpaceAlignment:
 
     @pytest.mark.parametrize("data_seed", [0, 1])
     def test_error_table_finite_and_on_training_loss_scale(self, monkeypatch, data_seed):
-        """The per-capacity NLL `fit_router`'s `eval_fn` scores against -- captured via a spy
+        """The per-capacity squared error `fit_router`'s `eval_fn` scores against -- captured via a spy
         on `DistilledCapacityRouter.fit` since `fit()` discards the error table into labels
         and never retains it -- must be finite and on the scale of a converged per-sample
-        Gaussian NLL, not the raw-y-vs-symlog-space-mean blowup F9-fix-b produced on this
+        squared error, not the raw-y-vs-symlog-space-mean blowup F9-fix-b produced on this
         heavy-tailed data.
 
-        Parametrized over both data seeds: the blowup magnitude is seed-dependent (20.92 on
-        seed 0, 15.37 on seed 1), so a single seed plus a loose bound is how the original
-        version of this test passed against the unfixed code. See
-        `_SYMLOG_ROUTER_NLL_SANITY_BOUND` for the measured calibration.
+        Parametrized over both data seeds: the blowup magnitude is seed-dependent, so a single seed
+        plus a loose bound is how the original version of this test passed against the unfixed
+        code. See `_SYMLOG_ROUTER_SE_SANITY_BOUND` for the measured calibration.
         """
         x, y = self._heavy_tailed_data(400, seed=data_seed)
         model = self._fit_symlog_nested(x, y, max_k=3, n_epochs=150, seed=0)
@@ -766,13 +762,13 @@ class TestFitRouterSymlogSpaceAlignment:
             return original_fit(router_self, eval_fn, x_val, y_val, capacity_grid, *args, **kwargs)
 
         monkeypatch.setattr(DistilledCapacityRouter, "fit", _spy_fit)
-        model.fit_router(x, y, sigma=1.0)
+        model.fit_router(x, y)
 
         error_table = captured["error_table"]
         assert np.all(np.isfinite(error_table)), "fit_router's per-capacity error table must be finite"
-        assert error_table.mean() < _SYMLOG_ROUTER_NLL_SANITY_BOUND, (
+        assert error_table.mean() < _SYMLOG_ROUTER_SE_SANITY_BOUND, (
             f"fit_router's error table mean ({error_table.mean():.2f}) exceeds the sanity bound "
-            f"({_SYMLOG_ROUTER_NLL_SANITY_BOUND}) for a converged per-sample fixed-sigma mixture NLL "
+            f"({_SYMLOG_ROUTER_SE_SANITY_BOUND}) for a converged per-sample squared error "
             "-- looks like a raw-y-vs-symlog-space-predictions unit mismatch (F9-fix-b), not real fit quality"
         )
 
@@ -781,10 +777,10 @@ class TestArbiterAdvantageSymlogSpaceAlignment:
     """Regression for D2 (docs/probreg/shared/state.md §3): `held_out_arbiter_advantage`
     forces `forward_at_k`, whose outputs live in symlog space when `target_transform="symlog"`
     (fit() transforms y_train/y_val before training, :526-529) -- but
-    `_per_sample_log_likelihood_at_k` used to score the caller's raw-space `y` against those
+    `_per_sample_squared_error_at_k` used to score the caller's raw-space `y` against those
     symlog-space outputs with no transform, the identical units mismatch `fit_router` had before
     the D1 fix (see `TestFitRouterSymlogSpaceAlignment` above). Fix:
-    `_per_sample_log_likelihood_at_k` now symlog-transforms `y` internally when
+    `_per_sample_squared_error_at_k` now symlog-transforms `y` internally when
     `target_transform="symlog"`, exactly as `fit_router` does.
     """
 
@@ -813,12 +809,12 @@ class TestArbiterAdvantageSymlogSpaceAlignment:
         y = (sign * (np.exp(4.0 * x) - 1.0) + rng.normal(0.0, 0.5, n)).astype(np.float32)
         return x.reshape(-1, 1), y
 
-    def test_per_sample_log_likelihood_matches_between_raw_and_pretransformed_y(self):
-        """`_per_sample_log_likelihood_at_k(x, y_raw, k)` on a `target_transform="symlog"` model
+    def test_per_sample_squared_error_matches_between_raw_and_pretransformed_y(self):
+        """`_per_sample_squared_error_at_k(x, y_raw, k)` on a `target_transform="symlog"` model
         must equal calling it with `y` pre-transformed via `symlog` on a model whose
         `target_transform` is temporarily cleared -- both constructions end up scoring y against
         `forward_at_k`'s outputs in the same (symlog) space. Asserted directly on the per-sample
-        log-likelihood array -- the quantity the fix changes -- rather than a neighbour-averaged
+        squared-error array -- the quantity the fix changes -- rather than a neighbour-averaged
         or routed downstream view, which is exactly how D1's first tests came out blind (see
         `TestFitRouterSymlogSpaceAlignment`'s docstring).
         """
@@ -826,20 +822,20 @@ class TestArbiterAdvantageSymlogSpaceAlignment:
         model = self._fit_symlog_nested(x, y, max_k=3, n_epochs=150, seed=0)
         x_arr = np.asarray(x, dtype=np.float64)
 
-        ll_raw = model._per_sample_log_likelihood_at_k(x_arr, y, 2, sigma=1.0)
+        se_raw = model._per_sample_squared_error_at_k(x_arr, y, 2)
 
         y_pretransformed = symlog(torch.tensor(y, dtype=torch.float32)).numpy()
         original_transform = model.target_transform
         model.target_transform = None
         try:
-            ll_pretransformed = model._per_sample_log_likelihood_at_k(x_arr, y_pretransformed, 2, sigma=1.0)
+            se_pretransformed = model._per_sample_squared_error_at_k(x_arr, y_pretransformed, 2)
         finally:
             model.target_transform = original_transform
 
         np.testing.assert_allclose(
-            ll_raw, ll_pretransformed, rtol=1e-5, atol=1e-6,
+            se_raw, se_pretransformed, rtol=1e-5, atol=1e-6,
             err_msg=(
-                "_per_sample_log_likelihood_at_k must return the same per-sample likelihood "
+                "_per_sample_squared_error_at_k must return the same per-sample squared error "
                 "whether y arrives raw (auto-transformed internally) or pre-transformed -- a "
                 "difference means raw-space y was scored against forward_at_k's symlog-space "
                 "outputs (D2)."
@@ -848,7 +844,7 @@ class TestArbiterAdvantageSymlogSpaceAlignment:
 
     def test_held_out_arbiter_advantage_matches_between_raw_and_pretransformed_y(self):
         """Contract statement for `held_out_arbiter_advantage` itself, one level up from the
-        per-sample likelihood the fix actually changes: the arbiter's advantage must be
+        per-sample squared error the fix actually changes: the arbiter's advantage must be
         identical whether `y` arrives raw or pre-transformed. Kept as the contract check, not
         the detector -- the per-sample test above is what would catch a regression that this
         neighbour-averaged view might dilute.
@@ -856,13 +852,13 @@ class TestArbiterAdvantageSymlogSpaceAlignment:
         x, y = self._heavy_tailed_data(400, seed=0)
         model = self._fit_symlog_nested(x, y, max_k=3, n_epochs=150, seed=0)
 
-        advantage_raw = model.held_out_arbiter_advantage(x.ravel(), y, sigma=1.0, width=1.0)
+        advantage_raw = model.held_out_arbiter_advantage(x.ravel(), y, width=1.0)
 
         y_pretransformed = symlog(torch.tensor(y, dtype=torch.float32)).numpy()
         original_transform = model.target_transform
         model.target_transform = None
         try:
-            advantage_pretransformed = model.held_out_arbiter_advantage(x.ravel(), y_pretransformed, sigma=1.0, width=1.0)
+            advantage_pretransformed = model.held_out_arbiter_advantage(x.ravel(), y_pretransformed, width=1.0)
         finally:
             model.target_transform = original_transform
 
@@ -870,7 +866,7 @@ class TestArbiterAdvantageSymlogSpaceAlignment:
             advantage_raw, advantage_pretransformed, rtol=1e-5, atol=1e-6, equal_nan=True,
             err_msg=(
                 "held_out_arbiter_advantage must return the same advantage whether y arrives raw "
-                "or pre-transformed -- a difference means the underlying per-sample likelihood "
+                "or pre-transformed -- a difference means the underlying per-sample squared error "
                 "scored raw-space y against forward_at_k's symlog-space outputs (D2)."
             ),
         )
@@ -897,9 +893,9 @@ class TestCeStopGradDynamicKSentinelFilter:
         NClassesRegularization.ELBO,
     ])
     def test_ce_stop_grad_with_dynamic_k_trains(self, heteroscedastic_data, dynamic, k_reg):
-        """CE_STOP_GRAD, `dynamic` and `k_reg` are all RETIRED under MASTER Decision 29
-        (docs/flexnn/package/plan.md FP-12); this regression guard deliberately exercises them together as
-        the labelled comparison arm the escape hatch exists for."""
+        """`dynamic` and `k_reg` are RETIRED under MASTER Decision 29 (docs/flexnn/package/plan.md FP-12);
+        this regression guard deliberately exercises them with the CE_STOP_GRAD default as the labelled
+        comparison arm the escape hatch exists for."""
         x, y, _, _ = heteroscedastic_data
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=3,
@@ -922,11 +918,11 @@ class TestCeStopGradDynamicKSentinelFilter:
 
 # Calibrated against measured error-table means on TestFitGlobalSelectorSymlogSpaceAlignment's
 # fixture (300 heavy-tailed points, max_k=3, 60 epochs), fix present vs fix removed: the correct
-# (pre-transformed) mean log-likelihood is ~-2.0 nats; scoring the same rungs against raw
-# (untransformed) y instead measures ~-19 to -23 nats -- an order of magnitude off, the same
-# blowup shape D1/D2/F9-fix-b produced.
-_SYMLOG_GLOBAL_SELECTOR_LL_SANITY_BOUND = -5.0  # a converged per-sample symlog-space LL; way above the mismatched range
-_SYMLOG_GLOBAL_SELECTOR_MIN_GAP_NAT = 5.0  # correct-vs-raw-y curve gap floor; measured gap is ~17-21 nats
+# (pre-transformed) mean squared error is ~5-6 (the symlog-space targets are +-4x with a random
+# sign, so ~5.3 is irreducible); scoring the same rungs against raw (untransformed) y instead
+# measures ~300-400 -- two orders of magnitude off, the same blowup shape D1/D2/F9-fix-b produced.
+_SYMLOG_GLOBAL_SELECTOR_SE_SANITY_BOUND = 20.0  # a converged per-sample symlog-space squared error; way below the mismatched range
+_SYMLOG_GLOBAL_SELECTOR_MIN_GAP = 100.0  # raw-y-vs-correct curve gap floor
 
 
 class TestFitGlobalSelector:
@@ -965,7 +961,7 @@ class TestFitGlobalSelector:
         )
         model.fit(x, y)
         with pytest.raises(RuntimeError, match="NESTED"):
-            model.fit_global_selector(x, y, sigma=1.0)
+            model.fit_global_selector(x, y)
 
     def test_requires_fitted_model(self):
         model = ProbabilisticRegressionModel(
@@ -975,19 +971,18 @@ class TestFitGlobalSelector:
             calculate_feature_importance=False,
         )
         with pytest.raises(RuntimeError, match="not been fitted"):
-            model.fit_global_selector(np.zeros((5, 1)), np.zeros(5), sigma=1.0)
+            model.fit_global_selector(np.zeros((5, 1)), np.zeros(5))
 
     def test_selects_valid_k_and_matches_manual_curve(self, heteroscedastic_data):
         """PA's core requirement (D5): the selected k, and the curve it was read off, must be
-        EXACTLY what `all_rung_log_likelihood` + `cheapest_within_tolerance` produce -- i.e. M1's
-        selector is built on `all_rung_log_likelihood`
+        EXACTLY what `all_rung_squared_error` + `cheapest_within_tolerance` produce -- i.e. M1's
+        selector is built on `all_rung_squared_error`
         (`n_classes_strategies.py:230`), never on `held_out_arbiter_advantage`."""
         x, y, _, _ = heteroscedastic_data
         model = self._fit_nested(x, y, max_k=4, n_epochs=20)
         x_val, y_val = x[:100], y[:100]
-        sigma = 1.0
 
-        selected_k = model.fit_global_selector(x_val, y_val, sigma=sigma, n_bootstrap=200)
+        selected_k = model.fit_global_selector(x_val, y_val, n_bootstrap=200)
         assert selected_k in range(1, 5)
         assert model.selected_k_ == selected_k
 
@@ -995,18 +990,18 @@ class TestFitGlobalSelector:
         y_tensor = torch.tensor(y_val, dtype=torch.float32).to(model.device)
         model.model.eval()
         with torch.no_grad():
-            ll_table = model.model.n_classes_strategy.all_rung_log_likelihood(x_tensor, y_tensor, sigma=sigma).cpu().numpy()
-        expected_idx = cheapest_within_tolerance(-ll_table, n_boot=200, seed=model.random_seed or 0)
-        assert selected_k == expected_idx + 1, "selected k must match the cheapest-within-tolerance index into all_rung_log_likelihood's curve"
+            se_table = model.model.n_classes_strategy.all_rung_squared_error(x_tensor, y_tensor).cpu().numpy()
+        expected_idx = cheapest_within_tolerance(se_table, n_boot=200, seed=model.random_seed or 0)
+        assert selected_k == expected_idx + 1, "selected k must match the cheapest-within-tolerance index into all_rung_squared_error's curve"
         np.testing.assert_allclose(
-            model.global_selector_curve_["mean_log_likelihood"], ll_table.mean(axis=0),
+            model.global_selector_curve_["mean_squared_error"], se_table.mean(axis=0),
             rtol=1e-5, atol=1e-6,
         )
 
     def test_forward_global_k_forces_selected_k_everywhere(self, heteroscedastic_data):
         x, y, _, _ = heteroscedastic_data
         model = self._fit_nested(x, y, max_k=4, n_epochs=15)
-        selected_k = model.fit_global_selector(x[:100], y[:100], sigma=1.0, n_bootstrap=100)
+        selected_k = model.fit_global_selector(x[:100], y[:100], n_bootstrap=100)
 
         mean, log_var = model._forward_global_k(x)
         x_tensor = torch.tensor(model._filter_predict_data(x), dtype=torch.float32).to(model.device)
@@ -1024,7 +1019,7 @@ class TestFitGlobalSelector:
 
 
 class TestFitGlobalSelectorSymlogSpaceAlignment:
-    """D2's units-mismatch pattern, applied to `fit_global_selector` (`all_rung_log_likelihood`
+    """D2's units-mismatch pattern, applied to `fit_global_selector` (`all_rung_squared_error`
     does not transform `y_target` itself -- see its docstring, D6): the caller must
     symlog-transform `y_val` before scoring, or the per-rung curve is silently wrong by an order
     of magnitude, exactly like F9-fix-b/D2 before their fixes.
@@ -1054,45 +1049,45 @@ class TestFitGlobalSelectorSymlogSpaceAlignment:
 
     def test_curve_matches_manually_pretransformed_y(self):
         """`fit_global_selector(x, y)` with raw `y` (the documented contract) must produce
-        EXACTLY the curve `all_rung_log_likelihood` gives when called directly with
+        EXACTLY the curve `all_rung_squared_error` gives when called directly with
         `symlog`-pretransformed `y` -- proving the internal transform runs."""
         x, y = self._heavy_tailed_data(300, seed=0)
         model = self._fit_symlog_nested(x, y)
 
-        model.fit_global_selector(x, y, sigma=1.0, n_bootstrap=100)
-        curve = np.asarray(model.global_selector_curve_["mean_log_likelihood"])
+        model.fit_global_selector(x, y, n_bootstrap=100)
+        curve = np.asarray(model.global_selector_curve_["mean_squared_error"])
 
         x_tensor = torch.tensor(x, dtype=torch.float32)
         y_pretransformed = symlog(torch.tensor(y, dtype=torch.float32))
         model.model.eval()
         with torch.no_grad():
-            ll_correct = model.model.n_classes_strategy.all_rung_log_likelihood(x_tensor, y_pretransformed, sigma=1.0).numpy()
+            se_correct = model.model.n_classes_strategy.all_rung_squared_error(x_tensor, y_pretransformed).numpy()
 
-        np.testing.assert_allclose(curve, ll_correct.mean(axis=0), rtol=1e-4, atol=1e-5)
-        assert curve.mean() > _SYMLOG_GLOBAL_SELECTOR_LL_SANITY_BOUND, (
-            f"fit_global_selector's curve mean ({curve.mean():.2f}) is far below a converged "
-            f"symlog-space per-sample log-likelihood -- looks like a raw-y-vs-symlog-space-"
+        np.testing.assert_allclose(curve, se_correct.mean(axis=0), rtol=1e-4, atol=1e-5)
+        assert curve.mean() < _SYMLOG_GLOBAL_SELECTOR_SE_SANITY_BOUND, (
+            f"fit_global_selector's curve mean ({curve.mean():.2f}) is far above a converged "
+            f"symlog-space per-sample squared error -- looks like a raw-y-vs-symlog-space-"
             "predictions unit mismatch (D2's bug class), not real fit quality"
         )
 
     def test_curve_differs_from_scoring_raw_y_directly(self):
         """The contrast case: scoring the SAME rungs against raw (untransformed) `y` directly
-        through `all_rung_log_likelihood` -- what `fit_global_selector` would silently do if it
+        through `all_rung_squared_error` -- what `fit_global_selector` would silently do if it
         forgot the transform -- gives a curve an order of magnitude worse, demonstrating the
         transform is load-bearing, not cosmetic."""
         x, y = self._heavy_tailed_data(300, seed=0)
         model = self._fit_symlog_nested(x, y)
-        model.fit_global_selector(x, y, sigma=1.0, n_bootstrap=100)
-        curve_correct = np.asarray(model.global_selector_curve_["mean_log_likelihood"])
+        model.fit_global_selector(x, y, n_bootstrap=100)
+        curve_correct = np.asarray(model.global_selector_curve_["mean_squared_error"])
 
         x_tensor = torch.tensor(x, dtype=torch.float32)
         y_raw = torch.tensor(y, dtype=torch.float32)
         model.model.eval()
         with torch.no_grad():
-            ll_wrong = model.model.n_classes_strategy.all_rung_log_likelihood(x_tensor, y_raw, sigma=1.0).numpy()
+            se_wrong = model.model.n_classes_strategy.all_rung_squared_error(x_tensor, y_raw).numpy()
 
-        assert curve_correct.mean() - ll_wrong.mean(axis=0).mean() > _SYMLOG_GLOBAL_SELECTOR_MIN_GAP_NAT, (
-            "the correctly-transformed curve should be nats better than scoring raw y directly "
+        assert se_wrong.mean(axis=0).mean() - curve_correct.mean() > _SYMLOG_GLOBAL_SELECTOR_MIN_GAP, (
+            "the correctly-transformed curve should be far lower than scoring raw y directly "
             "against symlog-space rungs -- if these are close, the internal transform silently "
             "stopped running"
         )
@@ -1133,7 +1128,7 @@ class TestFitSweepSelector:
         x_val, y_val = x[150:], y[150:]
 
         model = self._base_model(max_k=3, n_epochs=10)
-        selected_k = model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, sigma=1.0, n_bootstrap=100)
+        selected_k = model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, n_bootstrap=100)
 
         assert selected_k in range(1, 4)
         assert model.selected_k_ == selected_k
@@ -1147,7 +1142,7 @@ class TestFitSweepSelector:
         x_val, y_val = x[150:], y[150:]
 
         model = self._base_model(max_k=3, n_epochs=10)
-        model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, sigma=1.0, n_bootstrap=100)
+        model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, n_bootstrap=100)
 
         winner = model._sweep_submodel()
         np.testing.assert_array_equal(model._sweep_submodel().predict(x_val), winner.predict(x_val))
@@ -1178,7 +1173,7 @@ class TestFitSweepSelector:
         monkeypatch.setattr(pr_module, "cheapest_within_tolerance", _spy)
 
         model = self._base_model(max_k=3, n_epochs=10, seed=1)
-        selected_k = model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, sigma=1.0, n_bootstrap=150)
+        selected_k = model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, n_bootstrap=150)
 
         assert "error_table" in captured, "fit_sweep_selector must call the shared cheapest_within_tolerance primitive"
         error_table = captured["error_table"]
@@ -1211,8 +1206,8 @@ class TestSelectionFractionConfigurable:
             n_epochs=5, learning_rate=0.01, random_seed=0,
             calculate_feature_importance=False, selection_fraction=0.4,
         )
-        model_small._fit_global_cheap(x, y, sigma=1.0)
-        model_large._fit_global_cheap(x, y, sigma=1.0)
+        model_small._fit_global_cheap(x, y)
+        model_large._fit_global_cheap(x, y)
 
         n_small = model_small.global_selector_curve_["n_selection"]
         n_large = model_large.global_selector_curve_["n_selection"]
@@ -1264,7 +1259,7 @@ class TestGlobalSelectionEndToEndThroughFit:
             n_classes=5, epochs=10, validation_fraction=0.2, early_stopping_rounds=3,
             calculate_feature_importance=False,
         )
-        model.fit(x, y, sigma=1.0)             # raised RuntimeError before the fix
+        model.fit(x, y)             # raised RuntimeError before the fix
         assert model.selected_k_ is not None, "fit() under GLOBAL_CHEAP must select a global k"
         preds = model.predict(x)              # no caller flag
         assert preds.shape == (len(x),)
@@ -1278,7 +1273,7 @@ class TestGlobalSelectionEndToEndThroughFit:
             n_classes=5, epochs=10, validation_fraction=0.2, early_stopping_rounds=3,
             calculate_feature_importance=False,
         )
-        model.fit(x, y, sigma=1.0)
+        model.fit(x, y)
         preds = model.predict(x)
         assert preds.shape == (len(x),)
         assert not np.isnan(preds).any()
@@ -1299,13 +1294,13 @@ class TestGlobalSelectionEndToEndThroughFit:
             early_stopping_rounds=2, calculate_feature_importance=False,
         )
         with pytest.raises(RuntimeError, match="NESTED"):
-            model.fit(x, y, sigma=1.0)
+            model.fit(x, y)
 
 
 class TestDecision29Guard:
-    """MASTER Decision 29's one-enforcement-point guard, and docs/probreg/shared/plan.md P10's head-layout gate
+    """MASTER Decision 29's guard on in-training k-selection and k-shaping, and docs/probreg/shared/plan.md P10's head-layout gate
     (merged into the same guard, docs/flexnn/package/plan.md FP-12). FlexNN depth's identical guard
-    (`layer.py`'s `_RetiredDepthSelectionStrategy`) is tested in `test_fixed_sigma_scorer.py`.
+    (`layer.py`'s `_RetiredDepthSelectionStrategy`) is tested in `test_depth_retired_guard.py`.
     """
 
     @pytest.mark.parametrize("method", [
@@ -1334,20 +1329,6 @@ class TestDecision29Guard:
                 uncertainty_method=UncertaintyMethod.PROBABILISTIC,
                 n_classes_selection_method=NClassesSelectionMethod.NESTED,
                 n_classes_regularization=regularization,
-                calculate_feature_importance=False,
-            )
-
-    @pytest.mark.parametrize("strategy", [
-        ProbabilisticRegressionOptimizationStrategy.COMPOSITE_LOSS,
-        ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
-        ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
-    ])
-    def test_retired_optimization_strategy_raises_at_construction(self, strategy):
-        with pytest.raises(ValueError, match="RETIRED"):
-            ProbabilisticRegressionModel(
-                input_size=1, n_classes=3,
-                uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-                optimization_strategy=strategy,
                 calculate_feature_importance=False,
             )
 
@@ -1407,18 +1388,9 @@ class TestDecision29Guard:
             assert y_pred.shape == (len(x),)
             assert not np.any(np.isnan(y_pred))
 
-    def test_search_space_excludes_retired_optimization_strategies_by_default(self):
-        """P10's original verify (c), generalised to Decision 29's optimization_strategy trap:
-        the search space must not offer a member the constructor will reject."""
+    def test_search_space_offers_every_optimization_strategy(self):
+        """The cross-entropy modes are live, so the search space offers all of them (no escape hatch needed)."""
         model = ProbabilisticRegressionModel(input_size=1, n_classes=3, calculate_feature_importance=False)
-        choices = model.get_hyperparameter_search_space()["optimization_strategy"]["choices"]
-        assert choices == [ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY.value]
-
-    def test_search_space_includes_all_optimization_strategies_with_escape_hatch(self):
-        model = ProbabilisticRegressionModel(
-            input_size=1, n_classes=3, calculate_feature_importance=False,
-            allow_retired_capacity_selection=True,
-        )
         choices = set(model.get_hyperparameter_search_space()["optimization_strategy"]["choices"])
         assert choices == {s.value for s in ProbabilisticRegressionOptimizationStrategy}
 

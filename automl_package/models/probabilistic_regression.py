@@ -12,7 +12,7 @@ from automl_package.enums import (
     BoundaryRegularizationMethod,
     CapacitySelection,
     ExplainerType,
-    HeadSpread,
+    Metric,
     NClassesRegularization,
     NClassesSelectionMethod,
     ProbabilisticRegressionOptimizationStrategy,
@@ -31,8 +31,8 @@ from automl_package.models.common.penalties import apply_additional_penalties
 from automl_package.models.selection_strategies.base_selection_strategy import DIRECT_REGRESSION_K_SENTINEL
 from automl_package.utils.capacity_selection import cheapest_within_tolerance
 from automl_package.utils.data_handler import create_train_val_split
-from automl_package.utils.distributions import MixtureOfGaussiansDistribution
-from automl_package.utils.losses import fixed_sigma_mixture_log_likelihood, masked_cross_entropy_loss, mdn_nll
+from automl_package.utils.distributions import GaussianDistribution
+from automl_package.utils.losses import masked_cross_entropy_loss
 from automl_package.utils.numerics import calculate_class_value_ranges, create_bins
 from automl_package.utils.ordering_loss import ordering_loss as ordering_loss_fn
 from automl_package.utils.plotting import plot_nn_probability_mappers
@@ -41,8 +41,7 @@ from automl_package.utils.transforms import symexp, symlog
 # MASTER Decision 29 -- retired under the nested ladder by default (unreachable at construction),
 # reachable only via the `allow_retired_capacity_selection` escape hatch, for the
 # labelled-comparison-arm purpose only (never a default, never search-space-reachable). One
-# enforcement point for all three traps found in the same session: in-training k-selection,
-# k-shaping regularization, and cross-entropy training modes.
+# enforcement point for the two traps: in-training k-selection and k-shaping regularization.
 _RETIRED_N_CLASSES_SELECTION_METHODS = frozenset(
     {
         NClassesSelectionMethod.SOFT_GATING,
@@ -52,21 +51,17 @@ _RETIRED_N_CLASSES_SELECTION_METHODS = frozenset(
     }
 )
 _RETIRED_N_CLASSES_REGULARIZATIONS = frozenset({NClassesRegularization.K_PENALTY, NClassesRegularization.ELBO})
-_RETIRED_OPTIMIZATION_STRATEGIES = frozenset(
-    {
-        ProbabilisticRegressionOptimizationStrategy.COMPOSITE_LOSS,
-        ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
-        ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
-    }
-)
 
 
 class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleClassPenaltyMixin):
     """A PyTorch-based probabilistic regression model that directly learns both mean and variance.
 
-    ProbReg is a CLASSIFIER over k classes with per-class (mean, log_var) regression heads,
-    combined via the law of total variance -- not a Gaussian mixture model in the
-    latent-component sense.
+    ProbReg is a regression model regularised by classification, not a mixture model. A
+    classifier gives class probabilities over k ordered bins of y; per-class regression heads
+    (mean and log-variance) turn them into ONE Gaussian prediction via the law of total variance.
+    The default supervision is `CE_STOP_GRAD`: the classifier is trained on cross-entropy against
+    the y bins only, and its probabilities are detached before the heads, so the regression loss
+    cannot pull them off the true bin probabilities.
 
     The dynamic-k path (capacity-programme Task F9, MASTER Decision 13 -- selection is DISTILLED,
     never in-training): train with `n_classes_selection_method=NESTED` (per-sample k drawn as a
@@ -75,21 +70,20 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
     per-input k with no caller flag (capacity-programme Task FP-3).
 
     **RETIRED, not merely "not recommended" (MASTER Decision 29, docs/flexnn/package/plan.md FP-12):**
-    SOFT_GATING, GUMBEL_SOFTMAX, STE, REINFORCE, `NClassesRegularization` (K_PENALTY/ELBO), and the
-    cross-entropy `optimization_strategy` modes (COMPOSITE_LOSS/GRADIENT_STOP/CE_STOP_GRAD) now
-    raise `ValueError` at construction -- `NClassesSelectionMethod` has two live members under the
+    SOFT_GATING, GUMBEL_SOFTMAX, STE, REINFORCE and `NClassesRegularization` (K_PENALTY/ELBO) raise
+    `ValueError` at construction -- `NClassesSelectionMethod` has two live members under the
     ladder, NONE and NESTED. Pass `allow_retired_capacity_selection=True` to reach them for the
     labelled-comparison-arm purpose only (never a default, never search-space-reachable; record
-    its use in any results JSON).
+    its use in any results JSON). k is a hyperparameter chosen on held-out data, never shaped
+    during training.
 
     Warning:
         Dynamic n_classes selection (`n_classes_selection_method != NONE`) combined with an
-        optimization_strategy that activates classification cross-entropy is retired above and
-        NOT validated even under the escape hatch: class boundaries are precomputed independently
-        per k, so per-k re-binned CE targets redefine class identity across k (a node-0 conflict).
-        The validated recipe of record is dynamic n_classes selection with
-        `optimization_strategy=REGRESSION_ONLY` (see
-        docs/flexnn/width/history/width_dial_2026-07/cascade_execution_plan_2026-07-11.md §3.1).
+        optimization_strategy that activates classification cross-entropy (the CE_STOP_GRAD
+        default included) is NOT validated (`fit` logs a warning): class boundaries are
+        precomputed independently per k, so per-k re-binned CE targets redefine class identity
+        across k (a node-0 conflict). Open question for the next review
+        (docs/probreg/cleanup_plan.md, "Cross-entropy with the nested k ladder").
     """
 
     _defaults: ClassVar[dict[str, Any]] = {
@@ -104,7 +98,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         "n_classes_selection_method": NClassesSelectionMethod.NONE,
         "gumbel_tau": 0.5,
         "n_classes_predictor_learning_rate": 0.001,
-        "optimization_strategy": ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+        "optimization_strategy": ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
+        # Heads predict mean AND spread, combined into one Gaussian by the law of total variance
+        # (owner ruling 2026-10-22). BaseModel's own default is CONSTANT; CE_STOP_GRAD pairs with this.
+        "uncertainty_method": UncertaintyMethod.PROBABILISTIC,
         "boundary_regularization_method": BoundaryRegularizationMethod.NONE,
         "boundary_loss_weight": 1.0,
         "use_monotonic_constraints": False,
@@ -126,12 +123,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         "target_transform": None,
         "prob_reg_loss_type": ProbRegLossType.GAUSSIAN_LTV,
         "use_anchored_heads": False,
-        "head_spread": HeadSpread.PER_INPUT,
-        "fixed_sigma_train": None,
         # Ordering-constraint identifiability (see docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md §3.3, §7.7).
         # None = auto: enable (weight=1.0) only for the (SEPARATE_HEADS, Gaussian-LTV, REGRESSION_ONLY)
         # triple — the single configuration where the penalty measurably helps. Redundant under
-        # CE_STOP_GRAD, harmful under MDN; auto-resolution sets it to 0 there. Pass a float to
+        # CE_STOP_GRAD (the default); auto-resolution sets it to 0 there. Pass a float to
         # override (e.g. 0.0 to disable everywhere).
         "ordering_constraint_weight": None,
         "ordering_constraint_margin": 0.0,
@@ -143,7 +138,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         # {5, 10, 15, 25, 40}%). Unused under FIXED/PER_INPUT.
         "selection_fraction": 0.15,
         # MASTER Decision 29's escape hatch. Re-enables the retired in-training-selection members
-        # (_RETIRED_N_CLASSES_SELECTION_METHODS/_REGULARIZATIONS/_OPTIMIZATION_STRATEGIES above)
+        # (_RETIRED_N_CLASSES_SELECTION_METHODS/_REGULARIZATIONS above)
         # for the labelled-comparison-arm purpose ONLY -- never set by a search space, never a
         # default. Any run using it must record that fact in its results JSON (the caller's
         # responsibility -- this flag is what a results-writer checks).
@@ -194,14 +189,6 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             self.n_classes_regularization = NClassesRegularization[self.n_classes_regularization.upper()]
         if isinstance(self.prob_reg_loss_type, str):
             self.prob_reg_loss_type = ProbRegLossType[self.prob_reg_loss_type.upper()]
-        if isinstance(self.head_spread, str):
-            self.head_spread = HeadSpread[self.head_spread.upper()]
-        if not isinstance(self.head_spread, HeadSpread):
-            # The head-spread branches are `is` identity checks against enum members, so a non-member
-            # value would match none of them and SILENTLY behave as PER_INPUT. Refuse instead: this
-            # programme has already shipped one silent fall-through to a default that produced runs
-            # labelled with a configuration they were never trained under.
-            raise TypeError(f"head_spread must be a HeadSpread member or its string value, got {type(self.head_spread).__name__}: {self.head_spread!r}")
         if isinstance(self.capacity_selection, str):
             self.capacity_selection = CapacitySelection[self.capacity_selection.upper()]
 
@@ -231,35 +218,21 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                     "allow_retired_capacity_selection=True for the labelled-comparison-arm purpose only, and "
                     "record that fact in your results JSON."
                 )
-            if self.optimization_strategy in _RETIRED_OPTIMIZATION_STRATEGIES:
-                raise ValueError(
-                    f"optimization_strategy={self.optimization_strategy.value} is RETIRED (MASTER Decision 29): "
-                    "cross-entropy training pulls the classifier toward a predetermined percentile carve-up of y, "
-                    "contradicting k as an adaptive resolution dial -- this applies to fixed-k models too, "
-                    "independent of the in-training-selection retirement above. Pass "
-                    "allow_retired_capacity_selection=True for the labelled-comparison-arm purpose only, and "
-                    "record that fact in your results JSON."
-                )
 
         if (
             self.n_classes_selection_method == NClassesSelectionMethod.NESTED
             and self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT
         ):
             # docs/probreg/shared/plan.md P10 (merged into FP-12): no per-class (mu, sigma) is produced by this
-            # layout, so "the first c rungs are a genuine c-component model" is vacuous.
-            # predict_distribution refuses the identical layout for the identical reason -- see
-            # its own NotImplementedError below. Unlike the three retirements above, this guard
-            # has NO escape hatch: it is not a labelled comparison arm, it is a structurally
-            # invalid configuration (no components exist to compare).
+            # layout, so "the first c rungs are a genuine c-class model" is vacuous. Unlike the two
+            # retirements above, this guard has NO escape hatch: it is not a labelled comparison
+            # arm, it is a structurally invalid configuration (no per-class heads exist to compare).
             raise ValueError(
                 "n_classes_selection_method=NESTED with regression_strategy=SINGLE_HEAD_FINAL_OUTPUT is BLOCKED: "
-                "no per-class (mu, sigma) is produced, so 'the first c rungs are a genuine c-component model' is "
-                "vacuous (see predict_distribution's matching refusal for the same layout, and MASTER Decision 29 "
-                "/ docs/probreg/shared/plan.md P10). SINGLE_HEAD_N_OUTPUTS remains legal under NESTED as a labelled comparison arm."
+                "no per-class (mu, sigma) is produced, so 'the first c rungs are a genuine c-class model' is "
+                "vacuous (MASTER Decision 29 / docs/probreg/shared/plan.md P10). SINGLE_HEAD_N_OUTPUTS remains "
+                "legal under NESTED as a labelled comparison arm."
             )
-
-        if self.prob_reg_loss_type == ProbRegLossType.FIXED_SIGMA_MIXTURE and self.fixed_sigma_train is None:
-            raise ValueError("prob_reg_loss_type=FIXED_SIGMA_MIXTURE requires fixed_sigma_train (no default -- docs/probreg/fixed_k/plan.md §4.3).")
 
         if self.use_monotonic_constraints and self.regression_strategy != RegressionStrategy.SEPARATE_HEADS:
             logger.warning("Monotonic constraints are only supported for the 'SEPARATE_HEADS' regression strategy.")
@@ -276,13 +249,6 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 and self.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY
             )
             self.ordering_constraint_weight = 1.0 if recommended_combo else 0.0
-        elif self.ordering_constraint_weight > 0.0 and self.prob_reg_loss_type == ProbRegLossType.MDN:
-            logger.warning(
-                "ordering_constraint_weight=%.3f with MDN loss is empirically harmful "
-                "(see docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md §9.1 cells E vs F). "
-                "Pass ordering_constraint_weight=0.0 to silence this warning.",
-                self.ordering_constraint_weight,
-            )
 
         if self.constrain_middle_class and self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
             logger.warning("The `constrain_middle_class` option is not supported for the SINGLE_HEAD_FINAL_OUTPUT strategy.")
@@ -317,16 +283,13 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         x: np.ndarray | pd.DataFrame,
         y: np.ndarray | pd.DataFrame | pd.Series,
         timestamps: np.ndarray | None = None,
-        *,
-        sigma: float | None = None,
     ) -> None:
         """Fits the model, honoring `self.capacity_selection` end-to-end (capacity-programme PA).
 
         Under `CapacitySelection.FIXED`/`PER_INPUT` this is exactly `PyTorchModelBase.fit`
-        (PER_INPUT still needs an explicit follow-up `fit_router()` call, unchanged from FP-3);
-        `sigma` is unused and safely left `None` there. Under `CapacitySelection.GLOBAL_CHEAP`/
-        `GLOBAL_SWEEP`, a single `fit(x, y, sigma=...)` call also performs the held-out global-k
-        selection those modes need -- see `fit_global_selector` (M1) / `fit_sweep_selector` (M3)
+        (PER_INPUT still needs an explicit follow-up `fit_router()` call, unchanged from FP-3).
+        Under `CapacitySelection.GLOBAL_CHEAP`/`GLOBAL_SWEEP`, a single `fit(x, y)` call also
+        performs the held-out global-k selection those modes need -- see `fit_global_selector` (M1) / `fit_sweep_selector` (M3)
         for the mechanism and `_split_off_selection_set` for how `self.selection_fraction` of
         `(x, y)` is carved out and held out from training for that selection read.
 
@@ -335,16 +298,12 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             y: training targets.
             timestamps: optional timestamps (unused under GLOBAL_CHEAP/GLOBAL_SWEEP; forwarded to
                 `PyTorchModelBase.fit` otherwise).
-            sigma: the ONE shared standard deviation (MASTER Decision 24 /
-                `benchmark_spec.md` §2). REQUIRED (raises `ValueError`, not silently `None`) when
-                `capacity_selection` is `GLOBAL_CHEAP`/`GLOBAL_SWEEP` -- see
-                `fixed_sigma_mixture_log_likelihood`'s docstring for why it has no default.
         """
         if self.capacity_selection == CapacitySelection.GLOBAL_CHEAP:
-            self._fit_global_cheap(x, y, sigma=sigma)
+            self._fit_global_cheap(x, y)
             return
         if self.capacity_selection == CapacitySelection.GLOBAL_SWEEP:
-            self._fit_global_sweep(x, y, sigma=sigma)
+            self._fit_global_sweep(x, y)
             return
         super().fit(x, y, timestamps=timestamps)
 
@@ -374,44 +333,26 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         )
         return x_arr[train_indices], y_arr[train_indices], x_arr[sel_indices], y_arr[sel_indices]
 
-    def _fit_global_cheap(self, x: np.ndarray | pd.DataFrame, y: np.ndarray, *, sigma: float | None) -> None:
+    def _fit_global_cheap(self, x: np.ndarray | pd.DataFrame, y: np.ndarray) -> None:
         """`CapacitySelection.GLOBAL_CHEAP` (M1): trains, then selects one k off the held-out remainder.
 
         Trains the NESTED net on `1 - self.selection_fraction` of the data, then picks ONE k for
         the whole dataset from the held-out remainder via `fit_global_selector`.
-
-        Raises:
-            ValueError: `sigma` is `None` -- `fit(sigma=...)` is required under
-                `CapacitySelection.GLOBAL_CHEAP` (MASTER Decision 24).
         """
-        if sigma is None:
-            raise ValueError(
-                "fit(sigma=...) is required under CapacitySelection.GLOBAL_CHEAP (MASTER Decision 24 -- "
-                "see fit_global_selector's docstring for what sigma must be)."
-            )
         x_fit, y_fit, x_sel, y_sel = self._split_off_selection_set(x, y)
         super().fit(x_fit, y_fit)
-        self.fit_global_selector(x_sel, y_sel, sigma=sigma)
+        self.fit_global_selector(x_sel, y_sel)
 
-    def _fit_global_sweep(self, x: np.ndarray | pd.DataFrame, y: np.ndarray, *, sigma: float | None) -> None:
+    def _fit_global_sweep(self, x: np.ndarray | pd.DataFrame, y: np.ndarray) -> None:
         """`CapacitySelection.GLOBAL_SWEEP` (M3): trains one ordinary model per k, keeps the winner.
 
         Trains a SEPARATE ORDINARY model (`NClassesSelectionMethod.NONE`) per candidate k on
         `1 - self.selection_fraction` of the data, scores each on the held-out remainder, and
         keeps the winner -- see `fit_sweep_selector` for the selection rule (the SAME rule
         `fit_global_selector` uses).
-
-        Raises:
-            ValueError: `sigma` is `None` -- `fit(sigma=...)` is required under
-                `CapacitySelection.GLOBAL_SWEEP` (MASTER Decision 24).
         """
-        if sigma is None:
-            raise ValueError(
-                "fit(sigma=...) is required under CapacitySelection.GLOBAL_SWEEP (MASTER Decision 24 -- "
-                "see fit_sweep_selector's docstring for what sigma must be)."
-            )
         x_fit, y_fit, x_sel, y_sel = self._split_off_selection_set(x, y)
-        self.fit_sweep_selector(x_fit, y_fit, x_sel, y_sel, sigma=sigma)
+        self.fit_sweep_selector(x_fit, y_fit, x_sel, y_sel)
 
     @property
     def name(self) -> str:
@@ -429,50 +370,22 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         y_true_squeezed = y_true.squeeze(-1) if y_true.ndim > 1 else y_true
 
         # 1. Calculate main regression loss
-        if self.prob_reg_loss_type == ProbRegLossType.MDN and per_head_outputs is not None and self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
-            # MDN NLL: probabilities enter the likelihood directly → structural identifiability.
-            # Slice before softmax so the distribution is over exactly n_classes components.
-            # Under CE_STOP_GRAD/GRADIENT_STOP the classifier is not supervised by regression
-            # loss; detach logits here so MDN's probs path does not become a back-door channel
-            # (regression_module already received detached probs in NoneStrategy.forward).
-            logits_for_mdn = classifier_logits_out
-            if self.optimization_strategy in (
-                ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
-                ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
-            ):
-                logits_for_mdn = logits_for_mdn.detach()
-            probs_for_mdn = torch.softmax(logits_for_mdn[:, : self.n_classes], dim=-1)
-            mus = per_head_outputs[:, : self.n_classes, 0]
-            log_vars = per_head_outputs[:, : self.n_classes, 1]
-            regression_loss = mdn_nll(y_true_squeezed, probs_for_mdn, mus, log_vars)
-        elif self.prob_reg_loss_type == ProbRegLossType.FIXED_SIGMA_MIXTURE and per_head_outputs is not None:
-            if self.fixed_sigma_train is None:
-                raise ValueError("prob_reg_loss_type=FIXED_SIGMA_MIXTURE requires fixed_sigma_train (no default -- docs/probreg/fixed_k/plan.md §4.3).")
-            logits_for_mix = classifier_logits_out
-            if self.optimization_strategy in (
-                ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
-                ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
-            ):
-                logits_for_mix = logits_for_mix.detach()  # mirror the MDN back-door plug
-            probs_for_mix = torch.softmax(logits_for_mix[:, : self.n_classes], dim=-1)
-            mus = per_head_outputs[:, : self.n_classes, 0]
-            regression_loss = -fixed_sigma_mixture_log_likelihood(y_true_squeezed, probs_for_mix, mus, sigma=self.fixed_sigma_train).mean()
-        else:
-            regression_loss = calculate_combined_loss(
-                predictions=final_predictions,
-                y_true=y_true,
-                uncertainty_method=self.uncertainty_method,
-                include_boundary_loss=False,
-                loss_type=self.loss_type,
-                beta=self.beta,
-            )
+        regression_loss = calculate_combined_loss(
+            predictions=final_predictions,
+            y_true=y_true,
+            uncertainty_method=self.uncertainty_method,
+            include_boundary_loss=False,
+            loss_type=self.loss_type,
+            beta=self.beta,
+        )
 
         total_loss = regression_loss
         unique_k = torch.tensor([])
         probabilistic_indices = torch.tensor([])
 
-        # 2. Classification loss: existing strategies + CE_STOP_GRAD
-        is_ce_active = self.optimization_strategy not in (
+        # 2. Classification loss: existing strategies + CE_STOP_GRAD. Direct-regression mode has no
+        # classes (no boundaries are precomputed), so there is nothing to classify.
+        is_ce_active = not self.direct_regression and self.optimization_strategy not in (
             ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
             ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
         )
@@ -544,7 +457,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         ):
             # Detach under stop-grad optimisation strategies so the ordering
             # constraint does not become a back-door gradient path into the
-            # classifier (mirrors the MDN path above).
+            # classifier (mirrors the stop-grad detach in the strategies' forward).
             logits_for_order = classifier_logits_out[:, : self.n_classes]
             if self.optimization_strategy in (
                 ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
@@ -610,21 +523,9 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
         return total_loss
 
-    def _calculate_performance_score(self, y_true: np.ndarray, y_pred: np.ndarray, x_val: np.ndarray | None = None, y_pred_std: np.ndarray | None = None) -> float:
-        """Calculates the performance score, including the classification penalty if applicable."""
-        score = super()._calculate_performance_score(y_true, y_pred, x_val, y_pred_std)
-
-        if self.optimization_strategy != ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY:
-            self.model.eval()
-            with torch.no_grad():
-                x_val_tensor = torch.tensor(x_val, dtype=torch.float32).to(self.device)
-                y_val_tensor = torch.tensor(y_true, dtype=torch.float32).to(self.device).unsqueeze(1)
-
-                model_outputs = self.model(x_val_tensor)
-                # Add the classification/boundary loss to the regression score
-                score += self._calculate_custom_loss(model_outputs, y_val_tensor, include_boundary_loss=False).item()
-
-        return score
+    def _get_optimization_metric(self) -> Metric:
+        """Held-out mean squared error, whatever the heads predict (owner ruling 2026-10-22: the yardstick is regression error)."""
+        return Metric.MSE
 
     def build_model(self) -> None:
         """Builds the internal PyTorch nn.Module for the ProbabilisticRegressionModel."""
@@ -650,7 +551,6 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             constrain_middle_class=self.constrain_middle_class,
             centroids=getattr(self, "_per_class_centroids", None),
             use_anchored_heads=self.use_anchored_heads,
-            head_spread=self.head_spread,
         )
         self.model.to(self.device)
 
@@ -668,21 +568,14 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         """
         space = super().get_hyperparameter_search_space()
 
-        # MASTER Decision 29 -- search-space repair, the SAME guard `__init__` enforces (the live
-        # exposure: a tuning run is the only way the programme could reach a retired member
-        # otherwise). Under NESTED, SINGLE_HEAD_FINAL_OUTPUT is additionally excluded (docs/probreg/PLAN.md
-        # P10) -- that one has NO escape hatch, so it is dropped even when
-        # `allow_retired_capacity_selection=True`.
+        # Under NESTED, SINGLE_HEAD_FINAL_OUTPUT is excluded (docs/probreg/PLAN.md P10) -- that one
+        # has NO escape hatch, so it is dropped even when `allow_retired_capacity_selection=True`.
         regression_strategy_choices = [s.value for s in RegressionStrategy]
         if self.n_classes_selection_method == NClassesSelectionMethod.NESTED:
             regression_strategy_choices = [
                 s.value for s in RegressionStrategy if s != RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT
             ]
-        optimization_strategy_choices = (
-            [s.value for s in ProbabilisticRegressionOptimizationStrategy]
-            if self.allow_retired_capacity_selection
-            else [s.value for s in ProbabilisticRegressionOptimizationStrategy if s not in _RETIRED_OPTIMIZATION_STRATEGIES]
-        )
+        optimization_strategy_choices = [s.value for s in ProbabilisticRegressionOptimizationStrategy]
 
         space.update(
             {
@@ -780,9 +673,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 "Dynamic n_classes selection (%s) with optimization_strategy=%s activates "
                 "classification cross-entropy: class boundaries are precomputed independently per "
                 "k, so per-k re-binned CE targets redefine class identity across k (node-0 "
-                "conflict). This combination is NOT validated. The validated recipe of record is "
-                "optimization_strategy=REGRESSION_ONLY (see "
-                "docs/flexnn/width/history/width_dial_2026-07/cascade_execution_plan_2026-07-11.md §3.1).",
+                "conflict). This combination is NOT validated (open question: docs/probreg/cleanup_plan.md, "
+                "'Cross-entropy with the nested k ladder').",
                 self.n_classes_selection_method.value,
                 self.optimization_strategy.value,
             )
@@ -922,21 +814,18 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             return self._sweep_submodel().predict(x, filter_data=filter_data)
         return self._predict_unselected(x, filter_data=filter_data)
 
-    def predict_distribution(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> MixtureOfGaussiansDistribution:
-        """Returns the full per-input mixture-of-Gaussians predictive distribution.
+    def predict_distribution(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> GaussianDistribution:
+        """Returns the single predictive Gaussian N(mean(x), variance(x)) per input.
 
-        The classification bottleneck IS a mixture: each class k contributes a
-        Gaussian (mu_k(x), sigma_k^2(x)) weighted by p(class=k | x). This method
-        exposes that full distribution for proper evaluation (NLL, CRPS on the
-        mixture, PIT histograms) rather than the collapsed Gaussian that
-        ``predict`` + ``predict_uncertainty`` return via the law of total variance.
+        The mean and variance are the law-of-total-variance combination of the per-class heads
+        under the classifier's probabilities -- exactly what ``predict`` and
+        ``predict_uncertainty`` return -- so this is the model's one predictive distribution
+        for NLL, CRPS and PIT evaluation. ProbReg is a regression model regularised by
+        classification, not a mixture model.
 
-        Only supported for ``uncertainty_method=PROBABILISTIC`` with
-        ``regression_strategy in {SEPARATE_HEADS, SINGLE_HEAD_N_OUTPUTS}`` and
-        ``n_classes_selection_method=NONE``. Dynamic-k is not yet supported
-        because the predictive mixture under dynamic-k mixes per-k predictions
-        weighted by the k-selection distribution, not a single set of per-class
-        heads; ``SINGLE_HEAD_FINAL_OUTPUT`` does not produce per-class parameters.
+        Only supported for ``uncertainty_method=PROBABILISTIC`` (a per-input spread must exist)
+        and ``n_classes_selection_method=NONE``; ``target_transform='symlog'`` is not supported
+        (the Gaussian is in symlog space).
 
         Raises:
             NotImplementedError: for unsupported configurations.
@@ -948,43 +837,19 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             raise NotImplementedError(
                 f"predict_distribution requires uncertainty_method=PROBABILISTIC, got {self.uncertainty_method}."
             )
-        if self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
-            raise NotImplementedError(
-                "predict_distribution is not available for SINGLE_HEAD_FINAL_OUTPUT; no per-class (mu, sigma) is produced."
-            )
         if self.n_classes_selection_method != NClassesSelectionMethod.NONE:
             raise NotImplementedError(
-                "predict_distribution with dynamic-k is not yet implemented (per_head_outputs not exposed by dynamic strategies)."
+                "predict_distribution with dynamic-k is not implemented (the rung drawn at predict time is not fixed by the strategy)."
             )
         if self.target_transform == "symlog":
             raise NotImplementedError(
-                "predict_distribution with target_transform='symlog' is not supported; "
-                "the mixture is in symlog space and would need MC push-through symexp to be meaningful."
+                "predict_distribution with target_transform='symlog' is not supported; the model's Gaussian "
+                "lives in symlog space, and a Gaussian in original units built from symexp(mean) and the "
+                "linearized spread would only approximate the true predictive distribution there."
             )
-
-        if filter_data:
-            x = self._filter_predict_data(x)
-        if isinstance(x, pd.DataFrame):
-            x = x.values
-        x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
-
-        self.model.eval()
-        with torch.no_grad():
-            classifier_raw_logits = self.model.classifier_layers(x_tensor)
-            masked = torch.full_like(classifier_raw_logits, float("-inf"))
-            masked[:, : self.n_classes] = classifier_raw_logits[:, : self.n_classes]
-            probabilities = torch.softmax(masked, dim=1)[:, : self.n_classes]
-            # SeparateHeads / SingleHeadNOutputs both honor return_head_outputs=True.
-            _, per_head_outputs = self.model.regression_module(
-                torch.softmax(masked, dim=1), return_head_outputs=True,
-            )
-            # per_head_outputs: (N, n_classes, 2) — col 0 mean, col 1 log_var.
-            per_head_outputs = per_head_outputs[:, : self.n_classes, :]
-            means = per_head_outputs[:, :, 0].cpu().numpy()
-            log_var = per_head_outputs[:, :, 1].cpu().numpy()
-        weights = probabilities.cpu().numpy()
-        stds = np.sqrt(np.exp(log_var))
-        return MixtureOfGaussiansDistribution(weights=weights, means=means, stds=stds)
+        mean = self.predict(x, filter_data=filter_data)
+        std = self.predict_uncertainty(x, filter_data=filter_data)
+        return GaussianDistribution(mu=mean, sigma=std)
 
     def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty, converting from symlog space if configured.
@@ -1032,13 +897,12 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
         A post-hoc forward pass, not a scoring path -- the rung was chosen ELSEWHERE.
 
-        NOT a selection-scoring path -- `self.capacity_router_` (fit via `fit_router()`, FP-12's
-        fixed-sigma migration) has already chosen the rung; this only re-reads that rung's own
-        learned variance for `predict_uncertainty()` reporting, which MASTER Decision 24 leaves
-        untouched ("the machinery stays, it is simply never what selection reads").
+        NOT a selection-scoring path -- `self.capacity_router_` (fit via `fit_router()`) has
+        already chosen the rung; this only re-reads that rung's own prediction and learned
+        variance for `predict()` / `predict_uncertainty()`.
 
         Each sample's rung -- `(1,)` the bypass, `(k,)` for `k>=2` the renormalized k-class
-        mixture -- is picked by `self.capacity_router_`, then forced
+        readout -- is picked by `self.capacity_router_`, then forced
         through `ProbabilisticRegressionNet.forward_at_k`. Values are in whatever space the
         model was fit in (symlog-transformed if `target_transform="symlog"`); callers apply the
         same MC push-through `predict`/`predict_uncertainty` already use for the non-routed path.
@@ -1066,10 +930,9 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
     def _forward_global_k(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> tuple[np.ndarray, np.ndarray]:
         """Forces EVERY input through the ONE global k `fit_global_selector` already picked.
 
-        NOT a selection-scoring path -- `self.selected_k_` (chosen by `fit_global_selector()`,
-        FP-12's fixed-sigma migration) is already fixed; this only re-reads that rung's own
-        learned variance for `predict_uncertainty()` reporting, which MASTER Decision 24 leaves
-        untouched ("the machinery stays, it is simply never what selection reads").
+        NOT a selection-scoring path -- `self.selected_k_` (chosen by `fit_global_selector()`)
+        is already fixed; this only re-reads that rung's own prediction and learned variance
+        for `predict()` / `predict_uncertainty()`.
 
         Returns `(mean, log_var)` at the ONE global rung -- M1's post-hoc forward path. Values
         are in whatever space the model was fit in (symlog-transformed if `target_transform="symlog"`);
@@ -1107,7 +970,6 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         x_val: np.ndarray,
         y_val: np.ndarray,
         *,
-        sigma: float,
         capacity_grid: list[tuple[int, ...]] | None = None,
         tolerance: float = DEFAULT_TOLERANCE,
         cost_fn: Callable[[tuple[int, ...]], float] | None = None,
@@ -1116,18 +978,16 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
         Decision 13 (distilled, never in-training): trains an MLP mapping raw `x_val` to a rung,
         entirely separate from the trained selection strategy. `eval_fn` forces every sample
-        through a fixed rung -- via `n_classes_strategy.mixture_components_at_rung` (bypassing the
-        selection strategy for that call) -- and scores the genuine per-component mixture with the
-        fixed-sigma mixture NLL (MASTER Decision 24; docs/flexnn/package/plan.md FP-12), never a learned
-        variance (unlike `FlexibleHiddenLayersNN`/`FlexibleWidthNN`'s squared-error `eval_fn`,
-        which have no predictive variance to score against).
+        through a fixed rung -- via `forward_at_k` (bypassing the selection strategy for that
+        call) -- and scores that rung's point prediction by squared error against `y_val`, the same
+        score as `FlexibleHiddenLayersNN`/`FlexibleWidthNN`'s `eval_fn` (lower is better).
 
         Requires `n_classes_selection_method=NESTED`: routing assumes every rung's k-class
-        mixture is individually well-calibrated (the K4 nesting property -- "the first c rungs
-        are a genuine c-component mixture for every c"), which only the NESTED training scheme
+        readout is individually well-calibrated (the K4 nesting property -- "the first c rungs
+        are a genuine c-class model for every c"), which only the NESTED training scheme
         guarantees. Reading a per-rung ladder off one of the OTHER dynamic strategies would
         reproduce the R1 catastrophe those strategies were never audited against: prefix-slicing
-        an unordered/non-nested mixture is invalid (`docs/...`,
+        an unordered/non-nested ladder is invalid (`docs/...`,
         `automl_package/examples/capacity_ladder_results/R1_verdict.md`).
 
         Args:
@@ -1135,13 +995,9 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             y_val: held-out targets, in the SAME space as `fit()`'s `y_train`/`y_val` -- i.e.
                 raw/original target units. When `target_transform="symlog"`, `y_val` is
                 auto-transformed internally (via the same `symlog` helper `fit()` uses) before
-                scoring, to match the mixture's symlog-space outputs; do NOT pre-transform it
+                scoring, to match the model's symlog-space outputs; do NOT pre-transform it
                 yourself. This mirrors `fit()`'s contract exactly so callers can pass the same
                 `y_val` array to both.
-            sigma: the ONE shared standard deviation (MASTER Decision 24 /
-                `benchmark_spec.md` §2). REQUIRED, no default, and MUST be the SAME value passed
-                to every other selector on this dataset (`fit_global_selector`,
-                `fit_sweep_selector`) -- a per-arm sigma makes the comparison meaningless.
             capacity_grid: candidate rungs as 1-tuples, e.g. `[(1,), (2,), (3,)]` (`(1,)` is the
                 bypass). Defaults to every rung `1..max_n_classes_for_probabilistic_path`.
             tolerance: cheapest-within-tolerance labeling tolerance (see `DistilledCapacityRouter`).
@@ -1151,10 +1007,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 to use `mean_deployed_cost`; `None` (default) leaves it disabled.
 
         Returns:
-            The fitted `DistilledCapacityRouter` (also stored as `self.capacity_router_`; the
-            `sigma` it was fit at is stored as `self.capacity_router_sigma_`, for results-JSON
-            bookkeeping -- MASTER Decision 24 requires recording sigma's value in every results
-            JSON, which is the caller's responsibility once it reads this attribute).
+            The fitted `DistilledCapacityRouter` (also stored as `self.capacity_router_`).
 
         Raises:
             RuntimeError: the model has not been fitted, or was not trained with
@@ -1170,27 +1023,12 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         if capacity_grid is None:
             capacity_grid = [(k,) for k in range(1, self.max_n_classes_for_probabilistic_path + 1)]
 
-        y_val_arr = np.asarray(y_val, dtype=np.float64)
-        if self.target_transform == "symlog":
-            # the mixture's outputs live in symlog space (fit() transforms y_train/y_val before
-            # training, :526-529) -- eval_fn below must score against y_val in that same space, or
-            # the per-capacity error table is silently wrong (F9-fix-b).
-            y_val_arr = symlog(torch.tensor(y_val_arr, dtype=torch.float32)).numpy().astype(np.float64)
-        y_val_tensor = torch.tensor(y_val_arr, dtype=torch.float32, device=self.device)
-
         def eval_fn(x: np.ndarray, capacity: tuple[int, ...]) -> np.ndarray:
-            k = capacity[0]
-            x_tensor = torch.tensor(x, dtype=torch.float32, device=self.device)
-            self.model.eval()
-            with torch.no_grad():
-                probs, mus = self.model.n_classes_strategy.mixture_components_at_rung(x_tensor, k)
-                log_likelihood = fixed_sigma_mixture_log_likelihood(y_val_tensor, probs, mus, sigma=sigma)
-            return (-log_likelihood).cpu().numpy()
+            return self._per_sample_squared_error_at_k(x, y_val, capacity[0])
 
         router = DistilledCapacityRouter(device=self.device)
         router.fit(eval_fn=eval_fn, x_val=x_val, y_val=y_val, capacity_grid=capacity_grid, tolerance=tolerance, cost_fn=cost_fn)
         self.capacity_router_ = router
-        self.capacity_router_sigma_ = sigma
         return router
 
     def fit_global_selector(
@@ -1198,16 +1036,14 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         x_val: np.ndarray,
         y_val: np.ndarray,
         *,
-        sigma: float,
         capacity_grid: list[int] | None = None,
         n_bootstrap: int = 1000,
     ) -> int:
         """`CapacitySelection.GLOBAL_CHEAP` (M1): picks ONE k for the whole dataset.
 
         Reads a held-out `(x_val, y_val)` set (capacity-programme Task PA). Built on
-        `NestedStrategy.all_rung_log_likelihood` (`automl_package/models/flexnn/strategies/n_classes.py`)
-        -- the per-rung `(batch, n_classes)` held-out fixed-sigma MIXTURE log-likelihood table
-        (MASTER Decision 24; docs/flexnn/package/plan.md FP-12) -- NEVER on `held_out_arbiter_advantage`, a
+        `NestedStrategy.all_rung_squared_error` (`automl_package/models/flexnn/strategies/n_classes.py`)
+        -- the per-rung `(batch, n_classes)` held-out squared-error table (lower is better) -- NEVER on `held_out_arbiter_advantage`, a
         different, per-input readout that cannot answer a global "which k" question
         (`docs/probreg/PLAN.md` §1 ⚠️, D5).
 
@@ -1224,20 +1060,16 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             y_val: held-out targets, in the SAME space as `fit()`'s `y_train`/`y_val` -- i.e.
                 raw/original target units. Auto-transformed internally when
                 `target_transform="symlog"` (D2's units-mismatch pattern, applied here exactly as
-                `fit_router`/`_per_sample_log_likelihood_at_k` apply it -- `all_rung_log_likelihood`
+                `fit_router`/`_per_sample_squared_error_at_k` apply it -- `all_rung_squared_error`
                 itself does NOT transform `y_target`, see its docstring) -- do NOT pre-transform it
                 yourself.
-            sigma: the ONE shared standard deviation (MASTER Decision 24 /
-                `benchmark_spec.md` §2). REQUIRED, no default, and MUST be the SAME value passed
-                to `fit_router`/`fit_sweep_selector` on this dataset -- a per-arm sigma makes the
-                comparison meaningless.
             capacity_grid: candidate k values, cheapest first. Defaults to every rung
                 `1..max_n_classes_for_probabilistic_path`.
             n_bootstrap: bootstrap resamples for the selection rule's standard-error estimate.
 
         Returns:
-            The selected k (also stored as `self.selected_k_`, and the full curve -- including
-            `sigma`, for results-JSON bookkeeping -- as `self.global_selector_curve_`).
+            The selected k (also stored as `self.selected_k_`, and the full curve as
+            `self.global_selector_curve_`).
 
         Raises:
             RuntimeError: the model has not been fitted, or was not trained with
@@ -1253,31 +1085,26 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         if capacity_grid is None:
             capacity_grid = list(range(1, self.max_n_classes_for_probabilistic_path + 1))
 
-        y_arr = np.asarray(y_val, dtype=np.float64)
-        if self.target_transform == "symlog":
-            # all_rung_log_likelihood does not transform y_target itself (see its docstring,
-            # D2/D6) -- the caller must, exactly like fit_router/_per_sample_log_likelihood_at_k.
-            y_arr = symlog(torch.tensor(y_arr, dtype=torch.float32)).numpy().astype(np.float64)
+        # all_rung_squared_error does not transform y_target itself (see its docstring, D2/D6).
+        y_arr = self._y_in_model_space(y_val)
 
         x_arr = x_val.values if hasattr(x_val, "values") else np.asarray(x_val)
         x_tensor = torch.tensor(x_arr, dtype=torch.float32, device=self.device)
         y_tensor = torch.tensor(y_arr, dtype=torch.float32, device=self.device)
         self.model.eval()
         with torch.no_grad():
-            ll_table = self.model.n_classes_strategy.all_rung_log_likelihood(x_tensor, y_tensor, sigma=sigma).cpu().numpy()
+            se_table = self.model.n_classes_strategy.all_rung_squared_error(x_tensor, y_tensor).cpu().numpy()
 
-        ll_selected = ll_table[:, [k - 1 for k in capacity_grid]]  # (N, len(capacity_grid))
-        error_table = -ll_selected  # cheapest_within_tolerance wants error (lower is better)
+        error_table = se_table[:, [k - 1 for k in capacity_grid]]  # (N, len(capacity_grid)); lower is better
         idx = cheapest_within_tolerance(error_table, n_boot=n_bootstrap, seed=self.random_seed or 0)
         selected_k = capacity_grid[idx]
 
         self.selected_k_ = selected_k
         self.global_selector_curve_ = {
             "capacity_grid": list(capacity_grid),
-            "mean_log_likelihood": ll_selected.mean(axis=0).tolist(),
+            "mean_squared_error": error_table.mean(axis=0).tolist(),
             "n_selection": len(y_arr),
             "selected_k": selected_k,
-            "sigma": sigma,
         }
         return selected_k
 
@@ -1288,7 +1115,6 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         x_val: np.ndarray,
         y_val: np.ndarray,
         *,
-        sigma: float,
         capacity_grid: list[int] | None = None,
         n_bootstrap: int = 1000,
     ) -> int:
@@ -1320,27 +1146,17 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         `(x_train, y_train)` this method receives -- expensive by design (`docs/probreg/PLAN.md` §1: M3 is
         the reference the cheap arms are measured against, exempt from the matched-cost budget).
 
-        Scored via the per-sample fixed-sigma MIXTURE log-likelihood (MASTER Decision 24;
-        docs/flexnn/package/plan.md FP-12), computed from each sub-model's own `predict_distribution`
-        (`weights`/`means` -- its `stds`, a LEARNED per-arm variance, are deliberately ignored;
-        scoring uses the caller-supplied shared `sigma` instead). `predict_distribution` requires
-        `regression_strategy in {SEPARATE_HEADS, SINGLE_HEAD_N_OUTPUTS}` (no components under
-        SINGLE_HEAD_FINAL_OUTPUT -- the identical restriction FP-12's NESTED guard applies
-        elsewhere) and does not support `target_transform="symlog"` (the mixture would need MC
-        push-through `symexp` to be meaningful in original units, unbuilt -- known limitation,
-        FP-12's report). UNLIKE M1's curve (always in whatever space the model was fit in), this
-        one is always in raw target units -- the two curves are not numerically comparable
-        rung-for-rung, only each model's own selected k is reported.
+        Scored by each sub-model's per-sample squared error `(predict(x_val) - y_val)^2` in raw
+        target units (lower is better) -- the same score `fit_global_selector` reads off the
+        NESTED ladder, though the two curves are not numerically comparable rung-for-rung (M1 is
+        in whatever space the model was fit in; this one is always raw target units). Only each
+        model's own selected k is reported.
 
         Args:
             x_train: data every per-k sub-model is trained on.
             y_train: targets every per-k sub-model is trained on.
             x_val: held-out inputs the per-k curve is scored on.
             y_val: held-out targets the per-k curve is scored on.
-            sigma: the ONE shared standard deviation (MASTER Decision 24 /
-                `benchmark_spec.md` §2). REQUIRED, no default, and MUST be the SAME value passed
-                to `fit_router`/`fit_global_selector` on this dataset -- a per-arm sigma makes the
-                comparison meaningless.
             capacity_grid: candidate k values, cheapest first. Defaults to every rung
                 `1..max_n_classes_for_probabilistic_path` (the SAME default `fit_global_selector`
                 uses, so M1 and M3 answer "which k" over the same grid -- §1's "(b) same choice"
@@ -1350,8 +1166,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         Returns:
             The selected k (also stored as `self.selected_k_`; the winning sub-model is stored as
             `self._sweep_submodel_` and is what `predict`/`predict_uncertainty` delegate to under
-            `CapacitySelection.GLOBAL_SWEEP`; the curve -- including `sigma`, for results-JSON
-            bookkeeping -- is `self.global_selector_curve_`).
+            `CapacitySelection.GLOBAL_SWEEP`; the curve is `self.global_selector_curve_`).
         """
         if capacity_grid is None:
             capacity_grid = list(range(1, self.max_n_classes_for_probabilistic_path + 1))
@@ -1368,19 +1183,15 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         for field in ("target_transform", "prob_reg_loss_type", "use_anchored_heads", "loss_type", "beta", "calculate_feature_importance"):
             base_params[field] = getattr(self, field)
 
-        y_val_tensor = torch.tensor(np.asarray(y_val, dtype=np.float64).ravel(), dtype=torch.float32)
-        error_table = np.empty((len(y_val_tensor), len(capacity_grid)), dtype=np.float64)
+        y_val_arr = np.asarray(y_val, dtype=np.float64).ravel()
+        error_table = np.empty((len(y_val_arr), len(capacity_grid)), dtype=np.float64)
         submodels: list[ProbabilisticRegressionModel] = []
         for col, k in enumerate(capacity_grid):
             params = dict(base_params)
             params.update(n_classes=k, n_classes_selection_method=NClassesSelectionMethod.NONE, capacity_selection=CapacitySelection.FIXED)
             sub_model = ProbabilisticRegressionModel(**params)
             sub_model.fit(x_train, y_train)
-            dist = sub_model.predict_distribution(x_val)
-            probs = torch.tensor(dist.weights, dtype=torch.float32)
-            mus = torch.tensor(dist.means, dtype=torch.float32)
-            log_likelihood = fixed_sigma_mixture_log_likelihood(y_val_tensor, probs, mus, sigma=sigma)
-            error_table[:, col] = (-log_likelihood).numpy()
+            error_table[:, col] = (np.asarray(sub_model.predict(x_val), dtype=np.float64).ravel() - y_val_arr) ** 2
             submodels.append(sub_model)
 
         idx = cheapest_within_tolerance(error_table, n_boot=n_bootstrap, seed=self.random_seed or 0)
@@ -1390,55 +1201,56 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         self._sweep_submodel_ = submodels[idx]
         self.global_selector_curve_ = {
             "capacity_grid": list(capacity_grid),
-            "mean_nll": error_table.mean(axis=0).tolist(),
-            "n_selection": len(y_val_tensor),
+            "mean_squared_error": error_table.mean(axis=0).tolist(),
+            "n_selection": len(y_val_arr),
             "selected_k": selected_k,
-            "sigma": sigma,
         }
         return selected_k
 
-    def _per_sample_log_likelihood_at_k(self, x: np.ndarray, y: np.ndarray, k: int, *, sigma: float) -> np.ndarray:
-        """Per-sample fixed-sigma MIXTURE log-likelihood of rung `k`'s forced readout.
+    def _y_in_model_space(self, y: np.ndarray) -> np.ndarray:
+        """`y` as a flat float64 array in the space the heads were trained in.
+
+        The model's outputs live in symlog space when `target_transform="symlog"` (`fit()`
+        transforms y_train/y_val before training), so held-out targets must be scored in that same
+        space or the error is silently wrong (F9-fix-b, D1, D2). Flattening keeps an `(N, 1)` target
+        from broadcasting against `(N,)` predictions.
+        """
+        y_arr = np.asarray(y, dtype=np.float64).ravel()
+        if self.target_transform == "symlog":
+            y_arr = symlog(torch.tensor(y_arr, dtype=torch.float32)).numpy().astype(np.float64)
+        return y_arr
+
+    def _per_sample_squared_error_at_k(self, x: np.ndarray, y: np.ndarray, k: int) -> np.ndarray:
+        """Per-sample squared error of rung `k`'s forced point prediction (lower is better).
 
         Requires `n_classes_selection_method=NESTED` (rung `k` is only well-defined -- "a genuine
-        c-component mixture" -- on the certified prefix-nesting scheme; `held_out_arbiter_advantage`,
-        this method's only caller, already enforces that before reaching here).
+        c-class model" -- on the certified prefix-nesting scheme; its callers, `fit_router` and
+        `held_out_arbiter_advantage`, already enforce that before reaching here).
 
         Args:
             x: inputs, `(N, in_dim)`.
             y: targets in the SAME space as `fit()`'s `y_train`/`y_val` -- i.e. raw/original
                 target units. When `target_transform="symlog"`, `y` is auto-transformed
-                internally before scoring, to match the mixture's symlog-space outputs; do
-                NOT pre-transform it yourself. Mirrors `fit_router`'s contract exactly.
+                internally before scoring, to match the model's symlog-space outputs; do
+                NOT pre-transform it yourself.
             k: rung to force.
-            sigma: the ONE shared standard deviation (MASTER Decision 24 /
-                `benchmark_spec.md` §2). REQUIRED, no default -- see
-                `fixed_sigma_mixture_log_likelihood`'s docstring for why.
 
         Returns:
-            `(N,)` per-sample fixed-sigma mixture log-likelihood.
+            `(N,)` per-sample squared error.
         """
-        y_arr = np.asarray(y, dtype=np.float64)
-        if self.target_transform == "symlog":
-            # the mixture's outputs live in symlog space (fit() transforms y_train/y_val before
-            # training, :526-529) -- score against y in that same space, or the per-sample
-            # likelihood is silently wrong (same units mismatch as fit_router's F9-fix-b, D1).
-            y_arr = symlog(torch.tensor(y_arr, dtype=torch.float32)).numpy().astype(np.float64)
-
-        x_tensor = torch.tensor(x, dtype=torch.float32, device=self.device)
-        y_tensor = torch.tensor(y_arr, dtype=torch.float32, device=self.device)
+        x_arr = x.values if hasattr(x, "values") else np.asarray(x)
+        x_tensor = torch.tensor(x_arr, dtype=torch.float32, device=self.device)
+        y_tensor = torch.tensor(self._y_in_model_space(y), dtype=torch.float32, device=self.device)
         self.model.eval()
         with torch.no_grad():
-            probs, mus = self.model.n_classes_strategy.mixture_components_at_rung(x_tensor, k)
-            log_likelihood = fixed_sigma_mixture_log_likelihood(y_tensor, probs, mus, sigma=sigma)
-        return log_likelihood.cpu().numpy()
+            mean = self.model.forward_at_k(x_tensor, k)[:, 0]
+        return ((mean - y_tensor) ** 2).cpu().numpy()
 
     def held_out_arbiter_advantage(
         self,
         x: np.ndarray,
         y: np.ndarray,
         *,
-        sigma: float,
         width: float = 0.075,
         top_k: int | None = None,
     ) -> np.ndarray:
@@ -1446,8 +1258,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
         R2 (`automl_package/examples/capacity_ladder_results/R2_verdict.md`) certified that the
         per-input latent component count is recovered via this neighbour-averaged ARBITER --
-        ``A(x) = mean_{x' near x}[ ll_top_k(x', y') - ll_bypass(x', y') ]``, the held-out
-        advantage of the top rung (`top_k`, default `max_n_classes_for_probabilistic_path`)
+        ``A(x) = mean_{x' near x}[ se_bypass(x', y') - se_top_k(x', y') ]``, the held-out
+        squared-error advantage of the top rung (`top_k`, default `max_n_classes_for_probabilistic_path`)
         over the k=1 direct-regression bypass -- while the per-input hard KNEE (walking the
         ladder rung by rung, stopping at the first non-improving step,
         `capacity_ladder_k5.perinput_knee_curve`) was found NOT faithful: "noisy and wrong on
@@ -1467,13 +1279,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             x: held-out inputs, `(N,)` or `(N, in_dim)`.
             y: held-out targets, `(N,)`, in the SAME space as `fit()`'s `y_train`/`y_val` --
                 i.e. raw/original target units. When `target_transform="symlog"`, `y` is
-                auto-transformed internally (via `_per_sample_log_likelihood_at_k`) before
-                scoring, to match the mixture's symlog-space outputs; do NOT pre-transform it
+                auto-transformed internally (via `_per_sample_squared_error_at_k`) before
+                scoring, to match the model's symlog-space outputs; do NOT pre-transform it
                 yourself. Mirrors `fit_router`'s contract exactly so callers can pass the same
                 `y` array to both.
-            sigma: the ONE shared standard deviation (MASTER Decision 24 /
-                `benchmark_spec.md` §2). REQUIRED, no default -- passed identically to both the
-                bypass and top-rung reads below, so the advantage stays a fair comparison.
             width: neighbourhood box-car half-width, in units of `x` (Euclidean distance if
                 `in_dim > 1`). Default 0.075 matches the certified toy-suite read
                 (`capacity_ladder_k5.WIDTH`) -- re-tune for feature scales outside `[0, 1]`.
@@ -1503,9 +1312,9 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             x_arr = x_arr.reshape(-1, 1)
         y_arr = np.asarray(y, dtype=np.float64).ravel()
 
-        ll_bypass = self._per_sample_log_likelihood_at_k(x_arr, y_arr, 1, sigma=sigma)
-        ll_top = self._per_sample_log_likelihood_at_k(x_arr, y_arr, top_k, sigma=sigma)
-        delta = ll_top - ll_bypass  # (N,)
+        se_bypass = self._per_sample_squared_error_at_k(x_arr, y_arr, 1)
+        se_top = self._per_sample_squared_error_at_k(x_arr, y_arr, top_k)
+        delta = se_bypass - se_top  # (N,); positive = the top rung is closer to y than the bypass
 
         dist = np.linalg.norm(x_arr[None, :, :] - x_arr[:, None, :], axis=-1)  # (N, N)
         mask = (dist <= width).astype(np.float64)

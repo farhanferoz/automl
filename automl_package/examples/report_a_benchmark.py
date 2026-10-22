@@ -19,9 +19,9 @@ bootstrap helper (`sinc_width_experiment.py::_plain_boot_se`) is left for P3's r
 contrasts, not duplicated here — this driver's job is per-cell numbers, not aggregate verdicts.
 
 ProbReg framing (binding on every string in this file, per the user's convention): a
-CLASSIFIER over k classes with per-class regression heads, combined by the Law of Total
-Variance (LTV) into one collapsed Gaussian (mu, sigma). Never "Gaussian mixture" anywhere
-below. Fixed-k and dynamic-k are two DISTINCT models throughout.
+regression model regularised by a classifier over k ordered bins of y, with per-class regression
+heads combined by the Law of Total Variance (LTV) into one Gaussian (mu, sigma). Never
+"Gaussian mixture" anywhere below. Fixed-k and dynamic-k are two DISTINCT models throughout.
 
 Hetero-NLL protocol (P1's finding, `docs/probreg/history/diagnoses_2026-07/hetero_nll_diagnosis.md`): ProbReg's mean is a
 bottlenecked function of the k-way class posterior, so a coarse fixed k under-resolves the
@@ -29,14 +29,10 @@ mean on wiggly targets. The fix is not a code change — it's val-selecting k pe
 small grid before scoring, and evaluating the COLLAPSED Gaussian (`predict`/
 `predict_uncertainty`) for `run_cell`'s reported metrics.
 
-⚠️ **UPDATED 2026-07-21 (docs/flexnn/package/plan.md FP-12, MASTER Decision 24) — `select_k_for_toy`'s
-k-SELECTION step is the one exception to "never predict_distribution" above.** The capacity
-readout for CHOOSING k is now the per-sample fixed-σ MIXTURE log-likelihood (`TOY_SIGMA` below),
-which requires the genuine per-component mixture `predict_distribution` exposes -- selecting on
-the LTV-collapsed Gaussian's squared error/NLL is structurally blind to k (§4.3, benchmark_spec.md).
-`run_cell`'s per-model REPORTED metrics (`compute_cell_metrics`) are unaffected and still read the
-collapsed `predict`/`predict_uncertainty` -- the "never Gaussian mixture" framing above still
-governs every other use of ProbReg in this file.
+k-SELECTION score (owner ruling 2026-10-22): `select_k_for_toy` picks k by held-out mean
+squared error of the model's point prediction (`predict`), lower is better. It no longer uses a
+fixed-sigma mixture log-likelihood or any learned variance. `run_cell`'s per-model REPORTED metrics
+(`compute_cell_metrics`) are unaffected.
 
 Data roles (disjoint, touched once): k-selection draws its OWN dataset at a dedicated
 protocol seed (`KSEL_SEED=999`, outside the 5 report seeds) and picks k from a val split of
@@ -74,7 +70,6 @@ import argparse
 import enum
 import json
 import logging
-import math
 import time
 import traceback
 from dataclasses import dataclass
@@ -82,7 +77,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
 from sklearn.model_selection import train_test_split
 
 from automl_package.enums import (
@@ -93,14 +87,13 @@ from automl_package.enums import (
     UncertaintyMethod,
 )
 from automl_package.examples.full_benchmark import _exponential, _heteroscedastic, _multimodal, _piecewise
-from automl_package.examples.nested_width_net import HETERO3_NOISY_SIGMA, HETERO_NOISE_SIGMA, make_hetero3
+from automl_package.examples.nested_width_net import make_hetero3
 from automl_package.models.catboost_model import CatBoostModel
 from automl_package.models.lightgbm_model import LightGBMModel
 from automl_package.models.neural_network import PyTorchNeuralNetwork
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
 from automl_package.models.xgboost_model import XGBoostModel
 from automl_package.utils.calibration import calculate_mpiw, calibration_curve_gaussian
-from automl_package.utils.losses import fixed_sigma_mixture_log_likelihood
 from automl_package.utils.metrics import Metrics
 from automl_package.utils.scoring import calculate_crps_gaussian, calculate_winkler_from_gaussian
 
@@ -127,32 +120,6 @@ class Toy(enum.Enum):
 HOME_TURF_TOYS = (Toy.HETEROSCEDASTIC, Toy.MULTIMODAL, Toy.HETERO3)
 STANDARD_TOYS = (Toy.PIECEWISE, Toy.EXPONENTIAL)
 ALL_TOYS = (*HOME_TURF_TOYS, *STANDARD_TOYS)
-
-# ONE sigma per toy, per benchmark_spec.md §2 ("on toys, the known construction value") -- fed to
-# `fixed_sigma_mixture_log_likelihood` (MASTER Decision 24; docs/flexnn/package/plan.md FP-12). Same value
-# for every arm on that toy (a per-arm sigma is FORBIDDEN).
-#
-# MULTIMODAL/EXPONENTIAL/PIECEWISE are homoscedastic by construction (`full_benchmark.py`'s
-# `_multimodal`/`_exponential`/`_piecewise`), so their generators' literal noise-std constants ARE
-# the known construction value, exactly.
-#
-# HETEROSCEDASTIC and HETERO3 are NOT homoscedastic -- their noise std varies with x
-# (`_heteroscedastic`: `0.1 + 0.4*|x|`; `make_hetero3`: three regions at `HETERO_NOISE_SIGMA`,
-# `HETERO_NOISE_SIGMA`, `HETERO3_NOISY_SIGMA`), so "the known construction value" has no single
-# closed-form answer the spec pins down -- an unpinned decision surfacing here, not a defect.
-# **root sign-off recommended**: this driver uses the domain-averaged ROOT-MEAN-SQUARE noise std,
-# computed in closed form from each generator's own formula (verified against a 2M-point Monte
-# Carlo draw from the actual generator -- see FP-12's report), as the most defensible single
-# reduction -- but it is a judgment call the spec does not make for the caller, and the honest
-# §2 caveat applies with extra force here: on a genuinely heteroscedastic toy, no single sigma is
-# well-specified, only its EFFECT on the comparison is (same sigma, every arm).
-TOY_SIGMA: dict[Toy, float] = {
-    Toy.HETEROSCEDASTIC: math.sqrt(0.01 + 0.08 * 2.5 + 0.16 * (25.0 / 3.0)),  # E[(0.1+0.4|x|)^2], x~U(-5,5)
-    Toy.PIECEWISE: 0.2,  # _piecewise's literal noise std
-    Toy.MULTIMODAL: 0.1,  # _multimodal's literal noise std
-    Toy.EXPONENTIAL: 0.5,  # _exponential's literal noise std
-    Toy.HETERO3: math.sqrt((2 * HETERO_NOISE_SIGMA**2 + HETERO3_NOISY_SIGMA**2) / 3.0),  # 3 equal-width regions
-}
 
 PRODUCTION_N: dict[Toy, int] = {
     Toy.HETEROSCEDASTIC: 1000,
@@ -366,41 +333,32 @@ def compute_cell_metrics(x_test: np.ndarray, y_test: np.ndarray, y_pred: np.ndar
 # ---------------------------------------------------------------------------
 
 
-def select_k_for_toy(toy: Toy, cfg: RunConfig, n: int, sigma: float) -> dict[str, Any]:
+def select_k_for_toy(toy: Toy, cfg: RunConfig, n: int) -> dict[str, Any]:
     """Fits ProbReg fixed-k at each K_GRID candidate on a dedicated protocol-seed draw.
 
-    Picks the argmin fixed-sigma MIXTURE NLL (MASTER Decision 24; docs/flexnn/package/plan.md FP-12) --
-    NOT `predict_uncertainty`'s fitted sigma, which is what this function selected on before FP-12
-    (a per-arm learned variance, exactly the violation Decision 24 forbids). Scores via
-    `predict_distribution`'s `(weights, means)` -- its `stds` (learned) are ignored, `sigma` is
-    the caller-supplied shared constant instead. `sigma` is REQUIRED, no default (see
-    `TOY_SIGMA`/`fixed_sigma_mixture_log_likelihood`'s docstring for why).
+    Picks the argmin held-out mean squared error of `predict` on the val split (lower is better).
     """
     x, y = make_dataset(toy, KSEL_SEED, n)
     x_tr, x_val, y_tr, y_val = train_test_split(x, y, test_size=0.3, random_state=KSEL_SEED)
     input_size = x.shape[1]
-    y_val_tensor = torch.tensor(np.asarray(y_val, dtype=np.float64).ravel(), dtype=torch.float32)
+    y_val_arr = np.asarray(y_val, dtype=np.float64).ravel()
 
-    val_ll: dict[int, float] = {}
+    val_mse: dict[int, float] = {}
     for k in K_GRID:
         model = _probreg_fixed(input_size, k, KSEL_SEED, cfg)
         model.fit(x_tr, y_tr)
-        dist = model.predict_distribution(x_val)
-        probs = torch.tensor(dist.weights, dtype=torch.float32)
-        mus = torch.tensor(dist.means, dtype=torch.float32)
-        val_ll[k] = float(fixed_sigma_mixture_log_likelihood(y_val_tensor, probs, mus, sigma=sigma).mean())
-        logger.info(f"[k-select {toy.value}] k={k} val_ll={val_ll[k]:.4f}")
+        val_mse[k] = float(np.mean((np.asarray(model.predict(x_val), dtype=np.float64).ravel() - y_val_arr) ** 2))
+        logger.info(f"[k-select {toy.value}] k={k} val_mse={val_mse[k]:.4f}")
 
-    selected_k = max(val_ll, key=val_ll.get)  # higher log-likelihood is better
+    selected_k = min(val_mse, key=val_mse.get)  # lower held-out MSE is better
     return {
         "toy": toy.value,
         "protocol_seed": KSEL_SEED,
         "k_grid": list(K_GRID),
-        "val_ll_by_k": val_ll,
+        "val_mse_by_k": val_mse,
         "selected_k": selected_k,
         "n_samples": n,
         "n_epochs_cap": cfg.n_epochs,
-        "sigma": sigma,
         # MASTER Decision 29: "any run using it writes that fact into its results JSON".
         # Recorded unconditionally (not only when true) so its ABSENCE can never be mistaken for
         # "the hatch was off" in an older file that simply predates this field.
@@ -507,7 +465,7 @@ def main() -> None:
         if args.skip_kselect and kfile.exists():
             k_info = json.loads(kfile.read_text())
         else:
-            k_info = select_k_for_toy(toy, cfg, n, sigma=TOY_SIGMA[toy])
+            k_info = select_k_for_toy(toy, cfg, n)
             _save(kfile, k_info)  # land immediately — standing clause (a)
         k_star = k_info["selected_k"]
         logger.info(f"[{toy.value}] selected k={k_star} (grid={K_GRID})")

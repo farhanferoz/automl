@@ -27,13 +27,6 @@ class RegressionStrategy(Enum):
     SINGLE_HEAD_FINAL_OUTPUT = "single_head_final_output"
 
 
-class HeadSpread(Enum):
-    """How a SEPARATE_HEADS class's spread is parameterised (structure phase, docs/probreg/fixed_k/plan.md PS-A1)."""
-
-    PER_INPUT = "per_input"  # log-variance is a function of p_i (legacy default)
-    ALL_CONSTANT = "all_constant"  # mean AND log-variance are per-class parameters (calibrated-constant baseline)
-
-
 class BoundaryRegularizationMethod(Enum):
     """Enum for boundary enforcement methods."""
 
@@ -292,9 +285,7 @@ class ProbabilisticRegressionOptimizationStrategy(Enum):
 class ProbRegLossType(Enum):
     """Enum for loss function used in ProbabilisticRegressionModel."""
 
-    GAUSSIAN_LTV = "gaussian_ltv"  # law of total variance + Gaussian NLL (current default)
-    MDN = "mdn"                    # Bishop 1994 mixture density network NLL
-    FIXED_SIGMA_MIXTURE = "fixed_sigma_mixture"  # mixture NLL at a required, shared, fixed sigma (docs/probreg/fixed_k/plan.md)
+    GAUSSIAN_LTV = "gaussian_ltv"  # heads give mean and spread; one Gaussian via the law of total variance
 
 
 class OptimizerType(Enum):

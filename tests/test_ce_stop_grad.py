@@ -1,22 +1,22 @@
-"""Tests for CE_STOP_GRAD gradient routing (CT3).
+"""Tests for the cross-entropy training modes and CE_STOP_GRAD gradient routing (CT3).
 
-CE_STOP_GRAD and GRADIENT_STOP are RETIRED under the nested ladder (MASTER Decision 29,
-docs/flexnn/PLAN.md): cross-entropy training pulls the classifier toward a
-predetermined percentile carve-up of y, which the ladder forbids. This whole file's SUBJECT is
-those two retired cross-entropy modes -- it exists to verify their gradient-routing behaviour as a
-labelled comparison arm, not to claim they are the recommended path. Every model construction below
-that selects CE_STOP_GRAD or GRADIENT_STOP passes `allow_retired_capacity_selection=True`.
+CE_STOP_GRAD is the default `optimization_strategy` (owner ruling 2026-10-22): the classifier is
+trained on cross-entropy against the y bins only, and its probabilities are detached before the
+regression heads, so the regression loss cannot pull them off the true bin probabilities. All
+cross-entropy modes construct without `allow_retired_capacity_selection`.
 """
 
 import numpy as np
+import pytest
 import torch
 
 from automl_package.enums import (
+    Metric,
     ProbabilisticRegressionOptimizationStrategy,
-    ProbRegLossType,
     RegressionStrategy,
     UncertaintyMethod,
 )
+from automl_package.models.common.losses import calculate_combined_loss
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
 
 
@@ -27,60 +27,56 @@ def _make_tiny_dataset(n: int = 80, seed: int = 42) -> tuple[np.ndarray, np.ndar
     return x, y
 
 
-class TestCeStopGrad:
-    def _make_model(self, strategy: ProbabilisticRegressionOptimizationStrategy, loss_type: ProbRegLossType = ProbRegLossType.GAUSSIAN_LTV) -> ProbabilisticRegressionModel:
-        return ProbabilisticRegressionModel(
-            input_size=1,
-            n_classes=3,
-            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
-            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            optimization_strategy=strategy,
-            prob_reg_loss_type=loss_type,
-            n_epochs=3,
-            learning_rate=0.01,
-            early_stopping_rounds=2,
-            validation_fraction=0.2,
-            random_seed=42,
-            calculate_feature_importance=False,
-            allow_retired_capacity_selection=True,
-        )
+def _make_model(strategy: ProbabilisticRegressionOptimizationStrategy | None = None, n_epochs: int = 3) -> ProbabilisticRegressionModel:
+    """A tiny ProbReg; `strategy` left unset exercises the constructor default."""
+    kwargs = {} if strategy is None else {"optimization_strategy": strategy}
+    return ProbabilisticRegressionModel(
+        input_size=1,
+        n_classes=3,
+        regression_strategy=RegressionStrategy.SEPARATE_HEADS,
+        uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+        n_epochs=n_epochs,
+        learning_rate=0.01,
+        early_stopping_rounds=2,
+        validation_fraction=0.2,
+        random_seed=42,
+        calculate_feature_importance=False,
+        **kwargs,
+    )
 
-    def test_ce_stop_grad_trains_without_error(self):
-        """CE_STOP_GRAD model fits and predicts without errors."""
+
+class TestCeModesConstructAndTrain:
+    def test_default_is_ce_stop_grad(self):
+        model = _make_model()
+        assert model.optimization_strategy is ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD
+        assert model._get_optimization_metric() is Metric.MSE, "search and CV score on held-out regression error only"
+
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            {"cv_folds": 2, "validation_fraction": None},
+            {"optimize_hyperparameters": True, "n_trials": 2, "validation_fraction": 0.2},
+            {"n_classes": 5, "n_classes_inf": 3, "validation_fraction": 0.2},
+        ],
+        ids=["cv", "hpo", "direct_regression"],
+    )
+    def test_default_fits_under_cv_hpo_and_direct_regression(self, extra):
+        """The CE_STOP_GRAD default must not crash where trials are scored on a clone (CV, search) or where no classes exist."""
         x, y = _make_tiny_dataset()
-        model = self._make_model(ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD)
+        kwargs = {"input_size": 1, "n_classes": 3, "n_epochs": 2, "early_stopping_rounds": 2, "random_seed": 0, "calculate_feature_importance": False} | extra
+        model = ProbabilisticRegressionModel(**kwargs)
+        model.fit(x, y)
+        assert np.all(np.isfinite(model.predict(x[:10])))
+
+    @pytest.mark.parametrize("strategy", list(ProbabilisticRegressionOptimizationStrategy))
+    def test_every_mode_constructs_without_escape_hatch_and_trains(self, strategy):
+        """All four modes (including the cross-entropy ones) construct with no `allow_retired_capacity_selection`."""
+        x, y = _make_tiny_dataset()
+        model = _make_model(strategy)
+        assert model.allow_retired_capacity_selection is False
         model.fit(x, y)
         preds = model.predict(x[:10])
         assert preds.shape == (10,)
-        assert np.all(np.isfinite(preds))
-
-    def test_gradient_stop_trains_without_error(self):
-        """GRADIENT_STOP still works (existing path, unchanged)."""
-        x, y = _make_tiny_dataset()
-        model = self._make_model(ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP)
-        model.fit(x, y)
-        preds = model.predict(x[:10])
-        assert preds.shape == (10,)
-        assert np.all(np.isfinite(preds))
-
-    def test_mdn_ce_stop_grad_trains_without_error(self):
-        """MDN + CE_STOP_GRAD (cell H) trains and predicts."""
-        x, y = _make_tiny_dataset()
-        model = self._make_model(
-            ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
-            loss_type=ProbRegLossType.MDN,
-        )
-        model.fit(x, y)
-        preds = model.predict(x[:10])
-        assert preds.shape == (10,)
-        assert np.all(np.isfinite(preds))
-
-    def test_regression_only_unchanged(self):
-        """REGRESSION_ONLY path is byte-for-byte equivalent (smoke test)."""
-        x, y = _make_tiny_dataset()
-        model = self._make_model(ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY)
-        model.fit(x, y)
-        preds = model.predict(x[:10])
         assert np.all(np.isfinite(preds))
 
 
@@ -94,23 +90,9 @@ class TestCeStopGradRouting:
       - regression_module params: always get gradient from regression loss.
     """
 
-    def _fit_tiny(self, strategy: ProbabilisticRegressionOptimizationStrategy, loss_type: ProbRegLossType) -> ProbabilisticRegressionModel:
+    def _fit_tiny(self, strategy: ProbabilisticRegressionOptimizationStrategy | None = None) -> ProbabilisticRegressionModel:
         x, y = _make_tiny_dataset()
-        model = ProbabilisticRegressionModel(
-            input_size=1,
-            n_classes=3,
-            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
-            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            optimization_strategy=strategy,
-            prob_reg_loss_type=loss_type,
-            n_epochs=2,
-            learning_rate=0.01,
-            early_stopping_rounds=2,
-            validation_fraction=0.2,
-            random_seed=42,
-            calculate_feature_importance=False,
-            allow_retired_capacity_selection=True,
-        )
+        model = _make_model(strategy, n_epochs=2)
         model.fit(x, y)
         return model
 
@@ -140,37 +122,42 @@ class TestCeStopGradRouting:
         heads_grad = self._total_abs_grad(model.model.regression_module.parameters())
         return classifier_grad, heads_grad
 
-    def test_ce_stop_grad_gaussian_ltv_gradient_flow(self):
-        """CE_STOP_GRAD + GAUSSIAN_LTV: classifier grad from CE; heads grad from regression."""
-        model = self._fit_tiny(ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD, ProbRegLossType.GAUSSIAN_LTV)
-        classifier_grad, heads_grad = self._run_backward(model)
-        assert classifier_grad > 0.0, "classifier must receive gradient (from CE loss)"
-        assert heads_grad > 0.0, "regression heads must receive gradient"
+    def test_default_classifier_gets_ce_gradient_and_regression_loss_sends_none(self):
+        """Default model: the classifier is trained by cross-entropy alone; the regression loss never reaches it.
 
-    def test_ce_stop_grad_mdn_gradient_flow(self):
-        """CE_STOP_GRAD + MDN (cells G, H): classifier grad from CE; heads grad from MDN NLL."""
-        model = self._fit_tiny(ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD, ProbRegLossType.MDN)
+        The regression term alone must leave every classifier gradient at zero (probabilities are
+        detached before the heads) while the heads still learn from it; the full loss must give the
+        classifier a gradient, and that gradient can only come from the cross-entropy term.
+        """
+        model = self._fit_tiny()
+        assert model.optimization_strategy is ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD
+        x, y = _make_tiny_dataset()
+        x_t = torch.tensor(x, dtype=torch.float32).to(model.device)
+        y_t = torch.tensor(y, dtype=torch.float32).to(model.device).unsqueeze(1)
+        model.model.train()
+
+        self._zero_grads(model.model)
+        outputs = model.model(x_t)
+        regression_loss = calculate_combined_loss(
+            predictions=outputs[0], y_true=y_t, uncertainty_method=model.uncertainty_method,
+            include_boundary_loss=False, loss_type=model.loss_type, beta=model.beta,
+        )
+        regression_loss.backward()
+        assert self._total_abs_grad(model.model.classifier_layers.parameters()) == 0.0, "regression loss must send no gradient into the classifier"
+        assert self._total_abs_grad(model.model.regression_module.parameters()) > 0.0, "regression heads must learn from the regression loss"
+
         classifier_grad, heads_grad = self._run_backward(model)
-        assert classifier_grad > 0.0, "classifier must receive gradient (from CE loss)"
-        assert heads_grad > 0.0, "regression heads must receive gradient"
+        assert classifier_grad > 0.0, "classifier must receive gradient from the cross-entropy loss"
+        assert heads_grad > 0.0
 
     def test_regression_only_no_ce_gradient(self):
         """REGRESSION_ONLY: no CE, so classifier gradient comes only from regression loss path.
 
         Verifies classifier still gets gradient (via non-detached probs) and heads get gradient.
         """
-        model = self._fit_tiny(ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY, ProbRegLossType.GAUSSIAN_LTV)
+        model = self._fit_tiny(ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY)
         classifier_grad, heads_grad = self._run_backward(model)
         assert classifier_grad > 0.0
-        assert heads_grad > 0.0
-
-    def test_mdn_regression_only_classifier_trains_via_mdn(self):
-        """MDN + REGRESSION_ONLY (cells E, F): classifier grad comes through MDN probs — the whole
-        point of MDN (identifiability via probs channel). Both paths must produce gradient.
-        """
-        model = self._fit_tiny(ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY, ProbRegLossType.MDN)
-        classifier_grad, heads_grad = self._run_backward(model)
-        assert classifier_grad > 0.0, "MDN's probs path must train the classifier under REGRESSION_ONLY"
         assert heads_grad > 0.0
 
     def test_gradient_stop_classifier_still_receives_regression_gradient(self):
@@ -181,7 +168,7 @@ class TestCeStopGradRouting:
         If detach were incorrectly applied here the classifier grad would be zero (no CE, no grad
         path), which was the bug flagged for restoration.
         """
-        model = self._fit_tiny(ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP, ProbRegLossType.GAUSSIAN_LTV)
+        model = self._fit_tiny(ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP)
         classifier_grad, heads_grad = self._run_backward(model)
         assert classifier_grad > 0.0, "GRADIENT_STOP + fixed k must route regression gradient to classifier (CE is off)"
         assert heads_grad > 0.0

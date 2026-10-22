@@ -1,10 +1,8 @@
 """Integration smoke tests for ProbReg identifiability cells (CT5).
 
-Runs all 8 cells (2 loss types × 2 supervision modes × 2 head parametrizations)
-for 10 epochs on a tiny synthetic dataset and checks for no crashes, finite losses,
-and sensible predict_distribution output.
-
-Total runtime: ~30 seconds.
+Runs all 4 cells (2 supervision modes × 2 head parametrizations) for 10 epochs on a tiny
+synthetic dataset and checks for no crashes, finite losses, and a sensible predict_distribution
+output (the single predictive Gaussian).
 """
 
 import numpy as np
@@ -12,21 +10,16 @@ import pytest
 
 from automl_package.enums import (
     ProbabilisticRegressionOptimizationStrategy,
-    ProbRegLossType,
     RegressionStrategy,
     UncertaintyMethod,
 )
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
 
 _CELLS = [
-    ("A", ProbRegLossType.GAUSSIAN_LTV, ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY, False),
-    ("B", ProbRegLossType.GAUSSIAN_LTV, ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY, True),
-    ("C", ProbRegLossType.GAUSSIAN_LTV, ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD, False),
-    ("D", ProbRegLossType.GAUSSIAN_LTV, ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD, True),
-    ("E", ProbRegLossType.MDN, ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY, False),
-    ("F", ProbRegLossType.MDN, ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY, True),
-    ("G", ProbRegLossType.MDN, ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD, False),
-    ("H", ProbRegLossType.MDN, ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD, True),
+    ("A", ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY, False),
+    ("B", ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY, True),
+    ("C", ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD, False),
+    ("D", ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD, True),
 ]
 
 
@@ -37,15 +30,9 @@ def _tiny_dataset(n: int = 100, seed: int = 99) -> tuple[np.ndarray, np.ndarray]
     return x, y
 
 
-@pytest.mark.parametrize(("cell_id", "loss_type", "opt_strategy", "use_anchored"), _CELLS)
-def test_cell_smoke(cell_id, loss_type, opt_strategy, use_anchored):
-    """Each cell trains without crash and produces finite predictions.
-
-    Cells C/D/G/H parametrize opt_strategy=CE_STOP_GRAD, RETIRED under MASTER Decision 29. This
-    2x2x2 grid's whole point is covering every (loss_type, opt_strategy, use_anchored) cell,
-    including the CE_STOP_GRAD ones -- CE_STOP_GRAD IS a parametrized dimension of this test's
-    subject, not incidental, so the escape hatch is used rather than dropping those cells.
-    """
+@pytest.mark.parametrize(("cell_id", "opt_strategy", "use_anchored"), _CELLS)
+def test_cell_smoke(cell_id, opt_strategy, use_anchored):
+    """Each cell trains without crash and produces finite predictions."""
     x, y = _tiny_dataset()
     x_tr, y_tr = x[:80], y[:80]
     x_te = x[80:]
@@ -58,7 +45,6 @@ def test_cell_smoke(cell_id, loss_type, opt_strategy, use_anchored):
         regression_strategy=RegressionStrategy.SEPARATE_HEADS,
         uncertainty_method=UncertaintyMethod.PROBABILISTIC,
         optimization_strategy=opt_strategy,
-        prob_reg_loss_type=loss_type,
         use_anchored_heads=use_anchored,
         constrain_middle_class=constrain_mid,
         n_epochs=10,
@@ -67,7 +53,6 @@ def test_cell_smoke(cell_id, loss_type, opt_strategy, use_anchored):
         validation_fraction=0.2,
         random_seed=42,
         calculate_feature_importance=False,
-        allow_retired_capacity_selection=True,
     )
 
     model.fit(x_tr, y_tr)
@@ -81,4 +66,5 @@ def test_cell_smoke(cell_id, loss_type, opt_strategy, use_anchored):
     assert mse < catastrophic_failure_mse, f"Cell {cell_id}: unreasonably high MSE {mse:.2f}"
 
     dist = model.predict_distribution(x_te)
-    assert dist is not None, f"Cell {cell_id}: predict_distribution returned None"
+    np.testing.assert_allclose(dist.mean, preds, rtol=1e-5, atol=1e-6, err_msg=f"Cell {cell_id}: Gaussian mean must equal predict()")
+    assert np.all(dist.variance > 0.0), f"Cell {cell_id}: non-positive predictive variance"

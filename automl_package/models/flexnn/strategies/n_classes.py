@@ -7,7 +7,6 @@ import torch.nn.functional as f
 
 from automl_package.enums import ProbabilisticRegressionOptimizationStrategy, RegressionStrategy
 from automl_package.models.flexnn.strategies.base import BaseSelectionStrategy
-from automl_package.utils.losses import fixed_sigma_mixture_log_likelihood
 
 
 class NoneStrategy(BaseSelectionStrategy):
@@ -172,22 +171,21 @@ class NestedStrategy(BaseSelectionStrategy):
 
     Ports `_capacity_ladder_nested.NestedKSurrogate`'s per-sample ``k ~ Uniform{1..k_max}``
     "k-dropout" schedule (`automl_package/examples/_capacity_ladder_nested.py`) onto
-    `ProbabilisticRegressionModel`'s existing k-class mixture ladder, the SAME way
+    `ProbabilisticRegressionModel`'s existing k-class ladder, the SAME way
     `layer_selection_strategies.NestedStrategy` ports it onto FlexNN depth: rung 1 is the
     direct-regression BYPASS (the k=1 single-Gaussian rung, `direct_regression_head`); rungs
-    2..k_max are the renormalized k-class mixture `_compute_predictions_for_k` already produces
+    2..k_max are the renormalized k-class prediction `_compute_predictions_for_k` already produces
     (masked softmax over the first k classifier logits, weighted-combined through the SAME
     shared regression heads every rung reuses). That masked-softmax renormalization is exactly
     `NestedKSurrogate.masked_prefix_nll`'s prefix property -- "the first c rungs are a genuine
-    c-component mixture for every c" -- so ProbReg's existing architecture gets K4's nesting
+    c-class model for every c" -- so ProbReg's existing architecture gets K4's nesting
     guarantee for free, without a new component-head architecture. No `n_classes_predictor` is
     built for this strategy (`logits` is ignored; no k input to the network -- mirrors
     `layer_selection_strategies.NestedStrategy` / `NoneStrategy`).
 
     Known compatibility boundary (do not hide): this strategy always returns
     ``per_head_outputs=None`` (each sample trains a different rung, so there is no single
-    per-head correspondence for a batch-level penalty). MDN loss (`ProbRegLossType.MDN`),
-    the ordering-identifiability penalty, the middle-class NLL penalty, and boundary
+    per-head correspondence for a batch-level penalty). The ordering-identifiability penalty, the middle-class NLL penalty, and boundary
     regularization all silently no-op under NESTED rather than erroring -- pair NESTED with
     `ProbRegLossType.GAUSSIAN_LTV` and leave those penalties off (the strictly-probabilistic,
     no-arbitrary-penalty premise `_capacity_ladder_nested.py` documents). Use one of the
@@ -212,7 +210,7 @@ class NestedStrategy(BaseSelectionStrategy):
 
         Returns:
             outputs: Shape (batch, n_classes, regression_output_size); column 0 is the bypass
-                rung (k=1); column i (i >= 1) is the renormalized k=(i+1)-class mixture -- the
+                rung (k=1); column i (i >= 1) is the renormalized k=(i+1)-class prediction -- the
                 prefix-of-first-(i+1)-rungs nesting property `_capacity_ladder_nested.py`
                 requires (see class docstring).
             classifier_raw_logits: Shape (batch, n_classes) -- for downstream loss/logging
@@ -224,106 +222,28 @@ class NestedStrategy(BaseSelectionStrategy):
             rungs.append(self.model._compute_predictions_for_k(classifier_raw_logits, k_val, boundaries=boundaries))
         return torch.stack(rungs, dim=1), classifier_raw_logits
 
-    def _mixture_components_from_logits(self, classifier_raw_logits: torch.Tensor, k_val: int) -> tuple[torch.Tensor, torch.Tensor]:
-        """The genuine (p_c(x), mu_c(x)) mixture at rung `k_val`, given already-computed classifier logits.
+    def all_rung_squared_error(self, x_input: torch.Tensor, y_target: torch.Tensor) -> torch.Tensor:
+        """Per-sample squared error of every rung's point prediction.
 
-        Shared primitive for `mixture_components_at_rung` (one rung) and
-        `all_rung_mixture_components` (every rung, amortizing ONE `classifier_layers` call).
-        Reuses `forward_per_class` (`automl_package/models/common/regression_heads.py:376`
-        `SeparateHeadsRegressionModule` and `:465` `SingleHeadNOutputsRegressionModule`) -- the
-        same masking convention `ProbabilisticRegressionNet._compute_predictions_for_k` uses for
-        the collapsed (law-of-total-variance) readout, just returning the per-component means
-        instead of collapsing them. `SINGLE_HEAD_FINAL_OUTPUT` has no `forward_per_class` and is
-        blocked under NESTED at construction (`ProbabilisticRegressionModel.__init__`,
-        MASTER Decision 29 / docs/probreg/shared/plan.md P10), so this is never reached with that layout.
-
-        Known compatibility boundary, inherited from `forward_per_class` (not introduced here):
-        `forward_per_class` does not apply boundary constraints, unlike
-        `_compute_predictions_for_k`'s `regression_module(probabilities, boundaries=...)` call --
-        so under `boundary_regularization_method=HARDSIGMOID`, these per-component means are
-        UNCONSTRAINED. `forward_per_class` is reused as-is per FP-12's scope ("reuse it, do not
-        write a new path"); extending it to accept boundaries is a separate task if ever needed.
-
-        Returns:
-            `(probs, mus)`, each shape (batch, k_val): `probs` sums to 1 across dim -1 (masked
-            classes carry zero weight, matching `docs/probreg/PLAN.md` §1's SEPARATE_HEADS row).
-        """
-        masked_logits = torch.full_like(classifier_raw_logits, float("-inf"))
-        masked_logits[:, :k_val] = classifier_raw_logits[:, :k_val]
-        full_probs = torch.softmax(masked_logits, dim=1)
-        per_class = self.model.regression_module.forward_per_class(full_probs)
-        return full_probs[:, :k_val], per_class[:, :k_val, 0]
-
-    def mixture_components_at_rung(self, x_input: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
-        """The genuine (p_c(x), mu_c(x)) mixture at ONE forced rung `k`, without paying for every rung.
-
-        `k=1` is the direct-regression bypass, represented as a trivial 1-component mixture
-        (`probs=[1]`, `mus=[bypass_mean]`) so `fixed_sigma_mixture_log_likelihood` handles every
-        rung uniformly. `k>=2` reuses `_mixture_components_from_logits`.
-
-        Returns:
-            `(probs, mus)`, each shape (batch, k).
-        """
-        if k == 1:
-            bypass_out = self.model.direct_regression_head(x_input)
-            bypass_mean = bypass_out[:, 0:1]
-            return torch.ones_like(bypass_mean), bypass_mean
-        classifier_raw_logits = self.model.classifier_layers(x_input)
-        return self._mixture_components_from_logits(classifier_raw_logits, k)
-
-    def all_rung_mixture_components(self, x_input: torch.Tensor) -> list[tuple[torch.Tensor, torch.Tensor]]:
-        """Every rung's genuine per-component mixture (p_c(x), mu_c(x)), for fixed-sigma scoring.
-
-        Unlike `all_rung_outputs` (which collapses each rung through the law of total variance
-        into ONE Gaussian -- still used by `forward()`, the TRAINING path, untouched by FP-12),
-        this exposes the mixture object MASTER Decision 24 / `benchmark_spec.md` §4.0 requires:
-        `Σ_{c<=k} p_c(x) N(y; mu_c(x), sigma^2)`. Computes `classifier_layers` ONCE and reuses it
-        across every k>=2 rung (mirrors `all_rung_outputs`'s own amortization).
-
-        Returns:
-            A list of length `n_classes`; element `i` (rung `k=i+1`) is `(probs, mus)` as returned
-            by `mixture_components_at_rung`.
-        """
-        rungs: list[tuple[torch.Tensor, torch.Tensor]] = [self.mixture_components_at_rung(x_input, 1)]
-        classifier_raw_logits = self.model.classifier_layers(x_input)
-        for k_val in range(2, self.model.n_classes + 1):
-            rungs.append(self._mixture_components_from_logits(classifier_raw_logits, k_val))
-        return rungs
-
-    def all_rung_log_likelihood(self, x_input: torch.Tensor, y_target: torch.Tensor, sigma: float) -> torch.Tensor:
-        """Per-sample fixed-sigma MIXTURE log-likelihood at every rung (MASTER Decision 24).
-
-        Replaces the prior collapsed-Gaussian-at-a-LEARNED-log_var readout (docs/flexnn/package/plan.md
-        FP-12): scores the genuine per-component mixture from `all_rung_mixture_components`
-        against the ONE shared `sigma`, via `fixed_sigma_mixture_log_likelihood`. This is the
-        all-rung score table `ProbabilisticRegressionModel.fit_global_selector`
-        (capacity-programme Task PA, M1's selector) consumes -- mirrors
-        `layer_selection_strategies.NestedStrategy.all_depth_log_likelihood` (depth's analogous,
-        still-collapsed-Gaussian readout -- depth is PARKED and out of FP-12's scope; see FP-12's
-        report for that boundary).
-        (D6, corrected 2026-07-21: an earlier docstring named `held_out_arbiter_advantage` as the
-        consumer -- false, that function never calls this one; it calls
-        `_per_sample_log_likelihood_at_k` twice instead. See `docs/probreg/PLAN.md` D5/D6.)
+        The rung score the global-k selector reads (the router scores the same quantity one rung
+        at a time, via `ProbabilisticRegressionModel._per_sample_squared_error_at_k`): how far the rung's predicted
+        mean (the law-of-total-variance mean of `all_rung_outputs`, i.e. what `predict` returns at
+        that rung) is from the target. Lower is better. Held-out mean squared error is the single
+        score for choosing k; no spread, mixture or fixed sigma is involved.
 
         Args:
             x_input: Input tensor, shape (batch, in_features).
             y_target: Targets, in whatever space the heads were trained in -- i.e. already
-                symlog-transformed if `target_transform="symlog"`. Unlike
-                `ProbabilisticRegressionModel._per_sample_log_likelihood_at_k`, this method does
-                NOT transform `y_target` itself; the caller is responsible for the transform
-                (the same units-mismatch bug class as D2 -- see `fit_global_selector`'s contract
-                for the pattern to follow). Shape (batch,) or (batch, 1).
-            sigma: the ONE shared standard deviation (MASTER Decision 24 /
-                `benchmark_spec.md` §2). REQUIRED, no default -- see
-                `fixed_sigma_mixture_log_likelihood`'s docstring for why.
+                symlog-transformed if `target_transform="symlog"`; this method does NOT transform
+                `y_target`, the caller does (see `fit_global_selector`). Shape (batch,) or (batch, 1).
 
         Returns:
-            Shape (batch, n_classes); higher is better.
+            Shape (batch, n_classes); column 0 is the k=1 bypass, column i is the k=(i+1) rung.
+            Lower is better.
         """
-        y = y_target.reshape(-1).to(x_input.device)
-        rungs = self.all_rung_mixture_components(x_input)
-        per_rung_ll = [fixed_sigma_mixture_log_likelihood(y, probs, mus, sigma=sigma) for probs, mus in rungs]
-        return torch.stack(per_rung_ll, dim=1)
+        y = y_target.reshape(-1, 1).to(x_input.device)
+        all_outputs, _ = self.all_rung_outputs(x_input)
+        return (all_outputs[:, :, 0] - y) ** 2
 
     def forward(
         self, x_input: torch.Tensor, _logits: torch.Tensor | None, boundaries: torch.Tensor | None = None,

@@ -186,38 +186,30 @@ def test_penalty_k_equals_1_no_pairs():
 
 def test_probreg_ordering_weight_auto_enables_for_recommended_combo():
     """Auto-resolution: weight=1.0 for SEP_HEADS + Gauss-LTV + RegOnly (Cell B),
-    weight=0.0 elsewhere. See docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md §7.7.
+    weight=0.0 elsewhere (including the CE_STOP_GRAD default). See docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md §7.7.
     """
     from automl_package.enums import UncertaintyMethod
     from automl_package.models.probabilistic_regression import (
         ProbabilisticRegressionModel,
         ProbabilisticRegressionOptimizationStrategy,
-        ProbRegLossType,
     )
 
-    cell_b = ProbabilisticRegressionModel(input_size=1, n_classes=3)
+    cell_b = ProbabilisticRegressionModel(
+        input_size=1, n_classes=3,
+        optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+    )
     assert cell_b.ordering_constraint_weight == 1.0, (
-        "Default (SEP_HEADS + Gauss-LTV + RegOnly) should auto-enable ordering."
+        "SEP_HEADS + Gauss-LTV + RegOnly should auto-enable ordering."
     )
 
-    # CE_STOP_GRAD is RETIRED under the nested ladder (MASTER Decision 29); this cell's subject
-    # IS the auto-resolution rule's behaviour under CE_STOP_GRAD specifically, so the retired
-    # member plus the escape hatch is the right repair, not a rewrite against a survivor.
+    # The default supervision is CE_STOP_GRAD, which already pre-orders heads.
     cell_c = ProbabilisticRegressionModel(
         input_size=1, n_classes=3,
-        optimization_strategy=ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
         uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-        allow_retired_capacity_selection=True,
     )
+    assert cell_c.optimization_strategy is ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD
     assert cell_c.ordering_constraint_weight == 0.0, (
         "CE_STOP_GRAD already pre-orders heads — ordering should auto-disable."
-    )
-
-    cell_e = ProbabilisticRegressionModel(
-        input_size=1, n_classes=3, prob_reg_loss_type=ProbRegLossType.MDN,
-    )
-    assert cell_e.ordering_constraint_weight == 0.0, (
-        "MDN + ordering is harmful — should auto-disable."
     )
 
     explicit_weight = 0.5
@@ -278,7 +270,6 @@ def test_probreg_ordering_under_ce_stop_grad_does_not_leak_to_classifier():
         ordering_constraint_weight=100.0,
         n_epochs=1, random_seed=0, early_stopping_rounds=None,
         calculate_feature_importance=False, validation_fraction=0.2,
-        allow_retired_capacity_selection=True,
     )
     model.fit(x, y)
 

@@ -5,7 +5,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from automl_package.enums import HeadSpread, NClassesSelectionMethod, ProbabilisticRegressionOptimizationStrategy, RegressionStrategy, TaskType, UncertaintyMethod
+from automl_package.enums import NClassesSelectionMethod, ProbabilisticRegressionOptimizationStrategy, RegressionStrategy, TaskType, UncertaintyMethod
 from automl_package.models.common.monotonicity_config_mixin import MonotonicityConfigMixin
 from automl_package.models.common.regression_heads import SeparateHeadsRegressionModule, SingleHeadFinalOutputRegressionModule, SingleHeadNOutputsRegressionModule
 from automl_package.models.neural_network import PyTorchNeuralNetwork
@@ -39,7 +39,6 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
         # object.__init__ via cooperative MRO.
         centroids = kwargs.pop("centroids", None)
         use_anchored_heads = kwargs.pop("use_anchored_heads", False)
-        head_spread = kwargs.pop("head_spread", HeadSpread.PER_INPUT)
         MonotonicityConfigMixin.__init__(self, **kwargs)
         self.input_size = input_size
         self.device = device
@@ -117,7 +116,6 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
                 constrain_middle_class=self.constrain_middle_class,
                 centroids=centroids,
                 use_anchored_heads=use_anchored_heads,
-                head_spread=head_spread,
             )
         elif self.regression_strategy == RegressionStrategy.SINGLE_HEAD_N_OUTPUTS:
             self.regression_module = SingleHeadNOutputsRegressionModule(
@@ -173,7 +171,7 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
         """Forces every sample through rung `k`, bypassing the selection strategy entirely.
 
         `k=1` is the direct-regression bypass (`direct_regression_head`); `k>=2` is the
-        renormalized k-class mixture (`_compute_predictions_for_k`). Used by
+        renormalized k-class prediction (`_compute_predictions_for_k`). Used by
         `ProbabilisticRegressionModel.fit_router`'s per-capacity held-out error table and by
         `held_out_arbiter_advantage`'s certified readout (capacity-programme Task F9) --
         mirrors `FlexibleNNModule.forward_at_depth` / `FlexibleWidthNNModule.forward_width`.

@@ -16,10 +16,8 @@
 #   TIMEOUT_HOURS=<h>   — per-sweep wall-clock cap via GNU timeout (default: 12)
 #
 # Sweeps (in run order):
-#   identifiability      probreg_identifiability_sweep       ~1 hr
 #   classreg_k           classreg_k_sweep                    moderate
 #   full_benchmark       full_benchmark                      moderate
-#   probreg_ablation     probreg_ablation (Paper A table)    many hours
 #   flex_nn_ablation     flex_nn_ablation (Paper B table)    many hours
 #   ablation_study       ablation_study (smaller probe)      moderate
 #   hpo                  hpo_sweep                           overnight (ALL_DATASETS=1 → longer)
@@ -92,10 +90,8 @@ run_sweep() {
 
 log_status "RUN_START" "orchestrator" "" "" "${LOG_DIR}"
 
-run_sweep "identifiability"   "automl_package.examples.probreg_identifiability_sweep"
 run_sweep "classreg_k"        "automl_package.examples.classreg_k_sweep"
 run_sweep "full_benchmark"    "automl_package.examples.full_benchmark"
-run_sweep "probreg_ablation"  "automl_package.examples.probreg_ablation"
 run_sweep "flex_nn_ablation"  "automl_package.examples.flex_nn_ablation"
 run_sweep "ablation_study"    "automl_package.examples.ablation_study"
 run_sweep "hpo"               "automl_package.examples.hpo_sweep"  "${ALL_DATASETS:+ALL_DATASETS=1}"

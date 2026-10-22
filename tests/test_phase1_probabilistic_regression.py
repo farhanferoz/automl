@@ -461,10 +461,10 @@ class TestModelComparison:
 
 
 class TestPredictDistribution:
-    """ProbReg should expose the full mixture-of-Gaussians predictive distribution."""
+    """ProbReg exposes ONE predictive Gaussian: the law-of-total-variance mean and variance."""
 
-    def test_mixture_mean_matches_predict(self, multimodal_data):
-        """Mixture mean from predict_distribution must agree with predict()."""
+    def test_gaussian_mean_and_std_match_predict(self, multimodal_data):
+        """Gaussian mean/variance from predict_distribution must agree with predict()/predict_uncertainty()."""
         import numpy as np
 
         from automl_package.enums import NClassesSelectionMethod, RegressionStrategy, UncertaintyMethod
@@ -484,8 +484,9 @@ class TestPredictDistribution:
         p = m.predict(x)
         assert dist.mean.shape == (len(x),)
         assert np.allclose(p, dist.mean, atol=1e-4)
+        assert np.allclose(m.predict_uncertainty(x) ** 2, dist.variance, rtol=1e-4)
 
-    def test_mixture_nll_finite_on_multimodal(self, multimodal_data):
+    def test_gaussian_log_prob_finite_on_multimodal(self, multimodal_data):
         """log_prob on held-out multimodal data should be finite and reasonable."""
         import numpy as np
 
@@ -507,7 +508,7 @@ class TestPredictDistribution:
         assert np.all(np.isfinite(lp))
 
     def test_unsupported_configs_raise(self):
-        """Dynamic-k, SINGLE_HEAD_FINAL_OUTPUT, and symlog should raise NotImplementedError."""
+        """Dynamic-k should raise NotImplementedError."""
         import numpy as np
         import pytest
 
