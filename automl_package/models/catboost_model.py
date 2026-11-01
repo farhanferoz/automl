@@ -5,14 +5,26 @@ from typing import Any, Never
 import numpy as np
 from catboost import CatBoostClassifier, CatBoostRegressor, Pool
 
-from automl_package.enums import ExplainerType, Metric, TaskType, UncertaintyMethod
+from automl_package.enums import CategoricalCast, ExplainerType, Metric, TaskType, UncertaintyMethod
 from automl_package.models.base import BaseModel
+from automl_package.models.common.column_roles import ColumnRolesMixin
 from automl_package.models.common.common import get_loss_history
 from automl_package.utils.numerics import ensure_proba_shape
 
 
-class CatBoostModel(BaseModel):
-    """CatBoost model wrapper."""
+class CatBoostModel(ColumnRolesMixin, BaseModel):
+    """CatBoost model wrapper.
+
+    ``offset_feature`` is handed to CatBoost as the Pool ``baseline`` (``predict`` on a Pool with a baseline includes it).
+    ``categorical_features`` go to ``cat_features`` as integer codes, NaN mapped to -1. See `ColumnRolesMixin`.
+    """
+
+    _CATEGORICAL_CAST = CategoricalCast.INTEGER_CODES
+
+    def _pool(self, x: np.ndarray, y: np.ndarray | None = None, fit: bool = False) -> Pool:
+        """Builds the CatBoost Pool for ``x`` with the starting score as baseline and the categorical columns declared."""
+        features, offset = self._split_column_roles(x, fit=fit)
+        return Pool(features, y, cat_features=self.categorical_features, baseline=offset)
 
     def __init__(self, random_seed: int | None = None, **kwargs: Any) -> None:
         """Initializes the CatBoostModel.
@@ -66,7 +78,7 @@ class CatBoostModel(BaseModel):
         use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
 
         if use_early_stopping and x_val is not None:
-            eval_set = Pool(x_val, y_val)
+            eval_set = self._pool(x_val, y_val)
 
         params = self.params.copy()
         iteration_synonyms = ["iterations", "n_estimators", "num_boost_round", "num_trees"]
@@ -91,7 +103,7 @@ class CatBoostModel(BaseModel):
             fit_params["eval_set"] = eval_set
             fit_params["early_stopping_rounds"] = self.early_stopping_rounds
 
-        self.model.fit(x_train, y_train, **fit_params)
+        self.model.fit(self._pool(x_train, y_train, fit=True), **fit_params)
 
         if self.uncertainty_method == UncertaintyMethod.CONSTANT:
             y_pred_train = self.predict(x_train, filter_data=False)
@@ -130,7 +142,7 @@ class CatBoostModel(BaseModel):
         if filter_data:
             x = self._filter_predict_data(x)
 
-        predictions = self.model.predict(x)
+        predictions = self.model.predict(self._pool(x))  # a Pool with a baseline includes the starting score
         if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC and self.is_regression_model:
             predictions = predictions[:, 0]  # Return only the mean
         return predictions
@@ -151,7 +163,7 @@ class CatBoostModel(BaseModel):
             raise ValueError("predict_proba is not available for regression tasks.")
         if filter_data:
             x = self._filter_predict_data(x)
-        proba = self.model.predict_proba(x)
+        proba = self.model.predict_proba(self._pool(x))
         return ensure_proba_shape(proba, self.model.classes_.size)
 
     def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
@@ -177,7 +189,7 @@ class CatBoostModel(BaseModel):
 
         if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
             # Returns mean and variance
-            predictions = self.model.predict(x)
+            predictions = self.model.predict(self._pool(x))
             variance = predictions[:, 1]
             uncertainties = np.sqrt(variance)
         else:  # CONSTANT uncertainty

@@ -117,6 +117,15 @@ per toy and model with the seed-to-seed spread.
 - `toys.py` extends `STUDY_TOYS` with noise sd per x, x range and regions, and adds two toys: `OU`
   (x ~ U(-1, 1), y = 0.95x + 0.112 eps, floor 0.112^2) and `JUMP` (x ~ U(0, 1), y = sin 2 pi x + J 1[x >= 0.6] + 0.3 eps,
   floor 0.09, `J` a toy parameter; study versions J = 0 and J = 1; region |x - 0.6| <= 0.05 against the rest).
+- Column roles for the boosting wrappers (`LightGBMModel`, `XGBoostModel`, `CatBoostModel`; `models/common/column_roles.py`),
+  for the NHS route: two constructor settings, default `None`, naming columns of X so they follow every split, search trial
+  and CV fold. `offset_feature` is each row's starting score on the model's raw scale; it leaves the features and goes to
+  LightGBM `init_score` / `eval_init_score`, XGBoost `base_margin` / `base_margin_eval_set`, CatBoost `Pool(baseline=...)`,
+  and `predict` returns starting score plus trees (LightGBM's own predict leaves it out, so the wrapper adds it back);
+  regression with `UncertaintyMethod.CONSTANT` only. `categorical_features` are integer codes (NaN = missing): LightGBM
+  `categorical_feature` as given, CatBoost `cat_features` with NaN as code -1, XGBoost pandas `Categorical` with the levels
+  fixed at fit (`CategoricalCast` enum). Both need `calculate_feature_importance=False` and no feature selection. Trial,
+  fold and selection clones carry the column names (`BaseModel._clone_for_trial`).
 
 ## 7. Running
 

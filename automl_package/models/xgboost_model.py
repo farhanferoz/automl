@@ -5,19 +5,26 @@ from typing import Any, Never
 import numpy as np
 import xgboost as xgb
 
-from automl_package.enums import ExplainerType, Metric, TaskType, UncertaintyMethod
+from automl_package.enums import CategoricalCast, ExplainerType, Metric, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
+from automl_package.models.common.column_roles import ColumnRolesMixin
 from automl_package.models.common.common import get_loss_history
 from automl_package.utils.numerics import ensure_proba_shape
 
 
-class XGBoostModel(BaseModel):
+class XGBoostModel(ColumnRolesMixin, BaseModel):
     """XGBoost model wrapper.
 
     Note: Methods in this class are intentionally named identically to those in BaseModel
     as they implement the BaseModel interface. This is not a redeclaration error.
+
+    ``offset_feature`` is handed to XGBoost as ``base_margin`` (``base_margin_eval_set`` for the validation set, ``base_margin`` again in
+    ``predict``, which includes it). ``categorical_features`` become pandas ``Categorical`` columns with the levels fixed at fit
+    (``enable_categorical=True``). See `ColumnRolesMixin`.
     """
+
+    _CATEGORICAL_CAST = CategoricalCast.PANDAS_CATEGORICAL
 
     def __init__(self, random_seed: int | None = None, **kwargs: Any) -> None:
         """Initializes the XGBoostModel.
@@ -78,9 +85,19 @@ class XGBoostModel(BaseModel):
         eval_set = None
         use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
 
+        features_train, offset_train = self._split_column_roles(x_train, fit=True)
+        fit_params: dict[str, Any] = {}
+        if offset_train is not None:
+            fit_params["base_margin"] = offset_train
+
         params = self.params.copy()
+        if self.categorical_features:
+            params["enable_categorical"] = True
         if use_early_stopping and x_val is not None:
+            x_val, offset_val = self._split_column_roles(x_val)
             eval_set = [(x_val, y_val)]
+            if offset_val is not None:
+                fit_params["base_margin_eval_set"] = [offset_val]
             params["early_stopping_rounds"] = self.early_stopping_rounds
         else:
             if "early_stopping_rounds" in params:
@@ -106,12 +123,11 @@ class XGBoostModel(BaseModel):
         if forced_iterations is not None:
             self.model.n_estimators = forced_iterations
 
-        fit_params: dict[str, Any] = {}
         if eval_set is not None:
             fit_params["eval_set"] = eval_set
             fit_params["verbose"] = False
 
-        self.model.fit(x_train, y_train, **fit_params)
+        self.model.fit(features_train, y_train, **fit_params)
 
         if self.is_regression_model:
             y_pred_train = self.predict(x_train, filter_data=False)
@@ -155,7 +171,8 @@ class XGBoostModel(BaseModel):
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
             x = self._filter_predict_data(x)
-        return self.model.predict(x)
+        features, offset = self._split_column_roles(x)
+        return self.model.predict(features) if offset is None else self.model.predict(features, base_margin=offset)  # includes the starting score
 
     def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Estimates uncertainty for predictions."""
@@ -188,7 +205,7 @@ class XGBoostModel(BaseModel):
             raise ValueError("predict_proba is not available for the current XGBoost configuration (likely regression).")
         if filter_data:
             x = self._filter_predict_data(x)
-        proba = self.model.predict_proba(x)
+        proba = self.model.predict_proba(self._split_column_roles(x)[0])
         return ensure_proba_shape(proba, self.model.n_classes_)
 
     def get_hyperparameter_search_space(self) -> dict[str, Any]:

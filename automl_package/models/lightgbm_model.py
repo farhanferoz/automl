@@ -5,15 +5,23 @@ from typing import Any, NoReturn
 import lightgbm as lgb
 import numpy as np
 
-from automl_package.enums import ExplainerType, Metric, TaskType, UncertaintyMethod
+from automl_package.enums import CategoricalCast, ExplainerType, Metric, TaskType, UncertaintyMethod
 from automl_package.models.base import BaseModel
+from automl_package.models.common.column_roles import ColumnRolesMixin
 from automl_package.models.common.common import get_loss_history
 from automl_package.utils.losses import tree_model_gaussian_nll_eval_metric, tree_model_gaussian_nll_objective
 from automl_package.utils.numerics import ensure_proba_shape
 
 
-class LightGBMModel(BaseModel):
-    """LightGBM model wrapper."""
+class LightGBMModel(ColumnRolesMixin, BaseModel):
+    """LightGBM model wrapper.
+
+    ``offset_feature`` is handed to LightGBM as ``init_score`` (``eval_init_score`` for the validation set); LightGBM's own ``predict``
+    excludes it, so ``predict`` adds it back. ``categorical_features`` go to ``categorical_feature`` with the codes as given.
+    See `ColumnRolesMixin`.
+    """
+
+    _CATEGORICAL_CAST = CategoricalCast.NATIVE_CODES
 
     def __init__(self, random_seed: int | None = None, **kwargs: Any) -> None:
         """Initializes the LightGBMModel."""
@@ -57,8 +65,18 @@ class LightGBMModel(BaseModel):
         callbacks = []
         use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
 
+        features_train, offset_train = self._split_column_roles(x_train, fit=True)
+        fit_params: dict[str, Any] = {}
+        if offset_train is not None:
+            fit_params["init_score"] = offset_train
+        if self.categorical_features:
+            fit_params["categorical_feature"] = self.categorical_features
+
         if use_early_stopping and x_val is not None:
+            x_val, offset_val = self._split_column_roles(x_val)
             eval_set = [(x_val, y_val)]
+            if offset_val is not None:
+                fit_params["eval_init_score"] = [offset_val]
             callbacks.append(lgb.early_stopping(self.early_stopping_rounds, verbose=False))
 
         params = self.params.copy()
@@ -86,11 +104,11 @@ class LightGBMModel(BaseModel):
         if forced_iterations is not None:
             self.model.n_estimators = forced_iterations
 
-        fit_params = {"eval_set": eval_set, "callbacks": callbacks}
+        fit_params.update({"eval_set": eval_set, "callbacks": callbacks})
         if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC and eval_set is not None:
             fit_params["eval_metric"] = tree_model_gaussian_nll_eval_metric
 
-        self.model.fit(x_train, y_train, **fit_params)
+        self.model.fit(features_train, y_train, **fit_params)
 
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
             y_pred_train = self.predict(x_train, filter_data=False)
@@ -120,12 +138,14 @@ class LightGBMModel(BaseModel):
             raise RuntimeError("Model has not been fitted yet.")
         if filter_data:
             x = self._filter_predict_data(x)
+        features, offset = self._split_column_roles(x)
 
         if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
             # The sklearn wrapper returns a 2D array for multi-class objectives
-            raw_predictions = self.model.predict(x, raw_score=True)
+            raw_predictions = self.model.predict(features, raw_score=True)
             return raw_predictions[:, 0]  # Return only the mean
-        return self.model.predict(x)
+        predictions = self.model.predict(features)
+        return predictions if offset is None else predictions + offset  # LightGBM's predict excludes init_score: add the starting score back
 
     def predict_proba(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Predicts class probabilities."""
@@ -135,7 +155,7 @@ class LightGBMModel(BaseModel):
             raise ValueError("predict_proba is not available for this model.")
         if filter_data:
             x = self._filter_predict_data(x)
-        proba = self.model.predict_proba(x)
+        proba = self.model.predict_proba(self._split_column_roles(x)[0])
         return ensure_proba_shape(proba, self.model.n_classes_)
 
     def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
@@ -152,7 +172,7 @@ class LightGBMModel(BaseModel):
             x = self._filter_predict_data(x)
 
         if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
-            raw_predictions = self.model.predict(x, raw_score=True)
+            raw_predictions = self.model.predict(self._split_column_roles(x)[0], raw_score=True)
             log_variance = raw_predictions[:, 1]
             variance = np.exp(log_variance)
             return np.sqrt(variance)

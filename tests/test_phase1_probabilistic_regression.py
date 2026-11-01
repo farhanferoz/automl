@@ -10,6 +10,7 @@ Includes:
 import logging
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 from sklearn.model_selection import train_test_split
@@ -710,3 +711,64 @@ class TestP4HygieneGating:
     def test_monotonic_head_config_computes_centroids(self):
         model = self._fit_tiny(use_monotonic_constraints=True)
         assert getattr(model, "_per_class_centroids", None) is not None
+
+
+def _column_roles_frame(n: int = 400) -> pd.DataFrame:
+    """Synthetic frame: y = offset + f(x) + category effect, 3 category codes (one NaN), offset on the model's raw scale."""
+    rng = np.random.default_rng(0)
+    frame = pd.DataFrame({"f0": rng.normal(size=n), "f1": rng.normal(size=n), "cat": rng.integers(0, 3, size=n).astype(float), "off": 3.0 * rng.normal(size=n)})
+    frame.loc[0, "cat"] = np.nan
+    frame["y"] = frame["off"] + np.sin(frame["f0"]) + frame["f1"] + frame["cat"].fillna(0.0) + 0.1 * rng.normal(size=n)
+    return frame
+
+
+def _native_categorical_names(model) -> list[str]:
+    """The categorical features the underlying library reports having received."""
+    from automl_package.models.catboost_model import CatBoostModel
+    from automl_package.models.xgboost_model import XGBoostModel
+
+    if isinstance(model, CatBoostModel):
+        return [model.model.feature_names_[i] for i in model.model.get_cat_feature_indices()]
+    if isinstance(model, XGBoostModel):
+        booster = model.model.get_booster()
+        return [name for name, kind in zip(booster.feature_names, booster.feature_types, strict=True) if kind == "c"]
+    infos = model.model.booster_.dump_model()["feature_infos"]  # a categorical column lists its category codes under "values", a numeric one does not
+    return [name for name, info in infos.items() if info["values"]]
+
+
+@pytest.mark.parametrize("model_name", ["LightGBMModel", "XGBoostModel", "CatBoostModel"])
+def test_boosting_wrappers_offset_and_categoricals(model_name: str) -> None:
+    """The boosting wrappers take a per-row starting score and categorical columns as named X columns."""
+    from automl_package.models.catboost_model import CatBoostModel
+    from automl_package.models.lightgbm_model import LightGBMModel
+    from automl_package.models.xgboost_model import XGBoostModel
+
+    model_cls, size = {"LightGBMModel": (LightGBMModel, "n_estimators"), "XGBoostModel": (XGBoostModel, "n_estimators"), "CatBoostModel": (CatBoostModel, "iterations")}[model_name]
+    frame = _column_roles_frame()
+    train, held_out = frame.iloc[:300], frame.iloc[300:]
+    features = ["f0", "f1", "cat", "off"]
+
+    def make(**roles):
+        return model_cls(**{size: 40}, early_stopping_rounds=5, validation_fraction=0.2, random_seed=0, calculate_feature_importance=False, **roles)
+
+    with_offset = make(offset_feature="off", categorical_features=["cat"])
+    with_offset.fit(train[features], train["y"].to_numpy())
+    pred = with_offset.predict(held_out[features])
+    without = make(categorical_features=["cat"])
+    without.fit(train[["f0", "f1", "cat"]], train["y"].to_numpy())
+    rmse_with = float(np.sqrt(np.mean((held_out["y"].to_numpy() - pred) ** 2)))
+    rmse_without = float(np.sqrt(np.mean((held_out["y"].to_numpy() - without.predict(held_out[["f0", "f1", "cat"]])) ** 2)))
+    assert rmse_with < rmse_without
+    # prediction = starting score + trees: shifting every starting score by 5 shifts every prediction by exactly 5 (the offset is not a feature)
+    shifted = held_out[features].assign(off=held_out["off"] + 5.0)
+    np.testing.assert_allclose(with_offset.predict(shifted) - pred, 5.0, atol=1e-4)
+    # the library received the categorical column natively and not the offset
+    assert _native_categorical_names(with_offset) == ["cat"]
+
+    # a search with refit_on_train_val=False builds trial clones: they must know the column names
+    searched = make(offset_feature="off", categorical_features=["cat"], optimize_hyperparameters=True, n_trials=2, refit_on_train_val=False)
+    searched.fit(train[features], train["y"].to_numpy())
+    assert np.isfinite(searched.predict(held_out[features])).all()
+
+    with pytest.raises(ValueError, match="calculate_feature_importance"):
+        model_cls(**{size: 5}, offset_feature="off").fit(train[features], train["y"].to_numpy())

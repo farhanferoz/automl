@@ -324,3 +324,11 @@ class Monotonicity(Enum):
     NONE = "none"
     POSITIVE = "positive"
     NEGATIVE = "negative"
+
+
+class CategoricalCast(Enum):
+    """How a boosting library wants the integer category codes of a categorical column handed over."""
+
+    NATIVE_CODES = "native_codes"  # LightGBM: the codes as given (float, NaN = missing), named in `categorical_feature`
+    INTEGER_CODES = "integer_codes"  # CatBoost: integer codes, NaN mapped to the code -1 (its own category)
+    PANDAS_CATEGORICAL = "pandas_categorical"  # XGBoost: pandas Categorical with the category levels fixed at fit

@@ -180,7 +180,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
 
     def _perform_feature_selection(self, x_train_val: pd.DataFrame, y_train_val: np.ndarray, iterations: int | None) -> None:
         """Performs feature selection and returns the filtered training data."""
-        temp_model = self._clone()
+        temp_model = self._clone_for_trial()
         logger.info("--- Training model on all the features in preparation for feature selection ---")
         temp_model._fit_single(x_train_val.values, y_train_val, forced_iterations=iterations)
 
@@ -504,7 +504,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                     trial_params[name] = trial.suggest_categorical(name, space["choices"])
 
             # Create a new model instance with the original parameters, updated with the trial's specific hyperparameters
-            model_instance = self._clone()
+            model_instance = self._clone_for_trial()
             model_instance._update_params(trial_params)
 
             score, iterations = self._evaluate_trial_performance(model_instance, x, y, timestamps=timestamps, explicit_split=explicit_split)
@@ -575,7 +575,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             logger.info(f"--- Training CV fold {i + 1}/{self.cv_folds} ---")
             x_train_fold, x_val_fold = x[train_idx], x[val_idx]
             y_train_fold, y_val_fold = y[train_idx], y[val_idx]
-            model_instance = self._clone()
+            model_instance = self._clone_for_trial()
             best_iter, loss_history = model_instance._fit_single(x_train_fold, y_train_fold, x_val=x_val_fold, y_val=y_val_fold)
             score = model_instance._held_out_fit_score(x_val_fold, y_val_fold)
             fold_results.append({"best_iter": best_iter, "loss_history": loss_history, "score": score})
@@ -590,6 +590,13 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
     def _evaluate_trial(self, y_true: np.ndarray, y_pred: np.ndarray, y_pred_std: np.ndarray | None = None) -> float:
         """Evaluates a trial for hyperparameter optimization."""
         return self._calculate_performance_score(y_true=y_true, y_pred=y_pred, x_val=None, y_pred_std=y_pred_std)
+
+    def _clone_for_trial(self) -> "BaseModel":
+        """Clones the model for a search trial, CV fold or selection pass, carrying the column names `fit` recorded (column roles need them)."""
+        clone = self._clone()
+        clone.feature_names = self.feature_names
+        clone.feature_to_idx_ = self.feature_to_idx_
+        return clone
 
     @abc.abstractmethod
     def _clone(self) -> "BaseModel":
