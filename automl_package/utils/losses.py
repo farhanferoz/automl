@@ -1,24 +1,30 @@
 """Loss functions."""
 
 import math
+from typing import Literal
 
 import numpy as np
 import torch
 import torch.nn.functional as F  # noqa: N812
 
 
-def nll_loss(outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-    """Negative Log-Likelihood loss for a Gaussian distribution."""
+def _reduce(per_sample: torch.Tensor, reduction: Literal["mean", "none"]) -> torch.Tensor:
+    """Averages per-sample losses (`"mean"`) or returns them as they are (`"none"`)."""
+    return per_sample if reduction == "none" else per_sample.mean()
+
+
+def nll_loss(outputs: torch.Tensor, targets: torch.Tensor, reduction: Literal["mean", "none"] = "mean") -> torch.Tensor:
+    """Negative Log-Likelihood loss for a Gaussian distribution. `reduction="none"` returns the `(N,)` per-sample values."""
     mean = outputs[:, 0]
     log_var = outputs[:, 1]
     variance = torch.exp(log_var)
     targets = targets.squeeze(-1) if targets.ndim > 1 else targets
 
     per_sample_nll = 0.5 * (math.log(2 * math.pi) + log_var + ((targets - mean) ** 2) / variance)
-    return torch.mean(per_sample_nll)
+    return _reduce(per_sample_nll, reduction)
 
 
-def beta_nll_loss(outputs: torch.Tensor, targets: torch.Tensor, beta: float = 0.5) -> torch.Tensor:
+def beta_nll_loss(outputs: torch.Tensor, targets: torch.Tensor, beta: float = 0.5, reduction: Literal["mean", "none"] = "mean") -> torch.Tensor:
     """β-NLL loss (Seitzer et al., 2022) that stabilizes variance learning.
 
     Weights the NLL by detached variance^β, preventing the model from trivially
@@ -28,6 +34,7 @@ def beta_nll_loss(outputs: torch.Tensor, targets: torch.Tensor, beta: float = 0.
         outputs: Shape (N, 2) with columns [mean, log_variance].
         targets: Shape (N,) or (N, 1).
         beta: Weighting exponent. 0.0 = standard NLL, 1.0 = full reweighting.
+        reduction: `"mean"` (default) or `"none"` for the `(N,)` per-sample weighted values.
     """
     mean = outputs[:, 0]
     log_var = outputs[:, 1]
@@ -36,7 +43,7 @@ def beta_nll_loss(outputs: torch.Tensor, targets: torch.Tensor, beta: float = 0.
 
     per_sample_nll = 0.5 * (math.log(2 * math.pi) + log_var + ((targets - mean) ** 2) / variance)
     weighted_nll = (variance.detach() ** beta) * per_sample_nll
-    return weighted_nll.mean()
+    return _reduce(weighted_nll, reduction)
 
 
 def masked_cross_entropy_loss(logits: torch.Tensor, y_binned: torch.Tensor, k_values: torch.Tensor) -> torch.Tensor:

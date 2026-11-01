@@ -1,5 +1,6 @@
 """N-classes selection strategies for probabilistic regression models."""
 
+from collections.abc import Callable
 from typing import Any
 
 import torch
@@ -222,20 +223,25 @@ class NestedStrategy(BaseSelectionStrategy):
             rungs.append(self.model._compute_predictions_for_k(classifier_raw_logits, k_val, boundaries=boundaries))
         return torch.stack(rungs, dim=1), classifier_raw_logits
 
-    def all_rung_squared_error(self, x_input: torch.Tensor, y_target: torch.Tensor) -> torch.Tensor:
-        """Per-sample squared error of every rung's point prediction.
+    def all_rung_fit_loss(self, x_input: torch.Tensor, y_target: torch.Tensor, fit_loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]) -> torch.Tensor:
+        """Per-sample fit term of every rung's prediction.
 
         The rung score the global-k selector reads (the router scores the same quantity one rung
-        at a time, via `ProbabilisticRegressionModel._per_sample_squared_error_at_k`): how far the rung's predicted
-        mean (the law-of-total-variance mean of `all_rung_outputs`, i.e. what `predict` returns at
-        that rung) is from the target. Lower is better. Held-out mean squared error is the single
-        score for choosing k; no spread, mixture or fixed sigma is involved.
+        at a time, via `ProbabilisticRegressionModel._per_sample_fit_at_k`). Each rung's prediction is
+        the full readout of `all_rung_outputs` -- the law-of-total-variance mean and, when the heads
+        predict a spread, the log-variance -- so the fit term sees exactly what `predict` and
+        `predict_uncertainty` would return at that rung. Lower is better. Only the fit term is scored:
+        no cross-entropy, boundary, ordering or k penalty enters (DECISIONS.md, "Validation score =
+        the held-out FIT TERM").
 
         Args:
             x_input: Input tensor, shape (batch, in_features).
             y_target: Targets, in whatever space the heads were trained in -- i.e. already
                 symlog-transformed if `target_transform="symlog"`; this method does NOT transform
                 `y_target`, the caller does (see `fit_global_selector`). Shape (batch,) or (batch, 1).
+            fit_loss_fn: `fit_loss_fn(prediction, y) -> (batch,)` per-sample fit term of one rung's
+                `(batch, regression_output_size)` prediction (the model's `_fit_loss` with
+                `reduction="none"`).
 
         Returns:
             Shape (batch, n_classes); column 0 is the k=1 bypass, column i is the k=(i+1) rung.
@@ -243,7 +249,7 @@ class NestedStrategy(BaseSelectionStrategy):
         """
         y = y_target.reshape(-1, 1).to(x_input.device)
         all_outputs, _ = self.all_rung_outputs(x_input)
-        return (all_outputs[:, :, 0] - y) ** 2
+        return torch.stack([fit_loss_fn(all_outputs[:, rung, :], y) for rung in range(all_outputs.size(1))], dim=1)
 
     def forward(
         self, x_input: torch.Tensor, _logits: torch.Tensor | None, boundaries: torch.Tensor | None = None,

@@ -11,13 +11,18 @@ import pytest
 import torch
 
 from automl_package.enums import (
-    Metric,
+    NClassesSelectionMethod,
     ProbabilisticRegressionOptimizationStrategy,
     RegressionStrategy,
+    TaskType,
     UncertaintyMethod,
 )
 from automl_package.models.common.losses import calculate_combined_loss
+from automl_package.models.common.regression_heads import ConstantHead
+from automl_package.models.neural_network import PyTorchNeuralNetwork
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+from automl_package.models.pytorch_linear_regression import PyTorchLinearRegression
+from automl_package.utils.losses import beta_nll_loss
 
 
 def _make_tiny_dataset(n: int = 80, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
@@ -46,19 +51,31 @@ def _make_model(strategy: ProbabilisticRegressionOptimizationStrategy | None = N
 
 
 class TestCeModesConstructAndTrain:
-    def test_default_is_ce_stop_grad(self):
-        model = _make_model()
+    def test_defaults_follow_the_owner_rulings(self):
+        """CE_STOP_GRAD supervision, mean-only heads (fixed spread), and the flat middle head only together with the monotonic constraints."""
+        model = ProbabilisticRegressionModel(input_size=1, n_classes=3, calculate_feature_importance=False)
         assert model.optimization_strategy is ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD
-        assert model._get_optimization_metric() is Metric.MSE, "search and CV score on held-out regression error only"
+        assert model.uncertainty_method is UncertaintyMethod.CONSTANT
+
+        def has_constant_head(**kwargs) -> bool:
+            built = ProbabilisticRegressionModel(input_size=1, n_classes=3, calculate_feature_importance=False, **kwargs)
+            built.build_model()
+            return any(isinstance(head, ConstantHead) for head in built.regression_heads)
+
+        assert not has_constant_head()
+        assert has_constant_head(use_monotonic_constraints=True)
+        assert has_constant_head(constrain_middle_class=True)
+        assert not has_constant_head(use_monotonic_constraints=True, constrain_middle_class=False)
 
     @pytest.mark.parametrize(
         "extra",
         [
             {"cv_folds": 2, "validation_fraction": None},
             {"optimize_hyperparameters": True, "n_trials": 2, "validation_fraction": 0.2},
+            {"optimize_hyperparameters": True, "n_trials": 2, "cv_folds": 2, "validation_fraction": None},
             {"n_classes": 5, "n_classes_inf": 3, "validation_fraction": 0.2},
         ],
-        ids=["cv", "hpo", "direct_regression"],
+        ids=["cv", "hpo", "hpo_cv", "direct_regression"],
     )
     def test_default_fits_under_cv_hpo_and_direct_regression(self, extra):
         """The CE_STOP_GRAD default must not crash where trials are scored on a clone (CV, search) or where no classes exist."""
@@ -172,3 +189,178 @@ class TestCeStopGradRouting:
         classifier_grad, heads_grad = self._run_backward(model)
         assert classifier_grad > 0.0, "GRADIENT_STOP + fixed k must route regression gradient to classifier (CE is off)"
         assert heads_grad > 0.0
+
+
+# ---------------------------------------------------------------------------
+# Held-out FIT TERM (DECISIONS.md "Validation score = the held-out FIT TERM", owner 2026-11-01)
+# ---------------------------------------------------------------------------
+
+_HALF_LOG_2PI = 0.9189385332046727
+
+
+def _gaussian_nll(mean: torch.Tensor, log_var: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    return (_HALF_LOG_2PI + 0.5 * log_var + 0.5 * (y - mean) ** 2 / torch.exp(log_var)).mean()
+
+
+class TestHeldOutFitTerm:
+    def test_probreg_early_stopping_and_search_score_are_the_gaussian_nll_without_cross_entropy(self):
+        """Early stopping and the search/CV score read the Gaussian NLL of the final prediction; the classifier cross-entropy is excluded."""
+        x, y = _make_tiny_dataset()
+        x_val, y_val = x[:30], y[:30]
+        model = _make_model(n_epochs=3)
+        model.early_stopping_rounds = 5
+        seen: list[tuple[float, float, float]] = []
+
+        def _record(epoch: int, model: ProbabilisticRegressionModel, val_loss: float | None) -> None:  # noqa: ARG001 -- epoch_callback's keyword contract
+            x_t = torch.tensor(x_val, dtype=torch.float32).to(model.device)
+            y_t = torch.tensor(y_val, dtype=torch.float32).to(model.device)
+            model.model.eval()
+            with torch.no_grad():
+                outputs = model.model(x_t)
+                nll = _gaussian_nll(outputs[0][:, 0], outputs[0][:, 1], y_t).item()
+                training_loss = model._calculate_custom_loss(outputs, y_t.unsqueeze(1)).item()
+            seen.append((val_loss, nll, training_loss))
+            model.model.train()
+
+        model.epoch_callback = _record
+        model._fit_single(x, y, x_val=x_val, y_val=y_val)
+
+        assert len(seen) == 3
+        for val_loss, nll, training_loss in seen:
+            assert val_loss == pytest.approx(nll, rel=1e-5), "early stopping must read the Gaussian NLL of the final prediction"
+            assert training_loss - nll > 0.1, "the training loss carries the classifier cross-entropy on top of the fit; the validation score must not"
+        score = model._held_out_fit_score(x_val, y_val)
+        assert score == pytest.approx(seen[-1][1], rel=1e-5), "search and CV score the same quantity early stopping reads"
+        assert model._held_out_score_is_smaller_better()
+
+        # The DEFAULT model (mean-only heads): the held-out fit is the mean squared error of the final prediction, cross-entropy excluded.
+        default = ProbabilisticRegressionModel(input_size=1, n_classes=3, n_epochs=2, random_seed=0, calculate_feature_importance=False)
+        default.fit(x, y)
+        x_t = torch.tensor(x_val, dtype=torch.float32).to(default.device)
+        y_t = torch.tensor(y_val, dtype=torch.float32).to(default.device)
+        default.model.eval()
+        with torch.no_grad():
+            outputs = default.model(x_t)
+            mse = ((outputs[0][:, 0] - y_t) ** 2).mean().item()
+            training_loss = default._calculate_custom_loss(outputs, y_t.unsqueeze(1)).item()
+        assert default._held_out_fit_score(x_val, y_val) == pytest.approx(mse, rel=1e-5)
+        assert training_loss - mse > 0.1
+
+        # The score follows the model's own fit term, not a fixed metric: under beta-NLL it is the beta-NLL.
+        model.loss_type = "beta_nll"
+        x_t = torch.tensor(x_val, dtype=torch.float32).to(model.device)
+        model.model.eval()
+        with torch.no_grad():
+            expected_beta = beta_nll_loss(model.model(x_t)[0], torch.tensor(y_val, dtype=torch.float32).to(model.device), beta=model.beta).item()
+        assert model._held_out_fit_score(x_val, y_val) == pytest.approx(expected_beta, rel=1e-5)
+        assert expected_beta != pytest.approx(seen[-1][1], rel=1e-3)
+
+    def test_best_checkpoint_is_restored_not_the_last_epoch(self):
+        """Early stopping restores the weights of the best held-out epoch: a COPY taken then, not references to the live parameters."""
+        rng = np.random.default_rng(0)
+        x_train = rng.uniform(-1, 1, (12, 1)).astype(np.float32)
+        y_train = rng.normal(0, 1, 12).astype(np.float32)  # pure noise: the net memorises it, so held-out error rises after the early epochs
+        x_val = rng.uniform(-1, 1, (40, 1)).astype(np.float32)
+        y_val = np.zeros(40, dtype=np.float32)
+        model = PyTorchNeuralNetwork(
+            input_size=1, task_type=TaskType.REGRESSION, hidden_layers=2, hidden_size=64, learning_rate=0.05, n_epochs=150, batch_size=12, early_stopping_rounds=150, random_seed=0
+        )
+        history: list[tuple[float, dict[str, torch.Tensor]]] = []
+
+        def _record(epoch: int, model: PyTorchNeuralNetwork, val_loss: float | None) -> None:  # noqa: ARG001 -- epoch_callback's keyword contract
+            history.append((val_loss, {k: v.clone() for k, v in model.model.state_dict().items()}))
+
+        model.epoch_callback = _record
+        model._fit_single(x_train, y_train, x_val=x_val, y_val=y_val)
+
+        best = int(np.argmin([loss for loss, _ in history]))
+        assert best < len(history) - 1, "fixture must make the held-out loss worse after its best epoch"
+        restored = model.model.state_dict()
+        assert all(torch.equal(restored[k], history[best][1][k]) for k in restored), "restored weights must be the best epoch's"
+        assert not all(torch.equal(restored[k], history[-1][1][k]) for k in restored), "restored weights must differ from the last epoch's"
+
+    def test_tuple_output_without_final_prediction_override_raises(self):
+        """A model whose network returns a tuple must say which element is the final prediction; guessing is refused."""
+        nn_model = PyTorchNeuralNetwork(input_size=2, task_type=TaskType.REGRESSION, uncertainty_method=UncertaintyMethod.CONSTANT)
+        with pytest.raises(TypeError, match="_final_prediction"):
+            nn_model._final_prediction((torch.zeros(4, 1), torch.zeros(4)))
+        probreg = _make_model()
+        assert probreg._final_prediction((torch.ones(4, 2), None)).shape == (4, 2)
+
+    @pytest.mark.parametrize(
+        ("model_cls", "kwargs", "output_size"),
+        [
+            (PyTorchNeuralNetwork, {"task_type": TaskType.REGRESSION, "uncertainty_method": UncertaintyMethod.PROBABILISTIC}, 2),
+            (PyTorchNeuralNetwork, {"task_type": TaskType.REGRESSION, "uncertainty_method": UncertaintyMethod.CONSTANT}, 1),
+            (PyTorchNeuralNetwork, {"task_type": TaskType.CLASSIFICATION}, 1),
+            (PyTorchNeuralNetwork, {"task_type": TaskType.CLASSIFICATION}, 3),
+            (PyTorchLinearRegression, {"uncertainty_method": UncertaintyMethod.PROBABILISTIC}, 2),
+            (PyTorchLinearRegression, {"uncertainty_method": UncertaintyMethod.CONSTANT}, 1),
+        ],
+        ids=["nn_nll", "nn_mse", "nn_bce", "nn_ce", "linear_nll", "linear_mse"],
+    )
+    def test_plain_criterion_equals_derived_fit_term(self, model_cls, kwargs, output_size):
+        """For a base-loop model whose training loss is only the fit, `criterion` and `_fit_loss` agree, and the per-sample form averages to it."""
+        model = model_cls(input_size=3, output_size=output_size, **kwargs)
+        model.build_model()
+        gen = torch.Generator().manual_seed(0)
+        outputs = torch.randn(16, output_size, generator=gen)
+        y_np = np.random.default_rng(0).integers(0, max(output_size, 2), 16) if kwargs.get("task_type") == TaskType.CLASSIFICATION else np.random.default_rng(0).normal(size=16)
+        y = model._target_tensor(y_np)
+        fit = model._fit_loss(model._final_prediction(outputs), y)
+        assert fit.item() == pytest.approx(model.criterion(outputs, y).item(), rel=1e-6)
+        per_sample = model._fit_loss(outputs, y, reduction="none")
+        assert per_sample.shape == (16,)
+        assert per_sample.mean().item() == pytest.approx(fit.item(), rel=1e-5)
+
+    def test_probreg_training_loss_fit_term_unchanged_and_beta_nll_per_sample(self):
+        """`_calculate_custom_loss` with no regularisation equals the plain combined loss (no change to training); beta-NLL has a per-sample form."""
+        model = _make_model(ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY)
+        model.loss_type = "beta_nll"
+        outputs = torch.randn(12, 2)
+        y = torch.randn(12, 1)
+        expected = calculate_combined_loss(outputs, y, UncertaintyMethod.PROBABILISTIC, loss_type="beta_nll", beta=model.beta)
+        model.ordering_constraint_weight = 0.0
+        loss = model._calculate_custom_loss((outputs, torch.zeros(12, 3), torch.full((12,), 3), None, None), y)
+        assert loss.item() == pytest.approx(expected.item(), rel=1e-6)
+        assert model._fit_loss(outputs, y, reduction="none").mean().item() == pytest.approx(expected.item(), rel=1e-5)
+
+
+class TestKSelectorsReadTheFitTable:
+    @staticmethod
+    def _toy(n: int = 200) -> tuple[np.ndarray, np.ndarray]:
+        rng = np.random.default_rng(1)
+        x = rng.uniform(-3, 3, (n, 1)).astype(np.float32)
+        return x, (np.sin(x.ravel()) + rng.normal(0, 0.2 + 0.2 * np.abs(x.ravel()))).astype(np.float32)
+
+    def test_global_selector_curve_is_the_gaussian_nll_per_rung(self):
+        """Under PROBABILISTIC, each rung's curve entry is that rung's Gaussian NLL (mean and spread), not its squared error."""
+        x, y = self._toy()
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=3, uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED, optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+            n_epochs=8, learning_rate=0.01, random_seed=0, calculate_feature_importance=False,
+        )
+        model.fit(x, y)
+        model.fit_global_selector(x, y, n_bootstrap=50)
+        curve = model.global_selector_curve_["mean_fit_loss"]
+        x_t, y_t = torch.tensor(x), torch.tensor(y)
+        model.model.eval()
+        with torch.no_grad():
+            for k in (1, 2, 3):
+                out = model.model.forward_at_k(x_t, k)
+                assert curve[k - 1] == pytest.approx(_gaussian_nll(out[:, 0], out[:, 1], y_t).item(), rel=1e-4)
+
+    def test_sweep_selector_curve_is_mse_under_constant_heads(self):
+        """Under CONSTANT (mean-only heads) the fit term is squared error, so the sweep's curve entry for the winner is its held-out MSE."""
+        x, y = self._toy()
+        model = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=3, uncertainty_method=UncertaintyMethod.CONSTANT,
+            optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+            n_epochs=8, learning_rate=0.01, random_seed=0, calculate_feature_importance=False,
+        )
+        k = model.fit_sweep_selector(x[:150], y[:150], x[150:], y[150:], n_bootstrap=50)
+        winner = model._sweep_submodel()
+        mse = float(np.mean((winner.predict(x[150:]) - y[150:]) ** 2))
+        curve = model.global_selector_curve_
+        assert curve["mean_fit_loss"][curve["capacity_grid"].index(k)] == pytest.approx(mse, rel=1e-4)

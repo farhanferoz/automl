@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from automl_package.logger import logger
+from automl_package.utils.convergence import ConvergenceTracker, snapshot_state
 
 
 def train_model(
@@ -32,12 +33,11 @@ def train_model(
     dataset = TensorDataset(probas_train, y_train, y_binned_train) if y_binned_train is not None else TensorDataset(probas_train, y_train)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    best_val_loss = float("inf")
-    epochs_no_improve = 0
     best_model_state = None
     best_epoch = epochs
 
     use_early_stopping = early_stopping_rounds and early_stopping_rounds > 0 and probas_val is not None and y_val is not None
+    tracker = ConvergenceTracker(patience=early_stopping_rounds or 0, min_delta=0.0)  # strict-decrease best, this loop's own rule
 
     if regularization_fn is None:
 
@@ -91,19 +91,15 @@ def train_model(
                 val_preds = model(probas_val, **(val_forward_pass_kwargs or {}))
                 val_loss = loss_fn(val_preds, y_val, include_boundary_loss=apply_boundary_loss_during_validation)
 
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                epochs_no_improve = 0
-                best_model_state = model.state_dict()
+            if tracker.update(epoch, val_loss):
+                best_model_state = snapshot_state(model)
                 best_epoch = epoch + 1
-            else:
-                epochs_no_improve += 1
 
-            if epochs_no_improve >= early_stopping_rounds:
+            if tracker.done:
                 logger.info(f"Early stopping at epoch {epoch + 1}, best epoch was {best_epoch}")
                 break
 
     if use_early_stopping and best_model_state:
         model.load_state_dict(best_model_state)
 
-    return best_epoch, best_val_loss
+    return best_epoch, tracker.best_val

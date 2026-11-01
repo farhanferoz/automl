@@ -17,6 +17,7 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+import torch
 import torch.nn as nn
 
 # Defaults tuned to the width-net dynamics observed in the epoch sweep (very slow late creep on the
@@ -104,6 +105,16 @@ class ConvergenceResult:
             "recent_improvement": self.recent_improvement,
             "trajectory": [[int(e), float(v)] for e, v in self.trajectory],
         }
+
+
+def snapshot_state(module: nn.Module) -> dict[str, torch.Tensor]:
+    """A detached COPY of `module`'s weights, safe to keep while training continues.
+
+    `module.state_dict()` alone only references the live parameters, so a "best" snapshot taken that way
+    silently becomes the latest weights. Every training loop snapshots through this helper on a new best
+    and restores with `module.load_state_dict(snapshot)` at the end (best-checkpoint semantics).
+    """
+    return {k: t.detach().clone() for k, t in module.state_dict().items()}
 
 
 class ConvergenceTracker:
@@ -206,7 +217,7 @@ def fit_to_convergence(
         step_fn()
         if epoch % check_every == 0:
             if tracker.update(epoch, val_loss_fn()):
-                best_state = {k: t.detach().clone() for k, t in train_module.state_dict().items()}
+                best_state = snapshot_state(train_module)
             if tracker.done:
                 final_epoch = epoch
                 break

@@ -350,9 +350,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                 x_train_fold, x_val_fold = x[train_idx], x[val_idx]
                 y_train_fold, y_val_fold = y[train_idx], y[val_idx]
                 best_iter, loss_history = model_instance._fit_single(x_train_fold, y_train_fold, x_val=x_val_fold, y_val=y_val_fold)
-                preds = model_instance._predict_for_scoring(x_val_fold)
-                y_pred_std = model_instance.predict_uncertainty(x_val_fold)
-                score = self._evaluate_trial(y_val_fold, preds, y_pred_std=y_pred_std)
+                score = model_instance._held_out_fit_score(x_val_fold, y_val_fold)
                 fold_results.append({"best_iter": best_iter, "loss_history": loss_history, "score": score})
 
             final_score = float(np.mean([res["score"] for res in fold_results]))
@@ -369,9 +367,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             x_train, y_train = x[train_indices], y[train_indices]
             x_val, y_val = x[val_indices], y[val_indices]
             optimal_iterations, _ = model_instance._fit_single(x_train, y_train, x_val=x_val, y_val=y_val)
-            preds = model_instance._predict_for_scoring(x_val)
-            y_pred_std = model_instance.predict_uncertainty(x_val)
-            final_score = self._evaluate_trial(y_val, preds, y_pred_std=y_pred_std)
+            final_score = model_instance._held_out_fit_score(x_val, y_val)
         return final_score, optimal_iterations
 
     def _find_best_hyperparameters(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> tuple[dict[str, Any], int]:
@@ -396,7 +392,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             trial.set_user_attr("iterations", iterations)
             return score
 
-        direction = "minimize" if self._get_optimization_metric().is_smaller_better else "maximize"
+        direction = "minimize" if self._held_out_score_is_smaller_better() else "maximize"
         optimizer = OptunaOptimizer(direction=direction, n_trials=self.n_trials, random_seed=getattr(self, "random_seed", None))
         study = optimizer.optimize(objective)
         best_iterations = study.best_trial.user_attrs["iterations"]
@@ -409,6 +405,23 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         else:
             optimization_metric = Metric.LOG_LOSS
         return optimization_metric
+
+    def _held_out_fit_score(self, x_val: np.ndarray, y_val: np.ndarray) -> float:
+        """Held-out score for hyperparameter search and cross-validation, on a model ALREADY fitted on the training part.
+
+        Call it on the trial / fold model instance, never on the outer model (scoring the unfitted outer
+        object was the F1 crash). Default: the model's optimisation metric on its predictions (trees and
+        linear models). `PyTorchModelBase` overrides it with the held-out fit term of the training loss
+        (owner ruling 2026-11-01, DECISIONS.md "Validation score = the held-out FIT TERM"). Direction is
+        given by `_held_out_score_is_smaller_better`.
+        """
+        preds = self._predict_for_scoring(x_val)
+        y_pred_std = self.predict_uncertainty(x_val)
+        return self._evaluate_trial(y_val, preds, y_pred_std=y_pred_std)
+
+    def _held_out_score_is_smaller_better(self) -> bool:
+        """Direction of `_held_out_fit_score` for the Optuna study."""
+        return self._get_optimization_metric().is_smaller_better
 
     def _calculate_performance_score(self, y_true: np.ndarray, y_pred: np.ndarray, x_val: np.ndarray | None = None, y_pred_std: np.ndarray | None = None) -> float:
         """Calculates the performance score based on the model's optimization metric."""
@@ -441,9 +454,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             y_train_fold, y_val_fold = y[train_idx], y[val_idx]
             model_instance = self._clone()
             best_iter, loss_history = model_instance._fit_single(x_train_fold, y_train_fold, x_val=x_val_fold, y_val=y_val_fold)
-            preds = model_instance._predict_for_scoring(x_val_fold)
-            y_pred_std = model_instance.predict_uncertainty(x_val_fold)
-            score = self._evaluate_trial(y_val_fold, preds, y_pred_std=y_pred_std)
+            score = model_instance._held_out_fit_score(x_val_fold, y_val_fold)
             fold_results.append({"best_iter": best_iter, "loss_history": loss_history, "score": score})
 
         scores = [res["score"] for res in fold_results]

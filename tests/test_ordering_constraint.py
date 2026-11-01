@@ -331,9 +331,12 @@ def test_probreg_ordering_under_regression_only_does_flow_to_classifier():
     # even when logits get detached by the stop-grad.
     per_head_outputs = torch.zeros(batch, k, 2, requires_grad=True)
     with torch.no_grad():
-        per_head_outputs[:, 0, 0] = 10.0
-        per_head_outputs[:, 1, 0] = 5.0
-        per_head_outputs[:, 2, 0] = 0.0
+        # Means that vary across samples: a probability-weighted mean of a per-class CONSTANT does not depend on the
+        # logits at all, so its gradient to them is zero up to float noise (which made this check pass by luck).
+        spread = 0.1 * torch.arange(batch, dtype=torch.float32)
+        per_head_outputs[:, 0, 0] = 10.0 + spread
+        per_head_outputs[:, 1, 0] = 5.0 + spread
+        per_head_outputs[:, 2, 0] = spread
     final_predictions = torch.zeros(batch, 2)
     selected_k_values = torch.full((batch,), DIRECT_REGRESSION_K_SENTINEL, dtype=torch.long)
     model_outputs = (final_predictions, classifier_logits, selected_k_values, None, per_head_outputs)

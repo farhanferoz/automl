@@ -1,5 +1,7 @@
 """Common loss functions for PyTorch models."""
 
+from typing import Literal
+
 import torch
 import torch.nn as nn
 
@@ -19,6 +21,7 @@ def calculate_combined_loss(
     include_boundary_loss: bool = False,
     loss_type: str = "nll",
     beta: float = 0.5,
+    reduction: Literal["mean", "none"] = "mean",
 ) -> torch.Tensor:
     """Calculates the combined loss for a regression model.
 
@@ -32,10 +35,16 @@ def calculate_combined_loss(
         boundary_loss_weight: The weight of the boundary loss.
         device: The device to use.
         include_boundary_loss: Whether to include the boundary loss.
+        loss_type: `"nll"` or `"beta_nll"` for the PROBABILISTIC fit term.
+        beta: beta-NLL exponent.
+        reduction: `"mean"` (default) or `"none"` for the `(N,)` per-sample fit term. `"none"` is only
+            defined for the fit term, so it cannot be combined with `include_boundary_loss`.
 
     Returns:
         The combined loss.
     """
+    if reduction == "none" and include_boundary_loss:
+        raise ValueError("reduction='none' returns the per-sample fit term only; it cannot include the boundary loss.")
     y_true_squeezed = y_true.squeeze(-1) if y_true.ndim > 1 else y_true
 
     if uncertainty_method == UncertaintyMethod.PROBABILISTIC:
@@ -43,11 +52,11 @@ def calculate_combined_loss(
         log_var = predictions[:, 1]
         stacked = torch.stack((mean, log_var), dim=1)
         if loss_type == "beta_nll":
-            regression_loss = beta_nll_loss(stacked, y_true_squeezed, beta=beta)
+            regression_loss = beta_nll_loss(stacked, y_true_squeezed, beta=beta, reduction=reduction)
         else:
-            regression_loss = nll_loss(stacked, y_true_squeezed)
+            regression_loss = nll_loss(stacked, y_true_squeezed, reduction=reduction)
     else:
-        regression_loss = nn.MSELoss()(predictions.squeeze(), y_true_squeezed)
+        regression_loss = nn.MSELoss(reduction=reduction)(predictions.squeeze(-1) if predictions.ndim > 1 else predictions, y_true_squeezed)
 
     total_loss = regression_loss
 

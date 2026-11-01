@@ -63,6 +63,8 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
     Includes L1 and L2 regularization.
     """
 
+    _scores_by_fit_term: ClassVar[bool] = True
+
     _defaults: ClassVar[dict[str, Any]] = {"hidden_layers": 1, "hidden_size": 64, "activation": ActivationFunction.RELU}
 
     def __init__(self, **kwargs: Any) -> None:

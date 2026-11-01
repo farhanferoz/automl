@@ -1,7 +1,7 @@
 """Base classes for PyTorch models."""
 
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import numpy as np
 import pandas as pd
@@ -12,14 +12,22 @@ import torch.optim as optim
 from automl_package.enums import LearnedRegularizationType, OptimizerType, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
+from automl_package.models.common.losses import calculate_combined_loss
 from automl_package.models.common.mixins import RegularizationMixin
 from automl_package.optimizers import get_optimizer_wrapper
+from automl_package.utils.convergence import ConvergenceTracker, snapshot_state
 from automl_package.utils.numerics import ensure_proba_shape
 from automl_package.utils.pytorch_utils import calculate_regularization_loss, get_device
 
 
 class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
     """Base class for PyTorch-based neural network models."""
+
+    # Whether this class's held-out scoring (hyperparameter search, cross-validation) reads the fit term
+    # through `_fit_loss`. Only the classes that train through the generic `_fit_single` loop below declare
+    # True; a class with its own training loop (and its own output layout) keeps the prediction-metric
+    # score of `BaseModel` until it declares its fit term (listed follow-up, DECISIONS.md "Validation score").
+    _scores_by_fit_term: ClassVar[bool] = False
 
     _defaults: ClassVar[dict[str, Any]] = {
         "input_size": None,
@@ -97,6 +105,90 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
             l2_log_lambda=self.l2_log_lambda,
         )
 
+    def _fit_loss(self, prediction: torch.Tensor, y: torch.Tensor, reduction: Literal["mean", "none"] = "mean") -> torch.Tensor:
+        """The FIT TERM of the training loss: agreement between the model's FINAL prediction and `y`, nothing else.
+
+        Owner ruling 2026-11-01 (DECISIONS.md, "Validation score = the held-out FIT TERM"): early stopping,
+        hyperparameter search, cross-validation and the choice of k score held-out data with this and only
+        this. Every other part of the training loss is regularisation and is ignored here -- losses on
+        internal outputs (ProbReg's classifier cross-entropy), boundary and ordering penalties, k penalties
+        and KL terms, learned L1/L2 lambdas.
+
+        The default is derived from the model's settings: regression `PROBABILISTIC` is the Gaussian NLL (or
+        beta-NLL when `loss_type == "beta_nll"`), other regression is MSE, classification is
+        BCE-with-logits (one output) or cross-entropy. It is evaluated in the space the model was TRAINED in
+        (e.g. symlog space for ProbReg with `target_transform="symlog"`), which is the space early stopping
+        reads. A subclass whose fit term differs overrides this.
+
+        Args:
+            prediction: The final prediction (see `_final_prediction`), `(N, output_size)`.
+            y: Targets in the training space, shaped as `_fit_single` shapes them.
+            reduction: `"mean"` for a scalar, `"none"` for the `(N,)` per-sample values.
+
+        Returns:
+            The fit term.
+        """
+        if self.is_regression_model:
+            return calculate_combined_loss(
+                predictions=prediction,
+                y_true=y,
+                uncertainty_method=self.uncertainty_method,
+                include_boundary_loss=False,
+                loss_type=getattr(self, "loss_type", "nll"),
+                beta=getattr(self, "beta", 0.5),
+                reduction=reduction,
+            )
+        loss_fn = nn.BCEWithLogitsLoss(reduction=reduction) if self.output_size == 1 else nn.CrossEntropyLoss(reduction=reduction)
+        loss = loss_fn(prediction, y)
+        return loss.reshape(-1) if reduction == "none" else loss
+
+    def _final_prediction(self, model_outputs: Any) -> torch.Tensor:
+        """The model's FINAL (deployed) prediction, extracted from whatever `self.model(x)` returns.
+
+        A plain tensor is the prediction. A model returning anything else (ProbReg returns a tuple of the
+        prediction plus internal outputs) must override this: guessing which element is the prediction
+        would silently score the wrong thing.
+        """
+        if isinstance(model_outputs, torch.Tensor):
+            return model_outputs
+        raise TypeError(
+            f"{type(self).__name__}.model returned {type(model_outputs).__name__}, not a Tensor: override "
+            f"{type(self).__name__}._final_prediction to return the final (deployed) prediction, and "
+            f"_fit_loss too if its fit term differs from the default."
+        )
+
+    def _y_in_model_space(self, y: np.ndarray) -> np.ndarray:
+        """Held-out targets in the space the model trains in. Identity here; ProbReg overrides it for symlog."""
+        return np.asarray(y)
+
+    def _target_tensor(self, y: np.ndarray) -> torch.Tensor:
+        """Targets as the tensor `_fit_single` trains and validates on: float `(N, 1)` for regression or binary labels, long `(N,)` otherwise."""
+        is_binary_classification = self.task_type == TaskType.CLASSIFICATION and self.output_size == 1
+        as_float = self.is_regression_model or is_binary_classification
+        y_tensor = torch.tensor(np.array(y, dtype=np.float32 if as_float else np.int64)).to(self.device)
+        return y_tensor.unsqueeze(1) if as_float else y_tensor
+
+    def _held_out_fit_per_sample(self, x_val: np.ndarray, y_val: np.ndarray) -> np.ndarray:
+        """Per-sample fit term on held-out `(x_val, y_val)` (raw target units in, training space scored), `(N,)`."""
+        if self.model is None:
+            raise RuntimeError("Model has not been fitted yet.")
+        x_tensor = torch.tensor(np.asarray(x_val, dtype=np.float32)).to(self.device)
+        y_tensor = self._target_tensor(self._y_in_model_space(y_val))
+        self.model.eval()
+        with torch.no_grad():
+            per_sample = self._fit_loss(self._final_prediction(self.model(x_tensor)), y_tensor, reduction="none")
+        return per_sample.cpu().numpy()
+
+    def _held_out_fit_score(self, x_val: np.ndarray, y_val: np.ndarray) -> float:
+        """Mean held-out fit term (lower is better): the quantity early stopping reads, so search and CV agree with it."""
+        if not self._scores_by_fit_term:
+            return super()._held_out_fit_score(x_val, y_val)
+        return float(self._held_out_fit_per_sample(x_val, y_val).mean())
+
+    def _held_out_score_is_smaller_better(self) -> bool:
+        """The fit term is a loss, so smaller is better; classes that do not score by it keep their metric's direction."""
+        return True if self._scores_by_fit_term else super()._held_out_score_is_smaller_better()
+
     def _fit_single(
         self,
         x_train: np.ndarray,
@@ -160,8 +252,10 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
             if self.is_regression_model or is_binary_classification:
                 y_val_tensor = y_val_tensor.unsqueeze(1)
 
-        best_val_loss, patience_counter, best_epoch = float("inf"), 0, 0
+        best_epoch = 0
         best_model_state = None
+        # min_delta=0.0: a new best is a strict decrease, the loop's stopping rule; patience is `early_stopping_rounds`.
+        tracker = ConvergenceTracker(patience=self.early_stopping_rounds or 0, min_delta=0.0)
         val_loss_history = []
         n_epochs = forced_iterations if forced_iterations is not None else self.n_epochs
 
@@ -189,16 +283,12 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
                 self.model.eval()
                 with torch.no_grad():
                     val_outputs = self.model(x_val_tensor)
-                    val_loss = self.criterion(val_outputs, y_val_tensor).item()
+                    val_loss = self._fit_loss(self._final_prediction(val_outputs), y_val_tensor).item()
                 val_loss_history.append(val_loss)
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
-                    patience_counter = 0
-                    best_model_state = self.model.state_dict()
-                    best_epoch = epoch
-                else:
-                    patience_counter += 1
-                stop_now = patience_counter >= self.early_stopping_rounds
+                if tracker.update(epoch, val_loss):
+                    best_model_state = snapshot_state(self.model)
+                best_epoch = tracker.best_epoch
+                stop_now = tracker.done
             else:
                 val_loss = None
                 best_epoch = epoch

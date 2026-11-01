@@ -24,6 +24,7 @@ from automl_package.models.flexnn.strategies.independent_weights import (
     IndependentWeightsSoftGatingStrategy,
     IndependentWeightsSteStrategy,
 )
+from automl_package.utils.convergence import DEFAULT_PATIENCE, ConvergenceTracker, snapshot_state
 from automl_package.utils.losses import nll_loss
 from automl_package.utils.pytorch_utils import get_activation_function_map, get_device
 
@@ -277,10 +278,9 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             if (self.task_type == TaskType.REGRESSION) or (self.task_type == TaskType.CLASSIFICATION and self.output_size == 1):
                 y_val_tensor = y_val_tensor.unsqueeze(1)
 
-        best_val_loss = float("inf")
-        patience_counter = 0
         best_model_state = None
         best_epoch = 0
+        stop_tracker = ConvergenceTracker(patience=self.early_stopping_rounds or DEFAULT_PATIENCE, min_delta=0.0)  # strict-decrease best, this loop's own rule
         val_loss_history = []
 
         n_epochs = forced_iterations if forced_iterations is not None else self.n_epochs
@@ -353,15 +353,11 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
                 # Pass collected epoch_log_probs
                 self.strategy.on_epoch_end(validation_loss=val_loss, epoch_log_probs=epoch_log_probs)
 
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
-                    patience_counter = 0
-                    best_model_state = self.model.state_dict()
-                    best_epoch = epoch
-                else:
-                    patience_counter += 1
+                if stop_tracker.update(epoch, val_loss):
+                    best_model_state = snapshot_state(self.model)
+                best_epoch = stop_tracker.best_epoch
 
-                if self.early_stopping_rounds and patience_counter >= self.early_stopping_rounds:
+                if self.early_stopping_rounds and stop_tracker.done:
                     logger.info(f"Early stopping at epoch {best_epoch + 1}")
                     break
             else:

@@ -1,13 +1,13 @@
 """PyTorch Linear Regression model."""
 
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import torch
 import torch.nn as nn
-from models.base_pytorch import PyTorchModelBase
 
 from automl_package.enums import ExplainerType, TaskType, UncertaintyMethod
+from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.utils.losses import nll_loss
 
 
@@ -17,6 +17,8 @@ class PyTorchLinearRegression(PyTorchModelBase):
     This model benefits from the base class's features, including support for
     L1, L2, and automatically learned regularization.
     """
+
+    _scores_by_fit_term: ClassVar[bool] = True
 
     def __init__(self, **kwargs: Any) -> None:
         """Initializes the PyTorchLinearRegression model.

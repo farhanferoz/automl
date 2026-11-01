@@ -39,7 +39,7 @@ via `DistilledCapacityRouter`; this reads one held-out curve and returns a singl
 """
 
 from collections.abc import Callable
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import numpy as np
 import torch
@@ -203,6 +203,16 @@ class FlexibleWidthNN(PyTorchModelBase):
         else:
             raise ValueError("task_type must be 'regression' or 'classification'")
         self.criterion = _multi_width_criterion(base_criterion)
+
+    def _fit_loss(self, prediction: torch.Tensor, y: torch.Tensor, reduction: Literal["mean", "none"] = "mean") -> torch.Tensor:
+        """Early-stopping value: the multi-width criterion itself (FlexNN is on hold, so its stopping value stays exactly as it was).
+
+        The sum over widths of each width's data-fit loss is all data fit (no regularisation term), so
+        the training criterion IS the fit term. `prediction` is the stacked `(len(widths), N, output_size)` output.
+        """
+        if reduction != "mean":
+            raise NotImplementedError("FlexibleWidthNN has no per-sample fit term: its fit is the sum over widths (follow-up with the rest of FlexNN).")
+        return self.criterion(prediction, y)
 
     def _predictions_from_output(self, final_output: torch.Tensor) -> np.ndarray:
         """Shared postprocessing: raw net output -> flat predictions (classification argmax/threshold, else raw)."""
