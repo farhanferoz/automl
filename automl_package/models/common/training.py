@@ -44,7 +44,9 @@ def train_model(
         def regularization_fn(loss: torch.Tensor, _: torch.nn.Module) -> torch.Tensor:
             return loss
 
+    final_epoch = 0
     for epoch in range(epochs):
+        final_epoch = epoch
         model.train()
         for batch in loader:
             if y_binned_train is not None:
@@ -102,4 +104,6 @@ def train_model(
     if use_early_stopping and best_model_state:
         model.load_state_dict(best_model_state)
 
+    if use_early_stopping:
+        model.convergence_ = tracker.result(final_epoch=final_epoch)
     return best_epoch, tracker.best_val

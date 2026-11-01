@@ -38,13 +38,15 @@ class _PyTorchNNModule(nn.Module):
         if use_batch_norm:
             layers.append(nn.BatchNorm1d(hidden_size))
         layers.append(activation())
+        if dropout_rate > 0:
+            layers.append(nn.Dropout(dropout_rate))
 
         for _ in range(hidden_layers - 1):
             layers.append(nn.Linear(hidden_size, hidden_size))
             if use_batch_norm:
                 layers.append(nn.BatchNorm1d(hidden_size))
             layers.append(activation())
-            if is_regression and uncertainty_method == UncertaintyMethod.MC_DROPOUT and dropout_rate > 0:
+            if dropout_rate > 0:
                 layers.append(nn.Dropout(dropout_rate))
 
         layers.append(nn.Linear(hidden_size, current_output_size))

@@ -17,7 +17,6 @@ from sklearn.model_selection import train_test_split
 from automl_package.enums import (
     MapperType,
     NClassesSelectionMethod,
-    ProbabilisticRegressionOptimizationStrategy,
     RegressionStrategy,
     UncertaintyMethod,
 )
@@ -152,7 +151,7 @@ class TestProbabilisticRegressionFixedK:
             n_classes_selection_method=NClassesSelectionMethod.NONE,
             regression_strategy=strategy,
             base_classifier_params={"hidden_layers": 1, "hidden_size": 32},
-            regression_head_params={"hidden_layers": 0, "hidden_size": 16},
+            regression_head_params={"hidden_layers": 1, "hidden_size": 16},
             n_epochs=30,
             learning_rate=0.01,
             early_stopping_rounds=10,
@@ -209,7 +208,7 @@ class TestProbabilisticRegressionFixedK:
             n_classes_selection_method=NClassesSelectionMethod.NONE,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             base_classifier_params={"hidden_layers": 1, "hidden_size": 32},
-            regression_head_params={"hidden_layers": 0, "hidden_size": 16},
+            regression_head_params={"hidden_layers": 1, "hidden_size": 16},
             n_epochs=100,
             learning_rate=0.01,
             early_stopping_rounds=15,
@@ -332,7 +331,7 @@ class TestModelComparison:
             n_classes_selection_method=NClassesSelectionMethod.NONE,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             base_classifier_params={"hidden_layers": 1, "hidden_size": 32},
-            regression_head_params={"hidden_layers": 0, "hidden_size": 16},
+            regression_head_params={"hidden_layers": 1, "hidden_size": 16},
             n_epochs=150,
             learning_rate=0.01,
             early_stopping_rounds=20,
@@ -443,6 +442,19 @@ class TestModelComparison:
         max_acceptable_xgb_mse = 5.0
         assert xgb_mse < max_acceptable_xgb_mse, f"XGBoost MSE={xgb_mse:.4f} unexpectedly high on heteroscedastic data"
 
+        # Convergence record (M2): the boosting wrappers record the best round and whether it is the cap.
+        # With a 3-round cap every wrapper stops at the cap; with 200 rounds and early stopping XGBoost does not.
+        from automl_package.models.catboost_model import CatBoostModel
+        from automl_package.models.lightgbm_model import LightGBMModel
+
+        for model_cls, cap_kwargs in ((XGBoostModel, {"n_estimators": 3}), (LightGBMModel, {"n_estimators": 3}), (CatBoostModel, {"iterations": 3})):
+            capped = model_cls(early_stopping_rounds=10, validation_fraction=0.2, random_seed=42, calculate_feature_importance=False, **cap_kwargs)
+            capped.fit(x_train, y_train)
+            assert capped.best_iteration_ == 3
+            assert capped.hit_cap_ is True, model_cls.__name__
+        assert model.best_iteration_ <= 200
+        assert model.hit_cap_ == (model.best_iteration_ == 200)
+
     def test_linear_regression_on_linear_data(self, simple_linear_data):
         """Linear regression should achieve near-optimal MSE on y=2x+1+noise."""
         from automl_package.models.linear_regression import LinearRegressionModel
@@ -526,7 +538,7 @@ class TestPredictDistribution:
         m = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             n_epochs=5, random_seed=42, calculate_feature_importance=False,
         )
@@ -622,48 +634,6 @@ class TestP2CreateBinsWarning:
 
         assert len(edges) - 1 == requested_n_bins, "clean continuous data should not need to shrink n_bins"
         assert automl_caplog.text == ""
-
-
-class TestP3DynamicKCeGuardWarning:
-    """P3: guard the incoherent dynamic-k + CE combination (plan §3.1 node-0 conflict).
-
-    The warning fires on `n_classes_selection_method != NONE and is_ce_active`
-    (probabilistic_regression.py:751); `is_ce_active` is true only for CE_STOP_GRAD or
-    COMPOSITE_LOSS, both RETIRED under MASTER Decision 29 -- so no non-retired optimization
-    strategy can ever exercise this warning, and the escape hatch is unavoidable regardless of
-    which n_classes_selection_method is paired with it. SOFT_GATING is kept (not swapped for
-    NESTED) because both are already gated by the same flag here.
-    """
-
-    def _fit_dynamic_k(self, opt_strategy: ProbabilisticRegressionOptimizationStrategy) -> ProbabilisticRegressionModel:
-        rng = np.random.default_rng(7)
-        x = rng.uniform(-1, 1, (40, 1)).astype(np.float32)
-        y = rng.uniform(-1, 1, 40).astype(np.float32)
-        model = ProbabilisticRegressionModel(
-            input_size=1,
-            n_classes_selection_method=NClassesSelectionMethod.SOFT_GATING,
-            max_n_classes_for_probabilistic_path=4,
-            optimization_strategy=opt_strategy,
-            uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            regression_strategy=RegressionStrategy.SEPARATE_HEADS,
-            n_epochs=2,
-            learning_rate=0.01,
-            validation_fraction=0.2,
-            random_seed=42,
-            calculate_feature_importance=False,
-            allow_retired_capacity_selection=True,
-        )
-        model.fit(x, y)
-        return model
-
-    def test_warning_fires_for_ce_active_combo(self, automl_caplog):
-        self._fit_dynamic_k(ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD)
-        assert "node-0 conflict" in automl_caplog.text
-        assert "NOT validated" in automl_caplog.text
-
-    def test_warning_absent_under_regression_only(self, automl_caplog):
-        self._fit_dynamic_k(ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY)
-        assert "node-0 conflict" not in automl_caplog.text
 
 
 class TestP4HygieneGating:

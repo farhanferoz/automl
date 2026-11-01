@@ -184,10 +184,8 @@ def test_penalty_k_equals_1_no_pairs():
 # -----------------------------------------------------------------------------
 
 
-def test_probreg_ordering_weight_auto_enables_for_recommended_combo():
-    """Auto-resolution: weight=1.0 for SEP_HEADS + Gauss-LTV + RegOnly (Cell B),
-    weight=0.0 elsewhere (including the CE_STOP_GRAD default). See docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md §7.7.
-    """
+def test_probreg_ordering_weight_resolves_to_zero_in_every_mode():
+    """Auto-resolution: `None` resolves to 0.0 in every supervision mode (REGRESSION_ONLY included); an explicit float is kept."""
     from automl_package.enums import UncertaintyMethod
     from automl_package.models.probabilistic_regression import (
         ProbabilisticRegressionModel,
@@ -198,8 +196,8 @@ def test_probreg_ordering_weight_auto_enables_for_recommended_combo():
         input_size=1, n_classes=3,
         optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
     )
-    assert cell_b.ordering_constraint_weight == 1.0, (
-        "SEP_HEADS + Gauss-LTV + RegOnly should auto-enable ordering."
+    assert cell_b.ordering_constraint_weight == 0.0, (
+        "REGRESSION_ONLY must not switch the ordering penalty on by itself."
     )
 
     # The default supervision is CE_STOP_GRAD, which already pre-orders heads.

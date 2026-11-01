@@ -293,7 +293,9 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             logger.info("Ignoring gumbel_tau and gumbel_tau_anneal_rate as a non-Gumbel layer selection method is used.")
 
         n_epochs = forced_iterations or self.n_epochs
+        final_epoch = 0
         for epoch in range(int(n_epochs)):
+            final_epoch = epoch
             self.model.train()
             epoch_log_probs = []
             for _batch_x, batch_y in train_dataloader:
@@ -386,6 +388,8 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             if self.l2_log_lambda is not None:
                 logger.info(f"Learned L2 Lambda: {torch.exp(self.l2_log_lambda).item():.6f}")
 
+        if x_val is not None:
+            self.convergence_ = stop_tracker.result(final_epoch=final_epoch)
         patience = self.early_stopping_rounds if self.early_stopping_rounds is not None else DEFAULT_PATIENCE
         tracker = ConvergenceTracker(patience=patience, min_delta=0.0)  # min_delta=0.0 mirrors this loop's own `val_loss < best_val_loss` rule exactly
         for i, v in enumerate(val_loss_history, start=1):

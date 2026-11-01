@@ -19,11 +19,11 @@ _PROBABILISTIC_OUTPUT_SIZE = 2  # (mean, log_variance) per class
 _CLASS_RANGE_WIDTH = 10.0
 
 
-def _module(k: int, output_size: int = _PROBABILISTIC_OUTPUT_SIZE) -> SeparateHeadsRegressionModule:
+def _module(k: int, output_size: int = _PROBABILISTIC_OUTPUT_SIZE, **head_params) -> SeparateHeadsRegressionModule:
     method = UncertaintyMethod.PROBABILISTIC if output_size == _PROBABILISTIC_OUTPUT_SIZE else UncertaintyMethod.NONE
     return SeparateHeadsRegressionModule(
         n_classes=k,
-        regression_head_params={"hidden_size": 8},
+        regression_head_params={"hidden_size": 8, **head_params},
         uncertainty_method=method,
         regression_output_size=output_size,
         # OFF deliberately: at ODD k the middle head becomes a ConstantHead, which has no input to
@@ -46,6 +46,15 @@ def test_forward_with_boundaries_runs_when_batch_differs_from_n_classes(k: int):
 
     assert out.shape[0] == _BATCH
     assert torch.isfinite(out).all()
+
+    # Head depth: `hidden_layers=d` builds d hidden layers (0 = none) and runs for d = 0, 1, 2 (M1); a positive
+    # dropout rate builds one dropout layer per hidden layer under any uncertainty method (I5).
+    for depth in (0, 1, 2):
+        sized = _module(k, hidden_layers=depth, dropout_rate=0.5)
+        head_layers = list(sized.heads[0].layers)
+        assert sum(isinstance(m, torch.nn.Linear) for m in head_layers) == depth + 1
+        assert sum(isinstance(m, torch.nn.Dropout) for m in head_layers) == depth
+        assert torch.isfinite(sized.forward(probs, boundaries=boundaries)).all()
 
 
 def test_each_head_is_constrained_to_its_own_class_range():

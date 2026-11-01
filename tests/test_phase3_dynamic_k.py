@@ -6,6 +6,7 @@ import torch
 from sklearn.model_selection import train_test_split
 
 from automl_package.enums import (
+    BoundaryRegularizationMethod,
     CapacitySelection,
     NClassesRegularization,
     NClassesSelectionMethod,
@@ -55,8 +56,8 @@ class TestBugs1to4DynamicStrategiesNoCrash:
 
         GUMBEL_SOFTMAX/SOFT_GATING/STE/REINFORCE are RETIRED under MASTER Decision 29
         (docs/flexnn/package/plan.md FP-12) -- `allow_retired_capacity_selection=True` is the escape hatch
-        that keeps this labelled-comparison-arm coverage running; NESTED needs no flag (a
-        no-op there since it isn't a retired member).
+        that keeps this labelled-comparison-arm coverage running; NESTED needs `allow_unredesigned_nested=True`
+        (refused until the nested redesign).
         """
         x, y, _, _ = heteroscedastic_data
         model = ProbabilisticRegressionModel(
@@ -67,6 +68,7 @@ class TestBugs1to4DynamicStrategiesNoCrash:
             n_epochs=10, learning_rate=0.01, random_seed=42,
             calculate_feature_importance=False,
             allow_retired_capacity_selection=True,
+            allow_unredesigned_nested=True,
         )
         model.fit(x, y)
         y_pred = model.predict(x)
@@ -464,7 +466,7 @@ class TestNestedKTraining:
         defaults = {
             "input_size": 1, "n_classes": 3, "max_n_classes_for_probabilistic_path": max_k,
             "uncertainty_method": UncertaintyMethod.PROBABILISTIC,
-            "n_classes_selection_method": NClassesSelectionMethod.NESTED,
+            "n_classes_selection_method": NClassesSelectionMethod.NESTED, "allow_unredesigned_nested": True,
             "regression_strategy": RegressionStrategy.SEPARATE_HEADS,
             "n_epochs": n_epochs, "learning_rate": 0.01, "random_seed": 42,
             "calculate_feature_importance": False,
@@ -495,7 +497,7 @@ class TestNestedKTraining:
             ProbabilisticRegressionModel(
                 input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
                 uncertainty_method=UncertaintyMethod.CONSTANT,
-                n_classes_selection_method=NClassesSelectionMethod.NESTED,
+                n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
                 calculate_feature_importance=False,
             )
 
@@ -537,7 +539,7 @@ class TestNestedKDistilledRouting:
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=max_k,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
             n_epochs=n_epochs, learning_rate=0.01, random_seed=seed,
@@ -660,7 +662,7 @@ class TestFitRouterSymlogSpaceAlignment:
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=max_k,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
             target_transform="symlog",
@@ -795,7 +797,7 @@ class TestArbiterAdvantageSymlogSpaceAlignment:
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=max_k,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
             target_transform="symlog",
@@ -945,7 +947,7 @@ class TestFitGlobalSelector:
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=max_k,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
             target_transform=target_transform,
@@ -973,7 +975,7 @@ class TestFitGlobalSelector:
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=4,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
             calculate_feature_importance=False,
         )
         with pytest.raises(RuntimeError, match="not been fitted"):
@@ -1043,7 +1045,7 @@ class TestFitGlobalSelectorSymlogSpaceAlignment:
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=max_k,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
             target_transform="symlog",
@@ -1200,7 +1202,7 @@ class TestSelectionFractionConfigurable:
         model_small = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=3,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
             n_epochs=5, learning_rate=0.01, random_seed=0,
@@ -1209,7 +1211,7 @@ class TestSelectionFractionConfigurable:
         model_large = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=3,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
             n_epochs=5, learning_rate=0.01, random_seed=0,
@@ -1263,7 +1265,7 @@ class TestGlobalSelectionEndToEndThroughFit:
         x, y = self._xy()
         model = ProbabilisticRegressionModel(
             capacity_selection=CapacitySelection.GLOBAL_CHEAP,
-            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
             n_classes=5, epochs=10, validation_fraction=0.2, early_stopping_rounds=3,
             calculate_feature_importance=False,
@@ -1336,7 +1338,7 @@ class TestDecision29Guard:
             ProbabilisticRegressionModel(
                 input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
                 uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-                n_classes_selection_method=NClassesSelectionMethod.NESTED,
+                n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
                 n_classes_regularization=regularization,
                 calculate_feature_importance=False,
             )
@@ -1354,6 +1356,14 @@ class TestDecision29Guard:
     def test_escape_hatch_is_off_by_default(self):
         model = ProbabilisticRegressionModel(input_size=1, n_classes=3, calculate_feature_importance=False)
         assert model.allow_retired_capacity_selection is False
+        assert model.allow_unredesigned_nested is False
+        with pytest.raises(ValueError, match="nested redesign N0"):
+            ProbabilisticRegressionModel(
+                input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5,
+                uncertainty_method=UncertaintyMethod.PROBABILISTIC,
+                n_classes_selection_method=NClassesSelectionMethod.NESTED,
+                calculate_feature_importance=False,
+            )
 
     def test_head_layout_guard_raises_at_construction_not_mid_fit(self):
         """P10's original verify (a): `n_classes_selection_method=NESTED` +
@@ -1362,7 +1372,7 @@ class TestDecision29Guard:
             ProbabilisticRegressionModel(
                 input_size=3, n_classes=4,
                 uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-                n_classes_selection_method=NClassesSelectionMethod.NESTED,
+                n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
                 regression_strategy=RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT,
             )
         assert "SINGLE_HEAD_FINAL_OUTPUT" in str(excinfo.value)
@@ -1375,7 +1385,7 @@ class TestDecision29Guard:
             ProbabilisticRegressionModel(
                 input_size=3, n_classes=4,
                 uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-                n_classes_selection_method=NClassesSelectionMethod.NESTED,
+                n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
                 regression_strategy=RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT,
                 allow_retired_capacity_selection=True,
             )
@@ -1388,7 +1398,7 @@ class TestDecision29Guard:
             model = ProbabilisticRegressionModel(
                 input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=3,
                 uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-                n_classes_selection_method=NClassesSelectionMethod.NESTED,
+                n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
                 regression_strategy=strategy,
                 n_epochs=3, random_seed=42, calculate_feature_importance=False,
             )
@@ -1406,8 +1416,18 @@ class TestDecision29Guard:
         """Design choices (DECISIONS.md "Design choices are settled by the STUDY") are constructor settings, never searched; sizes and weights are."""
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=5, n_classes_selection_method=selection,
-            uncertainty_method=UncertaintyMethod.PROBABILISTIC, calculate_feature_importance=False,
+            uncertainty_method=UncertaintyMethod.PROBABILISTIC, calculate_feature_importance=False, allow_unredesigned_nested=True,
         )
         space = model.get_hyperparameter_search_space()
         assert {"optimization_strategy", "regression_strategy", "boundary_regularization_method"}.isdisjoint(space)
-        assert {"boundary_loss_weight", searched_k}.issubset(space)
+        assert searched_k in space
+        # Inert dimensions are left out (I5): the boundary weight only under PENALTY, the MC-dropout sample count only
+        # under MC_DROPOUT; head depth is {1, 2}; the learning rate and both regularisation weights are drawn on a log scale.
+        assert {"boundary_loss_weight", "n_mc_dropout_samples"}.isdisjoint(space)
+        assert (space["regression_head_params__hidden_layers"]["low"], space["regression_head_params__hidden_layers"]["high"]) == (1, 2)
+        assert all(space[name]["log"] for name in ("learning_rate", "l1_lambda", "l2_lambda"))
+        searched_with_penalty = ProbabilisticRegressionModel(
+            input_size=1, n_classes=3, n_classes_selection_method=NClassesSelectionMethod.NONE, boundary_regularization_method=BoundaryRegularizationMethod.PENALTY,
+            uncertainty_method=UncertaintyMethod.MC_DROPOUT, calculate_feature_importance=False,
+        ).get_hyperparameter_search_space()
+        assert {"boundary_loss_weight", "n_mc_dropout_samples"}.issubset(searched_with_penalty)

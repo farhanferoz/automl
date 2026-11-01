@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
+from enum import StrEnum
 
 import numpy as np
 from scipy.special import log_ndtr
+
+from automl_package.examples._capacity_ladder_toys import make_toy_h, toy_h_f
+from automl_package.examples.full_benchmark import _exponential, _heteroscedastic, _piecewise, exponential_true_mean, heteroscedastic_true_mean, piecewise_true_mean
+from automl_package.examples.nested_width_net import hetero3_true_mean, make_hetero3
 
 
 def make_datasets() -> list[tuple[str, np.ndarray, np.ndarray]]:
@@ -842,3 +848,58 @@ def level_staircase_law(x: np.ndarray, sigma: float = 0.3, strips: int = 4, reso
     """T-M3: ``y = μ_{r(x)} + σ ε`` with constant ``σ``; the only squared-error floor is ``σ²`` (review F13e)."""
     mean = level_staircase_mean(x, strips, resolutions, gap)
     return _law([np.ones_like(mean)], [mean], [np.full_like(mean, sigma)])
+
+
+# ---------------------------------------------------------------------------
+# The six study toys: generator, true mean and Bayes squared-error floor in ONE registry
+# (review 2026-10-22, C.3 item 2; floors from docs/probreg/review/groundwork_2026-10-22/toys.md)
+# ---------------------------------------------------------------------------
+
+
+def toy_a_true_mean(x: np.ndarray) -> np.ndarray:
+    """E[y | x] of :func:`make_toy_a`: sin 2 pi x (from its exact law)."""
+    return toy_a_law(x).mean()
+
+
+def _xy(dataset: dict) -> tuple[np.ndarray, np.ndarray]:
+    """``(x, y)`` of a `full_benchmark` dataset dict."""
+    return dataset["x"], dataset["y"]
+
+
+class StudyToy(StrEnum):
+    """The six toys the ProbReg study scores against a known true mean."""
+
+    TOY_A = "toy_a"
+    HETEROSCEDASTIC = "heteroscedastic"
+    TOY_H = "toy_h"
+    HETERO3 = "hetero3"
+    EXPONENTIAL = "exponential"
+    PIECEWISE = "piecewise"
+
+
+@dataclass(frozen=True)
+class ToySpec:
+    """One study toy.
+
+    Attributes:
+        generator: ``(n, seed) -> (x, y)`` at the toy's default settings.
+        true_mean: ``E[y | x]`` at the given inputs, shape ``(n,)``.
+        floor: the Bayes squared-error floor ``E[(y - E[y | x])^2]`` in y units (the noise variance averaged over x).
+    """
+
+    generator: Callable[[int, int], tuple[np.ndarray, np.ndarray]]
+    true_mean: Callable[[np.ndarray], np.ndarray]
+    floor: float
+
+
+STUDY_TOYS: dict[StudyToy, ToySpec] = {
+    StudyToy.TOY_A: ToySpec(lambda n, seed: make_toy_a(n=n, seed=seed), toy_a_true_mean, 0.5**2),
+    # (0.1 + 0.4|x|)^2 averaged over x ~ U(-5, 5): 0.01 + 0.08 * 2.5 + 0.16 * 25 / 3
+    StudyToy.HETEROSCEDASTIC: ToySpec(lambda n, seed: _xy(_heteroscedastic(n, seed)), heteroscedastic_true_mean, 0.01 + 0.2 + 0.16 * 25 / 3),
+    # sigma 0.1 on x < 0 and 0.8 on x >= 0, x ~ U(-1, 1)
+    StudyToy.TOY_H: ToySpec(lambda n, seed: make_toy_h(n=n, seed=seed), toy_h_f, (0.1**2 + 0.8**2) / 2),
+    # sigma 0.05, 0.05, 0.5 on three equal regions
+    StudyToy.HETERO3: ToySpec(lambda n, seed: make_hetero3(n, seed)[:2], hetero3_true_mean, (2 * 0.05**2 + 0.5**2) / 3),
+    StudyToy.EXPONENTIAL: ToySpec(lambda n, seed: _xy(_exponential(n, seed)), exponential_true_mean, 0.5**2),
+    StudyToy.PIECEWISE: ToySpec(lambda n, seed: _xy(_piecewise(n, seed)), piecewise_true_mean, 0.2**2),
+}

@@ -59,6 +59,12 @@ MODEL_TIMEOUT_SECS = 300  # 5 minutes per model
 # Dataset generators
 # ---------------------------------------------------------------------------
 
+def heteroscedastic_true_mean(x: np.ndarray) -> np.ndarray:
+    """E[y | x] of `_heteroscedastic`: 2 sin x + 0.5 x. Written apart from the generator so a test can check one against the other."""
+    xr = np.asarray(x).ravel()
+    return np.sin(xr) * 2 + 0.5 * xr
+
+
 def _heteroscedastic(n: int = 1000, seed: int = 42) -> dict:
     np.random.seed(seed)
     x = np.random.uniform(-5, 5, n).reshape(-1, 1).astype(np.float32)
@@ -66,6 +72,12 @@ def _heteroscedastic(n: int = 1000, seed: int = 42) -> dict:
     noise_std = (0.1 + 0.4 * np.abs(x)).ravel()
     y = y_true + np.random.normal(0, noise_std).astype(np.float32)
     return {"x": x, "y": y, "y_true": y_true, "noise_std": noise_std, "name": "heteroscedastic"}
+
+
+def piecewise_true_mean(x: np.ndarray) -> np.ndarray:
+    """E[y | x] of `_piecewise`: 0.5 x for x < 0, 0.5 x + sin 4 pi x for x >= 0. Written apart from the generator so a test can check one against the other."""
+    xr = np.asarray(x).ravel()
+    return np.where(xr < 0, 0.5 * xr, 0.5 * xr + np.sin(4 * np.pi * xr))
 
 
 def _piecewise(n: int = 800, seed: int = 42) -> dict:
@@ -82,6 +94,11 @@ def _multimodal(n: int = 1000, seed: int = 42) -> dict:
     sign = np.random.choice([-1, 1], size=n)
     y = (x.ravel() + sign * 1.5 + np.random.normal(0, 0.1, n)).astype(np.float32)
     return {"x": x, "y": y, "name": "multimodal"}
+
+
+def exponential_true_mean(x: np.ndarray) -> np.ndarray:
+    """E[y | x] of `_exponential`: exp(x). Written apart from the generator so a test can check one against the other."""
+    return np.exp(np.asarray(x).ravel())
 
 
 def _exponential(n: int = 800, seed: int = 42) -> dict:

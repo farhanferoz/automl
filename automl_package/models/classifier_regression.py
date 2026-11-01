@@ -333,8 +333,12 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
         feature_importance = self.calculate_feature_importances(model_instance=model_instance.base_classifier, x_background=x_background)
         self._save_feature_importance(feature_importance=feature_importance)
 
-    def _evaluate_trial_performance(self, model_instance: "ClassifierRegressionModel", x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> tuple[float, int]:
+    def _evaluate_trial_performance(
+        self, model_instance: "ClassifierRegressionModel", x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None, explicit_split: tuple | None = None
+    ) -> tuple[float, int]:
         """Evaluates a trial's performance and returns the score and optimal iterations."""
+        if explicit_split is not None:
+            raise NotImplementedError("ClassifierRegressionModel does not support an explicit validation set or refit_on_train_val=False.")
         # Set the class boundaries for the trial based on the trial's n_classes
         model_instance.class_boundaries = self.precomputed_boundaries_[model_instance.n_classes]
         if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE:
@@ -587,8 +591,11 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
         x_val: np.ndarray | None = None,
         y_val: np.ndarray | None = None,
         timestamps_train_val: np.ndarray | None = None,
+        use_explicit_split: bool = False,
     ) -> None:
         """Finds the optimal parameters for the model."""
+        if use_explicit_split:
+            raise NotImplementedError("ClassifierRegressionModel does not support an explicit validation set or refit_on_train_val=False.")
         if self.optimize_hyperparameters:
             logger.info("--- Starting hyperparameter optimization for ClassifierRegressionModel ---")
             # Pre-calculate class boundaries for all possible n_classes values to speed up trials

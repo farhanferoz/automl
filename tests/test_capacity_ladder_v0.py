@@ -110,6 +110,21 @@ def test_v_toy1_marginal_sampler_matches_binned_mean():
         assert abs(mean_hat - td.v_toy1_f(np.array([center]))[0]) < 0.03, (center, mean_hat)
 
 
+def test_study_toys_true_mean_and_floor_match_their_generators():
+    """Each study toy's `true_mean` is the generator's mean and its `floor` the generator's noise variance (4 standard errors, 200,000 draws)."""
+    n_draws, n_se = 200_000, 4.0
+    assert set(td.STUDY_TOYS) == set(td.StudyToy)
+    for toy, spec in td.STUDY_TOYS.items():
+        x, y = spec.generator(n_draws, 7)
+        resid = np.asarray(y, dtype=np.float64).ravel() - spec.true_mean(x)
+        assert resid.shape == (n_draws,), toy
+        se_mean = resid.std() / np.sqrt(n_draws)
+        assert abs(resid.mean()) < n_se * se_mean, (toy, resid.mean(), se_mean)
+        sq = resid**2
+        se_sq = sq.std() / np.sqrt(n_draws)
+        assert abs(sq.mean() - spec.floor) < n_se * se_sq, (toy, sq.mean(), spec.floor, se_sq)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

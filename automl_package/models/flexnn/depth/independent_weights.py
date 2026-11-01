@@ -285,7 +285,9 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
 
         n_epochs = forced_iterations if forced_iterations is not None else self.n_epochs
 
+        final_epoch = 0
         for epoch in range(int(n_epochs)):
+            final_epoch = epoch
             self.model.train()
             epoch_log_probs = []
             for _batch_x, batch_y in train_dataloader:
@@ -378,6 +380,8 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             if self.l2_log_lambda is not None:
                 logger.info(f"Learned L2 Lambda: {torch.exp(self.l2_log_lambda).item():.6f}")
 
+        if x_val_tensor is not None and y_val_tensor is not None:
+            self.convergence_ = stop_tracker.result(final_epoch=final_epoch)
         return best_epoch + 1, val_loss_history
 
     def get_params(self) -> dict[str, Any]:

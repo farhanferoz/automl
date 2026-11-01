@@ -41,11 +41,14 @@ class NoneStrategy(BaseSelectionStrategy):
 
         probabilities = torch.softmax(masked_classifier_logits, dim=1)
 
-        # CE_STOP_GRAD detaches so regression loss has no gradient path to the classifier —
-        # classifier is trained by CE only (computed in _calculate_custom_loss).
-        # GRADIENT_STOP only disables CE; the classifier is still supervised by the regression
-        # loss through the non-detached probs path (pre-existing semantics, preserved).
-        if self.model.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD:
+        # CE_STOP_GRAD detaches so regression loss has no gradient path to the classifier --
+        # the classifier is trained by CE only (computed in _calculate_custom_loss).
+        # GRADIENT_STOP detaches too, and has no CE: the classifier gets no gradient at all and
+        # keeps its initial weights (the "learns nothing" control; same as the nested path).
+        if self.model.optimization_strategy in (
+            ProbabilisticRegressionOptimizationStrategy.CE_STOP_GRAD,
+            ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
+        ):
             probabilities = probabilities.detach()
 
         if self.model.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:

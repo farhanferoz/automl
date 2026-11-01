@@ -62,29 +62,28 @@ class BaseRegressionHead(RegressionHead):
         if activation_module is None:
             raise ValueError(f"Unsupported activation function: {activation}")
 
-        layers = [nn.Linear(input_size, hidden_size)]
-        if use_batch_norm:
-            layers.append(nn.BatchNorm1d(hidden_size))
-        layers.append(activation_module())
-
-        for _ in range(hidden_layers - 1):
-            layers.append(nn.Linear(hidden_size, hidden_size))
+        # hidden_layers = 0 builds no hidden layer (final layer reads the input directly); n >= 1 builds n.
+        layers: list[nn.Module] = []
+        width_in = input_size
+        for _ in range(hidden_layers):
+            layers.append(nn.Linear(width_in, hidden_size))
             if use_batch_norm:
                 layers.append(nn.BatchNorm1d(hidden_size))
-            layers.append(activation())
-            if dropout_rate > 0 and self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
+            layers.append(activation_module())
+            if dropout_rate > 0:
                 layers.append(nn.Dropout(dropout_rate))
+            width_in = hidden_size
 
         if self.is_probabilistic_monotonic:
             # Special case: Separate heads for mean and variance
-            self.mean_head = nn.Linear(hidden_size, 1)
-            self.variance_head = nn.Linear(hidden_size, 1)
+            self.mean_head = nn.Linear(width_in, 1)
+            self.variance_head = nn.Linear(width_in, 1)
             if self.use_logit_initialization:
                 self._initialize_monotonic_head(self.mean_head, centroid=centroid)
                 self._initialize_standard_head(self.variance_head)
         else:
             # Standard case: Single final layer
-            final_layer = nn.Linear(hidden_size, output_size)
+            final_layer = nn.Linear(width_in, output_size)
             if self.use_logit_initialization:
                 if self.monotonic_constraint != Monotonicity.NONE:
                     self._initialize_monotonic_head(final_layer, centroid=centroid)

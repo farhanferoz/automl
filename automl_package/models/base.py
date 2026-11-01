@@ -1,7 +1,7 @@
 """Base classes for machine learning models."""
 
 import abc
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import optuna
@@ -42,11 +42,20 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         feature_selection_threshold: float | None = None,
         shap_max_data_points: int | None = 50000,
         uncertainty_method: UncertaintyMethod = UncertaintyMethod.CONSTANT,
+        refit_on_train_val: bool = True,
         **kwargs: Any,
     ) -> None:
-        """Initializes the base model with given parameters."""
+        """Initializes the base model with given parameters.
+
+        ``refit_on_train_val=True`` (default) ends `fit` with a refit on train + validation. ``False`` is the
+        one-pass protocol: `fit` keeps the early-stopped model of a single pass (and the search keeps its best
+        trial's fitted model), so the validation rows stay held out. It needs a single validation split, so it
+        cannot be combined with ``cv_folds`` or feature selection.
+        """
         if validation_fraction is not None and cv_folds is not None:
             raise ValueError("validation_fraction and cv_folds cannot both be set.")
+        if not refit_on_train_val and (cv_folds is not None or feature_selection_threshold is not None):
+            raise ValueError("refit_on_train_val=False keeps one fitted model on one validation split: it cannot be combined with cv_folds or feature_selection_threshold.")
 
         self.model = None
         self.params = kwargs
@@ -69,6 +78,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         self.shap_max_data_points = shap_max_data_points
         self.selected_features_: list[str] | None = None
         self.uncertainty_method = uncertainty_method
+        self.refit_on_train_val = refit_on_train_val
+        self._best_trial_model_: BaseModel | None = None
 
         if self.feature_selection_threshold is not None and self.feature_selection_threshold < 1.0:
             assert self.feature_selection_threshold > 0
@@ -99,6 +110,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                 "search_space_override": self.search_space_override,
                 "output_dir": self.output_dir,
                 "uncertainty_method": self.uncertainty_method,
+                "refit_on_train_val": self.refit_on_train_val,
             }
         )
         return params
@@ -164,6 +176,15 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             self.selected_features_ = select_features_by_cumulative_importance(feature_importance, self.feature_selection_threshold)
             logger.info(f"--- Selected {len(self.selected_features_)} features ---")
 
+    # Fields `fit` owns on the outer model; `_adopt_fitted_state` never overwrites them with a trial model's values.
+    _OUTER_OWNED_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"feature_names", "feature_to_idx_", "selected_features_", "train_indices", "val_indices", "test_indices", "cv_score_mean_", "cv_score_std_", "num_iterations_used"}
+    )
+
+    def _adopt_fitted_state(self, fitted: "BaseModel") -> None:
+        """Takes over the fitted state of a trial model (the one-pass search keeps its best trial's model, no refit)."""
+        self.__dict__.update({k: v for k, v in fitted.__dict__.items() if k not in self._OUTER_OWNED_FIELDS})
+
     def _determine_optimal_parameters(
         self,
         x_train: pd.DataFrame | None,
@@ -173,13 +194,27 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         x_val: np.ndarray | None = None,
         y_val: np.ndarray | None = None,
         timestamps_train_val: np.ndarray | None = None,
+        use_explicit_split: bool = False,
     ) -> None:
+        """Runs the search / early-stopping pass.
+
+        With ``use_explicit_split`` (a caller-given validation set, or the one-pass protocol) the search scores
+        its trials on ``(x_train, x_val)`` instead of drawing an inner split from train + validation. Under
+        ``refit_on_train_val=False`` this method ends with `self` fitted (best trial adopted, or one early-stopped pass).
+        """
         if self.optimize_hyperparameters:
             logger.info("--- Starting hyperparameter optimization ---")
-            best_params, self.num_iterations_used = self._find_best_hyperparameters(x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val)
+            split = (x_train.values, y_train, x_val.values, y_val) if use_explicit_split and x_val is not None else None
+            best_params, self.num_iterations_used = self._find_best_hyperparameters(x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val, explicit_split=split)
             self._update_params(best_params)
+            if not self.refit_on_train_val:
+                self._adopt_fitted_state(self._best_trial_model_)
+                self._best_trial_model_ = None
             logger.info(f"--- Hyperparameter optimization finished. Best params: {self.get_params()} ---")
             logger.info(f"--- Optimal iterations from HPO: {self.num_iterations_used} ---")
+        elif not self.refit_on_train_val:
+            logger.info("--- One-pass fit on the training part, validation held out ---")
+            self.num_iterations_used, _ = self._fit_single(x_train.values, y_train, x_val=x_val.values if x_val is not None else None, y_val=y_val)
         elif self.early_stopping_rounds is not None:
             # Step 2: Train the Model
             if self.cv_folds:
@@ -206,8 +241,24 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         self._fit_single(x_train, y_train, forced_iterations=forced)
         logger.info("--- Final model training finished ---")
 
-    def fit(self, x: np.ndarray | pd.DataFrame, y: np.ndarray | pd.DataFrame | pd.Series, timestamps: np.ndarray | None = None) -> None:
-        """Fits the model to the training data and evaluates it on all available partitions."""
+    def fit(
+        self,
+        x: np.ndarray | pd.DataFrame,
+        y: np.ndarray | pd.DataFrame | pd.Series,
+        timestamps: np.ndarray | None = None,
+        x_val: np.ndarray | pd.DataFrame | None = None,
+        y_val: np.ndarray | pd.DataFrame | pd.Series | None = None,
+    ) -> None:
+        """Fits the model to the training data and evaluates it on all available partitions.
+
+        Args:
+            x: training inputs.
+            y: training targets.
+            timestamps: optional timestamps for time-ordered splits (ignored with an explicit validation set).
+            x_val: optional explicit validation inputs. When given (with ``y_val``) they are the validation set,
+                ``(x, y)`` is the training part whole, and no inner split is drawn (so no test rows are set aside).
+            y_val: validation targets for ``x_val``.
+        """
         logger.info(f"--- Starting training for {self.name} ---")
 
         if isinstance(x, np.ndarray):
@@ -220,8 +271,19 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         if isinstance(y, pd.Series | pd.DataFrame):
             y = y.values
 
+        explicit_val = x_val is not None
+        if explicit_val:
+            if y_val is None:
+                raise ValueError("x_val was given without y_val.")
+            if self.cv_folds:
+                raise ValueError("An explicit validation set cannot be combined with cv_folds.")
+            x_val = x_val.values if isinstance(x_val, pd.DataFrame) else np.asarray(x_val)
+            y_val = y_val.values if isinstance(y_val, pd.Series | pd.DataFrame) else np.asarray(y_val)
+
         # Step 1: Create all data partitions up front
-        x_train, y_train, x_val, y_val, x_test, y_test, _, _, _, x_train_val, y_train_val, timestamps_train_val = self._prepare_data_partitions(x.values, y, timestamps)
+        x_train, y_train, x_val, y_val, x_test, y_test, _, _, _, x_train_val, y_train_val, timestamps_train_val = self._prepare_data_partitions(
+            x.values, y, timestamps, x_val=x_val, y_val=y_val
+        )
 
         x_train = pd.DataFrame(x_train, columns=self.feature_names)
         x_val = pd.DataFrame(x_val, columns=self.feature_names) if x_val is not None else None
@@ -236,20 +298,25 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             x_val=x_val,
             y_val=y_val,
             timestamps_train_val=timestamps_train_val,
+            use_explicit_split=explicit_val or not self.refit_on_train_val,
         )
 
-        if self.feature_selection_threshold is not None:
-            self._perform_feature_selection(x_train_val, y_train_val, self.num_iterations_used)
+        if self.refit_on_train_val:
+            if self.feature_selection_threshold is not None:
+                self._perform_feature_selection(x_train_val, y_train_val, self.num_iterations_used)
 
-        x_train_val_final = x_train_val[self.selected_features_] if self.selected_features_ else x_train_val
-        self._fit_final_model(x_train=x_train_val_final.values, y_train=y_train_val)
+            x_train_val_final = x_train_val[self.selected_features_] if self.selected_features_ else x_train_val
+            self._fit_final_model(x_train=x_train_val_final.values, y_train=y_train_val)
+            x_model, y_model = x_train_val_final, y_train_val
+        else:
+            x_model, y_model = x_train, y_train  # the model was fitted on the training part only
 
         if self.uncertainty_method == UncertaintyMethod.BINNED_RESIDUAL_STD:
             logger.info("--- Calibrating uncertainty model ---")
-            self.calibrate_uncertainty(x=x_train_val_final.values, y=y_train_val)
+            self.calibrate_uncertainty(x=x_model.values, y=y_model)
 
         if self.calculate_feature_importance:
-            self._calculate_and_save_feature_importance(model_instance=self, x_background=x_train_val_final)
+            self._calculate_and_save_feature_importance(model_instance=self, x_background=x_model)
 
         # Step 3: Automatic Final Evaluation
         if self.output_dir:
@@ -264,7 +331,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             logger.info("--- Final evaluation finished ---")
 
     def _prepare_data_partitions(
-        self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None
+        self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None
     ) -> tuple[
         np.ndarray,
         np.ndarray,
@@ -279,7 +346,15 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         np.ndarray,
         np.ndarray | None,
     ]:
-        """Creates train, validation, and test partitions."""
+        """Creates train, validation, and test partitions.
+
+        With an explicit ``(x_val, y_val)`` no split is drawn: ``(x, y)`` is the training part whole, there is no
+        test part, and ``val_indices`` index the concatenation ``[x; x_val]``.
+        """
+        if x_val is not None:
+            n_train = len(x)
+            self.train_indices, self.val_indices, self.test_indices = np.arange(n_train), np.arange(n_train, n_train + len(x_val)), np.array([], dtype=int)
+            return x, y, x_val, y_val, None, None, timestamps, None, None, np.concatenate([x, x_val]), np.concatenate([y, y_val]), timestamps
         self.train_indices, self.val_indices, self.test_indices = create_train_val_split(
             x=x,
             validation_fraction=self.validation_fraction if self.cv_folds is None else 0,
@@ -341,8 +416,18 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         """
         raise NotImplementedError
 
-    def _evaluate_trial_performance(self, model_instance: "BaseModel", x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> tuple[float, int]:
-        """Evaluates a trial's performance and returns the score and optimal iterations."""
+    def _evaluate_trial_performance(
+        self,
+        model_instance: "BaseModel",
+        x: np.ndarray,
+        y: np.ndarray,
+        timestamps: np.ndarray | None = None,
+        explicit_split: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None,
+    ) -> tuple[float, int]:
+        """Evaluates a trial's performance and returns the score and optimal iterations.
+
+        ``explicit_split = (x_train, y_train, x_val, y_val)`` replaces the inner split drawn from ``(x, y)``.
+        """
         if self.cv_folds:
             kf = self.get_kfolds(timestamps=timestamps)
             fold_results = []
@@ -356,22 +441,37 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             final_score = float(np.mean([res["score"] for res in fold_results]))
             optimal_iterations = find_optimal_iterations(fold_results)
         else:
-            train_indices, val_indices, _ = create_train_val_split(
-                x=x,
-                validation_fraction=self.validation_fraction,
-                test_fraction=0,
-                split_strategy=self.split_strategy,
-                timestamps=timestamps,
-                random_state=getattr(self, "random_seed", None),
-            )
-            x_train, y_train = x[train_indices], y[train_indices]
-            x_val, y_val = x[val_indices], y[val_indices]
+            if explicit_split is not None:
+                x_train, y_train, x_val, y_val = explicit_split
+            else:
+                train_indices, val_indices, _ = create_train_val_split(
+                    x=x,
+                    validation_fraction=self.validation_fraction,
+                    test_fraction=0,
+                    split_strategy=self.split_strategy,
+                    timestamps=timestamps,
+                    random_state=getattr(self, "random_seed", None),
+                )
+                x_train, y_train = x[train_indices], y[train_indices]
+                x_val, y_val = x[val_indices], y[val_indices]
             optimal_iterations, _ = model_instance._fit_single(x_train, y_train, x_val=x_val, y_val=y_val)
             final_score = model_instance._held_out_fit_score(x_val, y_val)
         return final_score, optimal_iterations
 
-    def _find_best_hyperparameters(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> tuple[dict[str, Any], int]:
-        """Finds the best hyperparameters and optimal iterations using Optuna."""
+    def _find_best_hyperparameters(
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        timestamps: np.ndarray | None = None,
+        explicit_split: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None,
+    ) -> tuple[dict[str, Any], int]:
+        """Finds the best hyperparameters and optimal iterations using Optuna.
+
+        Under ``refit_on_train_val=False`` the best trial's fitted model is kept in ``self._best_trial_model_``
+        (only the best so far is held in memory), for `fit` to adopt instead of refitting.
+        """
+        smaller_is_better = self._held_out_score_is_smaller_better()
+        best_trial: dict[str, Any] = {"score": None, "model": None}
 
         def objective(trial: optuna.Trial) -> float:
             search_space = self.get_hyperparameter_search_space()
@@ -388,14 +488,17 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             model_instance = self._clone()
             model_instance._update_params(trial_params)
 
-            score, iterations = self._evaluate_trial_performance(model_instance, x, y, timestamps=timestamps)
+            score, iterations = self._evaluate_trial_performance(model_instance, x, y, timestamps=timestamps, explicit_split=explicit_split)
             trial.set_user_attr("iterations", iterations)
+            if not self.refit_on_train_val and (best_trial["score"] is None or (score < best_trial["score"] if smaller_is_better else score > best_trial["score"])):
+                best_trial.update(score=score, model=model_instance)
             return score
 
-        direction = "minimize" if self._held_out_score_is_smaller_better() else "maximize"
+        direction = "minimize" if smaller_is_better else "maximize"
         optimizer = OptunaOptimizer(direction=direction, n_trials=self.n_trials, random_seed=getattr(self, "random_seed", None))
         study = optimizer.optimize(objective)
         best_iterations = study.best_trial.user_attrs["iterations"]
+        self._best_trial_model_ = best_trial["model"]
         return study.best_trial.params, best_iterations
 
     def _get_optimization_metric(self) -> Metric:

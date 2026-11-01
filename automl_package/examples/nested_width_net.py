@@ -178,6 +178,12 @@ def make_hetero(n: int, seed: int, r: float = HETERO_R_DEFAULT, sigma: float = H
     return x.astype(np.float32), y, region
 
 
+def hetero3_true_mean(x: np.ndarray, r: float = HETERO_R_DEFAULT) -> np.ndarray:
+    """E[y | x] of `make_hetero3`: line on [-r, 0), 0.5 sin x on [0, r), line on [r, 2r). Written apart from the generator so a test can check one against the other."""
+    xr = np.asarray(x, dtype=np.float64).ravel()
+    return np.select([xr < 0.0, xr < r], [(0.5 / r) * xr, 0.5 * np.sin(xr)], default=(0.5 / r) * (xr - r))
+
+
 def make_hetero3(n: int, seed: int, r: float = HETERO_R_DEFAULT) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """WP-3 discriminating control: `make_hetero` plus a third NOISY-easy region (the negative control).
 

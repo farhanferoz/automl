@@ -121,6 +121,10 @@ class XGBoostModel(BaseModel):
 
         best_iteration = self.model.best_iteration if use_early_stopping and self.model.best_iteration is not None else self.model.n_estimators
         loss_history = get_loss_history(self.model, use_early_stopping)
+        # XGBoost counts rounds from 0, so the number of rounds kept is best_iteration + 1 when early stopping chose it.
+        if forced_iterations is None:  # a refit with forced rounds must not overwrite the record of the pass that chose them
+            self.best_iteration_ = int(best_iteration) + (1 if use_early_stopping and self.model.best_iteration is not None else 0)
+            self.hit_cap_ = self.best_iteration_ == int(self.model.n_estimators)  # the best round is the last one allowed: more rounds may still help
 
         return best_iteration, loss_history
 

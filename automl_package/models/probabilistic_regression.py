@@ -153,6 +153,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         # default. Any run using it must record that fact in its results JSON (the caller's
         # responsibility -- this flag is what a results-writer checks).
         "allow_retired_capacity_selection": False,
+        # The nested model is refused at construction until the nested redesign (review 2026-10-22 card 5c-6,
+        # N0). `True` keeps the unredesigned code path reachable for the tests that exercise it; it is never a
+        # study default.
+        "allow_unredesigned_nested": False,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -234,6 +238,13 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 "legal under NESTED as a labelled comparison arm."
             )
 
+        if self.n_classes_selection_method == NClassesSelectionMethod.NESTED and not self.allow_unredesigned_nested:
+            raise ValueError(
+                "n_classes_selection_method=NESTED is refused until the nested redesign N0 (review 2026-10-22 card 5c-6, finding C3): "
+                "bins are re-cut at every k while one logit and one head serve class c at every k, so rung k is not a coarser "
+                "rung k+1. Pass allow_unredesigned_nested=True only to exercise the existing code paths."
+            )
+
         if self.use_monotonic_constraints and self.regression_strategy != RegressionStrategy.SEPARATE_HEADS:
             logger.warning("Monotonic constraints are only supported for the 'SEPARATE_HEADS' regression strategy.")
             self.use_monotonic_constraints = False
@@ -243,12 +254,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             self.use_anchored_heads = False
 
         if self.ordering_constraint_weight is None:
-            recommended_combo = (
-                self.regression_strategy == RegressionStrategy.SEPARATE_HEADS
-                and self.prob_reg_loss_type == ProbRegLossType.GAUSSIAN_LTV
-                and self.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY
-            )
-            self.ordering_constraint_weight = 1.0 if recommended_combo else 0.0
+            self.ordering_constraint_weight = 0.0
 
         if self.constrain_middle_class is None:
             self.constrain_middle_class = self.use_monotonic_constraints
@@ -286,6 +292,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         x: np.ndarray | pd.DataFrame,
         y: np.ndarray | pd.DataFrame | pd.Series,
         timestamps: np.ndarray | None = None,
+        x_val: np.ndarray | pd.DataFrame | None = None,
+        y_val: np.ndarray | pd.DataFrame | pd.Series | None = None,
     ) -> None:
         """Fits the model, honoring `self.capacity_selection` end-to-end (capacity-programme PA).
 
@@ -301,14 +309,19 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             y: training targets.
             timestamps: optional timestamps (unused under GLOBAL_CHEAP/GLOBAL_SWEEP; forwarded to
                 `PyTorchModelBase.fit` otherwise).
+            x_val: optional explicit validation inputs (see `BaseModel.fit`); not available under GLOBAL_CHEAP/GLOBAL_SWEEP,
+                which draw their own selection and validation parts.
+            y_val: validation targets for ``x_val``.
         """
+        if x_val is not None and self.capacity_selection in (CapacitySelection.GLOBAL_CHEAP, CapacitySelection.GLOBAL_SWEEP):
+            raise ValueError(f"An explicit validation set is not supported under capacity_selection={self.capacity_selection.value}.")
         if self.capacity_selection == CapacitySelection.GLOBAL_CHEAP:
             self._fit_global_cheap(x, y)
             return
         if self.capacity_selection == CapacitySelection.GLOBAL_SWEEP:
             self._fit_global_sweep(x, y)
             return
-        super().fit(x, y, timestamps=timestamps)
+        super().fit(x, y, timestamps=timestamps, x_val=x_val, y_val=y_val)
 
     def _split_off_selection_set(self, x: np.ndarray | pd.DataFrame, y: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Splits `(x, y)` into a fit portion and a held-out selection portion.
@@ -336,6 +349,29 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         )
         return x_arr[train_indices], y_arr[train_indices], x_arr[sel_indices], y_arr[sel_indices]
 
+    @staticmethod
+    def _fit_without_test_part(fit_fn: Callable[..., None], model: "ProbabilisticRegressionModel", x: np.ndarray | pd.DataFrame, y: np.ndarray) -> None:
+        """Fits ``model`` through ``fit_fn`` on its own train / validation split of ``(x, y)``, with no test part.
+
+        The selectors hand `fit` rows that are already theirs to use, so nothing may be set aside unread
+        (`test_fraction` would drop 10%). The split goes through `fit`'s explicit-validation path. Under
+        ``cv_folds`` (or no validation fraction) there is no single split to hand over, and `fit` runs unchanged.
+        """
+        if model.cv_folds or not model.validation_fraction:
+            fit_fn(x, y)
+            return
+        train_idx, val_idx, _ = create_train_val_split(
+            x=x.values if hasattr(x, "values") else np.asarray(x),
+            validation_fraction=model.validation_fraction,
+            test_fraction=0.0,
+            split_strategy=model.split_strategy,
+            timestamps=None,
+            random_state=model.random_seed,
+        )
+        rows = x.iloc if isinstance(x, pd.DataFrame) else x
+        y_arr = np.asarray(y)
+        fit_fn(rows[train_idx], y_arr[train_idx], x_val=rows[val_idx], y_val=y_arr[val_idx])
+
     def _fit_global_cheap(self, x: np.ndarray | pd.DataFrame, y: np.ndarray) -> None:
         """`CapacitySelection.GLOBAL_CHEAP` (M1): trains, then selects one k off the held-out remainder.
 
@@ -343,7 +379,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         the whole dataset from the held-out remainder via `fit_global_selector`.
         """
         x_fit, y_fit, x_sel, y_sel = self._split_off_selection_set(x, y)
-        super().fit(x_fit, y_fit)
+        self._fit_without_test_part(super().fit, self, x_fit, y_fit)
         self.fit_global_selector(x_sel, y_sel)
 
     def _fit_global_sweep(self, x: np.ndarray | pd.DataFrame, y: np.ndarray) -> None:
@@ -580,13 +616,14 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 "base_classifier_params__hidden_size": {"type": "int", "low": 32, "high": 64, "step": 32},
                 "base_classifier_params__use_batch_norm": {"type": "categorical", "choices": [True, False]},
                 "base_classifier_params__dropout_rate": {"type": "float", "low": 0.0, "high": 0.5, "step": 0.1},
-                "regression_head_params__hidden_layers": {"type": "int", "low": 0, "high": 1},
+                "regression_head_params__hidden_layers": {"type": "int", "low": 1, "high": 2},
                 "regression_head_params__hidden_size": {"type": "int", "low": 16, "high": 32, "step": 16},
                 "regression_head_params__use_batch_norm": {"type": "categorical", "choices": [True, False]},
                 "regression_head_params__dropout_rate": {"type": "float", "low": 0.0, "high": 0.5, "step": 0.1},
-                "boundary_loss_weight": {"type": "float", "low": 0.1, "high": 10.0, "log": True},
             }
         )
+        if self.boundary_regularization_method == BoundaryRegularizationMethod.PENALTY:
+            space["boundary_loss_weight"] = {"type": "float", "low": 0.1, "high": 10.0, "log": True}
 
         if self.n_classes_selection_method == NClassesSelectionMethod.NONE:
             space["n_classes"] = {"type": "int", "low": 2, "high": (int(self.n_classes_inf) - 1 if self.n_classes_inf != float("inf") else 5)}
@@ -657,21 +694,6 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             y_train = symlog(torch.tensor(y_train, dtype=torch.float32)).numpy()
             if y_val is not None:
                 y_val = symlog(torch.tensor(y_val, dtype=torch.float32)).numpy()
-
-        is_ce_active = self.optimization_strategy not in (
-            ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
-            ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
-        )
-        if self.n_classes_selection_method != NClassesSelectionMethod.NONE and is_ce_active:
-            logger.warning(
-                "Dynamic n_classes selection (%s) with optimization_strategy=%s activates "
-                "classification cross-entropy: class boundaries are precomputed independently per "
-                "k, so per-k re-binned CE targets redefine class identity across k (node-0 "
-                "conflict). This combination is NOT validated (open question: docs/probreg/cleanup_plan.md, "
-                "'Cross-entropy with the nested k ladder').",
-                self.n_classes_selection_method.value,
-                self.optimization_strategy.value,
-            )
 
         if not self.direct_regression:
             self.precomputed_class_boundaries = {}
@@ -1198,7 +1220,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             params = dict(base_params)
             params.update(n_classes=k, n_classes_selection_method=NClassesSelectionMethod.NONE, capacity_selection=CapacitySelection.FIXED)
             sub_model = ProbabilisticRegressionModel(**params)
-            sub_model.fit(x_train, y_train)
+            self._fit_without_test_part(sub_model.fit, sub_model, x_train, y_train)
             error_table[:, col] = sub_model._held_out_fit_per_sample(x_val, y_val)
             submodels.append(sub_model)
 

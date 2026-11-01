@@ -99,6 +99,9 @@ class CatBoostModel(BaseModel):
 
         best_iteration = self.model.tree_count_ if (use_early_stopping and (self.model.tree_count_ is not None)) else params["iterations"]
         loss_history = get_loss_history(self.model, use_early_stopping)
+        if forced_iterations is None:  # a refit with forced rounds must not overwrite the record of the pass that chose them
+            self.best_iteration_ = int(best_iteration)
+            self.hit_cap_ = self.best_iteration_ == int(params["iterations"])  # the best round is the last one allowed: more rounds may still help
 
         return best_iteration, loss_history
 

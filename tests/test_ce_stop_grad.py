@@ -22,6 +22,7 @@ from automl_package.models.common.regression_heads import ConstantHead
 from automl_package.models.neural_network import PyTorchNeuralNetwork
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
 from automl_package.models.pytorch_linear_regression import PyTorchLinearRegression
+from automl_package.utils.convergence import ConvergenceResult
 from automl_package.utils.losses import beta_nll_loss
 
 
@@ -67,6 +68,21 @@ class TestCeModesConstructAndTrain:
         assert has_constant_head(constrain_middle_class=True)
         assert not has_constant_head(use_monotonic_constraints=True, constrain_middle_class=False)
 
+        # Dropout is built whenever its rate is positive, under the default (CONSTANT) spread, for the plain network
+        # and the ProbReg classifier; the default rate 0.0 builds none (I5).
+        def n_dropout_layers(module: torch.nn.Module) -> int:
+            return sum(isinstance(m, torch.nn.Dropout) for m in module.modules())
+
+        plain = PyTorchNeuralNetwork(input_size=1, dropout_rate=0.5, calculate_feature_importance=False)
+        plain.build_model()
+        assert n_dropout_layers(plain.model) == 1
+        with_dropout = ProbabilisticRegressionModel(input_size=1, n_classes=3, base_classifier_params={"dropout_rate": 0.5}, calculate_feature_importance=False)
+        with_dropout.build_model()
+        assert n_dropout_layers(with_dropout.model.classifier_layers) == 1
+        without_dropout = ProbabilisticRegressionModel(input_size=1, n_classes=3, calculate_feature_importance=False)
+        without_dropout.build_model()
+        assert n_dropout_layers(without_dropout.model) == 0
+
     @pytest.mark.parametrize(
         "extra",
         [
@@ -74,16 +90,34 @@ class TestCeModesConstructAndTrain:
             {"optimize_hyperparameters": True, "n_trials": 2, "validation_fraction": 0.2},
             {"optimize_hyperparameters": True, "n_trials": 2, "cv_folds": 2, "validation_fraction": None},
             {"n_classes": 5, "n_classes_inf": 3, "validation_fraction": 0.2},
+            {"refit_on_train_val": False, "validation_fraction": 0.2},
+            {"refit_on_train_val": False, "optimize_hyperparameters": True, "n_trials": 2, "validation_fraction": 0.2},
         ],
-        ids=["cv", "hpo", "hpo_cv", "direct_regression"],
+        ids=["cv", "hpo", "hpo_cv", "direct_regression", "one_pass", "one_pass_hpo"],
     )
     def test_default_fits_under_cv_hpo_and_direct_regression(self, extra):
-        """The CE_STOP_GRAD default must not crash where trials are scored on a clone (CV, search) or where no classes exist."""
+        """The CE_STOP_GRAD default must not crash where trials are scored on a clone (CV, search) or where no classes exist.
+
+        The one-pass cases (`refit_on_train_val=False`) must also never refit on train + validation, keep the
+        whole fitted model, and leave a convergence record; an explicit validation set is used as given, with no
+        inner split and no test rows set aside.
+        """
         x, y = _make_tiny_dataset()
         kwargs = {"input_size": 1, "n_classes": 3, "n_epochs": 2, "early_stopping_rounds": 2, "random_seed": 0, "calculate_feature_importance": False} | extra
         model = ProbabilisticRegressionModel(**kwargs)
+        if extra.get("refit_on_train_val") is False:
+            model._fit_final_model = lambda **_: pytest.fail("one-pass fit must not refit on train + validation")
         model.fit(x, y)
         assert np.all(np.isfinite(model.predict(x[:10])))
+        if extra.get("refit_on_train_val") is False:
+            assert model.model is not None
+            assert isinstance(model.convergence_, ConvergenceResult)
+            assert model.convergence_.converged != model.convergence_.hit_cap
+
+            explicit = ProbabilisticRegressionModel(**kwargs)
+            explicit.fit(x[:60], y[:60], x_val=x[60:], y_val=y[60:])
+            assert (explicit.train_indices.size, explicit.val_indices.size, explicit.test_indices.size) == (60, 20, 0)
+            assert np.all(np.isfinite(explicit.predict(x[:10])))
 
     @pytest.mark.parametrize("strategy", list(ProbabilisticRegressionOptimizationStrategy))
     def test_every_mode_constructs_without_escape_hatch_and_trains(self, strategy):
@@ -177,18 +211,30 @@ class TestCeStopGradRouting:
         assert classifier_grad > 0.0
         assert heads_grad > 0.0
 
-    def test_gradient_stop_classifier_still_receives_regression_gradient(self):
-        """GRADIENT_STOP with fixed k: CE is off, but regression loss still flows through probs.
+    def test_gradient_stop_classifier_gets_no_gradient_and_keeps_initial_weights(self):
+        """GRADIENT_STOP at fixed k is the "classifier learns nothing" control: no CE and probabilities detached.
 
-        Pre-change semantics (preserved): GRADIENT_STOP only disables the CE term; the classifier
-        is still supervised by regression via the non-detached probs path in NoneStrategy.forward.
-        If detach were incorrectly applied here the classifier grad would be zero (no CE, no grad
-        path), which was the bug flagged for restoration.
+        The classifier must receive zero gradient from the full loss, the heads must still learn, and after a
+        short fit the classifier's weights must equal the ones it was built with.
         """
-        model = self._fit_tiny(ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP)
+        x, y = _make_tiny_dataset()
+        model = _make_model(ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP, n_epochs=3)
+        initial: dict[str, torch.Tensor] = {}
+        build = model.build_model
+
+        def build_and_snapshot() -> None:
+            build()
+            initial.clear()
+            initial.update({k: v.detach().clone() for k, v in model.model.classifier_layers.state_dict().items()})
+
+        model.build_model = build_and_snapshot
+        model.fit(x, y)
         classifier_grad, heads_grad = self._run_backward(model)
-        assert classifier_grad > 0.0, "GRADIENT_STOP + fixed k must route regression gradient to classifier (CE is off)"
+        assert classifier_grad == 0.0, "GRADIENT_STOP + fixed k must send no gradient into the classifier"
         assert heads_grad > 0.0
+        assert initial, "build_model was never called"
+        for name, tensor in model.model.classifier_layers.state_dict().items():
+            assert torch.equal(tensor, initial[name]), f"classifier weight {name} changed under GRADIENT_STOP"
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +384,8 @@ class TestKSelectorsReadTheFitTable:
         x, y = self._toy()
         model = ProbabilisticRegressionModel(
             input_size=1, n_classes=3, max_n_classes_for_probabilistic_path=3, uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.NESTED, optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
+            optimization_strategy=ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
             n_epochs=8, learning_rate=0.01, random_seed=0, calculate_feature_importance=False,
         )
         model.fit(x, y)

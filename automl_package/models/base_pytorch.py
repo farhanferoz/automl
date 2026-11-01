@@ -15,7 +15,7 @@ from automl_package.models.base import BaseModel
 from automl_package.models.common.losses import calculate_combined_loss
 from automl_package.models.common.mixins import RegularizationMixin
 from automl_package.optimizers import get_optimizer_wrapper
-from automl_package.utils.convergence import ConvergenceTracker, snapshot_state
+from automl_package.utils.convergence import ConvergenceResult, ConvergenceTracker, snapshot_state
 from automl_package.utils.numerics import ensure_proba_shape
 from automl_package.utils.pytorch_utils import calculate_regularization_loss, get_device
 
@@ -62,6 +62,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
 
         # Now, override any attributes set by the parent's constructor if necessary
         self.l1_log_lambda, self.l2_log_lambda = None, None
+        self.convergence_: ConvergenceResult | None = None  # frozen result of the last `_fit_single` (converged / hit_cap / best_epoch)
         self.using_l1_regularization = (
             self.learned_regularization_type in [LearnedRegularizationType.L1_ONLY, LearnedRegularizationType.L1_L2] if self.learn_regularization_lambdas else self.l1_lambda > 0
         )
@@ -258,8 +259,10 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         tracker = ConvergenceTracker(patience=self.early_stopping_rounds or 0, min_delta=0.0)
         val_loss_history = []
         n_epochs = forced_iterations if forced_iterations is not None else self.n_epochs
+        final_epoch = 0
 
         for epoch in range(int(n_epochs)):
+            final_epoch = epoch
             self.model.train()
             for batch_x, batch_y in train_dataloader:
                 if self.lambda_optimizer:
@@ -304,6 +307,8 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
 
         if best_model_state and use_early_stopping:
             self.model.load_state_dict(best_model_state)
+        if use_early_stopping and x_val_tensor is not None:  # a refit without a validation set must not overwrite the record of the pass that chose the epochs
+            self.convergence_ = tracker.result(final_epoch=final_epoch)
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
             self._fit_residual_std(x_train, y_train)
         return best_epoch + 1, val_loss_history
@@ -352,12 +357,12 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
     def get_hyperparameter_search_space(self) -> dict[str, Any]:
         """Gets the hyperparameter search space for the model."""
         space = {
-            "learning_rate": {"type": "float", "low": 1e-4, "high": 1e-2, "log": False},
-            "l1_lambda": {"type": "float", "low": 1e-8, "high": 1e-2, "log": False},
-            "l2_lambda": {"type": "float", "low": 1e-8, "high": 1e-2, "log": False},
+            "learning_rate": {"type": "float", "low": 1e-4, "high": 1e-2, "log": True},
+            "l1_lambda": {"type": "float", "low": 1e-8, "high": 1e-2, "log": True},
+            "l2_lambda": {"type": "float", "low": 1e-8, "high": 1e-2, "log": True},
             "dropout_rate": {"type": "float", "low": 0.0, "high": 0.5, "step": 0.1},
         }
-        if self.is_regression_model:
+        if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.MC_DROPOUT:
             space["n_mc_dropout_samples"] = {"type": "int", "low": 50, "high": 200, "step": 50}
 
         if self.search_space_override:

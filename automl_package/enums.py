@@ -278,7 +278,7 @@ class ProbabilisticRegressionOptimizationStrategy(Enum):
 
     REGRESSION_ONLY = "regression_only"
     COMPOSITE_LOSS = "composite_loss"
-    GRADIENT_STOP = "gradient_stop"
+    GRADIENT_STOP = "gradient_stop"  # "classifier learns nothing" control: no CE, probs detached, classifier keeps its initial weights
     CE_STOP_GRAD = "ce_stop_grad"  # classifier trained on bin-CE only; probs detached before heads
 
 

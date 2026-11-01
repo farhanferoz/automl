@@ -485,7 +485,7 @@ class TestSHAP:
         model = ProbabilisticRegressionModel(
             input_size=3, max_n_classes_for_probabilistic_path=4,
             uncertainty_method=UncertaintyMethod.PROBABILISTIC,
-            n_classes_selection_method=NClassesSelectionMethod.NESTED,
+            n_classes_selection_method=NClassesSelectionMethod.NESTED, allow_unredesigned_nested=True,
             regression_strategy=RegressionStrategy.SEPARATE_HEADS,
             n_epochs=20, learning_rate=0.01, validation_fraction=0.2, random_seed=0,
             calculate_feature_importance=False,
