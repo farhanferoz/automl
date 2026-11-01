@@ -54,7 +54,7 @@ it stable and leave it arbitrary; that is why the seed fix alone was rejected.
 **The repair, when its dependency lands:** select `k` on held-out data using the strand's own rule —
 cheapest-within-tolerance at twice a bootstrap standard error — instead of pinning `k=5`, holding the
 per-seed bar at 2.5. **Tracked dependency: `docs/flexnn/package/plan.md` FP-9.a/FP-9.b** (the shared selector
-and its bootstrap standard-error helper) **and PA** (M1's selector built on `all_rung_log_likelihood`).
+and its bootstrap standard-error helper) **and PA** (M1's selector built on `all_rung_fit_loss`).
 Not a dispatchable task until both exist; re-read this block when PA closes.
 
 *(Method note, recorded because it cost two rounds: the first two explanations of this failure led

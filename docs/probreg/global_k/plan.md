@@ -8,8 +8,7 @@ k (M1), or expensively, by training one model per k (M3, the reference). Definit
 <!-- from docs/plans/capacity_programme/probreg.md lines 1109-1236 -->
 ### P8 — does explicit regularisation move the selected k? — ⛔ **REOPENED 2026-07-21. RESULTS DISCARDED. The verdict below is VOID.**
 
-**Why it is void.** The reason once given here (selection on a metric that the withdrawn fixed-σ rule forbade) was removed 2026-10-22
-(mixture framing; docs/probreg/cleanup_plan.md). The artifacts stay on disk and are not cited as evidence until the new review rules on them.
+**Why it is void.** Superseded 2026-11-01: see `docs/probreg/PLAN.md` "Plan of record". The artifacts stay on disk and are not cited as evidence until the new review rules on them.
 
 **Status of the artifacts.** The per-λ/seed JSONs and `frozen.json` under
 `automl_package/examples/capacity_ladder_results/P8/` **stay on disk as a record and may NOT be cited

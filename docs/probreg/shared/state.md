@@ -43,7 +43,7 @@ moving them would have broken ~30 citations including ten frozen preregistration
 
 **Still-live reasoning in the frozen files — read, never dispatch:**
 - `docs/flexnn/width/history/width_dial_2026-07/cascade_execution_plan_2026-07-11.md` §3.1 — the cross-k
-  class-identity conflict (one component asked to be correct at several resolutions at once). Its
+  class-identity conflict (one class asked to be correct at several resolutions at once). Its
   resolution there (regression-only supervision) is withdrawn: removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 - The same file's §4.7 — four ProbReg library fixes, **all verified landed at HEAD 2026-07-20**,
   none of which had a completion record in any plan document until that check.
@@ -66,27 +66,18 @@ Verified in BOTH directions: fix present → 3 passed; fix deleted → 3 failed
 measured blindness table: `docs/flexnn/archive/flexnn-core.md` (F9-fix-b block).
 
 **D2 — ✅ FIXED 2026-07-20 (commit `84ad94d`), found already landed during the 2026-07-21 repair
-audit.** The units mismatch in `_per_sample_log_likelihood_at_k`
+audit.** The units mismatch in `_per_sample_fit_at_k`
 (`automl_package/models/probabilistic_regression.py:835`) is fixed in that commit: caller-space `y`
 is symlog-transformed before scoring, the contract is documented on the method and on its only
 caller `held_out_arbiter_advantage`, and the regression test P1 asked for exists in the same commit
 (`tests/test_phase3_dynamic_k.py:726`, `TestArbiterAdvantageSymlogSpaceAlignment`) — re-executed at
 the root 2026-07-21: 2 passed.
-*(Corrected 2026-07-21: the 2026-07-20 repair pass re-asserted "D2 still stands as a real bug" —
-prose was edited without re-checking disk while the fix already sat in history. The rule this
-motivates is now a `docs/flexnn/PLAN.md` Corrections entry. What SURVIVES of the earlier note, verified still
-true 2026-07-21: **the primitive M1 actually needs, `all_rung_log_likelihood`
-(`automl_package/models/flexnn/strategies/n_classes.py:230`), has the SAME shape of
-bug** — it passes `y_target` straight through with no symlog transform (`:251`), and has zero
-callers today. Whoever builds PA's M1 selector on top of it must apply the now-fixed transform
-pattern there too, or D2 reopens in the function that actually matters. It is PA's problem to close
-as part of building the mechanism.)*
+*(Corrected 2026-07-21: the 2026-07-20 repair pass re-asserted "D2 still stands as a real bug" — prose was edited without re-checking disk while the fix already sat in history. The rule this motivates is now a `docs/flexnn/PLAN.md` Corrections entry. The remainder of this note concerned the former per-rung likelihood function: superseded 2026-11-01, see `docs/probreg/PLAN.md` "Plan of record".)*
 
 **D4 — OPEN, inherited, user-gated.** The cross-k class-identity conflict: with cross-entropy
 supervision and k-dropout, the percentile bin boundaries are recomputed for each candidate k, so
 "class i" names a different slice of y at each k. What shipped is a runtime warning only — not a
-behaviour change. The two candidate fixes on record are k-stable binning, or documenting that
-k-dropout requires likelihood-only training. It must not be re-discovered a fourth time — it is
+behaviour change. The candidate fixes on record: superseded 2026-11-01, see `docs/probreg/PLAN.md` "Plan of record". It must not be re-discovered a fourth time — it is
 recorded here as the owner. *(Rewritten 2026-10-22: the earlier text said the conflict was dodged by
 freezing `REGRESSION_ONLY`; that default is withdrawn, see `docs/probreg/cleanup_plan.md`.)*
 
@@ -97,25 +88,9 @@ freezing `REGRESSION_ONLY`; that default is withdrawn, see `docs/probreg/cleanup
   to 16 digits on a clean worktree at commit `600460c`, so it is not new. **Undocumented anywhere**
   — the same silent-failure pattern this programme keeps paying for. → **P2**
 
-**D5 — OPEN, the primary defect this repair pass exists to record.** `held_out_arbiter_advantage`
-(`automl_package/models/probabilistic_regression.py:845-916`) is **not M1's selection mechanism**,
-despite being named as such in an earlier version of §1's table. Verified by reading the full
-function body: it returns a per-input `(N,)` array (`:914-916`), computed as the
-neighbour-averaged advantage of ONE fixed top rung over the k=1 bypass (`:905-907`) — a binary
-top-vs-bypass comparison, smoothed over an x-neighbourhood. It cannot express "chose k=4" for any
-middle rung, and it answers a per-input question, not "one k for the dataset" (§1's M1
-definition). → **PA must build M1's selector on `all_rung_log_likelihood` instead** (§1 ⚠️, PA's
-task text).
+**D5 — OPEN.** `held_out_arbiter_advantage` (`automl_package/models/probabilistic_regression.py`) is **not M1's selection mechanism**: it returns a per-input `(N,)` array comparing ONE fixed top rung with the k=1 bypass, so it cannot express "chose k=4" for a middle rung or one global k for the dataset. M1's selector reads the per-rung table `all_rung_fit_loss` instead (§1 ⚠️, PA's task text).
 
-**D6 — OPEN, a stale docstring; recorded here, not fixed (no source edits in this repair).**
-`all_rung_log_likelihood`'s docstring
-(`automl_package/models/flexnn/strategies/n_classes.py:234-235`) claims *"This is
-the all-rung score table `ProbabilisticRegressionModel.held_out_arbiter_advantage` ...
-consume[s]"* — **false**. `held_out_arbiter_advantage` never calls `all_rung_log_likelihood`; it
-calls `_per_sample_log_likelihood_at_k` twice, once per rung
-(`probabilistic_regression.py:905-906`). Confirmed by reading both functions in full. Whichever
-task next touches `n_classes_strategies.py` (PA, most likely) should correct the docstring in the
-same change that gives `all_rung_log_likelihood` its first real caller.
+**D6 —** Superseded 2026-11-01: see `docs/probreg/PLAN.md` "Plan of record".
 
 ---
 

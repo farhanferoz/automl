@@ -179,7 +179,7 @@ k_global = <SELECTION PROCEDURE — NOT YET SPECIFIED, see below>
 > a per-input knee helper under `examples/`, and the arbiter's own docstring records that the
 > per-input knee was found **not faithful**). Three things must be decided before this arm can be
 > built, and they are PI decisions, not implementation details:
-> 1. **What curve is read** — per-rung held-out likelihood across `k = 1..10`, or the arbiter
+> 1. **What curve is read** — per-rung held-out fit term across `k = 1..10`, or the arbiter
 >    statistic generalised from top-vs-bypass to rung-vs-rung?
 > 2. **What rule picks k off it** — argmax, or cheapest-within-tolerance? If tolerance, what value?
 >    (`docs/probreg/shared/reports/probreg_kselection/probreg_kselection.md` §3.2 uses twice a bootstrap standard
@@ -230,7 +230,7 @@ M1's entire claim is that it reaches this answer far more cheaply.
 
 **Reuse, do not rewrite.** `select_k_for_toy`
 (`automl_package/examples/report_a_benchmark.py:331`) already implements exactly this loop — fit at
-each candidate k, score on held-out, `argmin` val NLL — and returns the per-k score table alongside
+each candidate k, score on held-out, `argmin` of the held-out fit term — and returns the per-k score table alongside
 the selected k. The driver **generalises that function** (its ProbReg builder **stays the ordinary
 fixed-k builder it already uses**, `_probreg_fixed` (`:185-191`, `NClassesSelectionMethod.NONE`) —
 **CORRECTED 2026-07-20**: this sentence previously said the builder "becomes the k-dropout one of
@@ -356,7 +356,7 @@ the page fetched**, not as remembered from `research_plan.md` — where the two 
 
 | | **T1.1 Kepler Objects of Interest** | **T1.2 UCI Superconductivity** | **T1.3 UCI Airfoil Self-Noise** |
 |---|---|---|---|
-| Why in the set | Genuinely **multimodal** target (rocky / sub-Neptune / Jupiter radius populations) — the strongest real test of the classification bottleneck | **Heavy-tailed** target — the real symlog test | **Heteroscedastic**, small, unimodal — the negative control for per-input k |
+| Why in the set | Planet-radius target (rocky / sub-Neptune / Jupiter populations) | **Heavy-tailed** target — the real symlog test | **Heteroscedastic**, small, unimodal — the negative control for per-input k |
 | Source | NASA Exoplanet Archive TAP service | UCI ML Repository, dataset 464 | UCI ML Repository, dataset 291 |
 | URL (verified live) | `https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=...&format=csv` (table name `cumulative`) | `https://archive.ics.uci.edu/dataset/464/superconductivty+data` | `https://archive.ics.uci.edu/dataset/291/airfoil+self+noise` |
 | Size (verified live) | **9564** rows (`select count(kepid) from cumulative`, executed 2026-07-20) | **21263** instances | **1503** instances |
@@ -629,9 +629,9 @@ Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 ### 7.7 Falsifiable prediction (recorded, not a bar)
 
-Per the k-selection bypass analysis: on **Airfoil** (heteroscedastic but unimodal, smooth) the
+Per the k-selection bypass analysis: on **Airfoil** (heteroscedastic, smooth) the
 variable-k router should route the **majority** of test inputs to the bypass rung `(1,)`, whereas on
-**Kepler** (multimodal) it should not. The rung histogram (§4.6) is reported for every dataset. This
+**Kepler** it should not. The rung histogram (§4.6) is reported for every dataset. This
 is a prediction the benchmark can falsify; it does not gate any §7 verdict.
 
 ---

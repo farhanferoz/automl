@@ -34,7 +34,7 @@ It ends with a paper strategy and an execution roadmap.
 
 **Two papers, two models.** These are independent contributions that warrant separate publications:
 
-- **Paper A (ProbReg):** *”Classification-Based Probabilistic Regression via the Law of Total Variance.”* Claim: learned per-class variance combined via the law of total variance dominates other tabular uncertainty estimators (NGBoost, MDN, Deep Ensembles) on heteroscedastic, multi-modal problems. Dynamic k (ELBO + SoftGating) provides automatic bin complexity. Astrophysics headline: **photometric redshift estimation** (multimodal posteriors from color-redshift degeneracies; §6.2).
+- **Paper A (ProbReg):** *”Classification-Based Probabilistic Regression via the Law of Total Variance.”* Claim: superseded 2026-11-01, see `docs/probreg/PLAN.md` "Plan of record". Astrophysics headline: **photometric redshift estimation** (§6.2).
 
 - **Paper B (FlexibleNN):** *”Input-Dependent Depth Selection for Compute-Adaptive Neural Networks.”* Claim: ELBO-regularized depth gating learns to allocate more layers to complex inputs and fewer to simple inputs, yielding compute savings at inference without accuracy loss. Astrophysics headline: **galaxy cluster mass estimation** (complexity varies with cluster richness and dynamical state; §6.3). Future work: applying the same depth-gating mechanism to FT-Transformer blocks (§5).
 
@@ -269,7 +269,7 @@ Three layers:
 - Problems with **increasing dimensionality** → show depth gating scales: higher-d problems need more depth on average, but easy instances still get shallow paths.
 - **Simplicity baseline:** On uniformly simple problems, FlexibleNN should collapse to depth=1, matching a shallow NN. On uniformly complex problems, it should use max depth uniformly, matching a deep NN. This demonstrates the model doesn't add unnecessary complexity.
 
-**Shared problems (Layer 3 UCI):** Both models run on the full UCI suite. ProbReg paper focuses on NLL/CRPS/calibration; FlexibleNN paper focuses on accuracy-compute tradeoff and wall-clock comparisons.
+**Shared problems (Layer 3 UCI):** Both models run on the full UCI suite. ProbReg paper: superseded 2026-11-01, see `docs/probreg/PLAN.md` "Plan of record"; FlexibleNN paper focuses on accuracy-compute tradeoff and wall-clock comparisons.
 
 The astrophysics applications (§6) come on top as headline experiments: photo-z for ProbReg, cluster mass for FlexibleNN.
 
@@ -282,12 +282,12 @@ Each is designed to have a specific failure mode that the research models should
 **B1 — Gravitational inverse problem (d=10, n=10k).** Observable: noisy gravitational acceleration `g` at 10 points along a 1-D track, around a point-mass `m` at position `x_0`:
 `g_i = G · m / (x_i − x_0)² + ε_i`, with `ε_i ~ N(0, σ_i²)` and `σ_i = 0.02 · |g_i|` (multiplicative noise). Target: `x_0` (position). Sampled with `x_0 ~ U(−2, 2)`, `m ~ LogNormal(0, 0.5)`. Properties: **heavy-tailed features**, **input-dependent noise**, **multimodal posterior** (the two near-field points dominate in different mass regimes). Closed-form posterior is computable via importance sampling, so the calibration curve is exact.
 
-*Why this is a good benchmark:* physically interpretable (point-mass gravity), has a correct Bayesian posterior for reference, targets the heteroscedasticity + multimodality that ProbReg should dominate.
+*Why this is a good benchmark:* physically interpretable (point-mass gravity), has a correct Bayesian posterior for reference, targets heteroscedasticity.
 
 **B2 — Oscillator with phase ambiguity (d=8, n=10k).** Target: oscillation frequency `f` of a damped harmonic oscillator observed at 8 time points `t_i`:
 `y(t_i) = A · exp(−γ · t_i) · cos(2πf · t_i + φ) + ε`. Features are `y(t_i)` plus the times. The frequency `f` has an aliasing ambiguity (`f` and `N/Δt − f` are indistinguishable at finite sampling), so the posterior over `f` is **genuinely bimodal** for certain observations. Targets: `f ~ U(0.1, 0.9)`, `A ~ U(0.5, 1.5)`, `γ ~ U(0.05, 0.3)`, `φ ~ U(0, 2π)`.
 
-*Why:* physically motivated (oscillator measurements are ubiquitous), has a known bimodal likelihood, and the aliasing is a real-world source of multimodality — exactly where a classification-based head should beat a Gaussian-only baseline.
+*Why:* physically motivated (oscillator measurements are ubiquitous).
 
 **B3 — Two-phase transition (d=12, n=10k).** A regression problem that switches regime at an unknown feature threshold: `y = f_1(x)` for `x · w < τ`, `y = f_2(x)` for `x · w ≥ τ`, with `f_1` simple linear and `f_2` non-linear. Additive noise scales with distance from the threshold: near the transition, noise is high (regime ambiguity); far from it, noise is low. Target: `y`.
 

@@ -39,8 +39,7 @@ def make_toy_a(n: int = 800, sigma: float = 0.5, seed: int = 42) -> tuple[np.nda
 
     y = sin(2π x) + σ · ε,   x ∈ [0, 1],   ε ~ N(0, 1)
 
-    No intrinsic mixture structure: p(y|x) is a single Gaussian. Used as the
-    "no intrinsic k" baseline in the k-selection diagnostic experiments.
+    The true mean is sin(2π x) and the noise variance is σ², constant in x.
     """
     rng = np.random.default_rng(seed)
     x = rng.uniform(0.0, 1.0, n).reshape(-1, 1).astype(np.float32)
@@ -211,18 +210,13 @@ def sample_toy_c_broad_given_x(x: np.ndarray, sigma: float = 0.3, sep_min: float
 
 
 def make_toy_c(n: int = 1500, sigma: float = 0.3, sep_min: float = 0.3, sep_max: float = 4.0, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
-    """Toy C: per-input mode structure — the Basis B toy.
+    """Toy C: zero-mean target whose noise level grows with ``x``.
 
-    The conditional ``p(y | x)`` is a two-component Gaussian mixture whose spacing grows
-    with ``x`` (see :func:`sep_schedule`): at low ``x`` the two modes are merged into one
-    blurry blob (one effective mode), at high ``x`` they are cleanly resolved (two modes).
-    The mean is held at zero so ALL the ``x`` dependence lives in the SHAPE, not the
-    location — that is what no existing toy provides, and what an input-adaptive
-    resolution dial has to track. Ground truth per input: ``k*(x) = 2`` iff
-    ``sep_schedule(x) > 2`` else ``1``.
+    The true mean ``E[y | x]`` is 0 everywhere, so a regressor's best squared error is the noise
+    variance ``σ²·(1 + sep_schedule(x)²/4)`` (see :func:`sep_schedule`), which rises with ``x``.
 
-    Pair with :func:`make_toy_c_broad` (same mean & variance at every ``x``, but always one
-    mode) as the over-chopping control.
+    Pair with :func:`make_toy_c_broad` (same mean and variance at every ``x``, drawn from one
+    Gaussian) as the control.
 
     Args:
         n: sample count.
@@ -241,13 +235,11 @@ def make_toy_c(n: int = 1500, sigma: float = 0.3, sep_min: float = 0.3, sep_max:
 
 
 def make_toy_c_broad(n: int = 1500, sigma: float = 0.3, sep_min: float = 0.3, sep_max: float = 4.0, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
-    """Single-mode twin of :func:`make_toy_c`, variance-matched at every input (over-chopping trap).
+    """Gaussian twin of :func:`make_toy_c`, variance-matched at every input.
 
-    At each ``x`` this draws ONE Gaussian whose variance equals the marginal variance of the
-    bimodal :func:`make_toy_c` at that ``x`` (``σ²·(1 + sep_schedule(x)²/4)``), with the same
-    zero mean. So it widens with ``x`` exactly like the bimodal envelope but never develops a
-    second peak: ``k*(x) = 1`` everywhere. A tiling model is tempted to raise its bucket count
-    here as the spread grows; the honest held-out arbiter must give those buckets no credit.
+    At each ``x`` this draws ONE Gaussian whose variance equals that of :func:`make_toy_c`
+    at that ``x`` (``σ²·(1 + sep_schedule(x)²/4)``), with the same zero mean. The true mean
+    and the noise level are therefore identical to :func:`make_toy_c`.
 
     Args:
         n: sample count.
@@ -276,17 +268,13 @@ def sample_toy_e_broad_given_x(x: np.ndarray, sigma: float = 0.3, sep_min: float
 
 
 def make_toy_e(n: int = 1500, sigma: float = 0.3, sep_min: float = 0.3, sep_max: float = 4.0, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
-    """Toy E: non-monotone per-input structure — the x-confound breaker.
+    """Toy E: zero-mean target whose noise level rises and then falls across ``x``.
 
-    Identical in spirit to :func:`make_toy_c` but the two-component spacing follows :func:`sep_hump`
-    instead of the monotone :func:`sep_schedule`: the modes are merged at both ends of ``x`` and
-    cleanly resolved only in the middle. Ground truth per input: ``k*(x) = 2`` iff ``sep_hump(x) > 2``
-    else ``1``, i.e. ``1 → 2 → 1`` across ``x``. An input-adaptive resolution dial must therefore
-    raise its count and then LOWER it again while ``x`` increases monotonically — which a selector
-    that merely tracks ``x`` (or the marginal variance, which also humps) cannot fake.
+    Like :func:`make_toy_c` (true mean 0 everywhere) but the noise variance ``σ²·(1 + sep_hump(x)²/4)``
+    follows :func:`sep_hump` instead of the monotone :func:`sep_schedule`: low at both ends of ``x``
+    and highest in the middle.
 
-    Pair with :func:`make_toy_e_broad` (same humped mean & variance, but always one mode) as the
-    over-chopping / variance-tracking control.
+    Pair with :func:`make_toy_e_broad` (same mean and variance, drawn from one Gaussian) as the control.
 
     Args:
         n: sample count.
@@ -305,12 +293,10 @@ def make_toy_e(n: int = 1500, sigma: float = 0.3, sep_min: float = 0.3, sep_max:
 
 
 def make_toy_e_broad(n: int = 1500, sigma: float = 0.3, sep_min: float = 0.3, sep_max: float = 4.0, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
-    """Single-mode twin of :func:`make_toy_e`: same humped marginal variance, never a second peak.
+    """Gaussian twin of :func:`make_toy_e`: same humped variance, same zero mean.
 
-    At each ``x`` this draws ONE Gaussian whose variance equals the marginal variance of
-    :func:`make_toy_e` at that ``x`` (``σ²·(1 + sep_hump(x)²/4)``), zero mean. So the spread humps
-    mid-range exactly like the bimodal envelope but ``k*(x) = 1`` everywhere. If the effective count
-    humps here too, the selector is tracking the variance hump, not genuine bimodality.
+    At each ``x`` this draws ONE Gaussian whose variance equals that of :func:`make_toy_e`
+    at that ``x`` (``σ²·(1 + sep_hump(x)²/4)``).
 
     Args:
         n: sample count.
@@ -439,14 +425,11 @@ def sample_toy_d_given_x(x: np.ndarray, sigma: float = 0.3, separation: float = 
 
 
 def make_toy_d(n: int = 1800, sigma: float = 0.3, separation: float = 4.0, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
-    """Toy D: a staircase in component count — the count-beyond-binary / ceiling test.
+    """Toy D: zero-mean target whose noise level steps up across ``x`` in thirds.
 
-    The conditional ``p(y | x)`` is an equal-weight Gaussian mixture whose component COUNT steps up
-    in ``x``: 1 component on ``[0, 1/3)``, 2 on ``[1/3, 2/3)``, 3 on ``[2/3, 1]``, all centred at 0
-    with adjacent modes ``separation·σ`` apart (cleanly resolved at the default 4σ). The mean is held
-    at 0 everywhere, so the only thing that changes across the staircase is HOW MANY modes the density
-    has. Ground truth ``k*(x) ∈ {1, 2, 3}`` by third. Tests whether per-input structure reading
-    (a) generalises past the 1-vs-2 case to 3, and (b) STOPS at 3 rather than tiling out to ``k_max``.
+    The true mean ``E[y | x]`` is 0 everywhere. The noise variance is ``σ²·(1 + separation²·(c² − 1)/12)``
+    with ``c = 1`` on ``[0, 1/3)``, ``c = 2`` on ``[1/3, 2/3)`` and ``c = 3`` on ``[2/3, 1]``, so it steps
+    up by thirds (the draw takes ``c`` equally likely values spaced ``separation·σ`` apart).
 
     Args:
         n: sample count (split roughly equally across the three thirds).
@@ -592,10 +575,10 @@ def make_toy_d_ndim_broad(n: int = 2500, dim: int = 2, sigma: float = 0.3, separ
 
 
 # ---------------------------------------------------------------------------
-# Exact conditional laws ("truth densities") and the review's new toys
+# Exact conditional laws (the true conditional mean and variance) and the review's new toys
 # (docs/probreg/review/review.md Appendix C: T-N1 switch, T-N2 Student-t, T-N3 skewed, T-N4 edge).
-# Every Gaussian-mixture toy above is restated as a `GaussianMixtureLaw` so its exact log-density,
-# repeated draws at fixed x, and fixed-sigma approximations all come from one object. The generators
+# Every toy above is restated as a `GaussianMixtureLaw` so its exact conditional mean and variance
+# and repeated draws at fixed x all come from one object. The generators
 # above are left untouched (their random streams reproduce every stored result).
 # ---------------------------------------------------------------------------
 
@@ -724,15 +707,14 @@ def switch_weight(x: np.ndarray, x_lo: float = 0.3, x_peak: float = 0.5, x_hi: f
 def switch_bimodal_law(x: np.ndarray, a: float = 0.6, sigma: float = 0.3) -> GaussianMixtureLaw:
     """T-N1, fixed-location varying-weight bimodal: ``(1 − w(x)) N(−a, σ²) + w(x) N(a, σ²)``.
 
-    k*(x) = 1 outside (0.3, 0.7) and 2 inside, in the component and the mode sense alike. In the
-    library's own family at k = 2 (constant heads at ``∓a``, second-class probability ``w(x)``).
+    The true mean is ``−a + 2a·w(x)`` and the noise variance is ``σ² + 4a²·w(x)(1 − w(x))``.
     """
     w = switch_weight(x)
     return _law([1.0 - w, w], [np.full_like(w, -a), np.full_like(w, a)], [np.full_like(w, sigma)] * 2)
 
 
 def edge_component_law(x: np.ndarray, w_e: float, a: float = 0.6, edge_loc: float = 1.8, sigma: float = 0.3) -> GaussianMixtureLaw:
-    """T-N4: the zero-baseline toy B plus a third component at ``edge_loc`` with weight ``w_e`` (k* = 3)."""
+    """T-N4: the zero-baseline toy B plus a third group of points at ``edge_loc``, drawn with probability ``w_e``."""
     xr = np.asarray(x, dtype=np.float64).ravel()
     w_main = np.full_like(xr, (1.0 - w_e) / 2.0)
     return _law([w_main, w_main, np.full_like(xr, w_e)], [np.full_like(xr, -a), np.full_like(xr, a), np.full_like(xr, edge_loc)], [np.full_like(xr, sigma)] * 3)
@@ -772,7 +754,7 @@ def sample_student_t_given_x(x: np.ndarray, nu: float = 3.0, scale: float = 0.3,
 
 
 def make_student_t_unimodal(n: int = 2000, nu: float = 3.0, scale: float = 0.3, baseline: str = "zero", seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
-    """T-N2 sample: one mode with heavy tails; out of the fixed-σ mixture family at every finite k."""
+    """T-N2 sample: true mean is the baseline (0 by default), heavy-tailed Student-t noise with ``nu`` degrees of freedom."""
     rng = np.random.default_rng(seed)
     x = _draw_x(n, rng)
     return x, (_baseline(x.ravel().astype(np.float64), baseline) + scale * rng.standard_t(nu, n)).astype(np.float32)
@@ -807,7 +789,7 @@ def _skewed_draws(n: int, shape: float, sd: float, rng: np.random.Generator) -> 
 
 
 def make_skewed_unimodal(n: int = 2000, shape: float = 5.0, sd: float = 0.6, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
-    """T-N3 sample: one skewed mode; out of the fixed-σ mixture family at every finite k."""
+    """T-N3 sample: true mean 0, skewed noise."""
     rng = np.random.default_rng(seed)
     x = _draw_x(n, rng)
     return x, _skewed_draws(n, shape, sd, rng)

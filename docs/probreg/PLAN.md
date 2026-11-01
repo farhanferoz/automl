@@ -13,6 +13,74 @@ questions. Work items live in the sub-plans. Rules that bind every stream: `docs
 > Decision 29's retirement of cross-entropy training are withdrawn. Text below that rests on them is
 > superseded and is to be removed under an owner-approved plan (pending).
 
+## Plan of record (owner, 2026-11-01) — the order of work; overrides the task order in §4
+
+**Objective (owner, verbatim):** "we need to find the best model combination for PROBREG that works ... we have
+different configurations for PROBREG. We need to investigate them. And we need to find the best one which is
+better than all the standard models that we have lined up on our toy."
+
+**Rulings this plan rests on (2026-11-01):**
+- *Validation reads the fit term only.* Early stopping, hyperparameter search, cross-validation and the choice of k
+  score held-out data with only the part of the training loss that measures the final prediction against y; every
+  regularisation term (the classifier's cross-entropy included) is ignored. Determined automatically for any loss.
+- *Design choices belong to the study, never to the search.* What the classifier learns from, the head layout and
+  the boundary-regularisation type are settled once, across problems, by this study. The search tunes only learning
+  rate, depth and width, dropout, regularisation weights and k. Defaults meanwhile: class labels only
+  (`CE_STOP_GRAD`), separate heads.
+- *Only likelihoods and priors train the model.* No penalty without a probabilistic meaning; the boundary,
+  ordering and middle-class penalties stay off. If the heads do not stay ordered and inside their bins unaided, the
+  remedy is structure (anchored heads, the hard-limit boundary, an ordinal classifier), not a penalty.
+- *Fixed spread by default.* Heads predict the mean only and the combined mean is trained by squared error; a spread
+  fitted in-sample comes out too small. Mean-and-spread heads are a comparison arm; any spread needed later comes from
+  held-out data.
+- *Comparators:* the plain network (tuned with the same search budget, and one at ProbReg's parameter count),
+  LightGBM, linear regression; each toy's best possible error as the floor.
+- *Yardstick:* held-out regression error on a fresh test draw per seed, never used to stop, tune or choose.
+- *Toys (for now):* toy_a (easy control), heteroscedastic, toy_h, hetero3, exponential, piecewise; the zero-mean toys
+  are dropped from this claim; new toys aimed at regression error come as specs for the owner first.
+- *Choosing k:* fixed k and the per-k sweep (without its constant k = 1 candidate) first; the nested model and the
+  router stay in scope but only once designed properly (properly nested; a router fitted and checked on separate
+  held-out data), following AutoCast Private's nested rank-selection work.
+
+**Order of work** (each step finished and checked before the next):
+1. **Fix the tools.** Fit-term validation, the best-epoch restore fix, the trimmed search space, the middle-class
+   head tied to the monotonic constraints, the sweep without k = 1. Done when the tests pass, every changed file has
+   been read, and the owner gives the go to commit.
+2. **Remove the stale mixture wording** from the plan documents and toy docstrings.
+3. **The review** (`docs/probreg/review/`, narrowed): checks the code against the rulings above, then proposes the
+   experiments for steps 5a-5d, each stating what is run, on which toys and seeds, and what each outcome would mean,
+   decided before anything runs.
+4. **Owner and analyst go through the proposed experiments one at a time.** Nothing runs until the owner agrees it.
+5. **Run, in order:**
+   a. *Test bench* — the toys, the comparators and the data rules per seed (train; validation for stopping, tuning
+      and k; a separate set for choosing between configurations; a fresh test set for grading). Every model is
+      shown to train to the end. Done when the plain network comes close to the best possible error on toy_a.
+      *Training protocol (owner, 2026-11-01, approved):* early stopping always on, on the held-out fit term, restoring
+      the true best epoch (the library default is no early stopping and 50 epochs, so the protocol sets it explicitly);
+      patience set from validation curves measured here, not guessed; an epoch limit high enough never to stop a run,
+      with every run that reaches it reported as not converged; one training pass (no refit on train + validation,
+      so validation stays held out); no cross-validation — fresh data per seed does its job; tuning, where used, on
+      the validation split.
+      *Data size (owner, 2026-11-01, approved):* measured, not guessed. Per toy, the plain network and default ProbReg
+      at doubling training sizes (250 to 16,000 points), error above the toy's best possible error against size; the
+      study then runs at two sizes: a small one where models sit clearly above the floor (where a regulariser should
+      help most) and a large one near the plateau. Test sets sized from each toy's per-point spread so their noise is
+      far below the gaps (toy_a: 10,000 points give about 0.0035 against a floor of 0.25).
+   b. *First comparison* — today's default ProbReg against the comparators.
+   c. *Configuration study, one design choice at a time*, keeping each winner: what the classifier learns from
+      (with "learns nothing" as the control); the head layout; whether the heads stay ordered and in their bins
+      unaided, and structure if not; how k is chosen. Then the winner against its near neighbours, in case two
+      choices interact.
+   d. *Confirmation* — the final configuration against every comparator on fresh draws no earlier step touched.
+      This is the claim.
+6. **Real data** — the owner's own dataset (to be briefed), in place of the Kepler/UCI list in O4.
+
+**Speed (owner, 2026-11-01): train many small models at once on the GPU.** One toy run is barely faster on the GPU
+(11.0 s against 13.9 s on one CPU thread, 2026-10-21 timing in `docs/probreg/review/groundwork_2026-10-22/runtimes.md`),
+because the networks are tiny. Stack the runs of one experiment (its seeds, or its configurations) into one batched
+computation on the GPU. Designed by the main session, built by Sonnet at medium effort, adopted only if a measurement
+shows it is faster than parallel CPU runs and gives the same results. Before step 5.
+
 ## Sub-plans
 
 | Sub-plan | What it covers | Status |
@@ -108,8 +176,8 @@ that was never written.
 - **O1b. It IMPROVES point accuracy** (owner, 2026-10-20, Q3) — over a plain network of matched
   capacity. *(The pre-registered real-data bar, `docs/probreg/shared/benchmark_spec.md` §7.4 H3, asks only
   "≤ 1.05× the best baseline"; that is now the floor, not the objective.)*
-- **O1c. It gives a better predictive distribution where the data has structure** — multimodal and
-  heteroscedastic targets — than standard regressors. *(Source:
+- **O1c. It gives a better predictive distribution where the data has structure** — heteroscedastic
+  targets — than standard regressors. *(Source:
   report (a)'s calibration headline, `docs/probreg/fixed_k/reports/report_a/report_a_probreg_toys.md` Summary.)*
 
 #### O2 — Global-k: k can be chosen from data, cheaply and correctly
@@ -139,16 +207,13 @@ that was never written.
 4. **Each variant is scored as a complete system, its selection machinery and cost included**
    (`docs/probreg/PLAN.md` §1).
 5. **Settle training before selection** (MASTER Decision 37, ruled for width).
-6. **Probabilistic inference only** — priors and likelihoods, no hand-weighted penalty terms
-   (2026-07-03 framing above; `K_PENALTY` is retired by MASTER Decision 29).
+6. **Only likelihoods and priors train the model** — restated, and still binding, in the plan of record (2026-11-01): no
+   penalty without a probabilistic meaning (`K_PENALTY` stays retired by MASTER Decision 29).
 
 ### The six questions, as put to the owner (answered 2026-10-20 — rulings at the top of this file)
 
 Kept for the reasoning behind each question; the rulings table at the top is authoritative.
-- **Q1. What is the primary claim: calibrated uncertainty, or adaptive resolution?** The April paper
-  plan (`docs/applications/research_plan.md` §7) claims *"learned per-class variance … dominates other tabular uncertainty
-  estimators"*, with in-training dynamic k as a contribution. Since July the in-training k half is retired. The live plan is about k as a resolution dial. Report (a)'s
-  headline was calibration.
+- **Q1. What is the primary claim: calibrated uncertainty, or adaptive resolution?** Superseded 2026-11-01: the yardstick is held-out regression error; see `docs/probreg/PLAN.md` "Plan of record".
 - **Q2.** Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 - **Q3. "Classification as a regulariser" — must it HELP point accuracy, or only not hurt it?** The
   pre-registered bar (H3) only asks it not to hurt (≤ 1.05× the best baseline).
@@ -188,16 +253,16 @@ block), while every capacity-programme driver on disk already pins `SEPARATE_HEA
 `probreg_kselection_experiments.py:83`, `probreg_elbo_prior_check.py:57`, `capacity_ladder_h1.py:96`,
 `multi_seed_sweep.py:64`). The convention was universal and unwritten; this writes it down.
 
-**Why it is load-bearing and not bookkeeping — the nesting guarantee is about COMPONENTS.** The
+**Why it is load-bearing and not bookkeeping — the nesting guarantee is about per-class heads.** The
 prefix property this strand's whole read-out machinery rests on is *"the first c rungs are a genuine
-c-component model"*. That sentence requires c components to exist. The three layouts differ in
+c-class model"*. That sentence requires c per-class heads to exist. The three layouts differ in
 whether they produce any:
 
 | layout | per-class outputs? | prefix-masking gives | status under `NESTED` |
 |---|---|---|---|
 | `SEPARATE_HEADS` | yes; head `i` sees **only** `p_i` (`regression_heads.py:368-372`, `input_size=1`) | a probability-weighted combination over the surviving k classes; masked classes carry zero weight and cannot leak into any surviving head | ✅ **the sanctioned layout** |
-| `SINGLE_HEAD_N_OUTPUTS` | yes; ONE net reads the whole probability vector and emits every class's output, then the SAME weighted combination (`regression_heads.py:461`) | still a genuine k-class weighted combination — **but** each surviving class's output is computed from the zero-padded vector, so truncation leaks into every component | 🟡 **labelled comparison arm only, never a default** |
-| `SINGLE_HEAD_FINAL_OUTPUT` | **no** — the head maps probabilities straight to the prediction (`regression_heads.py:498-508`); uncertainty is whatever that single head emits, not a law-of-total-variance combination over components | a valid predictor, but not a c-component model of any kind | 🚫 **BLOCKED under `NESTED`** |
+| `SINGLE_HEAD_N_OUTPUTS` | yes; ONE net reads the whole probability vector and emits every class's output, then the SAME weighted combination (`regression_heads.py:461`) | still a genuine k-class weighted combination — **but** each surviving class's output is computed from the zero-padded vector, so truncation leaks into every surviving class's output | 🟡 **labelled comparison arm only, never a default** |
+| `SINGLE_HEAD_FINAL_OUTPUT` | **no** — the head maps probabilities straight to the prediction (`regression_heads.py:498-508`); uncertainty is whatever that single head emits, not a law-of-total-variance combination over per-class heads | a valid predictor, but not a c-class model with per-class heads | 🚫 **BLOCKED under `NESTED`** |
 
 **On the third row, state the claim precisely — an earlier draft of this analysis overreached.** The
 masked vector *is* valid and the rung *is* a well-defined model; k remains a real resolution dial on
@@ -229,7 +294,7 @@ thing, **how k is chosen**, which is what makes that contrast controlled.
 ⚠️ **TRAINING-SCHEDULE RULING (user, 2026-07-21; MASTER Decision 20) — the per-sample uniform draw
 is RETIRED as M1/M2's default schedule; the migration is task P7.** The nested/anytime property —
 one network readable at every rung — is unchanged; what changes is how gradient is allocated across
-rungs per step: the objective becomes the mean over rungs k ∈ {1..k_max} of that rung's NLL, every
+rungs per step: the objective becomes the mean over rungs k ∈ {1..k_max} of that rung's held-out fit term, every
 step, from ONE forward. Three facts force this: (i) every rung's output is already computable in
 essentially one forward (`NestedStrategy.all_rung_outputs`,
 `automl_package/models/flexnn/strategies/n_classes.py:207`), so per-sample sampling
@@ -279,7 +344,7 @@ this file's own schedule ruling ("the loss is the mean over rungs k ∈ {1..k_ma
 included)") and implemented as rung 1 = the direct-regression head. **M3's grid today starts at 5**:
 `K_GRID = (5, 8, 10, 12)`, "P1's pre-registered small grid"
 (`automl_package/examples/report_a_benchmark.py:102`), consumed by `select_k_for_toy` (`:331-350`),
-which fits a dedicated fixed-k model per grid point and takes the argmin validation NLL.
+which fits a dedicated fixed-k model per grid point and takes the argmin of the held-out fit term.
 
 Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
@@ -318,7 +383,7 @@ report.
 
 | Model | = ProbReg + | How k is chosen | Cost | Mechanism |
 |---|---|---|---|---|
-| **M1** | **the arbiter** | ONE k for the dataset | cheap | `all_rung_log_likelihood` (`automl_package/models/flexnn/strategies/n_classes.py:230`) — see ⚠️ below, NOT `held_out_arbiter_advantage` |
+| **M1** | **the arbiter** | ONE k for the dataset | cheap | `all_rung_fit_loss` (`automl_package/models/flexnn/strategies/n_classes.py:226`) — see ⚠️ below, NOT `held_out_arbiter_advantage` |
 | **M2** | **the distillation** | a k **per input** | cheap | `fit_router` + routed predict (`automl_package/models/probabilistic_regression.py:754`) |
 | **M3** | **the sweep selector** | ONE k for the dataset, by training a **separate ORDINARY model per k** (no k-dropout, `NClassesSelectionMethod.NONE`) and scoring each on held-out data | **expensive — the reference** | generalise `select_k_for_toy` (`automl_package/examples/report_a_benchmark.py:331`), which already builds fixed-k models via `_probreg_fixed` (`:185-191`) |
 
@@ -327,11 +392,9 @@ report.
 **the wrong shape for M1's job** — it returns a per-input `(N,)` array comparing ONLY the top rung
 against the k=1 bypass (`:905-907`), and cannot express "chose k=4" for any middle rung, let alone
 one global answer for the whole dataset. The primitive that CAN — a full `(batch, n_classes)`
-per-rung held-out likelihood table, exactly what a cheapest-within-tolerance selector needs to run
-over — is `all_rung_log_likelihood`
-(`automl_package/models/flexnn/strategies/n_classes.py:230-252`), which as of this
-repair has **zero callers anywhere in the repo**
-(`grep -rn "all_rung_log_likelihood" automl_package/ tests/` matches only its own definition). PA
+per-rung held-out fit-term table, exactly what a cheapest-within-tolerance selector needs to run
+over — is `all_rung_fit_loss`
+(`automl_package/models/flexnn/strategies/n_classes.py:226`). PA
 builds M1's selector on top of it, not on `held_out_arbiter_advantage`. Recorded as **D5/D6** in §3.
 
 **What M3 is for.** M3 is the honest, expensive way to pick k. The efficiency claim of this whole
@@ -441,9 +504,9 @@ comparison arm. No variance-programme work (MASTER Decision 2).
 
 27. **ProbReg head-layout arm list (user, 2026-07-21).** Separate per-class heads are the model of
     record (`docs/probreg/PLAN.md` §1). The single-head-with-per-class-outputs layout is **retained as a
-    LABELLED comparison arm, never a default** — it distinguishes "components help" from
-    "*independent* components help". The single-head-final-output layout stays **blocked under
-    `NESTED`**, because it produces no components at all.
+    LABELLED comparison arm, never a default** — it distinguishes "per-class heads help" from
+    "*independent* per-class heads help". The single-head-final-output layout stays **blocked under
+    `NESTED`**, because it produces no per-class heads at all.
 
 
 <!-- from docs/plans/capacity_programme/MASTER.md lines 448-522 -->
@@ -466,7 +529,7 @@ comparison arm. No variance-programme work (MASTER Decision 2).
     the failure Decision 13 recorded for width.
 
     **Why one rule and not two patches.** Two separate problems were found in one session — the
-    head layout with no components and in-training k-selection — and **both share a shape: the plan assumed a configuration, nothing enforced
+    head layout with no per-class heads and in-training k-selection — and **both share a shape: the plan assumed a configuration, nothing enforced
     it, and `get_hyperparameter_search_space` could select the unsafe one.** A tuning run could reach
     either of them. One enforcement point closes both.
 

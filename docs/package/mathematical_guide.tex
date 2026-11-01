@@ -856,8 +856,8 @@ Fully differentiable:
 SoftGating is the best-performing strategy for ProbReg dynamic-$K$.
 It achieves MSE matching the best fixed-$K$ baseline with mean $K \approx 2$.
 Caveat: this ablation predates the dynamic-$K$ class-identity finding (see
-Eq.~\eqref{eq:total_loss}); for deployment, dynamic $K$ is validated only with likelihood-only
-training (\texttt{REGRESSION\_ONLY}).
+Eq.~\eqref{eq:total_loss}); the deployment rule is superseded 2026-11-01 (see the plan of record in
+\texttt{docs/probreg/PLAN.md}).
 \end{implnote}
 
 \subsection{Gumbel-Softmax}

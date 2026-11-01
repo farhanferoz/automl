@@ -21,29 +21,19 @@ Removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 The fixed-σ readout rule, its correction note and its rule table: removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
 - **TIER 1 — the reference cell.** `make_toy_b` (`automl_package/examples/_toy_datasets.py:49`) with
-  `baseline="zero"`: "conditional Gaussian mixture with **KNOWN intrinsic k**", the mixture sitting
-  still so the data are i.i.d. draws from one fixed mixture — the grounding regime where the pruning
-  theory applies. Every task that trains runs this.
+  `baseline="zero"`. Every task that trains runs this.
 - **TIER 2 — the three negative controls.** Required by any task claiming **the dial works**. Each is
   a trap for a different wrong mechanism:
-  - `make_toy_a` (`:35`) — "smooth unimodal with controlled homoscedastic noise", the "no intrinsic k"
-    baseline. Honest answer: the smallest k. Catches a selector that raises k on noise.
-  - `make_broad_unimodal` (`:97`) — "Single Gaussian matched in mean AND variance to the k_true=2
-    bimodal toy", so a moment-matching model "cannot tell them apart; the genuine mixture objective
-    can". Catches a selector reading moments instead of structure.
-  - `make_toy_c_broad` (`:241`) — "Single-mode twin of make_toy_c, variance-matched at every input
-    (over-chopping trap)"; `k*(x) = 1` everywhere while the spread widens with x. "A tiling model is
-    tempted to raise its bucket count here as the spread grows; the honest held-out arbiter must give
-    those buckets no credit."
+  - `make_toy_a` (`:35`) — "smooth unimodal with controlled homoscedastic noise".
+  - `make_broad_unimodal` (`:97`) — a single Gaussian matched in mean and variance to the bimodal toy.
+  - `make_toy_c_broad` (`:241`) — single-mode twin of `make_toy_c`, variance-matched at every input;
+    the spread widens with x.
 - **TIER 3 — the per-input structure set.** Required by any task claiming **per-input** behaviour:
-  - `make_toy_c` (`:211`) — "per-input mode structure"; all the x-dependence lives in the SHAPE, not
-    the location; `k*(x) = 2` above a spacing threshold, monotone in x.
-  - `make_toy_e` (`:276`) — "the x-confound breaker": spacing humps, so the count must rise and then
-    **fall again while x increases monotonically** — "which a selector that merely tracks x (or the
-    marginal variance, which also humps) cannot fake."
-  - `make_toy_d` (`:439`) — "a staircase in component count — the count-beyond-binary / ceiling test";
-    `k*(x) in {1, 2, 3}`. Tests that reading generalises past 1-vs-2 **and STOPS at 3 rather than
-    tiling out to k_max**.
+  - `make_toy_c` (`:211`) — all the x-dependence lives in the SHAPE, not the location.
+  - `make_toy_e` (`:276`) — "the x-confound breaker": spacing humps while x increases monotonically.
+  - `make_toy_d` (`:439`) — a staircase in x.
+  The tier definitions by known intrinsic k and the checks built on them: superseded 2026-11-01, see
+  `docs/probreg/PLAN.md` "Plan of record".
 - **TIER 4 — the generality ladder.** Required only by the headline comparison and the report: the
   separation/sigma sweep over tiers 1-3 (the resolvability dial named in `make_toy_b`'s docstring),
   plus `make_toy_d_ndim` (`:512`) for the dimensionality check.
@@ -67,16 +57,11 @@ The fixed-σ readout rule, its correction note and its rule table: removed 2026-
 
 
 <!-- from docs/plans/capacity_programme/probreg.md lines 1340-1365 -->
-### PT — ⏸ PARKED. Toys are RETAINED; the redesign answers a different question.
+### PT — ⏸ PARKED. Toys are RETAINED.
 
 The three existing toys are retained unchanged. The 2026-07-20 fixed-σ resolution and its narrative: removed 2026-10-22 (mixture framing; docs/probreg/cleanup_plan.md).
 
-**The spec is not wasted:** `docs/probreg/shared/toy_design_spec.md` designs toys where
-resolution helps the *conditional mean*, with an analytic floor and a falsifiable
-noise-versus-resolution prediction. That is a genuinely interesting and *different* question —
-"classification as a regulariser for the mean" rather than "how many components does this input
-need". **Parked for a future strand**, not deleted, and explicitly not a dependency of anything
-below.
+Superseded 2026-11-01: see `docs/probreg/PLAN.md` "Plan of record". The design spec is `docs/probreg/shared/toy_design_spec.md`.
 *Orchestration:* PARKED — no deps, no tier, not dispatchable, blocks nothing.
 
 

@@ -292,8 +292,8 @@ and defect D6.
 **Built** (`automl_package/models/probabilistic_regression.py`,
 `automl_package/models/selection_strategies/n_classes_strategies.py`,
 `tests/test_phase3_dynamic_k.py`; 52 passed, 1 pre-existing skip):
-- **M1 = `fit_global_selector`**, built on `all_rung_log_likelihood`
-  (`automl_package/models/flexnn/strategies/n_classes.py:230`) — **never** on
+- **M1 = `fit_global_selector`**, built on `all_rung_fit_loss`
+  (`automl_package/models/flexnn/strategies/n_classes.py:226`) — **never** on
   `held_out_arbiter_advantage` (§1 ⚠️, D5). Selects via FP-9's already-landed shared primitive
   `automl_package/utils/capacity_selection.py`; the bootstrap-SE/tolerance rule was IMPORTED, not
   re-derived (the third-copy failure this programme exists to stop).
@@ -301,8 +301,6 @@ and defect D6.
   on the held-out remainder, SAME selection rule.
 - **`selection_fraction` is a constructor parameter** (default 0.15), not a baked-in constant — the
   parameter `PB` is about to measure.
-- **D6 CLOSED**: `all_rung_log_likelihood`'s docstring no longer falsely claims
-  `held_out_arbiter_advantage` consumes it (both function bodies re-read to confirm).
 
 **ROOT-APPLIED, because `automl_package/enums.py` is FP-3's/shared and outside every strand's write
 set:** `CapacitySelection.GLOBAL_CHEAP` and `GLOBAL_SWEEP` added in the same change that ships their
@@ -362,7 +360,7 @@ docstring + call site).
 
 **Carried forward, NOT done here:** the `GLOBAL_CHEAP` path requires
 `n_classes_selection_method=NESTED` **and** `uncertainty_method=PROBABILISTIC` (both enforced with
-explicit constructor errors — correct: M1 reads a prefix-nested per-rung likelihood curve, which is
+explicit constructor errors — correct: M1 reads a prefix-nested per-rung fit-term curve, which is
 undefined for constant/MC-dropout heads). P7 and PB consume this API and must construct accordingly.
 
 *(Original task spec follows, retained verbatim as the pre-registration this run was judged against.)*
@@ -383,8 +381,8 @@ and one is a trap. Verified 2026-07-20:
 - **M1** has no mechanism in code yet — the *rule* is now specified (`benchmark_spec.md` §2.1:
   cheapest-within-tolerance at twice a bootstrap standard error, bypass competing), so this is a
   build, not a design question. It is PA's main piece of work. **Build it on
-  `all_rung_log_likelihood`** (`automl_package/models/flexnn/strategies/n_classes.py:230`)
-  — the per-rung `(batch, n_classes)` held-out likelihood table — never on
+  `all_rung_fit_loss`** (`automl_package/models/flexnn/strategies/n_classes.py:226`)
+  — the per-rung `(batch, n_classes)` held-out fit-term table — never on
   `held_out_arbiter_advantage`, which is a different, per-input readout that cannot answer a
   global "which k" question (§1 ⚠️, D5).
 - **M3** exists only as a loop inside an example script
@@ -489,7 +487,7 @@ the record.
 
 **Files (write set):** `automl_package/models/probabilistic_regression.py` ·
 `tests/test_phase3_dynamic_k.py`
-**Spec:** Transform `y` to the fitted space inside `_per_sample_log_likelihood_at_k` when
+**Spec:** Transform `y` to the fitted space inside `_per_sample_fit_at_k` when
 `target_transform="symlog"`, exactly as `fit_router` now does; document the contract on
 `held_out_arbiter_advantage` the way `fit_router`'s docstring does. Add a regression test that the
 arbiter's advantage is identical whether given raw or pre-transformed `y`.
@@ -595,7 +593,7 @@ the serial chain on the model file drops from three tasks to two (FP-12 → P7).
 *(Original spec retained below, unchanged, as FP-12's input.)*
 
 **Why this exists.** §1's head-layout block rules that the nesting guarantee is a statement about
-per-class components, and that one of the three layouts produces none. `predict_distribution`
+per-class heads, and that one of the three layouts produces none. `predict_distribution`
 already refuses that layout for precisely this reason
 (`automl_package/models/probabilistic_regression.py:792-794`); the nested ladder does not. This task
 makes the two paths consistent. **It is a guard, not a new mechanism — no behaviour changes for any
@@ -609,19 +607,19 @@ configuration the programme actually runs** (every driver already pins `SEPARATE
    `regression_strategy=SINGLE_HEAD_FINAL_OUTPUT` raises `ValueError` at construction, beside the
    existing `uncertainty_method` gate (`:163-168`), and for the same reason. The message must name
    the cause — no per-class `(mu, sigma)` is produced, so "the first c rungs are a genuine
-   c-component model" is vacuous — and cite `predict_distribution`'s matching refusal, so the next
+   c-class model" is vacuous — and cite `predict_distribution`'s matching refusal, so the next
    reader sees the two are one ruling.
 2. **Search-space repair.** `get_hyperparameter_search_space` (`:530`) must not offer a layout the
    constructor will reject: when `NESTED` is set, the `regression_strategy` choices are the two
-   component-producing layouts. **This is the live exposure** — a tuning run is the only way the
+   layouts that produce per-class heads. **This is the live exposure** — a tuning run is the only way the
    programme could currently reach the blocked layout.
 3. **Label the middle layout.** `SINGLE_HEAD_N_OUTPUTS` under `NESTED` is legal but is a **labelled
-   comparison arm, never a default** (§1's table): its components are computed from the zero-padded
-   vector, so truncation leaks into every surviving component. Record this in the `NESTED` member's
+   comparison arm, never a default** (§1's table): its per-class outputs are computed from the zero-padded
+   vector, so truncation leaks into every surviving class's output. Record this in the `NESTED` member's
    docstring in `automl_package/enums.py`; no runtime restriction.
 
 **⚠️ Do NOT "fix" this by widening the guarantee.** The tempting alternative — redefining the prefix
-property so it covers a layout with no components — would retire the one criterion that makes the
+property so it covers a layout with no per-class heads — would retire the one criterion that makes the
 ladder auditable. The guarantee stays as written; the configurations that cannot satisfy it are
 excluded.
 
