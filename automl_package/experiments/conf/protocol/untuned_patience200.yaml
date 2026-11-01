@@ -1,0 +1,8 @@
+# Card 5a2: patience 200, up to 5000 epochs, three seeds.
+defaults:
+  - protocol_schema
+  - _self_
+
+seeds: [0, 1, 2]
+early_stopping_patience: 200
+max_epochs: 5000

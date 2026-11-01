@@ -1,0 +1,23 @@
+# Card 5c-1: how the classifier is trained (selection draw). Curves on. Sizes and patience are set after 5a.
+defaults:
+  - study_schema
+  - _toys_all
+  - /protocol@protocol: cards_5bc
+  - /hpo@hpo: tpe20
+  - /model@variants.probreg: probreg_tuned
+  - /model@variants.composite_loss: probreg_tuned
+  - /model@variants.learns_nothing: probreg_tuned
+  - /model@variants.regression_only: probreg_tuned
+  - /model@variants.two_stage: probreg_tuned
+  - _self_
+
+name: probreg_5c1
+card: 5c1
+sizes: ???
+output: {results_subdir: probreg_main, curves: true}
+variants:
+  composite_loss: {params: {optimization_strategy: COMPOSITE_LOSS}}
+  learns_nothing: {params: {optimization_strategy: GRADIENT_STOP}}
+  regression_only: {params: {optimization_strategy: REGRESSION_ONLY, ordering_constraint_weight: 0.0}}
+  two_stage: {params: {optimization_strategy: TWO_STAGE}}
+report: {kind: COMPARISON, eval_set: SELECTION, reference_variant: probreg, noise_results_subdir: probreg_5a3, noise_variant: probreg}

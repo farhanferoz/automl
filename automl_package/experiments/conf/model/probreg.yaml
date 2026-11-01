@@ -1,0 +1,7 @@
+# ProbReg with k searched over 2..10.
+defaults:
+  - probreg_base
+  - _self_
+
+search_space:
+  n_classes: {type: INT, low: 2, high: 10}

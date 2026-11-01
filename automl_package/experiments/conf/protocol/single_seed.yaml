@@ -1,0 +1,8 @@
+# Card 5a1: reference predictors need no training; one seed.
+defaults:
+  - protocol_schema
+  - _self_
+
+seeds: [0]
+early_stopping_patience: 200
+max_epochs: 5000

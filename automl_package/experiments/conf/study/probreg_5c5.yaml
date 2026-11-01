@@ -1,0 +1,21 @@
+# Card 5c-5: how k is chosen (selection draw). The sweeps reuse the reference's tuned settings from the same cell.
+defaults:
+  - study_schema
+  - _toys_all
+  - /protocol@protocol: cards_5bc
+  - /hpo@hpo: tpe20
+  - /model@variants.probreg: probreg_tuned
+  - /model@variants.k_fixed3: probreg_base
+  - /model@variants.sweep_cheapest: probreg_base
+  - /model@variants.sweep_min: probreg_base
+  - _self_
+
+name: probreg_5c5
+card: 5c5
+sizes: ???
+output: {results_subdir: probreg_main}
+variants:
+  k_fixed3: {tuned: true, params: {n_classes: 3}, search_space_exclude: [dropout_rate, base_classifier_params__dropout_rate, regression_head_params__dropout_rate, n_classes]}
+  sweep_cheapest: {params: {capacity_selection: GLOBAL_SWEEP}, k_sweep: {from_variant: probreg, rule: CHEAPEST_WITHIN_TOLERANCE}}
+  sweep_min: {params: {capacity_selection: GLOBAL_SWEEP}, k_sweep: {from_variant: probreg, rule: MINIMUM}}
+report: {kind: COMPARISON, eval_set: SELECTION, reference_variant: probreg, noise_results_subdir: probreg_5a3, noise_variant: probreg}

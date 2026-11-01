@@ -1,0 +1,8 @@
+# A one-hidden-layer plain network whose width is set per cell to match another variant's parameter count
+# (set match_params_to in the study); learning rate and regularisation are still tuned.
+defaults:
+  - plain_nn
+  - _self_
+
+tuned: true
+search_space_exclude: [dropout_rate, hidden_layers, hidden_size]

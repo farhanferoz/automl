@@ -1,0 +1,5 @@
+defaults:
+  - hpo_schema
+  - _self_
+
+n_trials: 20

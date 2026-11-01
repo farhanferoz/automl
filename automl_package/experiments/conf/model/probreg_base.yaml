@@ -1,0 +1,15 @@
+# ProbReg at the study defaults (classification-regularised regression, CE_STOP_GRAD, mean-only heads). Dropout off
+# (DECISIONS.md): every dropout rate is fixed at 0 and its search dimension removed.
+defaults:
+  - model_schema
+  - _self_
+
+name: PROBABILISTIC_REGRESSION
+standardise_x: true
+standardise_y: true
+params:
+  n_classes: 3
+  dropout_rate: 0.0
+  base_classifier_params: {dropout_rate: 0.0}
+  regression_head_params: {dropout_rate: 0.0}
+search_space_exclude: [dropout_rate, base_classifier_params__dropout_rate, regression_head_params__dropout_rate]

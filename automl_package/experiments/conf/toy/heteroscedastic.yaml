@@ -1,0 +1,6 @@
+defaults:
+  - toy_schema
+  - _self_
+
+name: HETEROSCEDASTIC
+n_test: 20000

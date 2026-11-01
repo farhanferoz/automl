@@ -1,0 +1,14 @@
+# Card 5a-2: validation trajectories, plain network and ProbReg untuned, three sizes, three seeds.
+defaults:
+  - study_schema
+  - _toys_all
+  - /protocol@protocol: untuned_patience200
+  - /hpo@hpo: tpe20
+  - /model@variants.plain_nn: plain_nn
+  - /model@variants.probreg: probreg_base
+  - _self_
+
+name: probreg_5a2
+card: 5a2
+sizes: [250, 2000, 16000]
+report: {kind: SIZE_SWEEP, eval_set: TEST, reference_variant: probreg}

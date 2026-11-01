@@ -1,0 +1,7 @@
+defaults:
+  - model_schema
+  - _self_
+
+name: NORMAL_EQUATION_LINEAR_REGRESSION
+params:
+  early_stopping_rounds: null  # a direct solution: no early stopping

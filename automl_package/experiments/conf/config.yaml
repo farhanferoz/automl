@@ -1,0 +1,14 @@
+# Root of the experiment runner. Pick a study with +study=<name> (conf/study/), change any value on the command line,
+# e.g.  python -m automl_package.experiments.run +study=probreg_5a2 study.sizes=[250] study.protocol.seeds=[0] study.toy_filter=[toy_a]
+defaults:
+  - root_schema
+  - _self_
+  - override hydra/job_logging: disabled
+  - override hydra/hydra_logging: disabled
+
+hydra:
+  output_subdir: null  # write nothing next to the run
+  run:
+    dir: .
+  job:
+    chdir: false

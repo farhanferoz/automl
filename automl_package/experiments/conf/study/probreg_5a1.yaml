@@ -1,0 +1,15 @@
+# Card 5a-1: the reference predictors against their expected values (no training).
+defaults:
+  - study_schema
+  - _toys_all
+  - /protocol@protocol: single_seed
+  - /hpo@hpo: tpe20
+  - /model@variants.oracle: oracle
+  - /model@variants.planted_offset: planted_offset
+  - /model@variants.planted_scale: planted_scale
+  - _self_
+
+name: probreg_5a1
+card: 5a1
+sizes: [2000]
+report: {kind: SIZE_SWEEP, eval_set: TEST, reference_variant: oracle}

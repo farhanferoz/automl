@@ -1,0 +1,6 @@
+defaults:
+  - model_schema
+  - _self_
+
+kind: PLANTED_SCALE
+scale_factor: 0.9  # prediction = 0.9 x true mean; expected noise-free excess = 0.01 x mean(m(x)^2)

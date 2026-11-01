@@ -1,0 +1,8 @@
+# Card 5a3: ten seeds; the patience is set after 5a2 (fails loudly until then).
+defaults:
+  - protocol_schema
+  - _self_
+
+seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+early_stopping_patience: ???
+max_epochs: 5000

@@ -1,0 +1,6 @@
+# The reference model of cards 5b and 5c.
+defaults:
+  - probreg
+  - _self_
+
+tuned: true

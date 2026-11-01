@@ -1,0 +1,7 @@
+defaults:
+  - toy_schema
+  - _self_
+
+name: JUMP
+params:
+  jump: 0.0

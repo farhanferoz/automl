@@ -1,0 +1,8 @@
+# Cards 5b and 5c: three seeds; the patience is set after 5a.
+defaults:
+  - protocol_schema
+  - _self_
+
+seeds: [0, 1, 2]
+early_stopping_patience: ???
+max_epochs: 5000

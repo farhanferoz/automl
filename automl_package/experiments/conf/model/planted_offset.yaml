@@ -1,0 +1,6 @@
+defaults:
+  - model_schema
+  - _self_
+
+kind: PLANTED_OFFSET
+offset_sd_fraction: 0.1  # offset = 0.1 x sd(y_train); expected noise-free excess = offset^2

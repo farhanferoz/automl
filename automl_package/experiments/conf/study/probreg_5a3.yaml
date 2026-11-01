@@ -1,0 +1,16 @@
+# Card 5a-3: excess against n, untuned, ten seeds. The patience is set after 5a-2.
+defaults:
+  - study_schema
+  - _toys_all
+  - /protocol@protocol: sweep_patience_open
+  - /hpo@hpo: tpe20
+  - /model@variants.plain_nn: plain_nn
+  - /model@variants.probreg: probreg_base
+  - /model@variants.lightgbm: lightgbm
+  - /model@variants.linear: linear
+  - _self_
+
+name: probreg_5a3
+card: 5a3
+sizes: [250, 500, 1000, 2000, 4000, 8000, 16000]
+report: {kind: SIZE_SWEEP, eval_set: TEST, reference_variant: probreg}

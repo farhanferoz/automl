@@ -1,0 +1,19 @@
+# Card 5c-2: head layout (selection draw).
+defaults:
+  - study_schema
+  - _toys_all
+  - /protocol@protocol: cards_5bc
+  - /hpo@hpo: tpe20
+  - /model@variants.probreg: probreg_tuned
+  - /model@variants.single_head_n_outputs: probreg_tuned
+  - /model@variants.single_head_final_output: probreg_tuned
+  - _self_
+
+name: probreg_5c2
+card: 5c2
+sizes: ???
+output: {results_subdir: probreg_main}
+variants:
+  single_head_n_outputs: {params: {regression_strategy: SINGLE_HEAD_N_OUTPUTS}}
+  single_head_final_output: {params: {regression_strategy: SINGLE_HEAD_FINAL_OUTPUT}}
+report: {kind: COMPARISON, eval_set: SELECTION, reference_variant: probreg, noise_results_subdir: probreg_5a3, noise_variant: probreg}

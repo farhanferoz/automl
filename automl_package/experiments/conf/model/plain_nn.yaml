@@ -1,0 +1,11 @@
+# A plain single-output network. Dropout off (DECISIONS.md): the rate is fixed at 0 and its search dimension removed.
+defaults:
+  - model_schema
+  - _self_
+
+name: PYTORCH_NEURAL_NETWORK
+standardise_x: true
+standardise_y: true
+params:
+  dropout_rate: 0.0
+search_space_exclude: [dropout_rate]

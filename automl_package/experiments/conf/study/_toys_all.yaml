@@ -1,0 +1,11 @@
+# The study toys (design section 6: the six, plus the OU toy and the jump toy at jump 0 and 1).
+defaults:
+  - /toy@toys.toy_a: toy_a
+  - /toy@toys.heteroscedastic: heteroscedastic
+  - /toy@toys.toy_h: toy_h
+  - /toy@toys.hetero3: hetero3
+  - /toy@toys.exponential: exponential
+  - /toy@toys.piecewise: piecewise
+  - /toy@toys.ou: ou
+  - /toy@toys.jump_0: jump_0
+  - /toy@toys.jump_1: jump_1
