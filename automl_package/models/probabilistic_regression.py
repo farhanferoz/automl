@@ -12,11 +12,13 @@ from automl_package.enums import (
     BoundaryRegularizationMethod,
     CapacitySelection,
     ExplainerType,
+    KSelectionRule,
     NClassesRegularization,
     NClassesSelectionMethod,
     ProbabilisticRegressionOptimizationStrategy,
     ProbRegLossType,
     RegressionStrategy,
+    TwoStagePhase,
     UncertaintyMethod,
 )
 from automl_package.logger import logger
@@ -245,6 +247,14 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 "rung k+1. Pass allow_unredesigned_nested=True only to exercise the existing code paths."
             )
 
+        self.two_stage_phase_: TwoStagePhase | None = None  # set only while a TWO_STAGE fit is running
+        self.classifier_convergence_ = None  # TWO_STAGE: the convergence record of stage 1 (`convergence_` holds stage 2)
+        if self.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.TWO_STAGE:
+            if self.refit_on_train_val:
+                raise ValueError("optimization_strategy=TWO_STAGE trains in two stopped passes, which cannot be replayed by a refit on train + validation: pass refit_on_train_val=False.")
+            if self.n_classes_selection_method != NClassesSelectionMethod.NONE:
+                raise ValueError("optimization_strategy=TWO_STAGE is defined for a fixed k (n_classes_selection_method=NONE).")
+
         if self.use_monotonic_constraints and self.regression_strategy != RegressionStrategy.SEPARATE_HEADS:
             logger.warning("Monotonic constraints are only supported for the 'SEPARATE_HEADS' regression strategy.")
             self.use_monotonic_constraints = False
@@ -270,9 +280,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             elif self.n_classes % 2 == 0:
                 logger.warning(f"The `use_middle_class_nll_penalty` option is enabled, but n_classes is {self.n_classes} (an even number). This option will have no effect.")
 
-        self.base_classifier_params = self.base_classifier_params if self.base_classifier_params is not None else {}
-        self.regression_head_params = self.regression_head_params if self.regression_head_params is not None else {}
-        self.direct_regression_head_params = self.direct_regression_head_params if self.direct_regression_head_params is not None else {}
+        # Own copies: a model never shares (and so never mutates) a caller's or a clone's nested settings.
+        self.base_classifier_params = dict(self.base_classifier_params or {})
+        self.regression_head_params = dict(self.regression_head_params or {})
+        self.direct_regression_head_params = dict(self.direct_regression_head_params or {})
 
         self.direct_regression = self.n_classes_selection_method == NClassesSelectionMethod.NONE and self.n_classes >= self.n_classes_inf
         self.is_composite_regression_model = not self.direct_regression
@@ -407,6 +418,22 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         """The deployed prediction is the first element of the network's output tuple (mean and, for PROBABILISTIC, log-variance)."""
         return model_outputs[0]
 
+    def _class_cross_entropy(self, logits: torch.Tensor, y_true: torch.Tensor, k_values: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Cross-entropy of the classifier's `logits` against the bins of `y_true` (1-D, training space); also returns the distinct k values."""
+        y_binned = torch.zeros_like(y_true, dtype=torch.long)
+        unique_k = torch.unique(k_values)
+        for k in unique_k:
+            mask = k_values == k
+            boundaries = self.precomputed_class_boundaries[int(k.item())]
+            _, y_binned_k = create_bins(data=y_true[mask].cpu().numpy(), unique_bin_edges=boundaries)
+            y_binned[mask] = torch.tensor(y_binned_k, dtype=torch.long, device=self.device)
+        return masked_cross_entropy_loss(logits, y_binned, k_values), unique_k
+
+    def _classifier_stage_loss(self, model_outputs: tuple, y_true: torch.Tensor) -> torch.Tensor:
+        """TWO_STAGE stage 1 training loss: classifier cross-entropy against the class labels, nothing else."""
+        _, classifier_logits, selected_k_values, _, _ = model_outputs
+        return self._class_cross_entropy(classifier_logits, y_true.reshape(-1), selected_k_values)[0]
+
     def _calculate_custom_loss(self, model_outputs: tuple, y_true: torch.Tensor, include_boundary_loss: bool = True) -> torch.Tensor:
         """Calculates the training loss: the fit term plus every regularisation term.
 
@@ -430,6 +457,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         is_ce_active = not self.direct_regression and self.optimization_strategy not in (
             ProbabilisticRegressionOptimizationStrategy.REGRESSION_ONLY,
             ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP,
+            ProbabilisticRegressionOptimizationStrategy.TWO_STAGE,  # stage 1 has its own loss; in stage 2 the classifier is frozen
         )
         if is_ce_active:
             # Exclude samples that took the direct-regression bypass (sentinel value).
@@ -438,21 +466,9 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             probabilistic_indices = torch.where(selected_k_values != DIRECT_REGRESSION_K_SENTINEL)[0]
 
             if probabilistic_indices.numel() > 0:
-                y_true_prob = y_true_squeezed[probabilistic_indices]
-                logits_prob = classifier_logits_out[probabilistic_indices]
-                k_values_prob = selected_k_values[probabilistic_indices]
-
-                y_binned_prob = torch.zeros_like(y_true_prob, dtype=torch.long)
-                unique_k = torch.unique(k_values_prob)
-
-                for k in unique_k:
-                    k_int = int(k.item())
-                    mask = k_values_prob == k
-                    boundaries = self.precomputed_class_boundaries[k_int]
-                    _, y_binned_k = create_bins(data=y_true_prob[mask].cpu().numpy(), unique_bin_edges=boundaries)
-                    y_binned_prob[mask] = torch.tensor(y_binned_k, dtype=torch.long, device=self.device)
-
-                classification_loss = masked_cross_entropy_loss(logits_prob, y_binned_prob, k_values_prob)
+                classification_loss, unique_k = self._class_cross_entropy(
+                    classifier_logits_out[probabilistic_indices], y_true_squeezed[probabilistic_indices], selected_k_values[probabilistic_indices]
+                )
                 total_loss += classification_loss
 
         # 3. Apply additional penalties (Middle Class NLL, Boundary Regularization)
@@ -591,6 +607,9 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             use_anchored_heads=self.use_anchored_heads,
         )
         self.model.to(self.device)
+        if self.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP and not self.direct_regression:
+            # "Classifier learns nothing": fixed weights, left out of the optimiser and of the L1/L2 penalty (which would otherwise shrink them).
+            self.model.set_trainable(classifier=False, rest=True)
 
         init_val = getattr(self, "_constant_head_init_value", None)
         if init_val is not None:
@@ -659,6 +678,41 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 return self.model(x)[0]
 
         return _ShapModelWrapper(self.model)
+
+    def _prepare_training(self) -> None:
+        """Builds the network and optimisers; in a TWO_STAGE fit, stage 1 trains the classifier alone and stage 2 the rest on the frozen classifier."""
+        phase = self.two_stage_phase_
+        if phase is None:
+            super()._prepare_training()
+            return
+        if phase == TwoStagePhase.CLASSIFIER:
+            self.build_model()
+        self.criterion = self._classifier_stage_loss if phase == TwoStagePhase.CLASSIFIER else self._calculate_custom_loss
+        self.model.set_trainable(classifier=phase == TwoStagePhase.CLASSIFIER, rest=phase == TwoStagePhase.HEADS)
+        self._setup_regularization_parameters()
+        self._setup_optimizers(self.model)
+
+    def _validation_loss(self, val_outputs: tuple, y_val: torch.Tensor) -> float:
+        """Held-out score early stopping reads: the classifier cross-entropy in TWO_STAGE stage 1, otherwise the fit term."""
+        if self.two_stage_phase_ == TwoStagePhase.CLASSIFIER:
+            return self._classifier_stage_loss(val_outputs, y_val).item()
+        return super()._validation_loss(val_outputs, y_val)
+
+    def _fit_two_stages(
+        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None, y_val: np.ndarray | None, forced_iterations: int | None, forward_pass_kwargs: dict | None
+    ) -> tuple[int, list[float]]:
+        """TWO_STAGE: the base training loop run twice on one network, each stage stopped on its own held-out score with the best epoch restored.
+
+        Stage 1 trains the classifier by cross-entropy; stage 2 trains the heads by the fit term on the frozen classifier.
+        """
+        try:
+            self.two_stage_phase_ = TwoStagePhase.CLASSIFIER
+            super()._fit_single(x_train, y_train, x_val, y_val, forced_iterations, forward_pass_kwargs=forward_pass_kwargs)
+            self.classifier_convergence_ = self.convergence_
+            self.two_stage_phase_ = TwoStagePhase.HEADS
+            return super()._fit_single(x_train, y_train, x_val, y_val, forced_iterations, forward_pass_kwargs=forward_pass_kwargs)
+        finally:
+            self.two_stage_phase_ = None
 
     def _setup_optimizers(self, model: nn.Module) -> None:
         super()._setup_optimizers(model)
@@ -744,6 +798,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             k = next(iter(self.class_value_ranges_))
             forward_pass_kwargs = {"boundaries": self.class_value_ranges_[k].to(self.device)}
 
+        if self.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.TWO_STAGE and not self.direct_regression:
+            return self._fit_two_stages(x_train, y_train, x_val, y_val, forced_iterations, forward_pass_kwargs)
         return super()._fit_single(x_train, y_train, x_val, y_val, forced_iterations, forward_pass_kwargs=forward_pass_kwargs)
 
     def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
@@ -1143,6 +1199,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         *,
         capacity_grid: list[int] | None = None,
         n_bootstrap: int = 1000,
+        rule: KSelectionRule = KSelectionRule.CHEAPEST_WITHIN_TOLERANCE,
+        early_stop_on_val: bool = False,
     ) -> int:
         """`CapacitySelection.GLOBAL_SWEEP` (M3): trains one ORDINARY model per candidate k.
 
@@ -1188,9 +1246,12 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 candidate, whereas M1's rung 1 is the direct-regression bypass, a real candidate (owner
                 ruling 2026-11-01). A grid containing 1 raises `ValueError`.
             n_bootstrap: bootstrap resamples for the selection rule's standard-error estimate.
+            rule: `CHEAPEST_WITHIN_TOLERANCE` (default, the rule above) or `MINIMUM` (the k with the lowest mean held-out error).
+            early_stop_on_val: when True each per-k sub-model is fitted in one pass, early-stopped on `(x_val, y_val)` (which
+                also choose k: the study protocol), instead of on an inner split of `(x_train, y_train)`.
 
         Returns:
-            The selected k (also stored as `self.selected_k_`; the winning sub-model is stored as
+            The selected k (also stored as `self.selected_k_`; the mean held-out fit term per k is `self.sweep_val_errors_`; the winning sub-model is stored as
             `self._sweep_submodel_` and is what `predict`/`predict_uncertainty` delegate to under
             `CapacitySelection.GLOBAL_SWEEP`; the curve is `self.global_selector_curve_`).
         """
@@ -1219,15 +1280,22 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         for col, k in enumerate(capacity_grid):
             params = dict(base_params)
             params.update(n_classes=k, n_classes_selection_method=NClassesSelectionMethod.NONE, capacity_selection=CapacitySelection.FIXED)
+            if early_stop_on_val:
+                params["refit_on_train_val"] = False  # one pass: the validation rows stay held out, they also choose k
             sub_model = ProbabilisticRegressionModel(**params)
-            self._fit_without_test_part(sub_model.fit, sub_model, x_train, y_train)
+            if early_stop_on_val:
+                sub_model.fit(x_train, y_train, x_val=x_val, y_val=y_val)
+            else:
+                self._fit_without_test_part(sub_model.fit, sub_model, x_train, y_train)
             error_table[:, col] = sub_model._held_out_fit_per_sample(x_val, y_val)
             submodels.append(sub_model)
 
-        idx = cheapest_within_tolerance(error_table, n_boot=n_bootstrap, seed=self.random_seed or 0)
+        minimum = rule == KSelectionRule.MINIMUM
+        idx = int(np.argmin(error_table.mean(axis=0))) if minimum else cheapest_within_tolerance(error_table, n_boot=n_bootstrap, seed=self.random_seed or 0)
         selected_k = capacity_grid[idx]
 
         self.selected_k_ = selected_k
+        self.sweep_val_errors_ = dict(zip(capacity_grid, error_table.mean(axis=0).tolist(), strict=True))
         self._sweep_submodel_ = submodels[idx]
         self.global_selector_curve_ = {
             "capacity_grid": list(capacity_grid),
@@ -1557,4 +1625,4 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         # trainable parameters live on the wrapped network.
         if self.model is None:
             raise RuntimeError("get_num_parameters() requires a built model; call fit() first.")
-        return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        return sum(p.numel() for p in self.model.parameters())

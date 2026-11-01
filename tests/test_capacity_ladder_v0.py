@@ -111,18 +111,30 @@ def test_v_toy1_marginal_sampler_matches_binned_mean():
 
 
 def test_study_toys_true_mean_and_floor_match_their_generators():
-    """Each study toy's `true_mean` is the generator's mean and its `floor` the generator's noise variance (4 standard errors, 200,000 draws)."""
+    """Each study toy's `true_mean` is the generator's mean, its `noise_sd` the generator's spread and its `floor` the mean noise variance (4 standard errors, 200,000 draws); x stays in `x_range` and regions are masks."""
     n_draws, n_se = 200_000, 4.0
+    toy_params = {td.StudyToy.JUMP: {"jump": 1.0}}
     assert set(td.STUDY_TOYS) == set(td.StudyToy)
     for toy, spec in td.STUDY_TOYS.items():
-        x, y = spec.generator(n_draws, 7)
-        resid = np.asarray(y, dtype=np.float64).ravel() - spec.true_mean(x)
+        params = toy_params.get(toy, {})
+        x, y = spec.generator(n_draws, 7, **params)
+        resid = np.asarray(y, dtype=np.float64).ravel() - spec.true_mean(x, **params)
         assert resid.shape == (n_draws,), toy
         se_mean = resid.std() / np.sqrt(n_draws)
         assert abs(resid.mean()) < n_se * se_mean, (toy, resid.mean(), se_mean)
         sq = resid**2
         se_sq = sq.std() / np.sqrt(n_draws)
         assert abs(sq.mean() - spec.floor) < n_se * se_sq, (toy, sq.mean(), spec.floor, se_sq)
+        sd = spec.noise_sd(x, **params)
+        assert sd.shape == (n_draws,), toy
+        assert abs(np.mean(sd**2) - spec.floor) < 1e-2 * spec.floor, (toy, np.mean(sd**2), spec.floor)
+        z = resid / sd  # Gaussian given x: standardised residuals are N(0, 1)
+        assert abs(z.mean()) < n_se / np.sqrt(n_draws) and abs(z.std() - 1.0) < n_se / np.sqrt(2 * n_draws), toy
+        low, high = spec.x_range
+        assert low <= x.min() and x.max() <= high, toy
+        if spec.regions:
+            masks = np.stack([mask(x) for mask in spec.regions.values()])
+            assert masks.dtype == bool and (masks.sum(axis=0) == 1).all(), toy  # the regions partition x
 
 
 if __name__ == "__main__":

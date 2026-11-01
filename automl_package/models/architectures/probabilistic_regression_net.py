@@ -35,6 +35,7 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
     ) -> None:
         """Initializes the ProbabilisticRegressionNet."""
         nn.Module.__init__(self)
+        self.classifier_frozen = False  # True: classifier weights are fixed and the classifier stays in eval mode (see `set_trainable`)
         # Pop before passing to MonotonicityConfigMixin to avoid forwarding unknown kwargs to
         # object.__init__ via cooperative MRO.
         centroids = kwargs.pop("centroids", None)
@@ -136,6 +137,26 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
         else:
             raise ValueError(f"Unknown regression_strategy: {regression_strategy}")
 
+    def set_trainable(self, *, classifier: bool, rest: bool) -> None:
+        """Chooses which parts train: the classifier, and everything else (regression heads, direct-regression head, k predictor).
+
+        A part switched off has ``requires_grad=False`` (so no gradient, no optimiser step and no L1/L2 penalty reaches it);
+        a frozen classifier also stays in eval mode, whatever `train()` is called with.
+        """
+        self.classifier_frozen = not classifier
+        self.classifier_layers.requires_grad_(classifier)
+        for name, child in self.named_children():
+            if name != "classifier_layers":
+                child.requires_grad_(rest)
+        self.train(self.training)
+
+    def train(self, mode: bool = True) -> "ProbabilisticRegressionNet":
+        """Sets train/eval mode, keeping a frozen classifier in eval mode."""
+        super().train(mode)
+        if self.classifier_frozen:
+            self.classifier_layers.eval()
+        return self
+
     def _compute_predictions_for_k(self, classifier_raw_logits: torch.Tensor, k_val: int, boundaries: torch.Tensor | None = None) -> torch.Tensor:
         """Helper to compute regression predictions for a given k_val."""
         masked_classifier_logits = torch.full_like(classifier_raw_logits, float("-inf"))
@@ -191,5 +212,5 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
         return self._compute_predictions_for_k(classifier_raw_logits, k, boundaries=boundaries)
 
     def get_num_parameters(self) -> int:
-        """Returns the total number of trainable parameters in the model."""
-        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+        """Returns the total number of parameters in the model (a frozen classifier is still part of it)."""
+        return sum(p.numel() for p in self.parameters())

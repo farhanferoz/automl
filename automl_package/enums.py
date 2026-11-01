@@ -71,6 +71,7 @@ class ModelName(Enum):
     CATBOOST = "CatBoostModel"
     CLASSIFIER_REGRESSION = "ClassifierRegression"
     PROBABILISTIC_REGRESSION = "ProbabilisticRegression"
+    LSTM_FORECASTER = "PyTorchLSTMForecaster"
 
 
 class LearnedRegularizationType(Enum):
@@ -280,6 +281,28 @@ class ProbabilisticRegressionOptimizationStrategy(Enum):
     COMPOSITE_LOSS = "composite_loss"
     GRADIENT_STOP = "gradient_stop"  # "classifier learns nothing" control: no CE, probs detached, classifier keeps its initial weights
     CE_STOP_GRAD = "ce_stop_grad"  # classifier trained on bin-CE only; probs detached before heads
+    TWO_STAGE = "two_stage"  # classifier trained alone on bin-CE (stopped on held-out CE), frozen; then heads trained on its detached probs
+
+
+class TwoStagePhase(Enum):
+    """The phase a `ProbabilisticRegressionOptimizationStrategy.TWO_STAGE` fit is in."""
+
+    CLASSIFIER = "classifier"  # classifier alone, by cross-entropy on the class labels
+    HEADS = "heads"  # heads on the frozen classifier's detached probabilities, by the regression fit term
+
+
+class HpoSampler(Enum):
+    """Optuna sampler a hyperparameter search draws its trials with."""
+
+    TPE = "tpe"
+    RANDOM = "random"
+
+
+class KSelectionRule(Enum):
+    """How a sweep over k picks the winner from the held-out error curve."""
+
+    CHEAPEST_WITHIN_TOLERANCE = "cheapest_within_tolerance"  # smallest k within 2 bootstrap SE of the best (`utils/capacity_selection.py`)
+    MINIMUM = "minimum"  # the k with the lowest mean held-out error
 
 
 class ProbRegLossType(Enum):

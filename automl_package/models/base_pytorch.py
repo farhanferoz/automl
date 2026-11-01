@@ -90,7 +90,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
 
     def _setup_optimizers(self, model: nn.Module) -> None:
         """Sets up the optimizers for the model."""
-        self.optimizer = self.optimizer_wrapper.create_optimizer(model.parameters(), lr=self.learning_rate)
+        self.optimizer = self.optimizer_wrapper.create_optimizer([p for p in model.parameters() if p.requires_grad], lr=self.learning_rate)
         self._setup_lambda_optimizer()
 
     def _calculate_regularization_loss(self, base_loss: torch.Tensor, model: torch.nn.Module) -> torch.Tensor:
@@ -190,6 +190,16 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         """The fit term is a loss, so smaller is better; classes that do not score by it keep their metric's direction."""
         return True if self._scores_by_fit_term else super()._held_out_score_is_smaller_better()
 
+    def _prepare_training(self) -> None:
+        """Builds the network and its optimisers at the start of `_fit_single` (a staged fit overrides this to keep its network)."""
+        self.build_model()
+        self._setup_regularization_parameters()
+        self._setup_optimizers(self.model)
+
+    def _validation_loss(self, val_outputs: Any, y_val: torch.Tensor) -> float:
+        """The held-out score early stopping reads each epoch: the fit term of the final prediction (a staged fit overrides it)."""
+        return self._fit_loss(self._final_prediction(val_outputs), y_val).item()
+
     def _fit_single(
         self,
         x_train: np.ndarray,
@@ -222,9 +232,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         if self.random_seed is not None:
             torch.manual_seed(self.random_seed)
             np.random.seed(self.random_seed)
-        self.build_model()
-        self._setup_regularization_parameters()
-        self._setup_optimizers(self.model)
+        self._prepare_training()
 
         use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
 
@@ -286,7 +294,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
                 self.model.eval()
                 with torch.no_grad():
                     val_outputs = self.model(x_val_tensor)
-                    val_loss = self._fit_loss(self._final_prediction(val_outputs), y_val_tensor).item()
+                    val_loss = self._validation_loss(val_outputs, y_val_tensor)
                 val_loss_history.append(val_loss)
                 if tracker.update(epoch, val_loss):
                     best_model_state = snapshot_state(self.model)

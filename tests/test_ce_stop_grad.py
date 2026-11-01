@@ -11,16 +11,20 @@ import pytest
 import torch
 
 from automl_package.enums import (
+    HpoSampler,
     NClassesSelectionMethod,
     ProbabilisticRegressionOptimizationStrategy,
     RegressionStrategy,
     TaskType,
+    TwoStagePhase,
     UncertaintyMethod,
 )
+from automl_package.models.base import _BASE_SETTINGS
 from automl_package.models.common.losses import calculate_combined_loss
 from automl_package.models.common.regression_heads import ConstantHead
 from automl_package.models.neural_network import PyTorchNeuralNetwork
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
 from automl_package.models.pytorch_linear_regression import PyTorchLinearRegression
 from automl_package.utils.convergence import ConvergenceResult
 from automl_package.utils.losses import beta_nll_loss
@@ -33,9 +37,12 @@ def _make_tiny_dataset(n: int = 80, seed: int = 42) -> tuple[np.ndarray, np.ndar
     return x, y
 
 
-def _make_model(strategy: ProbabilisticRegressionOptimizationStrategy | None = None, n_epochs: int = 3) -> ProbabilisticRegressionModel:
-    """A tiny ProbReg; `strategy` left unset exercises the constructor default."""
+def _make_model(strategy: ProbabilisticRegressionOptimizationStrategy | None = None, n_epochs: int = 3, **extra) -> ProbabilisticRegressionModel:
+    """A tiny ProbReg; `strategy` left unset exercises the constructor default. TWO_STAGE is a one-pass strategy, so it is built with `refit_on_train_val=False`."""
     kwargs = {} if strategy is None else {"optimization_strategy": strategy}
+    if strategy is ProbabilisticRegressionOptimizationStrategy.TWO_STAGE:
+        kwargs["refit_on_train_val"] = False
+    kwargs.update(extra)
     return ProbabilisticRegressionModel(
         input_size=1,
         n_classes=3,
@@ -92,8 +99,10 @@ class TestCeModesConstructAndTrain:
             {"n_classes": 5, "n_classes_inf": 3, "validation_fraction": 0.2},
             {"refit_on_train_val": False, "validation_fraction": 0.2},
             {"refit_on_train_val": False, "optimize_hyperparameters": True, "n_trials": 2, "validation_fraction": 0.2},
+            {"optimize_hyperparameters": True, "n_trials": 2, "validation_fraction": 0.2, "search_space_exclude": ["n_classes"]},
+            {"optimize_hyperparameters": True, "n_trials": 2, "validation_fraction": 0.2, "hpo_sampler": HpoSampler.RANDOM, "hpo_seed": 3},
         ],
-        ids=["cv", "hpo", "hpo_cv", "direct_regression", "one_pass", "one_pass_hpo"],
+        ids=["cv", "hpo", "hpo_cv", "direct_regression", "one_pass", "one_pass_hpo", "hpo_excluding_n_classes", "hpo_random_sampler"],
     )
     def test_default_fits_under_cv_hpo_and_direct_regression(self, extra):
         """The CE_STOP_GRAD default must not crash where trials are scored on a clone (CV, search) or where no classes exist.
@@ -109,8 +118,28 @@ class TestCeModesConstructAndTrain:
             model._fit_final_model = lambda **_: pytest.fail("one-pass fit must not refit on train + validation")
         model.fit(x, y)
         assert np.all(np.isfinite(model.predict(x[:10])))
+        if "search_space_exclude" in extra:
+            # An excluded dimension is not searched (k stays as built), survives a clone, and an unknown name is an error that lists the valid ones.
+            assert "n_classes" not in model._searched_space()
+            assert model.n_classes == 3
+            assert model._clone().search_space_exclude == ["n_classes"]
+            with pytest.raises(ValueError, match="valid names"):
+                ProbabilisticRegressionModel(**(kwargs | {"search_space_exclude": ["no_such_dimension"]}))._searched_space()
+        if "hpo_sampler" in extra:
+            # The sampler and its seed survive a clone and reach Optuna: past TPE's 10 random start-up trials, RANDOM draws a different sequence.
+            clone = model._clone()
+            assert (clone.hpo_sampler, clone.hpo_seed) == (HpoSampler.RANDOM, 3)
+
+            def draws(sampler: HpoSampler) -> list[float]:
+                return [t.params["x"] for t in OptunaOptimizer(n_trials=16, random_seed=3, sampler=sampler).optimize(lambda t: (t.suggest_float("x", 0, 1) - 0.3) ** 2).trials]
+
+            assert draws(HpoSampler.RANDOM) != draws(HpoSampler.TPE)
         if extra.get("refit_on_train_val") is False:
             assert model.model is not None
+            # The adopted best trial must not bring the clone's settings: no feature-importance pass ran (SHAP would leave its
+            # x / y tensors on the activations), and the outer model keeps its own settings.
+            assert model.calculate_feature_importance is False
+            assert all(name.endswith(("weight", "bias")) for name, _ in model.model.named_parameters())
             assert isinstance(model.convergence_, ConvergenceResult)
             assert model.convergence_.converged != model.convergence_.hit_cap
 
@@ -118,6 +147,14 @@ class TestCeModesConstructAndTrain:
             explicit.fit(x[:60], y[:60], x_val=x[60:], y_val=y[60:])
             assert (explicit.train_indices.size, explicit.val_indices.size, explicit.test_indices.size) == (60, 20, 0)
             assert np.all(np.isfinite(explicit.predict(x[:10])))
+
+            # Every BaseModel setting reaches a clone, and adopting a trial model never takes one of its settings.
+            assert not _BASE_SETTINGS - set(model.get_params())
+            own_settings = (model.n_trials, model.calculate_feature_importance)
+            trial = model._clone()
+            trial.n_trials, trial.calculate_feature_importance = model.n_trials + 1, True
+            model._adopt_fitted_state(trial)
+            assert (model.n_trials, model.calculate_feature_importance) == own_settings
 
     @pytest.mark.parametrize("strategy", list(ProbabilisticRegressionOptimizationStrategy))
     def test_every_mode_constructs_without_escape_hatch_and_trains(self, strategy):
@@ -211,14 +248,16 @@ class TestCeStopGradRouting:
         assert classifier_grad > 0.0
         assert heads_grad > 0.0
 
-    def test_gradient_stop_classifier_gets_no_gradient_and_keeps_initial_weights(self):
+    @pytest.mark.parametrize("l2_lambda", [0.0, 1e-2])
+    def test_gradient_stop_classifier_gets_no_gradient_and_keeps_initial_weights(self, l2_lambda):
         """GRADIENT_STOP at fixed k is the "classifier learns nothing" control: no CE and probabilities detached.
 
         The classifier must receive zero gradient from the full loss, the heads must still learn, and after a
-        short fit the classifier's weights must equal the ones it was built with.
+        short fit the classifier's weights must equal the ones it was built with, also under an L2 penalty
+        (which would otherwise shrink them toward uniform probabilities).
         """
         x, y = _make_tiny_dataset()
-        model = _make_model(ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP, n_epochs=3)
+        model = _make_model(ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP, n_epochs=3, l2_lambda=l2_lambda)
         initial: dict[str, torch.Tensor] = {}
         build = model.build_model
 
@@ -235,6 +274,53 @@ class TestCeStopGradRouting:
         assert initial, "build_model was never called"
         for name, tensor in model.model.classifier_layers.state_dict().items():
             assert torch.equal(tensor, initial[name]), f"classifier weight {name} changed under GRADIENT_STOP"
+
+
+class TestTwoStage:
+    def test_classifier_trained_alone_then_frozen_while_heads_train(self):
+        """TWO_STAGE: stage 1 moves only the classifier and stops on held-out cross-entropy; stage 2 moves only the heads, on a classifier that no longer changes, and stops on the held-out fit term."""
+        x, y = _make_tiny_dataset()
+        model = _make_model(ProbabilisticRegressionOptimizationStrategy.TWO_STAGE, n_epochs=40, l2_lambda=1e-2)
+        model.early_stopping_rounds = 3
+        seen: list[tuple[TwoStagePhase, list[torch.Tensor], list[torch.Tensor]]] = []
+
+        def record(epoch: int, model: ProbabilisticRegressionModel, val_loss: float | None) -> None:  # noqa: ARG001 -- epoch_callback's keyword contract
+            classifier = [p.detach().clone() for p in model.model.classifier_layers.parameters()]
+            heads = [p.detach().clone() for p in model.model.regression_module.parameters()]
+            seen.append((model.two_stage_phase_, classifier, heads))
+
+        model.epoch_callback = record
+        model.fit(x[:60], y[:60], x_val=x[60:], y_val=y[60:])
+
+        classifier_epochs = [(c, h) for phase, c, h in seen if phase is TwoStagePhase.CLASSIFIER]
+        head_epochs = [(c, h) for phase, c, h in seen if phase is TwoStagePhase.HEADS]
+        assert classifier_epochs
+        assert head_epochs
+        # Stage 1: the heads never move; the classifier does.
+        assert all(torch.equal(h_a, h_b) for h_a, h_b in zip(classifier_epochs[0][1], classifier_epochs[-1][1], strict=True))
+        assert not all(torch.equal(a, b) for a, b in zip(classifier_epochs[0][0], classifier_epochs[-1][0], strict=True))
+        # Stage 2: the classifier is the same in every epoch and in the final model (stage 1's best epoch restored); the heads move.
+        final_classifier = list(model.model.classifier_layers.parameters())
+        for c, _ in head_epochs:
+            assert all(torch.equal(a, b) for a, b in zip(c, final_classifier, strict=True))
+        assert not all(torch.equal(a, b) for a, b in zip(head_epochs[0][1], head_epochs[-1][1], strict=True))
+
+        # Each stage stopped on its own held-out score, best epoch restored: the restored model reproduces each record's best value.
+        assert isinstance(model.classifier_convergence_, ConvergenceResult)
+        assert isinstance(model.convergence_, ConvergenceResult)
+        assert model.classifier_convergence_ is not model.convergence_
+        x_val_t = torch.tensor(x[60:], dtype=torch.float32).to(model.device)
+        y_val_t = torch.tensor(y[60:], dtype=torch.float32).to(model.device).unsqueeze(1)
+        model.model.eval()
+        with torch.no_grad():
+            model.two_stage_phase_ = TwoStagePhase.CLASSIFIER
+            cross_entropy = model._validation_loss(model.model(x_val_t), y_val_t)
+            model.two_stage_phase_ = None
+        assert cross_entropy == pytest.approx(model.classifier_convergence_.best_val, rel=1e-4)
+        assert model._held_out_fit_score(x[60:], y[60:]) == pytest.approx(model.convergence_.best_val, rel=1e-4)
+
+        with pytest.raises(ValueError, match="refit_on_train_val=False"):
+            ProbabilisticRegressionModel(input_size=1, n_classes=3, optimization_strategy=ProbabilisticRegressionOptimizationStrategy.TWO_STAGE)
 
 
 # ---------------------------------------------------------------------------

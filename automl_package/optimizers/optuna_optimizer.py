@@ -5,6 +5,8 @@ from typing import Any
 
 import optuna
 
+from automl_package.enums import HpoSampler
+
 
 class OptunaOptimizer:
     """Manages hyperparameter optimization using Optuna."""
@@ -14,6 +16,7 @@ class OptunaOptimizer:
         direction: str = "minimize",
         n_trials: int = 50,
         random_seed: int | None = None,
+        sampler: HpoSampler = HpoSampler.TPE,
     ) -> None:
         """Initializes the Optuna optimizer.
 
@@ -21,10 +24,12 @@ class OptunaOptimizer:
             direction (str): 'minimize' or 'maximize' the objective function.
             n_trials (int): Number of optimization trials.
             random_seed (int | None): Random seed for reproducibility.
+            sampler (HpoSampler): TPE (default) or RANDOM sampling of trials.
         """
         self.direction = direction
         self.n_trials = n_trials
         self.random_seed = random_seed
+        self.sampler = sampler
         self.study: optuna.study.Study = None
 
     def optimize(self, objective_fn: Callable[[optuna.Trial], float], **kwargs: Any) -> optuna.study.Study:
@@ -39,7 +44,8 @@ class OptunaOptimizer:
         Returns:
             optuna.study.Study: The Optuna study object containing optimization results.
         """
-        sampler = optuna.samplers.TPESampler(seed=self.random_seed) if self.random_seed is not None else optuna.samplers.TPESampler()
+        sampler_class = {HpoSampler.TPE: optuna.samplers.TPESampler, HpoSampler.RANDOM: optuna.samplers.RandomSampler}[self.sampler]
+        sampler = sampler_class(seed=self.random_seed)
 
         self.study = optuna.create_study(
             direction=self.direction,

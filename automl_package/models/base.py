@@ -1,6 +1,7 @@
 """Base classes for machine learning models."""
 
 import abc
+import inspect
 from typing import Any, ClassVar
 
 import numpy as np
@@ -8,7 +9,7 @@ import optuna
 import pandas as pd
 from sklearn.model_selection import KFold
 
-from automl_package.enums import DataSplitStrategy, Metric, TaskType, UncertaintyMethod
+from automl_package.enums import DataSplitStrategy, HpoSampler, Metric, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.common.mixins import BinnedUncertaintyMixin
 from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
@@ -37,6 +38,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         optimize_hyperparameters: bool = False,
         n_trials: int = 50,
         search_space_override: dict | None = None,
+        search_space_exclude: list[str] | None = None,
+        hpo_sampler: HpoSampler = HpoSampler.TPE,
+        hpo_seed: int | None = None,
         output_dir: str | None = None,
         calculate_feature_importance: bool = True,
         feature_selection_threshold: float | None = None,
@@ -70,6 +74,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         self.optimize_hyperparameters = optimize_hyperparameters
         self.n_trials = n_trials
         self.search_space_override = search_space_override or {}
+        self.search_space_exclude = list(search_space_exclude or [])
+        self.hpo_sampler = hpo_sampler
+        self.hpo_seed = hpo_seed
         self.output_dir = output_dir
         self.feature_names: list[str] | None = None
         self.feature_to_idx_: dict[str, int] | None = None
@@ -108,9 +115,16 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                 "optimize_hyperparameters": self.optimize_hyperparameters,
                 "n_trials": self.n_trials,
                 "search_space_override": self.search_space_override,
+                "search_space_exclude": self.search_space_exclude,
+                "hpo_sampler": self.hpo_sampler,
+                "hpo_seed": self.hpo_seed,
                 "output_dir": self.output_dir,
                 "uncertainty_method": self.uncertainty_method,
                 "refit_on_train_val": self.refit_on_train_val,
+                "task_type": self.task_type,
+                "calculate_feature_importance": self.calculate_feature_importance,
+                "feature_selection_threshold": self.feature_selection_threshold,
+                "shap_max_data_points": self.shap_max_data_points,
             }
         )
         return params
@@ -182,8 +196,13 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
     )
 
     def _adopt_fitted_state(self, fitted: "BaseModel") -> None:
-        """Takes over the fitted state of a trial model (the one-pass search keeps its best trial's model, no refit)."""
-        self.__dict__.update({k: v for k, v in fitted.__dict__.items() if k not in self._OUTER_OWNED_FIELDS})
+        """Takes over the fitted state of a trial model (the one-pass search keeps its best trial's model, no refit).
+
+        The outer model's own settings (every `BaseModel.__init__` argument: search budget, feature importance, refit
+        protocol, ...) are never taken from the trial clone; its searched hyperparameters are already the best trial's.
+        """
+        keep = self._OUTER_OWNED_FIELDS | _BASE_SETTINGS
+        self.__dict__.update({k: v for k, v in fitted.__dict__.items() if k not in keep})
 
     def _determine_optimal_parameters(
         self,
@@ -474,7 +493,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         best_trial: dict[str, Any] = {"score": None, "model": None}
 
         def objective(trial: optuna.Trial) -> float:
-            search_space = self.get_hyperparameter_search_space()
+            search_space = self._searched_space()
             trial_params = {}
             for name, space in search_space.items():
                 if space["type"] == "int":
@@ -495,7 +514,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             return score
 
         direction = "minimize" if smaller_is_better else "maximize"
-        optimizer = OptunaOptimizer(direction=direction, n_trials=self.n_trials, random_seed=getattr(self, "random_seed", None))
+        seed = self.hpo_seed if self.hpo_seed is not None else getattr(self, "random_seed", None)
+        optimizer = OptunaOptimizer(direction=direction, n_trials=self.n_trials, random_seed=seed, sampler=self.hpo_sampler)
         study = optimizer.optimize(objective)
         best_iterations = study.best_trial.user_attrs["iterations"]
         self._best_trial_model_ = best_trial["model"]
@@ -603,6 +623,18 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             return self.predict_binned_uncertainty(x)
         raise NotImplementedError(f"Uncertainty method {self.uncertainty_method} not supported by this model.")
 
+    def _searched_space(self) -> dict[str, Any]:
+        """The search space a search samples: the model's own space (with ``search_space_override`` applied) minus ``search_space_exclude``.
+
+        Raises:
+            ValueError: If an excluded name is not in the space (the message lists the valid names).
+        """
+        space = dict(self.get_hyperparameter_search_space())
+        unknown = [name for name in self.search_space_exclude if name not in space]
+        if unknown:
+            raise ValueError(f"search_space_exclude names {unknown} are not in the search space; valid names: {sorted(space)}.")
+        return {name: value for name, value in space.items() if name not in self.search_space_exclude}
+
     @abc.abstractmethod
     def get_hyperparameter_search_space(self) -> dict[str, Any]:
         """Gets the hyperparameter search space for the model."""
@@ -685,3 +717,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             A dictionary containing the explainer type and the model object.
         """
         raise NotImplementedError
+
+
+# BaseModel's own settings (its constructor arguments): a one-pass search never takes these from a trial clone.
+_BASE_SETTINGS: frozenset[str] = frozenset(p for p in inspect.signature(BaseModel.__init__).parameters if p not in ("self", "kwargs"))

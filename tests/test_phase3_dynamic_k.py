@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split
 from automl_package.enums import (
     BoundaryRegularizationMethod,
     CapacitySelection,
+    KSelectionRule,
     NClassesRegularization,
     NClassesSelectionMethod,
     ProbabilisticRegressionOptimizationStrategy,
@@ -1146,6 +1147,16 @@ class TestFitSweepSelector:
         assert winner.n_classes == selected_k
         with pytest.raises(ValueError, match="constant predictor"):
             model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, capacity_grid=[1, 2, 3], n_bootstrap=10)
+
+        # The curve is kept per k; MINIMUM picks its lowest point; early_stop_on_val fits each k in one pass on the caller's rows.
+        assert list(model.sweep_val_errors_) == [2, 3]
+        assert [model.sweep_val_errors_[k] for k in (2, 3)] == model.global_selector_curve_["mean_fit_loss"]
+        one_pass = self._base_model(max_k=3, n_epochs=10)
+        one_pass.early_stopping_rounds = 3
+        picked = one_pass.fit_sweep_selector(x_tr, y_tr, x_val, y_val, rule=KSelectionRule.MINIMUM, early_stop_on_val=True)
+        assert picked == min(one_pass.sweep_val_errors_, key=one_pass.sweep_val_errors_.get)
+        winner = one_pass._sweep_submodel()
+        assert (winner.train_indices.size, winner.val_indices.size, winner.refit_on_train_val) == (len(y_tr), len(y_val), False)
 
     def test_predict_delegates_to_winning_submodel(self):
         x, y = self._toy_data(200, seed=0)

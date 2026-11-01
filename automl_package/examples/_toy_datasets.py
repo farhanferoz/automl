@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 import numpy as np
 from scipy.special import log_ndtr
 
-from automl_package.examples._capacity_ladder_toys import make_toy_h, toy_h_f
+from automl_package.examples._capacity_ladder_toys import make_toy_h, toy_h_f, toy_h_sigma
 from automl_package.examples.full_benchmark import _exponential, _heteroscedastic, _piecewise, exponential_true_mean, heteroscedastic_true_mean, piecewise_true_mean
-from automl_package.examples.nested_width_net import hetero3_true_mean, make_hetero3
+from automl_package.examples.nested_width_net import HETERO3_NOISY_SIGMA, HETERO_NOISE_SIGMA, HETERO_R_DEFAULT, hetero3_true_mean, make_hetero3
 
 
 def make_datasets() -> list[tuple[str, np.ndarray, np.ndarray]]:
@@ -866,8 +866,81 @@ def _xy(dataset: dict) -> tuple[np.ndarray, np.ndarray]:
     return dataset["x"], dataset["y"]
 
 
+# Ornstein-Uhlenbeck one-step toy (AutoCast): y = (1 - kappa dt) x + c sqrt(dt) eps.
+OU_KAPPA, OU_C, OU_DT = 1.0, 0.5, 0.05
+OU_X_RANGE = (-1.0, 1.0)
+OU_NOISE_SD = OU_C * math.sqrt(OU_DT)
+# Jump toy: y = sin 2 pi x + jump 1[x >= JUMP_LOCATION] + JUMP_NOISE_SD eps.
+JUMP_LOCATION, JUMP_NOISE_SD, JUMP_NEAR_HALF_WIDTH = 0.6, 0.3, 0.05
+JUMP_X_RANGE = (0.0, 1.0)
+
+
+def _flat(x: np.ndarray) -> np.ndarray:
+    """``x`` as a flat float64 array."""
+    return np.asarray(x, dtype=np.float64).ravel()
+
+
+def _constant_sd(value: float) -> Callable[[np.ndarray], np.ndarray]:
+    """sigma(x) that is ``value`` at every input."""
+    return lambda x: np.full(_flat(x).shape, value)
+
+
+def _left_of_zero(x: np.ndarray) -> np.ndarray:
+    return _flat(x) < 0.0
+
+
+def _right_of_zero(x: np.ndarray) -> np.ndarray:
+    return _flat(x) >= 0.0
+
+
+def heteroscedastic_noise_sd(x: np.ndarray) -> np.ndarray:
+    """sigma(x) of `_heteroscedastic` (a Gaussian given x): 0.1 + 0.4 |x|."""
+    return 0.1 + 0.4 * np.abs(_flat(x))
+
+
+def hetero3_noise_sd(x: np.ndarray, r: float = HETERO_R_DEFAULT) -> np.ndarray:
+    """sigma(x) of `make_hetero3` (Gaussian given x): 0.05 below r, 0.5 from r up."""
+    return np.where(_flat(x) >= r, HETERO3_NOISY_SIGMA, HETERO_NOISE_SIGMA)
+
+
+def hetero3_regions(r: float = HETERO_R_DEFAULT) -> dict[str, Callable[[np.ndarray], np.ndarray]]:
+    """The three regions of `make_hetero3`: easy-linear x < 0, hard-sine 0 <= x < r, noisy-linear x >= r."""
+    return {
+        "easy_linear": _left_of_zero,
+        "hard_sine": lambda x: (_flat(x) >= 0.0) & (_flat(x) < r),
+        "noisy_linear": lambda x: _flat(x) >= r,
+    }
+
+
+def make_ou(n: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
+    """One OU step: x ~ U(-1, 1), y = (1 - kappa dt) x + c sqrt(dt) eps, eps ~ N(0, 1) (Gaussian given x)."""
+    rng = np.random.default_rng(seed)
+    x = rng.uniform(*OU_X_RANGE, n)
+    y = (1.0 - OU_KAPPA * OU_DT) * x + OU_NOISE_SD * rng.normal(0.0, 1.0, n)  # written apart from `ou_true_mean` so a test can check one against the other
+    return x.reshape(-1, 1).astype(np.float32), y.astype(np.float32)
+
+
+def ou_true_mean(x: np.ndarray) -> np.ndarray:
+    """E[y | x] of :func:`make_ou`: (1 - kappa dt) x."""
+    return (1.0 - OU_KAPPA * OU_DT) * _flat(x)
+
+
+def make_jump(n: int, seed: int, jump: float) -> tuple[np.ndarray, np.ndarray]:
+    """Sine plus a step: y = sin 2 pi x + ``jump`` at x >= 0.6, x ~ U(0, 1), noise sd 0.3 (Gaussian given x)."""
+    rng = np.random.default_rng(seed)
+    x = rng.uniform(*JUMP_X_RANGE, n)
+    y = np.sin(2 * np.pi * x) + jump * (x >= JUMP_LOCATION) + JUMP_NOISE_SD * rng.normal(0.0, 1.0, n)  # written apart from `jump_true_mean`, as for the other toys
+    return x.reshape(-1, 1).astype(np.float32), y.astype(np.float32)
+
+
+def jump_true_mean(x: np.ndarray, jump: float) -> np.ndarray:
+    """E[y | x] of :func:`make_jump`: sin 2 pi x + jump * 1[x >= 0.6]."""
+    xr = _flat(x)
+    return np.sin(2 * np.pi * xr) + jump * (xr >= JUMP_LOCATION)
+
+
 class StudyToy(StrEnum):
-    """The six toys the ProbReg study scores against a known true mean."""
+    """The toys the ProbReg study scores against a known true mean."""
 
     TOY_A = "toy_a"
     HETEROSCEDASTIC = "heteroscedastic"
@@ -875,31 +948,56 @@ class StudyToy(StrEnum):
     HETERO3 = "hetero3"
     EXPONENTIAL = "exponential"
     PIECEWISE = "piecewise"
+    OU = "ou"
+    JUMP = "jump"
 
 
 @dataclass(frozen=True)
 class ToySpec:
-    """One study toy.
+    """One study toy. Every noise term is Gaussian given x (read from each generator), so ``noise_sd`` is the whole conditional law's spread.
 
     Attributes:
-        generator: ``(n, seed) -> (x, y)`` at the toy's default settings.
-        true_mean: ``E[y | x]`` at the given inputs, shape ``(n,)``.
+        generator: ``(n, seed, **params) -> (x, y)``; a toy without parameters accepts none, a parametrised one (JUMP) takes them as keywords.
+        true_mean: ``E[y | x]`` at the given inputs (and the same keyword parameters), shape ``(n,)``.
+        noise_sd: sigma(x), the noise standard deviation at the given inputs (and the same keyword parameters), shape ``(n,)``.
         floor: the Bayes squared-error floor ``E[(y - E[y | x])^2]`` in y units (the noise variance averaged over x).
+        x_range: the interval ``(low, high)`` the generator draws x from.
+        regions: name -> boolean mask over x, for toys that have named regions of the input; empty otherwise.
     """
 
-    generator: Callable[[int, int], tuple[np.ndarray, np.ndarray]]
-    true_mean: Callable[[np.ndarray], np.ndarray]
+    generator: Callable[..., tuple[np.ndarray, np.ndarray]]
+    true_mean: Callable[..., np.ndarray]
+    noise_sd: Callable[..., np.ndarray]
     floor: float
+    x_range: tuple[float, float]
+    regions: dict[str, Callable[[np.ndarray], np.ndarray]] = field(default_factory=dict)
 
 
 STUDY_TOYS: dict[StudyToy, ToySpec] = {
-    StudyToy.TOY_A: ToySpec(lambda n, seed: make_toy_a(n=n, seed=seed), toy_a_true_mean, 0.5**2),
+    StudyToy.TOY_A: ToySpec(lambda n, seed: make_toy_a(n=n, seed=seed), toy_a_true_mean, _constant_sd(0.5), 0.5**2, (0.0, 1.0)),
     # (0.1 + 0.4|x|)^2 averaged over x ~ U(-5, 5): 0.01 + 0.08 * 2.5 + 0.16 * 25 / 3
-    StudyToy.HETEROSCEDASTIC: ToySpec(lambda n, seed: _xy(_heteroscedastic(n, seed)), heteroscedastic_true_mean, 0.01 + 0.2 + 0.16 * 25 / 3),
+    StudyToy.HETEROSCEDASTIC: ToySpec(
+        lambda n, seed: _xy(_heteroscedastic(n, seed)), heteroscedastic_true_mean, heteroscedastic_noise_sd, 0.01 + 0.2 + 0.16 * 25 / 3, (-5.0, 5.0)
+    ),
     # sigma 0.1 on x < 0 and 0.8 on x >= 0, x ~ U(-1, 1)
-    StudyToy.TOY_H: ToySpec(lambda n, seed: make_toy_h(n=n, seed=seed), toy_h_f, (0.1**2 + 0.8**2) / 2),
+    StudyToy.TOY_H: ToySpec(
+        lambda n, seed: make_toy_h(n=n, seed=seed), toy_h_f, toy_h_sigma, (0.1**2 + 0.8**2) / 2, (-1.0, 1.0), {"x_lt_0": _left_of_zero, "x_ge_0": _right_of_zero}
+    ),
     # sigma 0.05, 0.05, 0.5 on three equal regions
-    StudyToy.HETERO3: ToySpec(lambda n, seed: make_hetero3(n, seed)[:2], hetero3_true_mean, (2 * 0.05**2 + 0.5**2) / 3),
-    StudyToy.EXPONENTIAL: ToySpec(lambda n, seed: _xy(_exponential(n, seed)), exponential_true_mean, 0.5**2),
-    StudyToy.PIECEWISE: ToySpec(lambda n, seed: _xy(_piecewise(n, seed)), piecewise_true_mean, 0.2**2),
+    StudyToy.HETERO3: ToySpec(
+        lambda n, seed: make_hetero3(n, seed)[:2], hetero3_true_mean, hetero3_noise_sd, (2 * 0.05**2 + 0.5**2) / 3, (-HETERO_R_DEFAULT, 2 * HETERO_R_DEFAULT), hetero3_regions()
+    ),
+    StudyToy.EXPONENTIAL: ToySpec(lambda n, seed: _xy(_exponential(n, seed)), exponential_true_mean, _constant_sd(0.5), 0.5**2, (-3.0, 3.0)),
+    StudyToy.PIECEWISE: ToySpec(
+        lambda n, seed: _xy(_piecewise(n, seed)), piecewise_true_mean, _constant_sd(0.2), 0.2**2, (-5.0, 5.0), {"x_lt_0": _left_of_zero, "x_ge_0": _right_of_zero}
+    ),
+    StudyToy.OU: ToySpec(make_ou, ou_true_mean, _constant_sd(OU_NOISE_SD), OU_NOISE_SD**2, OU_X_RANGE),
+    StudyToy.JUMP: ToySpec(
+        make_jump,
+        jump_true_mean,
+        lambda x, jump: _constant_sd(JUMP_NOISE_SD)(x),  # noqa: ARG005 -- the spread does not depend on the jump; the keyword keeps the toy's parameter signature
+        JUMP_NOISE_SD**2,
+        JUMP_X_RANGE,
+        {"near_jump": lambda x: np.abs(_flat(x) - JUMP_LOCATION) <= JUMP_NEAR_HALF_WIDTH, "away": lambda x: np.abs(_flat(x) - JUMP_LOCATION) > JUMP_NEAR_HALF_WIDTH},
+    ),
 }

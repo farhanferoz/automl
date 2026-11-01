@@ -454,6 +454,8 @@ class TestModelComparison:
             assert capped.hit_cap_ is True, model_cls.__name__
         assert model.best_iteration_ <= 200
         assert model.hit_cap_ == (model.best_iteration_ == 200)
+        # The refit trains exactly the rounds early stopping kept (XGBoost's best_iteration is 0-based: kept = best_iteration + 1).
+        assert model.model.get_booster().num_boosted_rounds() == model.best_iteration_
 
     def test_linear_regression_on_linear_data(self, simple_linear_data):
         """Linear regression should achieve near-optimal MSE on y=2x+1+noise."""

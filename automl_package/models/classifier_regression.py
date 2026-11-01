@@ -599,8 +599,7 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
         if self.optimize_hyperparameters:
             logger.info("--- Starting hyperparameter optimization for ClassifierRegressionModel ---")
             # Pre-calculate class boundaries for all possible n_classes values to speed up trials
-            search_space = self.get_hyperparameter_search_space()
-            n_classes_space = search_space["n_classes"]
+            n_classes_space = self._searched_space().get("n_classes", {"low": self.n_classes, "high": self.n_classes})
             self.precomputed_boundaries_ = {}
             self.precomputed_class_value_ranges_ = {}
             y_min, y_max = np.min(y_train_val), np.max(y_train_val)

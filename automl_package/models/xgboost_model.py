@@ -119,14 +119,15 @@ class XGBoostModel(BaseModel):
             if np.isnan(self._train_residual_std):
                 self._train_residual_std = 0.0
 
-        best_iteration = self.model.best_iteration if use_early_stopping and self.model.best_iteration is not None else self.model.n_estimators
-        loss_history = get_loss_history(self.model, use_early_stopping)
+        chose_by_early_stopping = use_early_stopping and self.model.best_iteration is not None
         # XGBoost counts rounds from 0, so the number of rounds kept is best_iteration + 1 when early stopping chose it.
+        rounds_kept = int(self.model.best_iteration) + 1 if chose_by_early_stopping else int(self.model.n_estimators)
+        loss_history = get_loss_history(self.model, use_early_stopping)
         if forced_iterations is None:  # a refit with forced rounds must not overwrite the record of the pass that chose them
-            self.best_iteration_ = int(best_iteration) + (1 if use_early_stopping and self.model.best_iteration is not None else 0)
-            self.hit_cap_ = self.best_iteration_ == int(self.model.n_estimators)  # the best round is the last one allowed: more rounds may still help
+            self.best_iteration_ = rounds_kept
+            self.hit_cap_ = rounds_kept == int(self.model.n_estimators)  # the best round is the last one allowed: more rounds may still help
 
-        return best_iteration, loss_history
+        return rounds_kept, loss_history
 
     def _clone(self) -> "XGBoostModel":
         """Creates a new instance of the model with the same parameters."""
