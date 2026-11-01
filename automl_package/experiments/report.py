@@ -6,7 +6,8 @@ COMPARISON studies get the one table (design section 5): a row per variant, a co
 seeds of the paired change in noise-free excess against the reference variant on the same draws, as a percentage of the
 reference's noise-free excess (negative = better), beside it the min and max over seeds; greyed when the mean is smaller than
 the reference's seed-to-seed noise at that toy and size (relative sd over seeds, from the 5a size-sweep records; no 5a record
-for that toy and size means the cell is not shaded and is marked "n/a"). No variant is picked automatically. SIZE_SWEEP studies
+for that toy and size means the cell is not shaded and is marked "n/a"; when the card's own environment has none, the noise of the
+environment with the most 5a records there is used and the cell is labelled "(noise from X)", column ``noise_fp``). No variant is picked automatically. SIZE_SWEEP studies
 (card 5a) get the reference predictors against their expected values, the validation trajectories and the excess against n.
 
 A pair is only ever made inside one environment fingerprint: records of other fingerprints get their own report.
@@ -35,6 +36,7 @@ from automl_package.experiments.toys import Toy
 
 KEY = ["variant", "toy", "n", "seed", "fp"]
 NOT_AVAILABLE = "n/a"
+NOISE_COLUMNS = ["toy", "n", "fp", "noise", "n_records"]
 GREY_STYLE = "background:#ddd;color:#666"
 
 
@@ -67,19 +69,19 @@ def load_records(cells: list[CellSpec], eval_set: EvalSet) -> pd.DataFrame:
 
 
 def seed_noise(cells: list[CellSpec], eval_set: EvalSet) -> pd.DataFrame:
-    """Relative seed-to-seed sd of the noise-free excess of the reference model (from the 5a size-sweep records), per toy, size and fingerprint."""
+    """Relative seed-to-seed sd of the noise-free excess of the reference model (from the 5a size-sweep records), per toy, size and fingerprint, with the record count."""
     report = cells[0].report
     if report.noise_results_subdir is None or report.noise_variant is None:
-        return pd.DataFrame(columns=["toy", "n", "fp", "noise"])
+        return pd.DataFrame(columns=NOISE_COLUMNS)
     root = Path(cells[0].results_dir).parent / report.noise_results_subdir / report.noise_variant
     rows = []
     for path in sorted(root.glob("*/n*/s*.json")) if root.exists() else []:
         rec = load_record(path)
         rows.append({"toy": path.parents[1].name, "n": int(path.parent.name[1:]), "fp": rec["fingerprint_id"], "nfe": rec["metrics"][eval_set.value]["noise_free_excess"]})
     if not rows:
-        return pd.DataFrame(columns=["toy", "n", "fp", "noise"])
+        return pd.DataFrame(columns=NOISE_COLUMNS)
     grouped = pd.DataFrame(rows).groupby(["toy", "n", "fp"])["nfe"]
-    return (grouped.std(ddof=1) / grouped.mean()).rename("noise").reset_index()
+    return pd.concat([(grouped.std(ddof=1) / grouped.mean()).rename("noise"), grouped.count().rename("n_records")], axis=1).reset_index()
 
 
 def comparison_table(records: pd.DataFrame, noise: pd.DataFrame, reference: str, fp: str) -> pd.DataFrame:
@@ -92,11 +94,20 @@ def comparison_table(records: pd.DataFrame, noise: pd.DataFrame, reference: str,
         raise ValueError(f"{len(mismatched)} pair(s) were drawn from different data than the reference, e.g. {mismatched['path'].iloc[0]}")
     paired["change_pct"] = np.where(paired["nfe_ref"] > 0, 100.0 * (paired["nfe"] - paired["nfe_ref"]) / paired["nfe_ref"], np.nan)
     table = paired.groupby(["variant", "toy", "n"])["change_pct"].agg(mean_pct="mean", min_pct="min", max_pct="max", n_seeds="count").reset_index()
-    table = table.merge(noise[noise["fp"] == fp][["toy", "n", "noise"]], on=["toy", "n"], how="left")
+    table = table.merge(_noise_for(noise, fp), on=["toy", "n"], how="left")
+    table["fp"] = fp
     table["noise_pct"] = 100.0 * pd.to_numeric(table["noise"])  # an empty noise frame is object-typed
     table["greyed"] = table["mean_pct"].abs() < table["noise_pct"].fillna(-1.0)  # no known noise: never shaded
     table["noise_known"] = table["noise_pct"].notna()
     return table.drop(columns="noise")
+
+
+def _noise_for(noise: pd.DataFrame, fp: str) -> pd.DataFrame:
+    """Per (toy, n): the noise of fingerprint ``fp``, else that of the fingerprint with the most 5a records there; ``noise_fp`` says which (a borrowed margin is labelled)."""
+    own = noise[noise["fp"] == fp]
+    borrowed = noise.sort_values(["n_records", "fp"]).groupby(["toy", "n"]).tail(1)
+    chosen = pd.concat([own, borrowed[~borrowed.set_index(["toy", "n"]).index.isin(own.set_index(["toy", "n"]).index)]])
+    return chosen.rename(columns={"fp": "noise_fp"})[["toy", "n", "noise", "noise_fp"]]
 
 
 def _markdown(frame: pd.DataFrame, index: bool = True) -> str:
@@ -109,7 +120,9 @@ def _markdown(frame: pd.DataFrame, index: bool = True) -> str:
 
 def _cell_text(row: pd.Series) -> str:
     text = f"{row['mean_pct']:+.1f}% [{row['min_pct']:+.1f}, {row['max_pct']:+.1f}]"
-    return text if row["noise_known"] else f"{text} {NOT_AVAILABLE}"
+    if not row["noise_known"]:
+        return f"{text} {NOT_AVAILABLE}"
+    return text if row["noise_fp"] == row["fp"] else f"{text} (noise from {row['noise_fp']})"
 
 
 def _pivot(table: pd.DataFrame) -> pd.DataFrame:
@@ -150,7 +163,9 @@ def write_comparison(cells: list[CellSpec], eval_set: EvalSet, out_dir: Path) ->
         title = f"Card {cells[0].card}: change in noise-free excess against '{reference}', {eval_set.value} set, environment {fp}"
         legend = (
             "Cell: mean over seeds of the paired change, as % of the reference's noise-free excess (negative = better), with [min, max] over seeds. "
-            "Grey: the mean is smaller than the reference's seed-to-seed noise. n/a: no 5a record for that toy and size, so not shaded. No variant is picked automatically."
+            "Grey: the mean is smaller than the reference's seed-to-seed noise. n/a: no 5a record for that toy and size, so not shaded. "
+            "(noise from X): no 5a record under this environment, so the margin is borrowed from environment X, the one with the most 5a records there. "
+            "No variant is picked automatically."
         )
         stem.with_suffix(".md").write_text(f"# {title}\n\n{legend}\n\n{_markdown(_pivot(table))}\n\n{_markdown(ref_abs.to_frame())}\n")
         stem.with_suffix(".html").write_text(

@@ -6,7 +6,7 @@ import pytest
 
 from automl_package.enums import ModelName, OptimizerType
 from automl_package.examples._toy_datasets import StudyToy
-from automl_package.experiments import report
+from automl_package.experiments import patience, report
 from automl_package.experiments.cell import cell_status, fingerprint_id, load_record, record_path
 from automl_package.experiments.config import CellSpec, HpoConfig, ModelConfig, PredictorKind, ProtocolConfig, StudyConfig, ToyConfig, from_dict, to_dict
 from automl_package.experiments.registry import build_model
@@ -80,12 +80,33 @@ def test_report_pairs_only_within_one_fingerprint():
     def rows(variant: str, fp: str, nfe: float, data: str = "same draws") -> pd.DataFrame:
         return pd.DataFrame({"variant": variant, "toy": "toy_a", "n": 64, "seed": [0, 1], "fp": fp, "nfe": nfe, "data": data, "path": "p"})
 
-    noise = pd.DataFrame(columns=["toy", "n", "fp", "noise"])
+    noise = pd.DataFrame(columns=report.NOISE_COLUMNS)
     records = pd.concat([rows("ref", "aaaa", 1.0), rows("m", "aaaa", 0.5), rows("m", "bbbb", 9.0)])
     table = report.comparison_table(records, noise, "ref", "aaaa")
     assert table["mean_pct"].tolist() == [-50.0]
     assert report.comparison_table(records, noise, "ref", "bbbb").empty
     assert np.isnan(table["noise_pct"]).all()
     assert not table["greyed"].any()
+    borrowed = pd.DataFrame({"toy": "toy_a", "n": 64, "fp": ["cccc", "dddd"], "noise": [0.9, 0.1], "n_records": [3, 5]})  # neither is the card's own environment
+    filled = report.comparison_table(records, borrowed, "ref", "aaaa")
+    assert filled["noise_fp"].tolist() == ["dddd"]  # the fingerprint with the most 5a records
+    assert filled["noise_pct"].tolist() == [10.0]
+    own = pd.concat([borrowed, pd.DataFrame({"toy": "toy_a", "n": 64, "fp": "aaaa", "noise": 0.2, "n_records": 1}, index=[0])])
+    assert report.comparison_table(records, own, "ref", "aaaa")["noise_fp"].tolist() == ["aaaa"]  # its own wins over more records elsewhere
     with pytest.raises(ValueError, match="different data"):
         report.comparison_table(pd.concat([rows("ref", "aaaa", 1.0), rows("m", "aaaa", 0.5, data="other draws")]), noise, "ref", "aaaa")
+
+
+def test_patience_rule(tmp_path):
+    """The patience is the longest wait for a new best, over every curve; hit-cap curves are counted, not dropped."""
+    assert patience.longest_stretch_before_best(np.array([1.0, 2.0, 3.0])) == 0  # best at the first checkpoint
+    assert patience.longest_stretch_before_best(np.array([9, 8, 8, 7, 6, 6, 6, 6, 6, 5, 6, 7.0])) == 5  # bests at 0, 1, 3, 4, 9; ties are not new bests
+    assert patience.longest_stretch_before_best(np.array([5, 4, 4, 4, 3.0])) == 3
+    cells = plan(tiny_study(tmp_path, {"oracle": ORACLE, "plain_nn": PLAIN_NN}))
+    assert [c.variant for c in patience.missing_records(cells)] == ["oracle", "plain_nn"]
+    assert not run_cells(cells).failed
+    assert not patience.missing_records(cells)
+    record = load_record(record_path(next(c for c in cells if c.variant == "plain_nn"), fingerprint_id()))
+    expected = patience.longest_stretch_before_best(np.array([value for _, value in record["convergence"]["trajectory"]]))
+    choice = patience.choose_patience(cells)  # the oracle has no curve and is skipped
+    assert (choice.patience, choice.n_curves, choice.n_hit_cap, choice.max_epochs) == (expected, 1, int(record["convergence"]["hit_cap"]), 2)

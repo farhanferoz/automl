@@ -10,7 +10,9 @@ import hashlib
 import json
 import multiprocessing
 import os
+import time
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,6 +22,9 @@ from automl_package.experiments.config import CellSpec, PredictorKind, StudyConf
 from automl_package.experiments.toys import Toy
 
 PLAN_FILE = "cells_{card}.jsonl"
+POLL_SECONDS = 30  # records and plans written on the laptop arrive by Syncthing; check this often while waiting
+SECONDS_PER_MINUTE = 60
+EXIT_NOT_READY = 2  # exit status of a step whose input (plan file, records) never arrived
 
 
 def results_dir(study: StudyConfig) -> Path:
@@ -74,6 +79,16 @@ def write_plan(cells: list[CellSpec], path: Path) -> None:
 def read_plan(path: Path) -> list[CellSpec]:
     """Cells of a plan file."""
     return [from_dict(CellSpec, json.loads(line)) for line in path.read_text().splitlines() if line.strip()]
+
+
+def wait_until(condition: Callable[[], bool], wait_minutes: float) -> bool:
+    """Polls ``condition`` every ``POLL_SECONDS`` for up to ``wait_minutes``; True as soon as it holds (checked once even when ``wait_minutes`` is 0)."""
+    deadline = time.monotonic() + wait_minutes * SECONDS_PER_MINUTE
+    while not condition():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(min(POLL_SECONDS, max(deadline - time.monotonic(), 0.0)))
+    return True
 
 
 def shard_of(cell: CellSpec, n_shards: int) -> int:

@@ -136,3 +136,14 @@ per toy and model with the seed-to-seed spread.
   reference variant's cells to that card. The data draws are identical on both (legacy NumPy seeding, hash-checked).
 - Later variants (nested model, router, batched-GPU reruns) are new variant entries in a study YAML: their cells
   regenerate the same draws (hash-checked) and their records join the same table.
+- **Chain step: patience from card 5a-2, then plan the next cards.** `automl_package/experiments/plan_with_measured_patience.sh
+  <5a-2 cells.jsonl> <patience.json> <study> [<study> ...] [-- <hydra override> ...]` runs
+  `python -m automl_package.experiments.patience` (waits up to 60 minutes for every cell of the source plan to have a record,
+  since laptop records arrive by Syncthing; still missing exits 2 naming the cells), then plans each study with
+  `study.protocol.early_stopping_patience=<P>`. `P` is the largest number of checkpoints any validation curve (any
+  fingerprint, every record) needed between consecutive new bests up to its best (`longest_stretch_before_best`), so a run
+  with that patience is never stopped before its best; curves that hit the epoch cap are counted and listed in the JSON, not
+  filtered, and no threshold decides anything. `execute.py --wait-minutes M` likewise polls up to M minutes for a plan file
+  that has not arrived yet (absent: exit 2). In the report, when a card's own fingerprint has no 5a-3 record for a toy and
+  size, the noise margin of the fingerprint with the most 5a-3 records there is used, shown as `(noise from <fp>)` and in
+  the `noise_fp` column; pairs are unchanged (a variant is still paired only with the reference of its own fingerprint).
