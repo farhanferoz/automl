@@ -326,6 +326,18 @@ class Monotonicity(Enum):
     NEGATIVE = "negative"
 
 
+class RnnBackend(Enum):
+    """Kernel library that runs a recurrent layer on CUDA (no effect on CPU).
+
+    Measured 2026-11-03 on the GB10 (cuDNN 9.15 and 9.26, batch 1024, window 56): cuDNN's LSTM takes 93-174 ms per
+    training step at hidden sizes 160 and 192 against 10-17 ms at 128, 224 and 256, while PyTorch's own kernels take
+    13-15 ms there and are at most ~37% slower than cuDNN at the other sizes.
+    """
+
+    CUDNN = "cudnn"  # NVIDIA's fused kernels (PyTorch's default)
+    NATIVE = "native"  # PyTorch's own kernels (cuDNN switched off for the recurrent layer only)
+
+
 class CategoricalCast(Enum):
     """How a boosting library wants the integer category codes of a categorical column handed over."""
 

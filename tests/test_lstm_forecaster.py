@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import torch
 
+from automl_package.enums import RnnBackend
 from automl_package.models.lstm_model import PyTorchLSTMForecaster, SequenceLayout
 
 N_SERIES, N_STEPS, N_CHANNELS, N_DENSE, N_HORIZONS = 3, 8, 2, 3, 2
@@ -54,6 +55,15 @@ def test_fits_through_the_public_fit_and_predicts_every_horizon(model: PyTorchLS
     assert model._fit_loss(torch.zeros(4, 2), targets, reduction="none").tolist() == pytest.approx([1.0, 0.0, 6.5, 1.0])
     with pytest.raises(NotImplementedError):
         model.predict_uncertainty(x_val)
+    # rnn_backend: the default (cuDNN) reaches the network; NATIVE switches cuDNN off around the LSTM layer only, then restores it
+    assert model.model.use_cudnn
+    seen: list[bool] = []
+    model.model.lstm.register_forward_pre_hook(lambda _module, _args: seen.append(torch.backends.cudnn.enabled))
+    model.model.use_cudnn = False
+    model.predict(x_val[:5])
+    assert seen == [False]
+    assert torch.backends.cudnn.enabled
+    assert PyTorchLSTMForecaster(layout=model.layout, output_size=N_HORIZONS, rnn_backend="native").rnn_backend is RnnBackend.NATIVE
 
 
 def test_input_statistics_come_from_the_fit_rows_only(model: PyTorchLSTMForecaster) -> None:
