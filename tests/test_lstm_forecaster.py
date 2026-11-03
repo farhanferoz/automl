@@ -64,6 +64,22 @@ def test_fits_through_the_public_fit_and_predicts_every_horizon(model: PyTorchLS
     assert seen == [False]
     assert torch.backends.cudnn.enabled
     assert PyTorchLSTMForecaster(layout=model.layout, output_size=N_HORIZONS, rnn_backend="native").rnn_backend is RnnBackend.NATIVE
+    # the head's shape and activation, the embedding's initial scale and the prediction chunk come from the settings
+    head = [type(layer) for layer in model.model.head]
+    assert head == [torch.nn.Linear, torch.nn.ReLU, torch.nn.Dropout, torch.nn.Linear]
+    assert model.model.head[0].out_features == model.hidden_size
+    widths, chunk = [8, 4], 7
+    other = PyTorchLSTMForecaster(layout=model.layout, output_size=N_HORIZONS, head_hidden_sizes=widths, head_activation="tanh", embedding_init_std=0.0, eval_batch_size=chunk)
+    other._input_stats, other.input_size, other.device = model._input_stats, model.input_size, model.device
+    other.build_model()
+    assert [layer.out_features for layer in other.model.head if isinstance(layer, torch.nn.Linear)] == [*widths, N_HORIZONS]
+    assert sum(isinstance(layer, torch.nn.Tanh) for layer in other.model.head) == len(widths)
+    assert not other.model.embedding.weight.any()
+    calls: list[int] = []
+    other.model.register_forward_pre_hook(lambda _module, args: calls.append(len(args[0])))
+    other.predict(x_val)
+    assert max(calls) == chunk
+    assert sum(calls) == len(x_val)
 
 
 def test_input_statistics_come_from_the_fit_rows_only(model: PyTorchLSTMForecaster) -> None:

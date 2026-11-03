@@ -27,14 +27,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import ExplainerType, RnnBackend
+from automl_package.enums import ActivationFunction, ExplainerType, RnnBackend
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.utils.convergence import ConvergenceTracker, snapshot_state
-from automl_package.utils.pytorch_utils import cudnn_enabled, get_device
+from automl_package.utils.pytorch_utils import cudnn_enabled, get_activation_function_map, get_device
 
 _MIN_STD = 1e-6
-_EVAL_BATCH_SIZE = 8192
 
 
 @dataclass(frozen=True)
@@ -59,7 +58,10 @@ def _standardiser(values: np.ndarray, axis: int | tuple[int, ...]) -> tuple[np.n
 
 
 class _LSTMForecasterNet(nn.Module):
-    """Series embedding + LSTM over the window + MLP head over [last hidden state, embedding, dense features]."""
+    """Series embedding + LSTM over the window + MLP head over [last hidden state, embedding, dense features].
+
+    The head is `Linear -> activation -> Dropout` per entry of `head_hidden_sizes`, then a `Linear` to the horizons.
+    """
 
     def __init__(
         self,
@@ -73,18 +75,21 @@ class _LSTMForecasterNet(nn.Module):
         dropout_rate: float,
         stats: dict[str, np.ndarray],
         use_cudnn: bool,
+        embedding_init_std: float,
+        head_hidden_sizes: list[int],
+        head_activation: type[nn.Module],
     ) -> None:
         super().__init__()
         self.layout, self.window, self.use_cudnn = layout, window, use_cudnn
         self.embedding = nn.Embedding(layout.n_series, embedding_dim)
-        nn.init.normal_(self.embedding.weight, std=0.1)
+        nn.init.normal_(self.embedding.weight, std=embedding_init_std)
         self.lstm = nn.LSTM(layout.n_channels + embedding_dim, hidden_size, num_layers, batch_first=True, dropout=dropout_rate if num_layers > 1 else 0.0)
-        self.head = nn.Sequential(
-            nn.Linear(hidden_size + embedding_dim + n_dense, hidden_size),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(hidden_size, n_horizons),
-        )
+        layers: list[nn.Module] = []
+        width = hidden_size + embedding_dim + n_dense
+        for next_width in head_hidden_sizes:
+            layers += [nn.Linear(width, next_width), head_activation(), nn.Dropout(dropout_rate)]
+            width = next_width
+        self.head = nn.Sequential(*layers, nn.Linear(width, n_horizons))
         for name, value in stats.items():
             self.register_buffer(name, torch.from_numpy(value))
 
@@ -118,6 +123,10 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         "batch_size": 1024,
         "n_epochs": 100,
         "rnn_backend": RnnBackend.CUDNN,  # kernels of the LSTM layer on CUDA (enums.RnnBackend: cuDNN is very slow at some sizes on the GB10)
+        "embedding_init_std": 0.1,  # standard deviation of the normal draw that initialises the series embedding
+        "head_hidden_sizes": None,  # widths of the head's hidden layers; None: one layer as wide as the LSTM (hidden_size); []: linear head
+        "head_activation": ActivationFunction.RELU,
+        "eval_batch_size": 8192,  # rows per chunk when predicting; memory only, the predictions do not depend on it
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -125,6 +134,7 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         for key, value in PyTorchLSTMForecaster._defaults.items():
             kwargs.setdefault(key, value)
         kwargs["rnn_backend"] = RnnBackend(kwargs["rnn_backend"])  # a config may hand over the value ("native") or the member
+        kwargs["head_activation"] = ActivationFunction(kwargs["head_activation"])
         if kwargs["layout"] is None:
             raise ValueError("PyTorchLSTMForecaster needs a SequenceLayout (layout=...).")
         if kwargs.get("output_size", 1) < 1:
@@ -162,6 +172,9 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
             dropout_rate=self.dropout_rate,
             stats=self._input_stats,
             use_cudnn=self.rnn_backend is RnnBackend.CUDNN,
+            embedding_init_std=float(self.embedding_init_std),
+            head_hidden_sizes=[int(self.hidden_size)] if self.head_hidden_sizes is None else [int(w) for w in self.head_hidden_sizes],
+            head_activation=get_activation_function_map()[self.head_activation],
         ).to(self.device)
         self.criterion = self._fit_loss
 
@@ -181,7 +194,8 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         """Evaluation-mode predictions for all rows of `x`, in chunks so large folds fit on the device."""
         self.model.eval()
         with torch.no_grad():
-            return torch.cat([self.model(x[i : i + _EVAL_BATCH_SIZE]) for i in range(0, len(x), _EVAL_BATCH_SIZE)])
+            step = int(self.eval_batch_size)
+            return torch.cat([self.model(x[i : i + step]) for i in range(0, len(x), step)])
 
     def _held_out_fit_score(self, x_val: np.ndarray, y_val: np.ndarray) -> float:
         """Mean held-out fit term (lower is better), the quantity early stopping reads."""
