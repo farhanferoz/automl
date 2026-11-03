@@ -2,6 +2,7 @@
 
 import abc
 import inspect
+from pathlib import Path
 from typing import Any, ClassVar
 
 import numpy as np
@@ -13,12 +14,16 @@ from automl_package.enums import DataSplitStrategy, HpoSampler, Metric, TaskType
 from automl_package.logger import logger
 from automl_package.models.common.mixins import BinnedUncertaintyMixin
 from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
+from automl_package.utils.checkpoint import stable_hash
 from automl_package.utils.cv import TimeSeriesSplit
 from automl_package.utils.data_handler import create_train_val_split
 from automl_package.utils.feature_selection import select_features_by_cumulative_importance
 from automl_package.utils.metrics import Metrics, calculate_performance_score
 from automl_package.utils.numerics import find_optimal_iterations
 from automl_package.utils.plotting import plot_feature_importance
+
+HPO_IDENTITY_EXCLUDED = ("n_trials", "hpo_storage_dir", "output_dir")  # settings that do not change what a search computes
+HPO_HASH_LENGTH = 16
 
 
 class BaseModel(abc.ABC, BinnedUncertaintyMixin):
@@ -41,6 +46,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         search_space_exclude: list[str] | None = None,
         hpo_sampler: HpoSampler = HpoSampler.TPE,
         hpo_seed: int | None = None,
+        hpo_storage_dir: str | None = None,
         output_dir: str | None = None,
         calculate_feature_importance: bool = True,
         feature_selection_threshold: float | None = None,
@@ -50,6 +56,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         **kwargs: Any,
     ) -> None:
         """Initializes the base model with given parameters.
+
+        ``hpo_storage_dir`` (default None: the search lives in memory) keeps the search's Optuna journal in that directory, one file per
+        model class, config and data, so a killed run resumes with the trials it had finished.
 
         ``refit_on_train_val=True`` (default) ends `fit` with a refit on train + validation. ``False`` is the
         one-pass protocol: `fit` keeps the early-stopped model of a single pass (and the search keeps its best
@@ -77,6 +86,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         self.search_space_exclude = list(search_space_exclude or [])
         self.hpo_sampler = hpo_sampler
         self.hpo_seed = hpo_seed
+        self.hpo_storage_dir = hpo_storage_dir
         self.output_dir = output_dir
         self.feature_names: list[str] | None = None
         self.feature_to_idx_: dict[str, int] | None = None
@@ -118,6 +128,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                 "search_space_exclude": self.search_space_exclude,
                 "hpo_sampler": self.hpo_sampler,
                 "hpo_seed": self.hpo_seed,
+                "hpo_storage_dir": self.hpo_storage_dir,
                 "output_dir": self.output_dir,
                 "uncertainty_method": self.uncertainty_method,
                 "refit_on_train_val": self.refit_on_train_val,
@@ -490,7 +501,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         (only the best so far is held in memory), for `fit` to adopt instead of refitting.
         """
         smaller_is_better = self._held_out_score_is_smaller_better()
-        best_trial: dict[str, Any] = {"score": None, "model": None}
+        best_trial: dict[str, Any] = {"score": None, "model": None, "number": None}
 
         def objective(trial: optuna.Trial) -> float:
             search_space = self._searched_space()
@@ -510,16 +521,34 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             score, iterations = self._evaluate_trial_performance(model_instance, x, y, timestamps=timestamps, explicit_split=explicit_split)
             trial.set_user_attr("iterations", iterations)
             if not self.refit_on_train_val and (best_trial["score"] is None or (score < best_trial["score"] if smaller_is_better else score > best_trial["score"])):
-                best_trial.update(score=score, model=model_instance)
+                best_trial.update(score=score, model=model_instance, number=trial.number)
             return score
 
         direction = "minimize" if smaller_is_better else "maximize"
         seed = self.hpo_seed if self.hpo_seed is not None else getattr(self, "random_seed", None)
-        optimizer = OptunaOptimizer(direction=direction, n_trials=self.n_trials, random_seed=seed, sampler=self.hpo_sampler)
+        optimizer = OptunaOptimizer(direction=direction, n_trials=self.n_trials, random_seed=seed, sampler=self.hpo_sampler, **self._hpo_journal(x, y, timestamps, explicit_split))
         study = optimizer.optimize(objective)
         best_iterations = study.best_trial.user_attrs["iterations"]
+        if not self.refit_on_train_val and best_trial["number"] != study.best_trial.number:
+            # The best trial finished before a restart: its fitted model is gone, so fit its parameters again on the same split and seed.
+            logger.info(f"Best trial {study.best_trial.number} was finished by an earlier process: refitting its parameters.")
+            best_trial["model"] = self._clone_for_trial()
+            best_trial["model"]._update_params(study.best_trial.params)
+            _, best_iterations = self._evaluate_trial_performance(best_trial["model"], x, y, timestamps=timestamps, explicit_split=explicit_split)
         self._best_trial_model_ = best_trial["model"]
         return study.best_trial.params, best_iterations
+
+    def _hpo_journal(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None, explicit_split: tuple | None) -> dict[str, Any]:
+        """``OptunaOptimizer`` keyword arguments that make the search resumable (none without ``hpo_storage_dir``).
+
+        The journal file is named by the model class and a hash of its settings (not ``n_trials``, so raising it continues the search)
+        and of the data, so a different config or data never continues another search.
+        """
+        if self.hpo_storage_dir is None:
+            return {}
+        settings = {k: v for k, v in self.get_params().items() if k not in HPO_IDENTITY_EXCLUDED}
+        name = f"{type(self).__name__}-{stable_hash([settings, x, y, timestamps, explicit_split])[:HPO_HASH_LENGTH]}"
+        return {"storage_path": Path(self.hpo_storage_dir) / f"{name}.journal", "study_name": name}
 
     def _get_optimization_metric(self) -> Metric:
         """Gets the optimization metric for the model."""

@@ -29,6 +29,7 @@ from automl_package.experiments import curves
 from automl_package.experiments.config import CellSpec, PredictorKind, ToyConfig, to_dict
 from automl_package.experiments.registry import NESTED_PARAM_SEPARATOR, AutomlPredictor, Predictor, Split, build_predictor, matched_hidden_size
 from automl_package.experiments.toys import Draw, DrawName, Toy
+from automl_package.utils.checkpoint import ConfigConflictError, atomic_write
 from automl_package.utils.run_provenance import run_provenance
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -41,10 +42,6 @@ class CellStatus(StrEnum):
 
     DONE = "done"
     PENDING = "pending"
-
-
-class ConfigConflictError(RuntimeError):
-    """A record exists under this variant id with a different resolved config."""
 
 
 @cache
@@ -83,10 +80,7 @@ def _json_default(obj: Any) -> Any:
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     """Atomic write (a half-written record would look finished)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, indent=1, default=_json_default))
-    tmp.replace(path)
+    atomic_write(path, lambda tmp: tmp.write_text(json.dumps(data, indent=1, default=_json_default)))
 
 
 def load_record(path: Path) -> dict[str, Any]:

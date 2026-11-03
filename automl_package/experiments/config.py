@@ -11,8 +11,6 @@ Reused: ``ModelName`` (``enums.py``), ``StudyToy`` (``examples/_toy_datasets.py`
 from __future__ import annotations
 
 import dataclasses
-import hashlib
-import json
 import types
 import typing
 from dataclasses import dataclass, field
@@ -22,6 +20,7 @@ from typing import Any, TypeVar
 
 from automl_package.enums import HpoSampler, KSelectionRule, ModelName
 from automl_package.examples._toy_datasets import StudyToy
+from automl_package.utils.checkpoint import stable_hash
 
 MISSING = "???"  # Hydra's marker for a value the study must set before it can run
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -227,7 +226,7 @@ class CellSpec:
     def config_hash(self) -> str:
         """SHA-256 (hex) of the resolved config minus the fields in ``_NOT_IDENTITY``."""
         identity = {k: v for k, v in to_dict(self).items() if k not in self._NOT_IDENTITY}
-        return hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode()).hexdigest()
+        return stable_hash(identity)
 
 
 T = TypeVar("T")
