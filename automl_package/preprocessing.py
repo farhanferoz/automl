@@ -11,12 +11,18 @@ from sklearn.preprocessing import OneHotEncoder as SklearnOneHotEncoder
 class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
     """CatBoost-style ordered target statistics for categorical columns, usable in front of any model.
 
-    ``fit_transform`` (the training rows): each row's category is replaced by the smoothed target mean of the rows BEFORE
-    it that share the category, ``(sum_before + prior * smoothing) / (count_before + smoothing)``, ``prior`` being the
-    training target mean, so no row sees its own target. "Before" follows ``order`` when given (e.g. timestamps for a
-    time series; rows with equal order values do not see each other), else a permutation seeded by ``random_state``.
-    ``transform`` (any other rows): the same statistic over all training rows of the category; an unseen category gets
-    ``prior``. A missing value is a category of its own. Fit on training rows only, inside each fold.
+    The statistic of a category is the smoothed target mean ``(sum + prior * smoothing) / (count + smoothing)`` over some
+    set of contributing training rows that share the category; ``prior`` is the mean of the known targets. Rows whose
+    target is NaN are encoded like any other row but contribute nothing to any sum or count.
+
+    One time rule decides which contributions a row may use. Each contribution has a ``known_at`` value (when its target
+    became known) and each encoded row an ``order`` value (when it is encoded); a row uses exactly the contributions of
+    its category with ``known_at < order``, strictly: equal values do not see each other, and with ``known_at == order``
+    (the default in ``fit_transform``) a row never sees its own target. ``order`` and ``known_at`` are numbers or
+    datetime64 values; they are compared on one common rank scale. Without ``order``, ``fit_transform`` uses a
+    permutation seeded by ``random_state`` and ``transform`` uses every contribution (an unseen category gets
+    ``prior``). A row with no usable contribution gets ``prior``. A missing category value is a category of its own.
+    Fit on training rows only, inside each fold.
     """
 
     def __init__(self, cols: list[str | int] | None = None, smoothing: float = 1.0, random_state: int | None = None) -> None:
@@ -40,42 +46,77 @@ class OrderedTargetEncoder(BaseEstimator, TransformerMixin):
             return list(self.cols)
         return list(frame.select_dtypes(include=["object", "category"]).columns)
 
-    def fit(self, x: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray) -> "OrderedTargetEncoder":
-        """Stores, per encoded column, each category's target sum and count over the training rows, and the prior."""
+    def fit(self, x: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray, known_at: np.ndarray | None = None) -> "OrderedTargetEncoder":
+        """Stores, per encoded column, each category's target sum and count over the rows with a known target, and the prior.
+
+        Args:
+            x: training features.
+            y: training targets; NaN rows contribute nothing.
+            known_at: when each target became known; needed to later call ``transform`` with an ``order``. The
+                contributions are then kept sorted by (category, known_at).
+        """
         frame, target = _as_frame(x), np.asarray(y, dtype=float)
-        self.prior_ = float(target.mean())
+        known = ~np.isnan(target)
+        self.prior_ = float(target[known].mean())
         self.columns_ = self._columns(frame)
-        self.stats_ = {}
+        self.stats_, self.contributions_ = {}, {}
+        when = None if known_at is None else np.asarray(known_at)
         for col in self.columns_:
             codes, levels = pd.factorize(frame[col], use_na_sentinel=False)
-            sums, counts = np.bincount(codes, weights=target, minlength=len(levels)), np.bincount(codes, minlength=len(levels))
+            sums = np.bincount(codes[known], weights=target[known], minlength=len(levels))
+            counts = np.bincount(codes[known], minlength=len(levels))
             self.stats_[col] = (pd.Index(levels), (sums + self.prior_ * self.smoothing) / (counts + self.smoothing))
+            if when is not None:
+                by_time = np.lexsort((when[known], codes[known]))
+                self.contributions_[col] = (codes[known][by_time], when[known][by_time], target[known][by_time])
         return self
 
-    def transform(self, x: pd.DataFrame | np.ndarray) -> pd.DataFrame | np.ndarray:
-        """Encodes rows the encoder was not fitted on: each category's statistic over all training rows."""
+    def _ordered_stat(self, col: str | int, codes: np.ndarray, order: np.ndarray) -> np.ndarray:
+        """Smoothed statistic of each row from the contributions of its category with ``known_at`` strictly before its ``order``."""
+        c_codes, c_when, c_y = self.contributions_[col]
+        scale = np.unique(np.concatenate([c_when, order]))  # one integer rank scale for both
+        width = len(scale) + 1
+        keys = c_codes.astype(np.int64) * width + np.searchsorted(scale, c_when)
+        sums, counts = np.concatenate([[0.0], np.cumsum(c_y)]), np.arange(len(c_y) + 1)
+        end = np.searchsorted(keys, codes.astype(np.int64) * width + np.searchsorted(scale, order), side="left")
+        start = np.searchsorted(keys, codes.astype(np.int64) * width, side="left")
+        seen = codes >= 0  # an unseen category (-1) has no contributions
+        n, total = np.where(seen, counts[end] - counts[start], 0), np.where(seen, sums[end] - sums[start], 0.0)
+        return (total + self.prior_ * self.smoothing) / (n + self.smoothing)
+
+    def transform(self, x: pd.DataFrame | np.ndarray, order: np.ndarray | None = None) -> pd.DataFrame | np.ndarray:
+        """Encodes rows: with ``order``, each from the contributions known strictly before its order value; else from all of them."""
+        if order is not None and not self.contributions_:
+            raise ValueError("transform(order=...) needs known_at: fit the encoder with fit(x, y, known_at=...).")
         frame = _as_frame(x).copy()
         for col, (levels, stat) in self.stats_.items():
             pos = levels.get_indexer(frame[col])
-            frame[col] = np.where(pos >= 0, stat[pos], self.prior_)
+            pos = np.where(pd.isna(frame[col]).to_numpy(), levels.get_indexer([np.nan])[0], pos)  # None and NaN are one missing category
+            if order is None:
+                frame[col] = np.where(pos >= 0, stat[pos], self.prior_)
+            else:
+                frame[col] = self._ordered_stat(col, pos, np.asarray(order))
         return _like(frame, x)
 
-    def fit_transform(self, x: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None, order: np.ndarray | None = None) -> pd.DataFrame | np.ndarray:
-        """Fits on the training rows and returns their ordered (leakage-free) encoding."""
+    def fit_transform(
+        self, x: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None, order: np.ndarray | None = None, known_at: np.ndarray | None = None
+    ) -> pd.DataFrame | np.ndarray:
+        """Fits on the training rows and returns their ordered (leakage-free) encoding.
+
+        Args:
+            x: training features.
+            y: training targets (NaN rows are encoded but contribute nothing).
+            order: the encoding order of the rows; None uses a permutation seeded by ``random_state``.
+            known_at: when each target became known; defaults to ``order``, so a row sees only strictly earlier rows. Must
+                be None when ``order`` is None.
+        """
         if y is None:
             raise TypeError("fit_transform() missing 1 required argument: 'y'")
-        self.fit(x, y)
-        frame, target = _as_frame(x).copy(), np.asarray(y, dtype=float)
         if order is None:
-            order = np.random.default_rng(self.random_state).permutation(len(frame))
-        order_codes = pd.factorize(np.asarray(order), sort=True)[0]
-        for col in self.columns_:
-            codes = pd.factorize(frame[col], use_na_sentinel=False)[0]
-            groups = pd.DataFrame({"c": codes, "o": order_codes, "y": target}).groupby(["c", "o"], sort=True)["y"].agg(["sum", "count"])
-            before = groups.groupby(level="c").cumsum() - groups
-            stat = (before["sum"] + self.prior_ * self.smoothing) / (before["count"] + self.smoothing)
-            frame[col] = stat.reindex(pd.MultiIndex.from_arrays([codes, order_codes], names=["c", "o"])).to_numpy()
-        return _like(frame, x)
+            if known_at is not None:
+                raise ValueError("known_at needs an order: pass order=... or leave known_at unset.")
+            order = np.random.default_rng(self.random_state).permutation(len(_as_frame(x)))
+        return self.fit(x, y, known_at=order if known_at is None else known_at).transform(x, order=order)
 
 
 def _as_frame(x: pd.DataFrame | np.ndarray) -> pd.DataFrame:
