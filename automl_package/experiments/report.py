@@ -149,6 +149,16 @@ def _figure_links(cells: list[CellSpec], out_dir: Path) -> str:
     return f"<h2>Curve figures</h2><ul>{items}</ul>" if pngs else ""
 
 
+def card_label(cells: list[CellSpec]) -> tuple[str, str]:
+    """(name, title prefix) of the cards in ``cells``, in plan order.
+
+    One card is "Card 5c1"; several stacked against one reference (the one-table look across cards) are "Cards 5c1+5c2".
+    """
+    cards = list(dict.fromkeys(c.card for c in cells))
+    label = "+".join(cards)
+    return label, f"Card{'s' if len(cards) > 1 else ''} {label}"
+
+
 def write_comparison(cells: list[CellSpec], eval_set: EvalSet, out_dir: Path) -> list[Path]:
     """The one table, per fingerprint present among the reference's records."""
     records = load_records(cells, eval_set)
@@ -157,10 +167,10 @@ def write_comparison(cells: list[CellSpec], eval_set: EvalSet, out_dir: Path) ->
     written = []
     for fp in sorted(records.loc[records["variant"] == reference, "fp"].unique()):
         table = comparison_table(records, noise, reference, fp)
-        stem = out_dir / f"comparison_{cells[0].card}_{eval_set.value}_{fp}"
+        stem = out_dir / f"comparison_{card_label(cells)[0]}_{eval_set.value}_{fp}"
         table.to_csv(stem.with_suffix(".csv"), index=False)
         ref_abs = records[(records["fp"] == fp) & (records["variant"] == reference)].groupby(["toy", "n"])["nfe"].mean().rename("reference noise-free excess (mean over seeds)")
-        title = f"Card {cells[0].card}: change in noise-free excess against '{reference}', {eval_set.value} set, environment {fp}"
+        title = f"{card_label(cells)[1]}: change in noise-free excess against '{reference}', {eval_set.value} set, environment {fp}"
         legend = (
             "Cell: mean over seeds of the paired change, as % of the reference's noise-free excess (negative = better), with [min, max] over seeds. "
             "Grey: the mean is smaller than the reference's seed-to-seed noise. n/a: no 5a record for that toy and size, so not shaded. "
@@ -242,11 +252,11 @@ def write_size_sweep(cells: list[CellSpec], eval_set: EvalSet, out_dir: Path) ->
     records = load_records(cells, eval_set)
     written = []
     for fp in sorted(records["fp"].unique()):
-        stem = out_dir / f"size_sweep_{cells[0].card}_{eval_set.value}_{fp}"
+        stem = out_dir / f"size_sweep_{card_label(cells)[0]}_{eval_set.value}_{fp}"
         refs = _reference_table(records, fp)
         refs.to_csv(stem.with_suffix(".csv"), index=False)
         figures = _plot_trajectories(records, fp, out_dir) + _plot_excess_against_n(records, fp, out_dir)
-        title = f"Card {cells[0].card}: size sweep, {eval_set.value} set, environment {fp}"
+        title = f"{card_label(cells)[1]}: size sweep, {eval_set.value} set, environment {fp}"
         legend = (
             "Reference predictors: test MSE minus the toy's floor, against the expected excess (0 for the oracle; offset^2 for the planted "
             "offset; (1 - factor)^2 x mean(m(x)^2) for the planted scale), with the standard error of the MSE from the draw's label noise. "
@@ -263,10 +273,15 @@ def write_size_sweep(cells: list[CellSpec], eval_set: EvalSet, out_dir: Path) ->
 
 
 def build_report(cells: list[CellSpec], eval_set: EvalSet | None = None, out_dir: Path | None = None) -> list[Path]:
-    """Writes the study's report (kind and default eval set from the plan) and returns the files."""
+    """Writes the study's report (kind and default eval set from the plan) and returns the files.
+
+    Cells of several cards make one table only when they share the report kind and the reference variant.
+    """
     report = cells[0].report
+    if len({(c.report.kind, c.report.reference_variant) for c in cells}) > 1:
+        raise ValueError(f"Cards {card_label(cells)[0]} differ in report kind or reference variant; report them separately.")
     eval_set = eval_set or report.eval_set
-    out_dir = out_dir or Path(cells[0].results_dir) / f"report_{cells[0].card}"
+    out_dir = out_dir or Path(cells[0].results_dir) / f"report_{card_label(cells)[0]}"
     out_dir.mkdir(parents=True, exist_ok=True)
     return (write_comparison if report.kind == ReportKind.COMPARISON else write_size_sweep)(cells, eval_set, out_dir)
 
@@ -274,11 +289,11 @@ def build_report(cells: list[CellSpec], eval_set: EvalSet | None = None, out_dir
 def main(argv: list[str] | None = None) -> int:
     """CLI."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("cells", type=Path)
+    parser.add_argument("cells", type=Path, nargs="+", help="plan files; several cards sharing a reference make one table")
     parser.add_argument("--eval-set", type=EvalSet, default=None)
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args(argv)
-    files = build_report(read_plan(args.cells), args.eval_set, args.out)
+    files = build_report([c for path in args.cells for c in read_plan(path)], args.eval_set, args.out)
     print(json.dumps([str(f) for f in files], indent=1))
     return 0
 

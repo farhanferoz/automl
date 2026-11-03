@@ -95,6 +95,13 @@ def test_report_pairs_only_within_one_fingerprint():
     assert report.comparison_table(records, own, "ref", "aaaa")["noise_fp"].tolist() == ["aaaa"]  # its own wins over more records elsewhere
     with pytest.raises(ValueError, match="different data"):
         report.comparison_table(pd.concat([rows("ref", "aaaa", 1.0), rows("m", "aaaa", 0.5, data="other draws")]), noise, "ref", "aaaa")
+    # several cards stack into one table only against one shared reference, and the table is named after every card
+    card_t, card_u = (CellSpec(study="s", card=c, variant="v", model=PLAIN_NN, toy=TINY_TOY, n_train=64, protocol=TINY_PROTOCOL, results_dir="/x") for c in "tu")
+    assert report.card_label([card_t, card_u, card_t]) == ("t+u", "Cards t+u")
+    assert report.card_label([card_t]) == ("t", "Card t")
+    card_u.report.reference_variant = "other"
+    with pytest.raises(ValueError, match="reference variant"):
+        report.build_report([card_t, card_u])
 
 
 def test_patience_rule(tmp_path):
