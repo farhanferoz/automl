@@ -50,3 +50,9 @@ def test_unit_store_round_trip_and_config_conflict(tmp_path: Path) -> None:
     assert not list((tmp_path / "units").glob("*.tmp"))
     with pytest.raises(ConfigConflictError):
         store.is_done("fold1", stable_hash({"a": 2}))
+    # data identity: frames that differ only in a middle row (identical str) hash differently
+    big = pd.DataFrame({"v": range(1000)})
+    changed = big.copy()
+    changed.loc[500, "v"] = -1
+    assert str(big) == str(changed)
+    assert stable_hash([big]) != stable_hash([changed])

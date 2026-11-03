@@ -31,9 +31,16 @@ class ConfigConflictError(RuntimeError):
 
 
 def _json_default(obj: Any) -> Any:
-    """Arrays hash by content; anything else by its ``str`` (what the ProbReg config hash has always done)."""
+    """Arrays and pandas objects hash by content; anything else by its ``str`` (what the ProbReg config hash has always done).
+
+    A DataFrame's ``str`` shows only its first and last rows, so two different frames could share it: frames and series are
+    hashed row by row (values and index) together with their column names and dtypes.
+    """
     if isinstance(obj, np.ndarray):
         return hashlib.sha256(np.ascontiguousarray(obj).tobytes()).hexdigest()
+    if isinstance(obj, pd.DataFrame | pd.Series):
+        layout = str(list(obj.columns) + list(obj.dtypes.astype(str))) if isinstance(obj, pd.DataFrame) else f"{obj.name}{obj.dtype}"
+        return hashlib.sha256(pd.util.hash_pandas_object(obj, index=True).to_numpy().tobytes() + layout.encode()).hexdigest()
     return str(obj)
 
 
