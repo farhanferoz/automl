@@ -72,16 +72,16 @@ class OptunaOptimizer:
         Returns:
             optuna.study.Study: The Optuna study object containing optimization results.
         """
-        sampler = SAMPLER_CLASSES[self.sampler](seed=self.random_seed)
-
         self.study = optuna.create_study(
             direction=self.direction,
-            sampler=sampler,
             pruner=optuna.pruners.MedianPruner(n_startup_trials=PRUNER_STARTUP_TRIALS, n_warmup_steps=PRUNER_WARMUP_STEPS),
             storage=self._storage(),
             study_name=self.study_name,
             load_if_exists=self.storage_path is not None,
         )
+        # A resumed search draws from the seed advanced by the trials already started, so it does not repeat their first draws (a fresh search: the seed itself).
+        n_started = len(self.study.get_trials(deepcopy=False))
+        self.study.sampler = SAMPLER_CLASSES[self.sampler](seed=None if self.random_seed is None else self.random_seed + n_started)
         finished = len(self.study.get_trials(deepcopy=False, states=FINISHED_STATES))
         stale = len(self.study.get_trials(deepcopy=False, states=(TrialState.RUNNING,)))
         remaining = max(self.n_trials - finished, 0)
