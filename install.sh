@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — Detect hardware accelerator and install automl-package with the right torch backend.
+# install.sh — Detect the hardware accelerator and build this repository's environment (.venv) with the matching torch build.
 #
 # Usage:
 #   ./install.sh              # auto-detect (CUDA > XPU > CPU)
@@ -19,7 +19,7 @@ for arg in "$@"; do
         --cpu)  BACKEND="cpu" ;;
         --cuda) BACKEND="cuda" ;;
         --xpu)  BACKEND="xpu" ;;
-        --dev)  DEV="[dev]" ;;
+        --dev)  DEV="--extra dev" ;;
         *)      echo "Unknown argument: $arg"; exit 1 ;;
     esac
 done
@@ -39,33 +39,20 @@ if [ -z "$BACKEND" ]; then
     echo "Auto-detected backend: $BACKEND"
 fi
 
-# --- Install ---
+# --- Install: this repository's own environment (.venv) from uv.lock, with this machine's PyTorch build ---
 case "$BACKEND" in
-    cpu)
-        echo "Installing with CPU torch (default PyPI)..."
-        uv pip install -e ".$DEV"
-        ;;
-    cuda)
-        echo "Installing with CUDA torch..."
-        uv pip install -e ".$DEV"
-        # Default PyPI torch includes CUDA support when nvidia drivers are present
-        ;;
-    xpu)
-        echo "Installing with XPU torch (Intel Arc/Flex/Max)..."
-        uv pip install -e ".$DEV" \
-            --extra-index-url https://download.pytorch.org/whl/xpu \
-            torch torchvision torchaudio
-        # triton-xpu is optional and currently has compatibility issues with torch._dynamo;
-        # the package patches around this at runtime (see automl_package/__init__.py)
-        uv pip install triton-xpu 2>/dev/null \
-            --extra-index-url https://download.pytorch.org/whl/xpu || true
-        ;;
+    cpu)  EXTRA="cpu" ;;
+    cuda) EXTRA="cu132" ;;  # CUDA 13.2 build: needs an NVIDIA driver of the 580 series or newer
+    xpu)  EXTRA="xpu" ;;    # Intel Arc/Flex/Max build, with triton-xpu
 esac
+cd "$(dirname "$0")"
+echo "Installing with the $EXTRA PyTorch build..."
+uv sync --locked --extra "$EXTRA" --extra experiments $DEV
 
 # --- Verify ---
 echo ""
 echo "Verifying installation..."
-python3 -c "
+.venv/bin/python -c "
 import torch
 from automl_package.utils.pytorch_utils import get_device
 device = get_device()

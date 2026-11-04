@@ -1,7 +1,7 @@
 """Direct-runnable tests for the AUTOML_DEVICE override in get_device().
 
 Run directly (repo-wide pytest collection is broken by an omegaconf conflict):
-    ~/dev/.venv/bin/python tests/test_get_device_override.py
+    .venv/bin/python tests/test_get_device_override.py
 """
 
 import os

@@ -27,6 +27,6 @@ Results from June–July 2026 stay in `automl_package/examples/capacity_ladder_r
 `docs/test_plan_gates.py` and `docs/test_plan_numbers.py` check every live plan: cited paths and line
 numbers exist, no plan file carries a date in its name, result-marked lines point at a ledger JSON, and
 numbers without a ledger pointer do not grow. Run:
-`AUTOML_DEVICE=cpu ~/dev/.venv/bin/python -m pytest docs/test_plan_gates.py docs/test_plan_numbers.py -q`.
+`AUTOML_DEVICE=cpu .venv/bin/python -m pytest docs/test_plan_gates.py docs/test_plan_numbers.py -q`.
 Exempt: future artifacts in `docs/gates_baseline.txt`, documents never gated in
 `docs/gates_frozen.txt`, and the evidence folders (`archive/`, `history/`, `reports/`, `reviews_*/`).

@@ -360,10 +360,11 @@ Reference implementation path is named in `~/.claude/skills/programme-plan/SKILL
   before building on one (they rot).
 - **Environment:** `AUTOML_DEVICE=cpu` on every run (shared 22-core box; ≤4 concurrent heavy).
   Heavy runs detached:
-  `setsid nohup systemd-inhibit --what=idle:sleep:handle-lid-switch env AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 ~/dev/.venv/bin/python -u <script> ... > <scratchpad>/<log> 2>&1 &`
+  `setsid nohup systemd-inhibit --what=idle:sleep:handle-lid-switch env AUTOML_DEVICE=cpu OMP_NUM_THREADS=4 .venv/bin/python -u <script> ... > <scratchpad>/<log> 2>&1 &`
   — watch the summary FILE from the main thread, never a subagent.
-- **Venv repair** (if `~/dev/.venv` loses deps again): surgical `uv pip install` of the missing
-  declared deps only; `uv sync` is blocked by a mis-scoped guard hook; torch must stay XPU.
+- **Environment build/repair:** automl is its own uv project (left the `~/dev` workspace 2026-11-04);
+  `./install.sh [--dev]` rebuilds `.venv` from `uv.lock` with this machine's torch build (extra `cu132` on the
+  DGX, `xpu` on the laptop, `cpu` elsewhere).
 
 ## Branch & merge protocol (binding on every execution wave)
 
@@ -408,7 +409,7 @@ the dangling-branch failure this protocol exists to prevent. Short branches merg
 ## Mechanical gates
 
 Run from repo root:
-`~/dev/.venv/bin/python -m pytest docs/test_plan_gates.py -q`
+`.venv/bin/python -m pytest docs/test_plan_gates.py -q`
 - **Citations**: any `path/with/slash(.py|.md|.json|.tex|.sh)` cited in MASTER/strands/shared
   must resolve on disk (`file:line` → line must exist). `archive/` exempt.
 - **Dated names**: no date-shaped filename in this plan dir (`archive/` exempt).

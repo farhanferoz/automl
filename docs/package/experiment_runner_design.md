@@ -133,10 +133,10 @@ per toy and model with the seed-to-seed spread.
   `<results_dir>/cells_<card>.jsonl`. `python -m automl_package.experiments.execute <cells.jsonl> --shard i/N
   --workers W` runs cells from that file and needs only automl's own dependencies (no Hydra at run time), so any
   machine with the package environment can execute.
-- **Two machines.** The DGX (`/home/ff235/cache/automl/venv-dgx`, aarch64) and the part-time laptop `fedora`
-  (x86_64, 16 cores lent; verified 2026-11-01: `~/dev` synced, `~/dev/.venv` has torch 2.10.0+xpu, optuna 4.9.0,
-  lightgbm 4.6.0, scikit-learn 1.8.0, numpy 2.4.3; no Hydra). `automl_package/experiments/run_cells.sh` picks the
-  interpreter by `uname -m`. Jobs go through `submit.py --class resume --anywhere` (a rerun skips finished cells;
+- **Two machines.** The DGX (aarch64) and the part-time laptop `fedora` (x86_64, 16 cores lent). Since 2026-11-04
+  each runs automl from the repository's own `.venv`, built from `uv.lock` by `./install.sh` (torch extra `cu132` on
+  the DGX, `xpu` on the laptop; `.venv` is never synced). `automl_package/experiments/run_cells.sh` takes that
+  interpreter from `automl_package/experiments/_env.sh` (`AUTOML_PYTHON` overrides it). Jobs go through `submit.py --class resume --anywhere` (a rerun skips finished cells;
   `--anywhere` because `~/dev` is Syncthing, not a network mount).
 - **Pairs never cross environments.** The two machines differ in optuna (5.0.0 vs 4.9.0), lightgbm, scikit-learn and
   numpy, so a search can differ for the same cell. Every record carries an environment fingerprint (machine

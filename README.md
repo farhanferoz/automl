@@ -1137,15 +1137,15 @@ cd automl
 
 ### **2. Install the Package**
 
-It is recommended to install the package in an editable, or "developer," mode. This allows you to make changes to the source code and have them immediately reflected in your environment without needing to reinstall.
-
-From the root directory of the project (where `setup.py` is located), run:
+The package is a uv project: `uv.lock` pins every dependency, and the PyTorch build is chosen per machine by one extra
+(`cu132` for CUDA 13.2, which needs an NVIDIA driver of the 580 series or newer; `xpu` for Intel GPUs; `cpu`).
+From the root directory of the project, run:
 
 ```bash
-pip install -e .
+./install.sh          # detects CUDA > XPU > CPU and builds .venv from uv.lock; add --dev for pytest and ruff
 ```
 
-This command will install the `` and all its dependencies listed in `setup.py`.
+With pip instead of uv, name the extra yourself, e.g. `pip install -e ".[cpu]"`; without one, PyTorch is not installed.
 
 ### **3. Verify the Installation**
 
