@@ -2,13 +2,17 @@
 
 Run as ``<venv>/bin/python scripts/upgrade_probe.py --out FILE`` from the project root. It fits, on the CPU with one
 thread and fixed seeds, (1) a ProbabilisticRegressionModel on toy dataset A and (2) a PyTorchLSTMForecaster on a small
-synthetic panel, and writes the predictions and fit scores as JSON. Two environments that agree on the numbers agree
-on the fits; any difference is reported by the upgrade check, which then holds the new lock.
+synthetic panel, and writes the JSON the weekly upgrade's probe contract asks for
+(/home/ff235/dev/turing/preflight/upgrade/README.md): ``values``, every prediction and fit score in a fixed order
+(ProbReg test MSE, ProbReg test predictions, LSTM validation fit score, LSTM validation predictions), and
+``seconds_per_step``, the LSTM fit's wall seconds per epoch (it always runs all LSTM_EPOCHS). Two environments that agree
+on ``values`` agree on the fits; any difference holds the new lock.
 """
 
 import argparse
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -76,7 +80,7 @@ def _panel(n_rows: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
 
 
 def lstm_numbers() -> dict[str, Any]:
-    """Fits the LSTM forecaster for LSTM_EPOCHS epochs and returns its validation predictions and fit score."""
+    """Fits the LSTM forecaster for LSTM_EPOCHS epochs; returns its validation fit score, predictions and seconds per epoch."""
     x_train, y_train = _panel(PANEL_N_TRAIN, PANEL_TRAIN_SEED)
     x_val, y_val = _panel(PANEL_N_VAL, PANEL_VAL_SEED)
     model = PyTorchLSTMForecaster(
@@ -93,8 +97,14 @@ def lstm_numbers() -> dict[str, Any]:
         calculate_feature_importance=False,
         random_seed=SEED,
     )
+    start = time.perf_counter()
     model.fit(x_train, y_train, x_val=x_val, y_val=y_val)
-    return {"val_fit_score": float(model._held_out_fit_score(x_val, y_val)), "val_predictions": _as_list(model.predict(x_val))}
+    seconds_per_epoch = (time.perf_counter() - start) / LSTM_EPOCHS
+    return {
+        "val_fit_score": float(model._held_out_fit_score(x_val, y_val)),
+        "val_predictions": _as_list(model.predict(x_val)),
+        "seconds_per_epoch": seconds_per_epoch,
+    }
 
 
 def main() -> None:
@@ -103,8 +113,9 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True, help="JSON file to write")
     args = parser.parse_args()
     torch.set_num_threads(N_THREADS)
-    numbers = {"probreg_toy_a": probreg_numbers(), "lstm_panel": lstm_numbers()}
-    args.out.write_text(json.dumps(numbers, indent=1, sort_keys=True))
+    probreg, lstm = probreg_numbers(), lstm_numbers()
+    values = [probreg["test_mse"], *probreg["test_predictions"], lstm["val_fit_score"], *lstm["val_predictions"]]
+    args.out.write_text(json.dumps({"seconds_per_step": lstm["seconds_per_epoch"], "values": values}))
 
 
 if __name__ == "__main__":
