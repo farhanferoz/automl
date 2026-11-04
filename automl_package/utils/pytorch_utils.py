@@ -1,6 +1,8 @@
 """Utility functions for PyTorch models."""
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import torch
 import torch.nn as nn
@@ -64,6 +66,20 @@ def get_device() -> torch.device:
     if hasattr(torch, "xpu") and torch.xpu.is_available():
         return torch.device("xpu")
     return torch.device("cpu")
+
+
+@contextmanager
+def cudnn_enabled(enabled: bool) -> Iterator[None]:
+    """Switches cuDNN on or off inside the block and restores the previous setting after it.
+
+    ``torch.backends.cudnn.flags`` is not used: it also resets benchmark, deterministic and TF32 to its own defaults.
+    """
+    previous = torch.backends.cudnn.enabled
+    torch.backends.cudnn.enabled = enabled
+    try:
+        yield
+    finally:
+        torch.backends.cudnn.enabled = previous
 
 
 def _disable_broken_triton() -> None:
