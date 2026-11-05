@@ -772,3 +772,37 @@ def test_boosting_wrappers_offset_and_categoricals(model_name: str) -> None:
 
     with pytest.raises(ValueError, match="calculate_feature_importance"):
         model_cls(**{size: 5}, offset_feature="off").fit(train[features], train["y"].to_numpy())
+
+
+def test_lightgbm_poisson_deviance_fits_the_count_mean_and_keeps_the_prediction_in_target_space() -> None:
+    """Poisson loss: label exp(target), offset as init_score, predict = raw score + offset (the log-count scale), held-out fit term = the deviance."""
+    from automl_package.enums import ForecastLoss
+    from automl_package.models.lightgbm_model import LightGBMModel
+    from automl_package.utils.losses import poisson_deviance
+
+    rng = np.random.default_rng(0)
+    n = 6000
+    frame = pd.DataFrame({"f0": rng.normal(size=n), "off": rng.normal(1.0, 1.0, size=n)})
+    target = np.log1p(rng.poisson(np.exp(frame["off"] + 0.5 * frame["f0"])))  # log1p(y): exp(target) = 1 + y
+    train, held_out = frame.iloc[:4500], frame.iloc[4500:]
+
+    def make(**kwargs):
+        return LightGBMModel(n_estimators=150, early_stopping_rounds=10, validation_fraction=0.2, random_seed=0, calculate_feature_importance=False, offset_feature="off", **kwargs)
+
+    poisson = make(loss=ForecastLoss.POISSON_DEVIANCE)
+    poisson.fit(train, target[:4500])
+    assert poisson.objective == "poisson"
+    assert poisson.model.get_params()["metric"] == "poisson"  # early stopping reads the objective's own metric
+    eta = poisson.predict(train)
+    assert np.exp(eta).mean() == pytest.approx(np.exp(target[:4500]).mean(), rel=0.02)  # the fitted mean matches the sample mean (offset included once)
+    raw = poisson.model.predict(train.drop(columns="off"), raw_score=True)
+    np.testing.assert_allclose(eta, raw + train["off"].to_numpy())  # raw scores exclude init_score; predict adds it back
+    expected = float(np.mean(poisson_deviance(target[4500:], poisson.predict(held_out))))
+    assert poisson._held_out_fit_score(held_out, target[4500:]) == pytest.approx(expected)
+    squared = make()
+    squared.fit(train, target[:4500])
+    assert squared.objective == "regression"
+    assert squared._held_out_fit_score(held_out, target[4500:]) == pytest.approx(float(np.mean((squared.predict(held_out) - target[4500:]) ** 2)))
+    assert make(loss="poisson_deviance").get_params()["loss"] is ForecastLoss.POISSON_DEVIANCE
+    with pytest.raises(ValueError, match="POISSON_DEVIANCE"):
+        LightGBMModel(loss=ForecastLoss.POISSON_DEVIANCE, uncertainty_method=UncertaintyMethod.PROBABILISTIC)

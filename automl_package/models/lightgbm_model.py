@@ -5,11 +5,11 @@ from typing import Any, NoReturn
 import lightgbm as lgb
 import numpy as np
 
-from automl_package.enums import CategoricalCast, ExplainerType, Metric, TaskType, UncertaintyMethod
+from automl_package.enums import CategoricalCast, ExplainerType, ForecastLoss, Metric, TaskType, UncertaintyMethod
 from automl_package.models.base import BaseModel
 from automl_package.models.common.column_roles import ColumnRolesMixin
 from automl_package.models.common.common import get_loss_history
-from automl_package.utils.losses import tree_model_gaussian_nll_eval_metric, tree_model_gaussian_nll_objective
+from automl_package.utils.losses import poisson_deviance, tree_model_gaussian_nll_eval_metric, tree_model_gaussian_nll_objective
 from automl_package.utils.numerics import ensure_proba_shape
 
 
@@ -19,14 +19,27 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
     ``offset_feature`` is handed to LightGBM as ``init_score`` (``eval_init_score`` for the validation set); LightGBM's own ``predict``
     excludes it, so ``predict`` adds it back. ``categorical_features`` go to ``categorical_feature`` with the codes as given.
     See `ColumnRolesMixin`.
+
+    ``loss=ForecastLoss.POISSON_DEVIANCE`` (regression, ``UncertaintyMethod.CONSTANT``): the target is a log count ``t`` (e.g. ``log1p(y)``), LightGBM fits
+    objective ``poisson`` on the label ``exp(t)`` with the offset as ``init_score``, and early stopping reads LightGBM's ``poisson`` metric on the
+    validation rows (with ``eval_init_score``), the same objective up to a constant. ``predict`` still returns the linear predictor (raw score plus
+    offset) in target space, so a caller's ``expm1(prediction)`` is unchanged, and the held-out fit term is the Poisson deviance of ``exp(t)`` against
+    ``exp(prediction)``. The default ``SQUARED_ERROR`` is the original behaviour.
     """
 
     _CATEGORICAL_CAST = CategoricalCast.NATIVE_CODES
 
-    def __init__(self, random_seed: int | None = None, **kwargs: Any) -> None:
-        """Initializes the LightGBMModel."""
+    def __init__(self, random_seed: int | None = None, loss: ForecastLoss = ForecastLoss.SQUARED_ERROR, **kwargs: Any) -> None:
+        """Initializes the LightGBMModel.
+
+        Args:
+            random_seed: seed handed to LightGBM.
+            loss: the fit term (enums.ForecastLoss); POISSON_DEVIANCE needs a regression task with constant uncertainty.
+            **kwargs: passed on to the base class; LightGBM's own parameters go in ``params``.
+        """
         super().__init__(**kwargs)
         self.random_seed = random_seed
+        self.loss = ForecastLoss(loss)
         self.model = None
         self._train_residual_std = 0.0
         self.num_iterations_used = 0
@@ -37,6 +50,9 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
                 self.objective = tree_model_gaussian_nll_objective
                 self.metric = "None"  # Use custom eval metric
                 self.params["num_class"] = 2
+            elif self.loss is ForecastLoss.POISSON_DEVIANCE:
+                self.objective = "poisson"
+                self.metric = "poisson"
             else:
                 self.objective = "regression"
                 self.metric = Metric.RMSE.label
@@ -46,6 +62,8 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
             self.metric = None
         else:
             raise ValueError(f"Unsupported task type: {self.task_type}")
+        if self.loss is ForecastLoss.POISSON_DEVIANCE and not (self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT):
+            raise ValueError(f"loss=POISSON_DEVIANCE needs task_type=REGRESSION and uncertainty_method=CONSTANT (got {self.task_type}, {self.uncertainty_method}).")
 
     @property
     def name(self) -> str:
@@ -74,7 +92,7 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
 
         if use_early_stopping and x_val is not None:
             x_val, offset_val = self._split_column_roles(x_val)
-            eval_set = [(x_val, y_val)]
+            eval_set = [(x_val, self._fit_label(y_val))]
             if offset_val is not None:
                 fit_params["eval_init_score"] = [offset_val]
             callbacks.append(lgb.early_stopping(self.early_stopping_rounds, verbose=False))
@@ -108,7 +126,7 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
         if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC and eval_set is not None:
             fit_params["eval_metric"] = tree_model_gaussian_nll_eval_metric
 
-        self.model.fit(features_train, y_train, **fit_params)
+        self.model.fit(features_train, self._fit_label(y_train), **fit_params)
 
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
             y_pred_train = self.predict(x_train, filter_data=False)
@@ -122,6 +140,16 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
 
         return best_iteration, loss_history
 
+    def _fit_label(self, y: np.ndarray) -> np.ndarray:
+        """The label LightGBM fits: the target itself, or ``exp(target)`` (the count) under the Poisson loss."""
+        return np.exp(y) if self.loss is ForecastLoss.POISSON_DEVIANCE else y
+
+    def _held_out_fit_score(self, x_val: np.ndarray, y_val: np.ndarray) -> float:
+        """Held-out fit term: the Poisson deviance under ``POISSON_DEVIANCE`` (lower is better), else the base class's score."""
+        if self.loss is not ForecastLoss.POISSON_DEVIANCE:
+            return super()._held_out_fit_score(x_val, y_val)
+        return float(np.mean(poisson_deviance(np.asarray(y_val, dtype=float), self._predict_for_scoring(x_val))))
+
     def _clone(self) -> "LightGBMModel":
         """Creates a new instance of the model with the same parameters."""
         return LightGBMModel(**self.get_params())
@@ -129,7 +157,7 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
     def get_params(self) -> dict[str, Any]:
         """Gets parameters for this estimator."""
         params = super().get_params()
-        params.update({"task_type": self.task_type, "random_seed": self.random_seed})
+        params.update({"task_type": self.task_type, "random_seed": self.random_seed, "loss": self.loss})
         return params
 
     def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
@@ -144,7 +172,7 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
             # The sklearn wrapper returns a 2D array for multi-class objectives
             raw_predictions = self.model.predict(features, raw_score=True)
             return raw_predictions[:, 0]  # Return only the mean
-        predictions = self.model.predict(features)
+        predictions = self.model.predict(features, raw_score=self.loss is ForecastLoss.POISSON_DEVIANCE)  # the linear predictor, not exp() of it
         return predictions if offset is None else predictions + offset  # LightGBM's predict excludes init_score: add the starting score back
 
     def predict_proba(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:

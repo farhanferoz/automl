@@ -344,3 +344,17 @@ class CategoricalCast(Enum):
     NATIVE_CODES = "native_codes"  # LightGBM: the codes as given (float, NaN = missing), named in `categorical_feature`
     INTEGER_CODES = "integer_codes"  # CatBoost: integer codes, NaN mapped to the code -1 (its own category)
     PANDAS_CATEGORICAL = "pandas_categorical"  # XGBoost: pandas Categorical with the category levels fixed at fit
+
+
+class OutputBound(Enum):
+    """Whether a neural network's regression output is confined to the range of its training targets."""
+
+    NONE = "none"  # the output is unconstrained (default)
+    TRAINING_RANGE = "training_range"  # per output column, out = c + h * tanh((raw - c) / h) with [c - h, c + h] the training targets' min..max
+
+
+class ForecastLoss(Enum):
+    """Fit term (the loss early stopping and the search read on held-out rows) of a forecasting model."""
+
+    SQUARED_ERROR = "squared_error"  # mean squared error between the model output and the target (default)
+    POISSON_DEVIANCE = "poisson_deviance"  # Poisson deviance of the count exp(target [+ offset]) against exp(output [+ offset]); `utils.losses.poisson_deviance`
