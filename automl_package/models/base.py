@@ -10,10 +10,11 @@ import optuna
 import pandas as pd
 from sklearn.model_selection import KFold
 
-from automl_package.enums import DataSplitStrategy, HpoSampler, Metric, OutOfRangeAction, TaskType, UncertaintyMethod
+from automl_package.enums import DataSplitStrategy, HpoSampler, KSelectionRule, Metric, OutOfRangeAction, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.common.mixins import BinnedUncertaintyMixin
 from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
+from automl_package.utils.capacity_selection import cheapest_within_tolerance
 from automl_package.utils.checkpoint import stable_hash
 from automl_package.utils.cv import TimeSeriesSplit
 from automl_package.utils.data_handler import create_train_val_split
@@ -25,6 +26,8 @@ from automl_package.utils.prediction_envelope import PredictionRangeReport, Trai
 
 HPO_IDENTITY_EXCLUDED = ("n_trials", "hpo_storage_dir", "output_dir")  # settings that do not change what a search computes
 HPO_HASH_LENGTH = 16
+NESTED_PARAM_SEPARATOR = "__"  # ``a__b`` in a search space names key ``b`` of the dict parameter ``a``
+MIN_SWEEP_K = 2  # a one-class model predicts one constant, so a sweep over the number of classes starts at two
 
 
 class BaseModel(abc.ABC, BinnedUncertaintyMixin):
@@ -597,6 +600,112 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         """Direction of `_held_out_fit_score` for the Optuna study."""
         return self._get_optimization_metric().is_smaller_better
 
+    def _held_out_fit_per_sample(self, x_val: np.ndarray, y_val: np.ndarray) -> np.ndarray:
+        """Per-sample held-out fit term (lower is better) on a model already fitted on the training part, shape ``(N,)``.
+
+        Default: the squared error of the prediction, the fit term of a model scored by MSE (`_get_optimization_metric`).
+        `PyTorchModelBase` overrides it with the fit term of its training loss.
+
+        Raises:
+            NotImplementedError: if the model is not scored by MSE (its fit term is then not the squared error).
+        """
+        if self._get_optimization_metric() != Metric.MSE:
+            raise NotImplementedError(f"{type(self).__name__} is scored by {self._get_optimization_metric().name}: it must define its own _held_out_fit_per_sample.")
+        predictions = np.asarray(self._predict_for_scoring(x_val), dtype=np.float64).ravel()
+        return (predictions - np.asarray(y_val, dtype=np.float64).ravel()) ** 2
+
+    def fit_sweep_selector(
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray,
+        y_val: np.ndarray,
+        *,
+        capacity_grid: list[int] | None = None,
+        n_bootstrap: int = 1000,
+        rule: KSelectionRule = KSelectionRule.CHEAPEST_WITHIN_TOLERANCE,
+        early_stop_on_val: bool = False,
+    ) -> int:
+        """Brute-force choice of the number of classes: one model per candidate k, the best on held-out data kept.
+
+        Any model with an ``n_classes`` parameter. Each candidate is this model's own settings at its k
+        (`_sweep_candidate_params`), fitted by `_fit_sweep_candidate` and scored per sample on ``(x_val, y_val)`` by its
+        held-out fit term (`_held_out_fit_per_sample`). ``rule`` picks the winner: MINIMUM the lowest mean,
+        CHEAPEST_WITHIN_TOLERANCE the smallest k within tolerance of the best (`utils.capacity_selection.cheapest_within_tolerance`,
+        ``n_bootstrap`` resamples). The winner is kept as ``_sweep_submodel_`` and `predict` delegates to it; ``selected_k_``
+        and ``sweep_val_errors_`` (mean held-out fit term per k) are stored, then `_record_sweep` runs.
+
+        Args:
+            x_train: inputs every candidate is trained on.
+            y_train: targets every candidate is trained on.
+            x_val: held-out inputs the candidates are scored on.
+            y_val: held-out targets the candidates are scored on.
+            capacity_grid: candidate k values, cheapest first (default `_default_sweep_grid`).
+            n_bootstrap: bootstrap resamples of the CHEAPEST_WITHIN_TOLERANCE rule.
+            rule: how the winner is read off the held-out curve.
+            early_stop_on_val: fit each candidate in one pass, early-stopped on ``(x_val, y_val)`` (which then also choose k:
+                the study protocol), instead of on an inner split of ``(x_train, y_train)``.
+
+        Returns:
+            The selected k.
+
+        Raises:
+            TypeError: if the model has no ``n_classes`` parameter.
+            ValueError: if a candidate is below `MIN_SWEEP_K`.
+        """
+        if not hasattr(self, "n_classes"):
+            raise TypeError(f"{type(self).__name__} has no n_classes parameter for fit_sweep_selector to sweep.")
+        grid = list(capacity_grid) if capacity_grid is not None else self._default_sweep_grid()
+        if min(grid) < MIN_SWEEP_K:
+            raise ValueError(f"fit_sweep_selector candidates start at k={MIN_SWEEP_K}: a one-class {type(self).__name__} is a constant predictor (got {grid}).")
+        error_table = np.empty((len(np.asarray(y_val).ravel()), len(grid)), dtype=np.float64)
+        candidates = []
+        for col, k in enumerate(grid):
+            candidate = type(self)(**self._sweep_candidate_params(k, early_stop_on_val=early_stop_on_val))
+            self._fit_sweep_candidate(candidate, x_train, y_train, x_val, y_val, early_stop_on_val=early_stop_on_val)
+            error_table[:, col] = candidate._held_out_fit_per_sample(x_val, y_val)
+            candidates.append(candidate)
+        mean_error = error_table.mean(axis=0)
+        seed = getattr(self, "random_seed", None) or 0
+        idx = int(np.argmin(mean_error)) if rule == KSelectionRule.MINIMUM else cheapest_within_tolerance(error_table, n_boot=n_bootstrap, seed=seed)
+        self.selected_k_ = grid[idx]
+        self.sweep_val_errors_ = dict(zip(grid, mean_error.tolist(), strict=True))
+        self._sweep_submodel_ = candidates[idx]
+        self._record_sweep(grid, error_table, self.selected_k_)
+        return self.selected_k_
+
+    def _default_sweep_grid(self) -> list[int]:
+        """Candidate k when `fit_sweep_selector` is given none: the model's ``n_classes`` search range.
+
+        Raises:
+            ValueError: if the search space has no ``n_classes`` range.
+        """
+        space = self.get_hyperparameter_search_space().get("n_classes")
+        if space is None:
+            raise ValueError(f"{type(self).__name__} has no n_classes search range: pass capacity_grid to fit_sweep_selector.")
+        return list(range(max(MIN_SWEEP_K, int(space["low"])), int(space["high"]) + 1))
+
+    def _sweep_candidate_params(self, k: int, *, early_stop_on_val: bool) -> dict[str, Any]:
+        """Constructor settings of the sweep candidate at ``k``: this model's own settings with ``n_classes = k``."""
+        params = self.get_params()
+        params["n_classes"] = k
+        params["calculate_feature_importance"] = self.calculate_feature_importance
+        if early_stop_on_val:
+            params["refit_on_train_val"] = False  # one pass: the validation rows stay held out, they also choose k
+        return params
+
+    def _fit_sweep_candidate(
+        self, candidate: "BaseModel", x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray, y_val: np.ndarray, *, early_stop_on_val: bool
+    ) -> None:
+        """Fits one sweep candidate: one pass early-stopped on ``(x_val, y_val)``, or on its own inner split of the training rows."""
+        if early_stop_on_val:
+            candidate.fit(x_train, y_train, x_val=x_val, y_val=y_val)
+        else:
+            candidate.fit(x_train, y_train)
+
+    def _record_sweep(self, capacity_grid: list[int], error_table: np.ndarray, selected_k: int) -> None:
+        """Hook run after `fit_sweep_selector` has chosen ``selected_k`` (per-sample held-out errors ``error_table``, one column per k)."""
+
     def _calculate_performance_score(self, y_true: np.ndarray, y_pred: np.ndarray, x_val: np.ndarray | None = None, y_pred_std: np.ndarray | None = None) -> float:
         """Calculates the performance score based on the model's optimization metric."""
         metric_to_use = self._get_optimization_metric()
@@ -680,6 +789,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         Raises:
             ValueError: under RAISE, when any prediction is outside the training range.
         """
+        winner = getattr(self, "_sweep_submodel_", None)
+        if winner is not None:  # after `fit_sweep_selector` the winning candidate is the fitted model
+            return winner.predict(x, filter_data=filter_data, **kwargs)
         predictions = self._predict(x, filter_data=filter_data, **kwargs)
         envelope = self.training_envelope_
         if envelope is None:

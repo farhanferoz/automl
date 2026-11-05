@@ -36,12 +36,13 @@ class LookupMapper(BaseMapper):
         self.lookup_table = None
         self.n_partitions_min = kwargs.get("n_partitions_min", 5)
         self.n_partitions_max = kwargs.get("n_partitions_max", np.inf)
+        self.n_partitions = kwargs.get("lookup_n_partitions")  # a fixed number of probability groups; None = chosen from the data size below
         self._residual_variance = 0.0
 
     def _fit(self, probas: np.ndarray, y_original: np.ndarray, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG002
         min_partitions = max(self.n_partitions_min, len(probas) // 2000)
         max_partitions = min(self.n_partitions_max, len(probas) // 100)
-        num_partitions = max(1, min_partitions, max_partitions)
+        num_partitions = self.n_partitions if self.n_partitions is not None else max(1, min_partitions, max_partitions)
 
         aggregation_func = np.mean if self._mapper_type == MapperType.LOOKUP_MEAN else np.median
         aggregations = {"values": aggregation_func, "variances": np.var}

@@ -1178,21 +1178,21 @@ class TestFitSweepSelector:
     def test_selection_rule_uses_shared_cheapest_within_tolerance_primitive(self, monkeypatch):
         """PA's requirement: M3 uses the SAME selection primitive as M1
         (`automl_package.utils.capacity_selection.cheapest_within_tolerance`), not a re-derived
-        rule -- verified by spying on the actual call `fit_sweep_selector` makes."""
-        import automl_package.models.probabilistic_regression as pr_module
+        rule -- verified by spying on the actual call `fit_sweep_selector` makes (the sweep lives in `BaseModel`)."""
+        import automl_package.models.base as sweep_module
 
         x, y = self._toy_data(200, seed=1)
         x_tr, y_tr = x[:150], y[:150]
         x_val, y_val = x[150:], y[150:]
 
         captured: dict = {}
-        original = pr_module.cheapest_within_tolerance
+        original = sweep_module.cheapest_within_tolerance
 
         def _spy(error_table, n_boot, seed):
             captured["error_table"] = error_table
             return original(error_table, n_boot=n_boot, seed=seed)
 
-        monkeypatch.setattr(pr_module, "cheapest_within_tolerance", _spy)
+        monkeypatch.setattr(sweep_module, "cheapest_within_tolerance", _spy)
 
         model = self._base_model(max_k=3, n_epochs=10, seed=1)
         selected_k = model.fit_sweep_selector(x_tr, y_tr, x_val, y_val, n_bootstrap=150)

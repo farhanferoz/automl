@@ -16,6 +16,7 @@ import torch
 from sklearn.model_selection import train_test_split
 
 from automl_package.enums import (
+    KSelectionRule,
     MapperType,
     NClassesSelectionMethod,
     RegressionStrategy,
@@ -390,6 +391,33 @@ class TestModelComparison:
             f"ClassifierRegression MSE ({multimodal_mse:.4f}) is unreasonably high "
             f"on bimodal data -- model may have failed to train."
         )
+
+    def test_classifier_regression_one_pass_search_and_k_sweep(self):
+        """The study protocol: an explicit validation set, a search scored on it, bins from the training targets only, and a brute-force k sweep."""
+        from automl_package.models.classifier_regression import ClassifierRegressionModel
+
+        rng = np.random.default_rng(0)
+        x, x_val = rng.uniform(0, 1, (160, 1)).astype(np.float32), rng.uniform(0, 1, (80, 1)).astype(np.float32)
+        y = np.sin(2 * np.pi * x[:, 0]).astype(np.float32)
+        y_val = (np.sin(2 * np.pi * x_val[:, 0]) + 5.0).astype(np.float32)  # shifted: bins drawn from train + validation would differ
+        common = {
+            "base_classifier_class": "PYTORCH_NEURAL_NETWORK",  # a ModelName, as a config writes it
+            "mapper_type": MapperType.LOOKUP_MEDIAN,
+            "base_classifier_params": {"n_epochs": 20},
+            "early_stopping_rounds": 5,
+            "refit_on_train_val": False,
+            "calculate_feature_importance": False,
+            "random_seed": 0,
+        }
+        model = ClassifierRegressionModel(**common, optimize_hyperparameters=True, n_trials=2, search_space_exclude=["base_classifier_params__dropout_rate"])
+        model.fit(x, y, x_val=x_val, y_val=y_val)
+        np.testing.assert_array_equal(model.class_boundaries, create_bins(data=y, n_bins=model.n_classes, min_value=-np.inf, max_value=np.inf)[0])
+        assert {"learning_rate", "hidden_size"} <= set(model.base_classifier_params)  # searched as base_classifier_params__<name>
+
+        sweep = ClassifierRegressionModel(**common)
+        picked = sweep.fit_sweep_selector(x, y, x_val, y_val, capacity_grid=[2, 3, 4], rule=KSelectionRule.MINIMUM, early_stop_on_val=True)
+        assert picked == min(sweep.sweep_val_errors_, key=sweep.sweep_val_errors_.get) == sweep._sweep_submodel_.n_classes
+        np.testing.assert_array_equal(sweep.predict(x_val), sweep._sweep_submodel_.predict(x_val))
 
     def test_prob_regression_uncertainty_varies_with_input(self, heteroscedastic_data):
         """Probabilistic model should produce non-constant uncertainty across inputs.
