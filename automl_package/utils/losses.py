@@ -1,11 +1,13 @@
 """Loss functions."""
 
 import math
-from typing import Literal
+from typing import Literal, TypeVar
 
 import numpy as np
 import torch
 import torch.nn.functional as F  # noqa: N812
+
+ArrayT = TypeVar("ArrayT", np.ndarray, torch.Tensor)
 
 
 def _reduce(per_sample: torch.Tensor, reduction: Literal["mean", "none"]) -> torch.Tensor:
@@ -44,6 +46,25 @@ def beta_nll_loss(outputs: torch.Tensor, targets: torch.Tensor, beta: float = 0.
     per_sample_nll = 0.5 * (math.log(2 * math.pi) + log_var + ((targets - mean) ** 2) / variance)
     weighted_nll = (variance.detach() ** beta) * per_sample_nll
     return _reduce(weighted_nll, reduction)
+
+
+def poisson_deviance(log_count: ArrayT, linear_predictor: ArrayT) -> ArrayT:
+    """Poisson deviance per entry, `2 * (u * log(u / mu) - (u - mu))` with `u = exp(log_count)` and `mu = exp(linear_predictor)`.
+
+    One formula for numpy arrays and torch tensors (same operators, the matching `exp`), so a model's training loss and its
+    numpy held-out score cannot drift apart. Zero when `mu == u`, never negative for `u > 0`. The count is given on the
+    log scale: for `u >= 1` ("1 + attendances") the argument is `log1p(y)`, plus any per-row offset the caller adds to both arguments.
+
+    Args:
+        log_count: log of the observed count `u`, any shape.
+        linear_predictor: log of the modelled mean `mu`, same shape.
+
+    Returns:
+        The per-entry deviance, same shape and type as the inputs.
+    """
+    exp = torch.exp if isinstance(linear_predictor, torch.Tensor) else np.exp
+    count = exp(log_count)
+    return 2.0 * (count * (log_count - linear_predictor) - count + exp(linear_predictor))
 
 
 def masked_cross_entropy_loss(logits: torch.Tensor, y_binned: torch.Tensor, k_values: torch.Tensor) -> torch.Tensor:

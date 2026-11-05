@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from automl_package.enums import LearnedRegularizationType, OptimizerType, TaskType, UncertaintyMethod
+from automl_package.enums import LearnedRegularizationType, OptimizerType, OutputBound, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 from automl_package.models.common.losses import calculate_combined_loss
@@ -29,6 +29,10 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
     # score of `BaseModel` until it declares its fit term (listed follow-up, DECISIONS.md "Validation score").
     _scores_by_fit_term: ClassVar[bool] = False
 
+    # Whether this class applies `output_bound` (a `TrainingRangeBound` on the network's final output, which must be the regression
+    # prediction itself). A class that does not declare True raises NotImplementedError when `OutputBound.TRAINING_RANGE` is requested.
+    _supports_output_bound: ClassVar[bool] = False
+
     _defaults: ClassVar[dict[str, Any]] = {
         "input_size": None,
         "output_size": 1,
@@ -45,6 +49,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         "lambda_learning_rate": 1e-5,
         "random_seed": None,
         "optimizer_type": OptimizerType.ADAM,
+        "output_bound": OutputBound.NONE,  # OutputBound.TRAINING_RANGE confines the output to the range of the training targets (models/common/output_bound.py)
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -52,6 +57,9 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         # Apply defaults from this class specifically
         for key, value in PyTorchModelBase._defaults.items():
             kwargs.setdefault(key, value)
+        kwargs["output_bound"] = OutputBound(kwargs["output_bound"])  # a config may hand over the value or the member
+        if kwargs["output_bound"] is OutputBound.TRAINING_RANGE and not self._supports_output_bound:
+            raise NotImplementedError(f"{type(self).__name__} does not apply output_bound=TRAINING_RANGE: its network output is not wired to a TrainingRangeBound.")
 
         # Set all attributes on the instance
         for key, value in kwargs.items():
@@ -358,6 +366,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
                 "lambda_learning_rate": self.lambda_learning_rate,
                 "random_seed": self.random_seed,
                 "optimizer_type": self.optimizer_type,
+                "output_bound": self.output_bound,
             }
         )
         return params

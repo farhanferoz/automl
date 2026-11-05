@@ -1,11 +1,17 @@
 """PyTorchLSTMForecaster: learns a window-driven signal, skips NaN targets, and standardises on its own fit rows."""
 
+import math
+
 import numpy as np
 import pytest
 import torch
 
-from automl_package.enums import RnnBackend
+from automl_package.enums import ForecastLoss, OutputBound, RnnBackend
+from automl_package.models.common.output_bound import TrainingRangeBound
+from automl_package.models.common.unknown_category_embedding import UnknownCategoryEmbedding
 from automl_package.models.lstm_model import PyTorchLSTMForecaster, SequenceLayout
+from automl_package.models.neural_network import PyTorchNeuralNetwork
+from automl_package.utils.losses import poisson_deviance
 
 N_SERIES, N_STEPS, N_CHANNELS, N_DENSE, N_HORIZONS = 3, 8, 2, 3, 2
 
@@ -74,7 +80,7 @@ def test_fits_through_the_public_fit_and_predicts_every_horizon(model: PyTorchLS
     other.build_model()
     assert [layer.out_features for layer in other.model.head if isinstance(layer, torch.nn.Linear)] == [*widths, N_HORIZONS]
     assert sum(isinstance(layer, torch.nn.Tanh) for layer in other.model.head) == len(widths)
-    assert not other.model.embedding.weight.any()
+    assert not other.model.embedding.weight.any()  # std 0: the known rows and the unknown row are all zeros
     calls: list[int] = []
     other.model.register_forward_pre_hook(lambda _module, args: calls.append(len(args[0])))
     other.predict(x_val)
@@ -88,3 +94,112 @@ def test_input_statistics_come_from_the_fit_rows_only(model: PyTorchLSTMForecast
     x_val[:, 1 + N_STEPS * N_CHANNELS :] += 100.0  # a shifted held-out block must not move the fitted statistics
     model.fit(x_train, y_train, x_val=x_val, y_val=y_val)
     assert np.allclose(model._input_stats["dense_mean"], x_train[:, 1 + N_STEPS * N_CHANNELS :].mean(axis=0), atol=1e-5)
+
+
+def test_poisson_deviance_formula_and_offset_reach_the_loss(model: PyTorchLSTMForecaster) -> None:
+    # hand example: count u = 2, mean mu = 1 -> 2 * (2 log 2 - (2 - 1)) = 4 log 2 - 2; zero when mu == u; numpy and torch agree
+    expected = 4 * math.log(2) - 2
+    assert poisson_deviance(np.array([math.log(2)]), np.array([0.0]))[0] == pytest.approx(expected)
+    assert poisson_deviance(torch.tensor([math.log(2)]), torch.tensor([0.0])).item() == pytest.approx(expected, rel=1e-6)
+    assert poisson_deviance(np.array([1.3]), np.array([1.3]))[0] == pytest.approx(0.0, abs=1e-12)
+    # the loss: z = log-count minus offset, so the deviance sees exp(z + o) against exp(prediction + o); NaN entries are skipped
+    nan = float("nan")
+    offset = torch.tensor([[math.log(2)], [math.log(5)]])
+    target = torch.tensor([[0.0, nan], [0.0, 0.0]])
+    loss = PyTorchLSTMForecaster(layout=model.layout, output_size=N_HORIZONS, loss="poisson_deviance")
+    assert loss.loss is ForecastLoss.POISSON_DEVIANCE
+    got = loss._fit_loss(torch.zeros(2, 2), target, offset=offset)
+    assert got.item() == pytest.approx(0.0, abs=1e-6)  # prediction == target: deviance 0
+    pred = torch.tensor([[-math.log(2), 7.0], [0.0, 0.0]])  # row 0: mu = exp(-log 2 + log 2) = 1 against u = 2
+    assert loss._fit_loss(pred, target, offset=offset).item() == pytest.approx(expected / 3)  # one non-zero entry of three observed
+    assert loss._fit_loss(pred, target, offset=offset, reduction="none").tolist() == pytest.approx([expected, 0.0])
+    # a bigger row weighs more: the same relative miss costs in proportion to the count
+    miss = torch.full((2, 1), 0.5)
+    sizes = loss._fit_loss(miss, torch.zeros(2, 1), offset=offset, reduction="none")
+    assert sizes[1] / sizes[0] == pytest.approx(5 / 2, rel=1e-5)
+    # squared error ignores the offset
+    assert model._fit_loss(pred, target, offset=offset).item() == model._fit_loss(pred, target).item()
+
+
+def test_offset_column_is_not_an_input_and_poisson_model_trains(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AUTOML_DEVICE", "cpu")
+    layout = SequenceLayout(N_SERIES, N_STEPS, N_CHANNELS, offset_dense_index=1)
+    x, y = _panel(400, 5)
+    x[:, 1 + N_STEPS * N_CHANNELS + 1] = np.log(np.random.default_rng(0).integers(1, 20, len(x)))  # per-row offset in dense column 1
+    y = np.abs(y) * 0.1
+    common = {
+        "layout": layout,
+        "output_size": N_HORIZONS,
+        "window": N_STEPS,
+        "hidden_size": 8,
+        "embedding_dim": 4,
+        "n_epochs": 3,
+        "batch_size": 64,
+        "refit_on_train_val": False,
+        "calculate_feature_importance": False,
+        "random_seed": 0,
+    }
+    poisson = PyTorchLSTMForecaster(**common, loss=ForecastLoss.POISSON_DEVIANCE, early_stopping_rounds=3)
+    poisson.fit(x[:300], y[:300], x_val=x[300:], y_val=y[300:])
+    assert poisson._input_stats["dense_mean"].shape == (N_DENSE - 1,)  # the offset column is not standardised or fed in
+    changed = x[300:].copy()
+    changed[:, 1 + N_STEPS * N_CHANNELS + 1] += 3.0
+    np.testing.assert_array_equal(poisson.predict(changed), poisson.predict(x[300:]))  # predictions do not read the offset
+    held_out = poisson._held_out_fit_score(x[300:], y[300:])
+    assert held_out == pytest.approx(poisson.convergence_.best_val, rel=1e-4)  # early stopping read the deviance with the offset
+    assert held_out != pytest.approx(poisson._held_out_fit_score(changed, y[300:]))  # ... which does depend on the offset
+    with pytest.raises(ValueError, match="offset"):
+        poisson._held_out_fit_score(np.where(np.arange(x.shape[1]) == 1 + N_STEPS * N_CHANNELS + 1, np.nan, x[300:]).astype(np.float32), y[300:])
+    with pytest.raises(ValueError, match="dense block"):
+        PyTorchLSTMForecaster(**{**common, "layout": SequenceLayout(N_SERIES, N_STEPS, N_CHANNELS, offset_dense_index=N_DENSE)}).fit(x[:300], y[:300])
+
+
+def test_output_bound_confines_the_output_and_is_saved(model: PyTorchLSTMForecaster) -> None:
+    x, y = _panel(300, 6)
+    bounded = PyTorchLSTMForecaster(**{**model.get_params(), "output_bound": "training_range", "n_epochs": 3, "early_stopping_rounds": None})
+    assert bounded.output_bound is OutputBound.TRAINING_RANGE
+    y = y.copy()
+    y[x[:, 0] == 0] = np.nan  # series 0 has rows but no observed target: its vector never trains, so it counts as unseen
+    bounded.fit(x, y)
+    assert bounded.model.embedding.seen.tolist() == [False] + [True] * (N_SERIES - 1)
+    lo, hi = np.nanmin(y, axis=0), np.nanmax(y, axis=0)
+    wild = x.copy()
+    wild[:, 1:] = wild[:, 1:] * 1e4  # a runaway input must not give a runaway output
+    pred = bounded.predict(wild)
+    assert (pred >= lo).all()
+    assert (pred <= hi).all()
+    assert {"output_bound.centre", "output_bound.half_width"} <= set(bounded.model.state_dict())
+    assert bounded.get_params()["output_bound"] is OutputBound.TRAINING_RANGE  # clones keep it
+    # the bound is a midpoint-centred tanh: identity at the midpoint, the ends at +-infinity
+    bound = TrainingRangeBound(np.array([0.0]), np.array([4.0]))
+    assert bound(torch.tensor([[2.0], [100.0], [-100.0]])).flatten().tolist() == pytest.approx([2.0, 4.0, 0.0], abs=1e-4)
+    with pytest.raises(ValueError, match=r"column\(s\) \[1\].*zero-width"):
+        TrainingRangeBound.from_targets(np.array([[1.0, 2.0], [3.0, 2.0], [2.0, np.nan]]))
+    with pytest.raises(NotImplementedError, match="PyTorchNeuralNetwork"):
+        PyTorchNeuralNetwork(output_bound=OutputBound.TRAINING_RANGE)
+
+
+def test_unknown_category_embedding_keeps_the_known_rows_and_maps_unseen_ones() -> None:
+    seen = torch.tensor([True, True, False])
+    torch.manual_seed(0)
+    plain = torch.nn.Embedding(3, 4)
+    torch.nn.init.normal_(plain.weight, std=0.1)
+    after_plain = torch.rand(1)
+    torch.manual_seed(0)
+    table = UnknownCategoryEmbedding(3, 4, 0.1, seen)
+    assert torch.equal(table.weight[:3], plain.weight)  # the known rows are bit-identical to a plain embedding
+    assert torch.rand(1) == after_plain  # the unknown row consumed no random draw
+    assert not table.weight[3].any()
+    assert table(torch.tensor([2, 0])).tolist() == [[0.0] * 4, plain.weight[0].tolist()]  # never-seen index 2 reads the unknown row, a seen one its own
+    assert table.n_unseen(torch.tensor([2, 0, 2])) == 2
+    state = torch.get_rng_state()
+    table.train()
+    table(torch.arange(2))
+    assert torch.equal(torch.get_rng_state(), state)  # rate 0 draws nothing
+    hidden = UnknownCategoryEmbedding(3, 4, 0.1, torch.ones(3, dtype=torch.bool), unknown_rate=0.5)
+    hidden.embedding.weight.data[3] = 1.0  # mark the unknown row
+    hidden.train()
+    out = hidden(torch.zeros(2000, dtype=torch.long))
+    assert (out[:, 0] == 1.0).float().mean().item() == pytest.approx(0.5, abs=0.05)  # about half the rows are hidden in training
+    hidden.eval()
+    assert not (hidden(torch.zeros(50, dtype=torch.long))[:, 0] == 1.0).any()  # nothing is hidden at prediction

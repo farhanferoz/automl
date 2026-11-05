@@ -352,3 +352,17 @@ class OutOfRangeAction(Enum):
     FLAG = "flag"  # report only; predictions are returned unchanged
     CLIP = "clip"  # clip each output column to its training [min, max] and log how many entries moved
     RAISE = "raise"  # raise ValueError when any prediction is outside the range
+
+
+class OutputBound(Enum):
+    """Whether a neural network's regression output is confined to the range of its training targets."""
+
+    NONE = "none"  # the output is unconstrained (default)
+    TRAINING_RANGE = "training_range"  # per output column, out = c + h * tanh((raw - c) / h) with [c - h, c + h] the training targets' min..max
+
+
+class ForecastLoss(Enum):
+    """Fit term (the loss early stopping and the search read on held-out rows) of a forecasting model."""
+
+    SQUARED_ERROR = "squared_error"  # mean squared error between the model output and the target (default)
+    POISSON_DEVIANCE = "poisson_deviance"  # Poisson deviance of the count exp(target [+ offset]) against exp(output [+ offset]); `utils.losses.poisson_deviance`
