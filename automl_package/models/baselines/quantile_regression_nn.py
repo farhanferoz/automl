@@ -110,7 +110,7 @@ class QuantileRegressionNN(PyTorchModelBase):
 
         return n_epochs, train_losses
 
-    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
+    def _predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
         """Returns median (τ=0.5) prediction."""
         if filter_data:
             x = self._filter_predict_data(x)

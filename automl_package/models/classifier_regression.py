@@ -709,7 +709,7 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
         )
         return params
 
-    def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+    def _predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Makes predictions (expected regression output) using the composite model."""
         if self.base_classifier is None or not self.class_mappers:
             raise RuntimeError("Model has not been fitted yet. Call fit() first.")

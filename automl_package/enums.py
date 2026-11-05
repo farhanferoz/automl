@@ -344,3 +344,11 @@ class CategoricalCast(Enum):
     NATIVE_CODES = "native_codes"  # LightGBM: the codes as given (float, NaN = missing), named in `categorical_feature`
     INTEGER_CODES = "integer_codes"  # CatBoost: integer codes, NaN mapped to the code -1 (its own category)
     PANDAS_CATEGORICAL = "pandas_categorical"  # XGBoost: pandas Categorical with the category levels fixed at fit
+
+
+class OutOfRangeAction(Enum):
+    """What a model does with predictions outside the range of its training targets (see ``utils/prediction_envelope.py``)."""
+
+    FLAG = "flag"  # report only; predictions are returned unchanged
+    CLIP = "clip"  # clip each output column to its training [min, max] and log how many entries moved
+    RAISE = "raise"  # raise ValueError when any prediction is outside the range

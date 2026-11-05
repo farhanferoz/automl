@@ -10,7 +10,7 @@ import optuna
 import pandas as pd
 from sklearn.model_selection import KFold
 
-from automl_package.enums import DataSplitStrategy, HpoSampler, Metric, TaskType, UncertaintyMethod
+from automl_package.enums import DataSplitStrategy, HpoSampler, Metric, OutOfRangeAction, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.common.mixins import BinnedUncertaintyMixin
 from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
@@ -21,6 +21,7 @@ from automl_package.utils.feature_selection import select_features_by_cumulative
 from automl_package.utils.metrics import Metrics, calculate_performance_score
 from automl_package.utils.numerics import find_optimal_iterations
 from automl_package.utils.plotting import plot_feature_importance
+from automl_package.utils.prediction_envelope import PredictionRangeReport, TrainingEnvelope, check_prediction_range, clip_to_envelope
 
 HPO_IDENTITY_EXCLUDED = ("n_trials", "hpo_storage_dir", "output_dir")  # settings that do not change what a search computes
 HPO_HASH_LENGTH = 16
@@ -53,6 +54,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         shap_max_data_points: int | None = 50000,
         uncertainty_method: UncertaintyMethod = UncertaintyMethod.CONSTANT,
         refit_on_train_val: bool = True,
+        out_of_range_action: OutOfRangeAction = OutOfRangeAction.FLAG,
         **kwargs: Any,
     ) -> None:
         """Initializes the base model with given parameters.
@@ -64,6 +66,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         one-pass protocol: `fit` keeps the early-stopped model of a single pass (and the search keeps its best
         trial's fitted model), so the validation rows stay held out. It needs a single validation split, so it
         cannot be combined with ``cv_folds`` or feature selection.
+
+        ``out_of_range_action`` (member or its value) is what `predict` does with predictions outside the training targets' range
+        (see `predict`): FLAG (default) only reports, CLIP clips to the range, RAISE raises.
         """
         if validation_fraction is not None and cv_folds is not None:
             raise ValueError("validation_fraction and cv_folds cannot both be set.")
@@ -96,6 +101,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         self.selected_features_: list[str] | None = None
         self.uncertainty_method = uncertainty_method
         self.refit_on_train_val = refit_on_train_val
+        self.out_of_range_action = OutOfRangeAction(out_of_range_action)
+        self.training_envelope_: TrainingEnvelope | None = None
+        self.last_prediction_report_: PredictionRangeReport | None = None
         self._best_trial_model_: BaseModel | None = None
 
         if self.feature_selection_threshold is not None and self.feature_selection_threshold < 1.0:
@@ -132,6 +140,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                 "output_dir": self.output_dir,
                 "uncertainty_method": self.uncertainty_method,
                 "refit_on_train_val": self.refit_on_train_val,
+                "out_of_range_action": self.out_of_range_action,
                 "task_type": self.task_type,
                 "calculate_feature_importance": self.calculate_feature_importance,
                 "feature_selection_threshold": self.feature_selection_threshold,
@@ -203,7 +212,19 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
 
     # Fields `fit` owns on the outer model; `_adopt_fitted_state` never overwrites them with a trial model's values.
     _OUTER_OWNED_FIELDS: ClassVar[frozenset[str]] = frozenset(
-        {"feature_names", "feature_to_idx_", "selected_features_", "train_indices", "val_indices", "test_indices", "cv_score_mean_", "cv_score_std_", "num_iterations_used"}
+        {
+            "feature_names",
+            "feature_to_idx_",
+            "selected_features_",
+            "train_indices",
+            "val_indices",
+            "test_indices",
+            "cv_score_mean_",
+            "cv_score_std_",
+            "num_iterations_used",
+            "training_envelope_",
+            "last_prediction_report_",
+        }
     )
 
     def _adopt_fitted_state(self, fitted: "BaseModel") -> None:
@@ -300,6 +321,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
 
         if isinstance(y, pd.Series | pd.DataFrame):
             y = y.values
+        self.training_envelope_ = TrainingEnvelope.from_fit_data(x, y, self.feature_names, getattr(self, "categorical_features", None))
 
         explicit_val = x_val is not None
         if explicit_val:
@@ -633,9 +655,48 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
-        """Makes predictions on new data."""
+    def _predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True, **kwargs: Any) -> np.ndarray:
+        """Model-specific prediction; subclasses implement this, callers use `predict`."""
         raise NotImplementedError
+
+    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True, **kwargs: Any) -> np.ndarray:
+        """Makes predictions on new data and checks them against the training envelope.
+
+        Calls `_predict`, then (once the model is fitted) compares the predictions and the input rows with the range of the
+        training data (``training_envelope_``, recorded by `fit`; see ``utils/prediction_envelope.py``). The resulting
+        `PredictionRangeReport` is stored in ``last_prediction_report_`` and one INFO line with the counts is logged on every call,
+        also when everything is in range. Then ``out_of_range_action`` applies: FLAG returns the predictions unchanged (bit-identical
+        to `_predict`), CLIP clips each output column to its training [min, max], RAISE raises ValueError. NaN and infinite
+        predictions count as out of range.
+
+        Args:
+            x: inputs.
+            filter_data: whether to restrict ``x`` to the selected features.
+            **kwargs: model-specific options passed to `_predict` (e.g. ``hard_execution``, ``width``).
+
+        Returns:
+            The predictions.
+
+        Raises:
+            ValueError: under RAISE, when any prediction is outside the training range.
+        """
+        predictions = self._predict(x, filter_data=filter_data, **kwargs)
+        envelope = self.training_envelope_
+        if envelope is None:
+            return predictions
+        input_columns = None
+        if isinstance(x, np.ndarray) and self.selected_features_ and x.shape[1] == len(self.selected_features_) != len(envelope.feature_names):
+            input_columns = self.selected_features_
+        action = OutOfRangeAction(self.out_of_range_action)  # subclasses may re-set the raw constructor value
+        report = check_prediction_range(envelope, x, predictions, input_columns=input_columns)
+        self.last_prediction_report_ = report
+        logger.info(f"{self.name} prediction range check: {report.summary()}")
+        if action == OutOfRangeAction.RAISE and report.n_outputs_out_of_range:
+            raise ValueError(f"{self.name}: {report.summary()}. The inputs or the model need fixing.")
+        if action == OutOfRangeAction.CLIP:
+            predictions, n_clipped = clip_to_envelope(envelope, predictions)
+            logger.info(f"{self.name} clipped {n_clipped} prediction entries to the training range")
+        return predictions
 
     def _predict_for_scoring(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
         """Internal, non-caller-facing prediction path for CV/HPO/evaluation bookkeeping (capacity-programme FP-10).

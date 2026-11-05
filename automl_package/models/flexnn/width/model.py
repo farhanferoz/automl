@@ -286,7 +286,7 @@ class FlexibleWidthNN(PyTorchModelBase):
             return self._predict_at_explicit_width(x, filter_data=filter_data, width=max(self.widths))
         return self.predict(x, filter_data=filter_data)
 
-    def predict(self, x: np.ndarray, filter_data: bool = True, width: int | None = None) -> np.ndarray:
+    def _predict(self, x: np.ndarray, filter_data: bool = True, width: int | None = None) -> np.ndarray:
         """Makes predictions with the FlexibleWidthNN.
 
         Args:

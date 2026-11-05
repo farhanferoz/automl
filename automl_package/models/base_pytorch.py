@@ -377,7 +377,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
             space.update(self.search_space_override)
         return space
 
-    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
+    def _predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
         """Makes predictions on new data."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")

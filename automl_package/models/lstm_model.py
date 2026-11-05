@@ -267,7 +267,7 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         self.convergence_ = tracker.result(final_epoch=final_epoch)
         return best_epoch + 1, history
 
-    def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:  # noqa: ARG002
+    def _predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:  # noqa: ARG002
         """Predictions of shape `(N, n_horizons)`, in the units of the training targets."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
