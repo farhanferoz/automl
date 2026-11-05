@@ -132,7 +132,7 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
         params.update({"task_type": self.task_type, "random_seed": self.random_seed})
         return params
 
-    def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+    def _predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Makes predictions on new data."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")

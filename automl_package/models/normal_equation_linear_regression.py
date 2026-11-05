@@ -103,7 +103,7 @@ class NormalEquationLinearRegression(BaseModel):
         )
         return params
 
-    def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+    def _predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Makes predictions on new data.
 
         Args:

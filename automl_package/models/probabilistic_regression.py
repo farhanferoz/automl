@@ -802,7 +802,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             return self._fit_two_stages(x_train, y_train, x_val, y_val, forced_iterations, forward_pass_kwargs)
         return super()._fit_single(x_train, y_train, x_val, y_val, forced_iterations, forward_pass_kwargs=forward_pass_kwargs)
 
-    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
+    def _predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
         """Predicts on x, applying inverse target transform if configured.
 
         For symlog, predictions are computed as the MC mean of ``symexp(samples)`` so
@@ -849,7 +849,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         bookkeeping can reach it *before* a global k has been selected -- see
         `_fit_residual_std`/`_predict_for_scoring` below for why that matters.
         """
-        predictions = super().predict(x, filter_data=filter_data)
+        predictions = super()._predict(x, filter_data=filter_data)
         if self.target_transform == "symlog":
             std_symlog = super().predict_uncertainty(x, filter_data=filter_data)
             mean_orig, _ = self._symlog_mc_moments(predictions, std_symlog)
@@ -959,7 +959,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
         std = super().predict_uncertainty(x, filter_data=filter_data)
         if self.target_transform == "symlog":
-            mean_symlog = super().predict(x, filter_data=filter_data)
+            mean_symlog = super()._predict(x, filter_data=filter_data)
             _, std_orig = self._symlog_mc_moments(mean_symlog, std)
             return std_orig
         return std

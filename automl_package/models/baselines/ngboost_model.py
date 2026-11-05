@@ -73,7 +73,7 @@ class NGBoostModel(BaselineModel):
         self.model_.fit(x_train, y_train.ravel(), **fit_kwargs)
         return n_est, []
 
-    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
+    def _predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
         if filter_data:
             x = self._filter_predict_data(x)
         x = np.asarray(x)

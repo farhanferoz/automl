@@ -68,7 +68,7 @@ class DeepEnsemble(BaselineModel):
         preds = [np.asarray(m.predict(x, filter_data=False)).ravel() for m in self.members_]
         return np.stack(preds, axis=0)
 
-    def predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
+    def _predict(self, x: np.ndarray | pd.DataFrame, filter_data: bool = True) -> np.ndarray:
         """Ensemble mean: average of member means."""
         if filter_data:
             x = self._filter_predict_data(x)

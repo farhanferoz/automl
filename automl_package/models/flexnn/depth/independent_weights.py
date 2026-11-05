@@ -391,7 +391,7 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             params[key] = getattr(self, key)
         return params
 
-    def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+    def _predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Makes predictions with the IndependentWeightsFlexibleNN."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")

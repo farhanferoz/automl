@@ -165,7 +165,7 @@ class XGBoostModel(ColumnRolesMixin, BaseModel):
         self.fit(x, y)
         return {"test_score": self.cv_score_mean_}
 
-    def predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
+    def _predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Makes predictions on new data."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")

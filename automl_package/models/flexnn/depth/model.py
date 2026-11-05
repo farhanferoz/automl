@@ -431,7 +431,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
             final_output, _, _, _, _ = self.model(x_tensor)
         return self._predictions_from_output(final_output)
 
-    def predict(self, x: np.ndarray, filter_data: bool = True, hard_execution: bool = False) -> np.ndarray:
+    def _predict(self, x: np.ndarray, filter_data: bool = True, hard_execution: bool = False) -> np.ndarray:
         """Makes predictions with the FlexibleHiddenLayersNN.
 
         Args:
