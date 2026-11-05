@@ -26,7 +26,7 @@ Options (each defaults to the original behaviour, bit for bit):
   prediction stays in target space; the caller adds the offset back as it does today.
 - `output_bound=OutputBound.TRAINING_RANGE`: the network output passes through `TrainingRangeBound` (range of the fitted rows' targets, per horizon).
 - `unknown_category_rate`: share of training rows whose series embedding is hidden (replaced by the "unknown" row), so a series never seen in
-  training gets a trained fallback vector. Series without training rows are always looked up as unknown at prediction.
+  training gets a trained fallback vector. Series without a training row that has an observed target are always looked up as unknown at prediction.
 """
 
 from dataclasses import dataclass
@@ -184,7 +184,7 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
             raise ValueError(f"unknown_category_rate must be in [0, 1), got {kwargs['unknown_category_rate']}.")
         super().__init__(**kwargs)
         self._input_stats: dict[str, np.ndarray] | None = None
-        self._seen_series: np.ndarray | None = None  # bool (n_series,): which series have rows in the fit data; set by `_fit_single`
+        self._seen_series: np.ndarray | None = None  # bool (n_series,): which series have fit rows with an observed target; set by `_fit_single`
         self._output_bound: TrainingRangeBound | None = None  # set by `_fit_single` under OutputBound.TRAINING_RANGE
 
     @property
@@ -309,7 +309,8 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         series = x_train[:, 0].astype(np.int64)
         if series.min() < 0 or series.max() >= self.layout.n_series:
             raise ValueError(f"Series indices must be in 0..{self.layout.n_series - 1}; the fit rows hold {series.min()}..{series.max()}.")
-        self._seen_series = np.isin(np.arange(self.layout.n_series), series)
+        trained = ~np.isnan(np.asarray(y_train, dtype=float).reshape(len(series), -1)).all(axis=1)  # a row with no observed target never trains its series' vector
+        self._seen_series = np.isin(np.arange(self.layout.n_series), series[trained])
         self._output_bound = TrainingRangeBound.from_targets(y_train) if self.output_bound is OutputBound.TRAINING_RANGE else None
         self.build_model()
         self._setup_regularization_parameters()

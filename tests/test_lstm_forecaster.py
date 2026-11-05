@@ -158,8 +158,11 @@ def test_output_bound_confines_the_output_and_is_saved(model: PyTorchLSTMForecas
     x, y = _panel(300, 6)
     bounded = PyTorchLSTMForecaster(**{**model.get_params(), "output_bound": "training_range", "n_epochs": 3, "early_stopping_rounds": None})
     assert bounded.output_bound is OutputBound.TRAINING_RANGE
+    y = y.copy()
+    y[x[:, 0] == 0] = np.nan  # series 0 has rows but no observed target: its vector never trains, so it counts as unseen
     bounded.fit(x, y)
-    lo, hi = y.min(axis=0), y.max(axis=0)
+    assert bounded.model.embedding.seen.tolist() == [False] + [True] * (N_SERIES - 1)
+    lo, hi = np.nanmin(y, axis=0), np.nanmax(y, axis=0)
     wild = x.copy()
     wild[:, 1:] = wild[:, 1:] * 1e4  # a runaway input must not give a runaway output
     pred = bounded.predict(wild)
