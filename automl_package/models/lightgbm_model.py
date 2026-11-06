@@ -17,6 +17,10 @@ from automl_package.utils.pytorch_utils import resolve_compute_device
 LIGHTGBM_DEVICE_PARAM = "device_type"  # LightGBM's parameter naming the training device
 LIGHTGBM_CUDA_DEVICE = "cuda"  # its CUDA tree learner (only in a build compiled with USE_CUDA)
 BINARY_CLASS_COUNT = 2  # more classes than this is a multiclass objective
+# Training rows from which AUTO puts LightGBM on the GPU. Measured 2026-11-06 on the GB10 (300 rounds, depth 8, 64 columns, vs 4 CPU
+# threads; /home/ff235/cache/automl/build_reports/gpu_native_builds.md): the CUDA learner's time barely grows with rows, the CPU's
+# grows in proportion; GPU 2.5x slower at 300k rows, 1.1-1.3x faster at 1M.
+LIGHTGBM_GPU_MIN_ROWS = 1_000_000
 
 
 class LightGBMModel(ColumnRolesMixin, BaseModel):
@@ -40,6 +44,7 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
         random_seed: int | None = None,
         loss: ForecastLoss = ForecastLoss.SQUARED_ERROR,
         compute_device: ComputeDevice = ComputeDevice.AUTO,
+        gpu_min_rows: int = LIGHTGBM_GPU_MIN_ROWS,
         **kwargs: Any,
     ) -> None:
         """Initializes the LightGBMModel.
@@ -47,17 +52,18 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
         Args:
             random_seed: seed handed to LightGBM.
             loss: the fit term (enums.ForecastLoss); POISSON_DEVIANCE needs a regression task with constant uncertainty.
-            compute_device: where it trains (enums.ComputeDevice); AUTO takes the GPU whenever `get_device()` finds CUDA. The GPU needs
-                LightGBM's CUDA build, which install.sh compiles on a GPU machine (scripts/gpu_builds.toml).
+            compute_device: where it trains (enums.ComputeDevice). AUTO takes the GPU when `get_device()` finds CUDA and the fit has at
+                least `gpu_min_rows` rows (below that the CPU is faster); GPU and CPU are taken as asked. The GPU needs LightGBM's CUDA
+                build, which install.sh compiles on a GPU machine (scripts/gpu_builds.toml).
+            gpu_min_rows: training rows from which AUTO uses the GPU.
             **kwargs: passed on to the base class; LightGBM's own parameters go in ``params``.
         """
         super().__init__(**kwargs)
         self.random_seed = random_seed
         self.loss = ForecastLoss(loss)
-        self.compute_device = resolve_compute_device(ComputeDevice(compute_device))
-        if self.compute_device is ComputeDevice.GPU:
-            self.params[LIGHTGBM_DEVICE_PARAM] = LIGHTGBM_CUDA_DEVICE
-        logger.info(f"LightGBMModel trains on the {self.compute_device.value.upper()} (asked: {ComputeDevice(compute_device).value})")
+        self.compute_device = ComputeDevice(compute_device)
+        self.gpu_min_rows = gpu_min_rows
+        self._last_fit_device: ComputeDevice | None = None
         self.model = None
         self._train_residual_std = 0.0
         self.num_iterations_used = 0
@@ -88,6 +94,17 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
         """Returns the name of the model."""
         return "LightGBMModel"
 
+    def fit_device(self, n_rows: int) -> ComputeDevice:
+        """Where a fit on `n_rows` rows trains (see `compute_device`); logged whenever the choice changes."""
+        available = resolve_compute_device(self.compute_device)
+        large_enough = self.compute_device is ComputeDevice.GPU or n_rows >= self.gpu_min_rows
+        device = ComputeDevice.GPU if available is ComputeDevice.GPU and large_enough else ComputeDevice.CPU
+        if device is not self._last_fit_device:
+            logger.info(f"LightGBMModel trains on the {device.value.upper()} (asked {self.compute_device.value}, {n_rows:,} rows, "
+                        f"GPU from {self.gpu_min_rows:,} rows under auto)")
+            self._last_fit_device = device
+        return device
+
     def _fit_single(
         self,
         x_train: np.ndarray,
@@ -116,6 +133,9 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
             callbacks.append(lgb.early_stopping(self.early_stopping_rounds, verbose=False))
 
         params = self.params.copy()
+        fit_device = self.fit_device(len(features_train))
+        if fit_device is ComputeDevice.GPU:
+            params[LIGHTGBM_DEVICE_PARAM] = LIGHTGBM_CUDA_DEVICE
         params.setdefault("n_estimators", 500)
 
         # Dynamically set objective for classification
@@ -147,7 +167,7 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
         try:
             self.model.fit(features_train, self._fit_label(y_train), **fit_params)
         except lgb.basic.LightGBMError as error:
-            if self.compute_device is ComputeDevice.GPU and "CUDA" in str(error):
+            if fit_device is ComputeDevice.GPU and "CUDA" in str(error):
                 raise RuntimeError(
                     f"LightGBM was asked for the GPU but this build cannot use it ({error}). Remedy: rebuild the environment with ./install.sh, "
                     "which compiles LightGBM for this GPU (scripts/gpu_builds.toml), or pass compute_device=ComputeDevice.CPU."
