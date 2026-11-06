@@ -13,6 +13,7 @@ class NormalEquationLinearRegression(BaseModel):
     """Linear Regression model implemented using the Normal Equation (Ridge Regression)."""
 
     _default_input_scaling: ClassVar[InputScaling] = InputScaling.STANDARD  # standard practice for a (penalised) linear model
+    _supports_sample_weight: ClassVar[bool] = True  # weighted least squares
     _defaults: ClassVar[dict[str, Any]] = {"l2_lambda": 0.0}
 
     def __init__(self, **kwargs: Any) -> None:
@@ -56,6 +57,8 @@ class NormalEquationLinearRegression(BaseModel):
         x_val: np.ndarray | None = None,  # noqa: ARG002
         y_val: np.ndarray | None = None,  # noqa: ARG002
         forced_iterations: int | None = None,  # noqa: ARG002
+        sample_weight: np.ndarray | None = None,
+        sample_weight_val: np.ndarray | None = None,  # noqa: ARG002
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -65,6 +68,8 @@ class NormalEquationLinearRegression(BaseModel):
             x_val (np.ndarray | None): The validation features (unused).
             y_val (np.ndarray | None): The validation targets (unused).
             forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping (unused).
+            sample_weight (np.ndarray | None): Row weights: weighted least squares, minimising sum(w * (y - x b - c)^2) + l2_lambda |b|^2.
+            sample_weight_val (np.ndarray | None): Unused (no validation pass).
 
         Returns:
             tuple[int, list[float]]: A tuple containing:
@@ -73,10 +78,18 @@ class NormalEquationLinearRegression(BaseModel):
         """
         # Ridge with an unpenalised intercept: slopes from the centred inputs and targets, intercept from the means. Fitting the slopes on
         # uncentred inputs and then adding mean(y) counted the intercept twice whenever an input's mean was not 0 (binary, [0, 1] inputs).
-        x_mean, y_mean = x_train.mean(axis=0), y_train.mean(axis=0)
-        x_centred = x_train - x_mean
-        a = x_centred.T @ x_centred + self.l2_lambda * np.identity(x_train.shape[1])
-        self.weights = np.linalg.solve(a, x_centred.T @ (y_train - y_mean))
+        # With weights the means are weighted and each row's term carries its weight (weights scaled to mean 1, so l2_lambda keeps its size).
+        if sample_weight is None:
+            x_mean, y_mean = x_train.mean(axis=0), y_train.mean(axis=0)
+            x_centred = x_train - x_mean
+            x_weighted_t = x_centred.T
+        else:
+            w = np.asarray(sample_weight, dtype=np.float64) / np.mean(sample_weight)
+            x_mean, y_mean = np.average(x_train, axis=0, weights=w), np.average(y_train, axis=0, weights=w)
+            x_centred = x_train - x_mean
+            x_weighted_t = x_centred.T * w
+        a = x_weighted_t @ x_centred + self.l2_lambda * np.identity(x_train.shape[1])
+        self.weights = np.linalg.solve(a, x_weighted_t @ (y_train - y_mean))
         self.bias = y_mean - x_mean @ self.weights
 
         y_pred_train = self.predict(x_train, filter_data=False)

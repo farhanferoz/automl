@@ -39,6 +39,9 @@ defaults as ClassVars, refusals that name the remedy, docstring saying which spa
    `grad_clip_norm: float | None` (moved up from the LSTM, which keeps its default 1.0; others default None = off);
    `lr_schedule: LRSchedule` (NONE, REDUCE_ON_PLATEAU on the held-out fit term, COSINE over the epoch budget) with
    `lr_schedule_factor`, `lr_schedule_patience`, `lr_warmup_epochs` (0). Defaults: NONE / off (they are tuning choices; bit-identical).
+   AS BUILT (f65a576): the gap also applies before the test part (a refit on train + validation is scored there); TimeSeriesSplit orders rows
+   by the timestamps it now receives (it assumed sorted rows); REDUCE_ON_PLATEAU is refused with refit_on_train_val=True (the refit has no
+   held-out rows); the helper is `models/common/training.TrainingSchedule`; classes with their own loops refuse the settings.
 
 ## Phase 3: sample weights (row 2 of the gap list)
 5. `fit(x, y, sample_weight=None)`: weights follow every split, fold and trial; the training loss is the weighted mean; the held-out fit term
@@ -46,6 +49,10 @@ defaults as ClassVars, refusals that name the remedy, docstring saying which spa
    default loop (plain network), LSTM (per row, broadcast over horizons, NaN targets still masked), XGBoost / LightGBM / CatBoost (native
    weights, incl. their early-stopping eval sets), normal-equation and PyTorch linear regression (weighted least squares). Every other
    class raises when weights are given (ProbReg, ClassReg, FlexNN, baselines) until mapped.
+   AS BUILT: weights are relative (each array rescaled to mean 1); the training loss of a batch is sum(w*l)/sum(w) (PyTorch's convention);
+   also refused: BINNED_RESIDUAL_STD (its calibration reads no weights) and LightGBM PROBABILISTIC (its NLL stopping metric reads none).
+   Unweighted on purpose: scaling statistics, the in-sample residual spread, evaluation reports. Found and fixed on the way (81f4920): the
+   normal-equation intercept was counted twice on uncentred inputs; the 5b linear cells were rerun (82d8598), 5a3's need the laptop.
 
 ## Not in this build
 Loss choice (Huber, quantile) beyond what exists, categorical encoding as a model setting, per-output weights for multi-output models,

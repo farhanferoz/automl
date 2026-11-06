@@ -1,6 +1,6 @@
 """XGBoost model wrapper for AutoML."""
 
-from typing import Any, Never
+from typing import Any, ClassVar, Never
 
 import numpy as np
 import xgboost as xgb
@@ -23,6 +23,8 @@ class XGBoostModel(ColumnRolesMixin, BaseModel):
     ``predict``, which includes it). ``categorical_features`` become pandas ``Categorical`` columns with the levels fixed at fit
     (``enable_categorical=True``). See `ColumnRolesMixin`.
     """
+
+    _supports_sample_weight: ClassVar[bool] = True  # native row weights, on the early-stopping set too
 
     _CATEGORICAL_CAST = CategoricalCast.PANDAS_CATEGORICAL
 
@@ -67,6 +69,8 @@ class XGBoostModel(ColumnRolesMixin, BaseModel):
         x_val: np.ndarray | None = None,
         y_val: np.ndarray | None = None,
         forced_iterations: int | None = None,
+        sample_weight: np.ndarray | None = None,
+        sample_weight_val: np.ndarray | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -76,6 +80,8 @@ class XGBoostModel(ColumnRolesMixin, BaseModel):
             x_val (np.ndarray | None): The validation features.
             y_val (np.ndarray | None): The validation targets.
             forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
+            sample_weight (np.ndarray | None): Row weights of the training part (XGBoost ``sample_weight``).
+            sample_weight_val (np.ndarray | None): Row weights of the early-stopping set (``sample_weight_eval_set``).
 
         Returns:
             tuple[int, list[float]]: A tuple containing:
@@ -89,6 +95,8 @@ class XGBoostModel(ColumnRolesMixin, BaseModel):
         fit_params: dict[str, Any] = {}
         if offset_train is not None:
             fit_params["base_margin"] = offset_train
+        if sample_weight is not None:
+            fit_params["sample_weight"] = sample_weight
 
         params = self.params.copy()
         if self.categorical_features:
@@ -98,6 +106,8 @@ class XGBoostModel(ColumnRolesMixin, BaseModel):
             eval_set = [(x_val, y_val)]
             if offset_val is not None:
                 fit_params["base_margin_eval_set"] = [offset_val]
+            if sample_weight_val is not None:
+                fit_params["sample_weight_eval_set"] = [sample_weight_val]
             params["early_stopping_rounds"] = self.early_stopping_rounds
         else:
             if "early_stopping_rounds" in params:

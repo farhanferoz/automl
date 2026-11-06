@@ -307,6 +307,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         timestamps: np.ndarray | None = None,
         x_val: np.ndarray | pd.DataFrame | None = None,
         y_val: np.ndarray | pd.DataFrame | pd.Series | None = None,
+        sample_weight: np.ndarray | None = None,
+        sample_weight_val: np.ndarray | None = None,
     ) -> None:
         """Fits the model, honoring `self.capacity_selection` end-to-end (capacity-programme PA).
 
@@ -325,7 +327,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             x_val: optional explicit validation inputs (see `BaseModel.fit`); not available under GLOBAL_CHEAP/GLOBAL_SWEEP,
                 which draw their own selection and validation parts.
             y_val: validation targets for ``x_val``.
+            sample_weight: refused (`BaseModel._sample_weight_conflict`): this model does not apply row weights.
+            sample_weight_val: likewise.
         """
+        self._check_fit_weights(sample_weight, sample_weight_val, len(x), None if x_val is None else len(x_val))
         if x_val is not None and self.capacity_selection in (CapacitySelection.GLOBAL_CHEAP, CapacitySelection.GLOBAL_SWEEP):
             raise ValueError(f"An explicit validation set is not supported under capacity_selection={self.capacity_selection.value}.")
         if self.capacity_selection == CapacitySelection.GLOBAL_CHEAP:

@@ -1,5 +1,6 @@
 """Base classes for PyTorch models."""
 
+import functools
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Literal
 
@@ -222,6 +223,16 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         loss = loss_fn(prediction, y)
         return loss.reshape(-1) if reduction == "none" else loss
 
+    def _weighted_fit_loss(self, model_outputs: Any, y: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+        """The weighted mean of the per-row fit term of the final prediction, ``sum(w * l) / sum(w)`` (PyTorch's weighted-mean convention).
+
+        Under sample weights it is both the training loss of a batch (regularisation is added after, as without weights) and the held-out
+        score; so a class that takes weights must train on its fit term alone (`_supports_sample_weight`). A batch whose weights are all 0
+        contributes 0.
+        """
+        per_row = self._fit_loss(self._final_prediction(model_outputs), y, reduction="none")
+        return (per_row * weight).sum() / weight.sum().clamp(min=torch.finfo(weight.dtype).tiny)
+
     def _final_prediction(self, model_outputs: Any) -> torch.Tensor:
         """The model's FINAL (deployed) prediction, extracted from whatever `self.model(x)` returns.
 
@@ -259,11 +270,12 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
             per_sample = self._fit_loss(self._final_prediction(self.model(x_tensor)), y_tensor, reduction="none")
         return per_sample.cpu().numpy()
 
-    def _held_out_fit_score(self, x_val: np.ndarray, y_val: np.ndarray) -> float:
-        """Mean held-out fit term (lower is better): the quantity early stopping reads, so search and CV agree with it."""
+    def _held_out_fit_score(self, x_val: np.ndarray, y_val: np.ndarray, sample_weight: np.ndarray | None = None) -> float:
+        """Mean held-out fit term (lower is better), weighted by ``sample_weight``: the quantity early stopping reads, so search and CV agree with it."""
         if not self._scores_by_fit_term:
-            return super()._held_out_fit_score(x_val, y_val)
-        return float(self._held_out_fit_per_sample(x_val, y_val).mean())
+            return super()._held_out_fit_score(x_val, y_val, **self._sample_weight_kwarg(sample_weight))
+        per_sample = self._held_out_fit_per_sample(x_val, y_val)
+        return float(per_sample.mean()) if sample_weight is None else float(np.average(per_sample, weights=sample_weight))
 
     def _held_out_score_is_smaller_better(self) -> bool:
         """The fit term is a loss, so smaller is better; classes that do not score by it keep their metric's direction."""
@@ -287,6 +299,8 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         y_val: np.ndarray | None = None,
         forced_iterations: int | None = None,
         forward_pass_kwargs: dict | None = None,
+        sample_weight: np.ndarray | None = None,
+        sample_weight_val: np.ndarray | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -297,6 +311,8 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
             y_val (np.ndarray | None): The validation targets.
             forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
             forward_pass_kwargs (dict | None): Keyword arguments to pass to the model's forward pass.
+            sample_weight (np.ndarray | None): Row weights of the training part: each batch trains on `_weighted_fit_loss`.
+            sample_weight_val (np.ndarray | None): Row weights of the validation part: early stopping reads the weighted fit term.
 
         Returns:
             tuple[int, list[float]]: A tuple containing:
@@ -331,8 +347,10 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         if self.is_regression_model or is_binary_classification:
             y_train_tensor = y_train_tensor.unsqueeze(1)
 
+        weight_train = None if sample_weight is None else torch.tensor(np.asarray(sample_weight, dtype=np.float32)).to(self.device)
         drop_last = len(x_train_tensor) % self.batch_size == 1
-        train_dataloader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x_train_tensor, y_train_tensor), batch_size=self.batch_size, shuffle=True, drop_last=drop_last)
+        train_tensors = (x_train_tensor, y_train_tensor) if weight_train is None else (x_train_tensor, y_train_tensor, weight_train)
+        train_dataloader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(*train_tensors), batch_size=self.batch_size, shuffle=True, drop_last=drop_last)
 
         x_val_tensor, y_val_tensor = None, None
         if x_val is not None and y_val is not None:
@@ -340,6 +358,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
             y_val_tensor = torch.tensor(y_val, dtype=(torch.float32 if self.is_regression_model or is_binary_classification else torch.long)).to(self.device)
             if self.is_regression_model or is_binary_classification:
                 y_val_tensor = y_val_tensor.unsqueeze(1)
+        weight_val = None if sample_weight_val is None or x_val_tensor is None else torch.tensor(np.asarray(sample_weight_val, dtype=np.float32)).to(self.device)
 
         best_epoch = 0
         best_model_state = None
@@ -352,13 +371,14 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         for epoch in range(int(n_epochs)):
             final_epoch = epoch
             self.model.train()
-            for batch_x, batch_y in train_dataloader:
+            for batch in train_dataloader:
+                batch_x, batch_y = batch[0], batch[1]
                 if self.lambda_optimizer:
                     self.lambda_optimizer.zero_grad()
 
                 self.optimizer_wrapper.step(
                     model=self.model,
-                    loss_fn=self.criterion,
+                    loss_fn=self.criterion if weight_train is None else functools.partial(self._weighted_fit_loss, weight=batch[2]),
                     regularization_fn=self._calculate_regularization_loss,
                     optimizer=self.optimizer,
                     batch_x=batch_x,
@@ -375,7 +395,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
                 self.model.eval()
                 with torch.no_grad():
                     val_outputs = self.model(x_val_tensor)
-                    val_loss = self._validation_loss(val_outputs, y_val_tensor)
+                    val_loss = self._validation_loss(val_outputs, y_val_tensor) if weight_val is None else self._weighted_fit_loss(val_outputs, y_val_tensor, weight_val).item()
                 val_loss_history.append(val_loss)
                 if tracker.update(epoch, val_loss):
                     best_model_state = snapshot_state(self.model)

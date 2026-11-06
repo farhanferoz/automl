@@ -1,6 +1,6 @@
 """LightGBM model wrapper for AutoML."""
 
-from typing import Any, NoReturn
+from typing import Any, ClassVar, NoReturn
 
 import lightgbm as lgb
 import numpy as np
@@ -36,6 +36,8 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
     offset) in target space, so a caller's ``expm1(prediction)`` is unchanged, and the held-out fit term is the Poisson deviance of ``exp(t)`` against
     ``exp(prediction)``. The default ``SQUARED_ERROR`` is the original behaviour.
     """
+
+    _supports_sample_weight: ClassVar[bool] = True  # native row weights, on the early-stopping set too
 
     _CATEGORICAL_CAST = CategoricalCast.NATIVE_CODES
 
@@ -111,8 +113,10 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
         x_val: np.ndarray | None = None,
         y_val: np.ndarray | None = None,
         forced_iterations: int | None = None,
+        sample_weight: np.ndarray | None = None,
+        sample_weight_val: np.ndarray | None = None,
     ) -> tuple[int, list[float]]:
-        """Fits a single model instance."""
+        """Fits a single model instance; ``sample_weight`` / ``sample_weight_val`` are LightGBM's ``sample_weight`` / ``eval_sample_weight``."""
         eval_set = None
         callbacks = []
         use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
@@ -121,6 +125,8 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
         fit_params: dict[str, Any] = {}
         if offset_train is not None:
             fit_params["init_score"] = offset_train
+        if sample_weight is not None:
+            fit_params["sample_weight"] = sample_weight
         if self.categorical_features:
             fit_params["categorical_feature"] = self.categorical_features
 
@@ -129,6 +135,8 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
             eval_set = [(x_val, self._fit_label(y_val))]
             if offset_val is not None:
                 fit_params["eval_init_score"] = [offset_val]
+            if sample_weight_val is not None:
+                fit_params["eval_sample_weight"] = [sample_weight_val]
             callbacks.append(lgb.early_stopping(self.early_stopping_rounds, verbose=False))
 
         params = self.params.copy()
@@ -189,11 +197,17 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
         """The label LightGBM fits: the target itself, or ``exp(target)`` (the count) under the Poisson loss."""
         return np.exp(y) if self.loss is ForecastLoss.POISSON_DEVIANCE else y
 
-    def _held_out_fit_score(self, x_val: np.ndarray, y_val: np.ndarray) -> float:
-        """Held-out fit term: the Poisson deviance under ``POISSON_DEVIANCE`` (lower is better), else the base class's score."""
+    def _held_out_fit_score(self, x_val: np.ndarray, y_val: np.ndarray, sample_weight: np.ndarray | None = None) -> float:
+        """Held-out fit term (weighted mean under ``sample_weight``): the Poisson deviance under ``POISSON_DEVIANCE`` (lower is better), else the base class's score."""
         if self.loss is not ForecastLoss.POISSON_DEVIANCE:
-            return super()._held_out_fit_score(x_val, y_val)
-        return float(np.mean(poisson_deviance(np.asarray(y_val, dtype=float), self._predict_for_scoring(x_val))))
+            return super()._held_out_fit_score(x_val, y_val, **self._sample_weight_kwarg(sample_weight))
+        return float(np.average(poisson_deviance(np.asarray(y_val, dtype=float), self._predict_for_scoring(x_val)), weights=sample_weight))
+
+    def _sample_weight_conflict(self) -> str | None:
+        """The base rules, and the Gaussian NLL early-stopping metric of PROBABILISTIC, which reads no weights."""
+        if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC:
+            return "LightGBM's Gaussian NLL early-stopping metric is unweighted: use uncertainty_method=CONSTANT, or fit without sample_weight"
+        return super()._sample_weight_conflict()
 
     def _clone(self) -> "LightGBMModel":
         """Creates a new instance of the model with the same parameters."""

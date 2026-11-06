@@ -29,6 +29,7 @@ from automl_package.enums import (
     UncertaintyMethod,
 )
 from automl_package.explainers.feature_explainer import FeatureExplainer
+from automl_package.models.catboost_model import CatBoostModel
 from automl_package.models.classifier_regression import ClassifierRegressionModel
 from automl_package.models.common.training import TrainingSchedule
 from automl_package.models.conformal import ConformalWrapper
@@ -39,9 +40,11 @@ from automl_package.models.lstm_model import PyTorchLSTMForecaster, SequenceLayo
 from automl_package.models.neural_network import PyTorchNeuralNetwork
 from automl_package.models.normal_equation_linear_regression import NormalEquationLinearRegression
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+from automl_package.models.pytorch_linear_regression import PyTorchLinearRegression
 from automl_package.models.xgboost_model import XGBoostModel
 from automl_package.utils.cv import TimeSeriesSplit
 from automl_package.utils.data_handler import create_train_val_split
+from automl_package.utils.losses import poisson_deviance
 from automl_package.utils.transforms import symexp, symlog
 
 # ----- Helpers ---------------------------------------------------------------
@@ -827,3 +830,140 @@ class TestTrainingDetails:
         assert journal(lr_schedule="reduce_on_plateau", early_stopping_rounds=5, refit_on_train_val=False) != journal(
             lr_schedule="reduce_on_plateau", early_stopping_rounds=5, refit_on_train_val=False, lr_schedule_factor=0.5
         )
+
+
+class TestSampleWeights:
+    """`fit(sample_weight=...)`: the weights reach every training loss and held-out score of the classes that take them; the rest refuse."""
+
+    @staticmethod
+    def _data() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        rng = np.random.default_rng(0)
+        x = rng.uniform(size=(400, 1))
+        y = np.where(np.arange(400) % 2, 10.0, 0.0)  # independent of x: the best constant is the weighted mean, 7.5 (unweighted 5)
+        return x, y, np.where(np.arange(400) % 2, 3.0, 1.0)
+
+    @pytest.mark.parametrize(
+        "build",
+        [
+            lambda: PyTorchNeuralNetwork(input_size=1, n_epochs=60, learning_rate=0.01, early_stopping_rounds=20, random_seed=0),
+            lambda: PyTorchLinearRegression(input_size=1, n_epochs=60, learning_rate=0.05, early_stopping_rounds=20, random_seed=0),
+            lambda: XGBoostModel(early_stopping_rounds=10, random_seed=0),
+            lambda: LightGBMModel(early_stopping_rounds=10, random_seed=0, verbose=-1),
+            lambda: CatBoostModel(early_stopping_rounds=10, random_seed=0),
+            NormalEquationLinearRegression,
+        ],
+        ids=["network", "torch-linear", "xgboost", "lightgbm", "catboost", "normal-equation"],
+    )
+    def test_weights_move_the_fit(self, build, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AUTOML_DEVICE", "cpu")
+        x, y, w = self._data()
+        model = build()
+        model.refit_on_train_val, model.calculate_feature_importance = False, False
+        model.fit(x[:300], y[:300], x_val=x[300:], y_val=y[300:], sample_weight=w[:300], sample_weight_val=w[300:])
+        assert model.predict(x[300:]).mean() == pytest.approx(7.5, abs=0.4)
+        if getattr(model, "convergence_", None) is not None:  # the networks: early stopping read the weighted held-out fit term of the restored epoch
+            assert model.convergence_.best_val == pytest.approx(model._held_out_fit_score(x[300:], y[300:], sample_weight=w[300:]), rel=1e-5)
+
+    def test_lstm_weighs_rows_over_their_observed_horizons(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AUTOML_DEVICE", "cpu")
+        rng = np.random.default_rng(0)
+        lstm = PyTorchLSTMForecaster(
+            layout=SequenceLayout(2, 4, 1), output_size=2, window=4, hidden_size=8, embedding_dim=2, n_epochs=40, batch_size=64, learning_rate=0.02,
+            early_stopping_rounds=40, refit_on_train_val=False, target_scaling="none", calculate_feature_importance=False, random_seed=0,
+        )
+        prediction, y = torch.zeros(3, 2), torch.tensor([[1.0, float("nan")], [2.0, 2.0], [3.0, 3.0]])
+        weight = torch.tensor([4.0, 1.0, 0.0])
+        assert lstm._fit_loss(prediction, y, weight=weight).item() == pytest.approx((4 * 1 + 1 * 4 + 1 * 4) / (4 + 1 + 1))  # NaN entry skipped
+        panel = np.column_stack([rng.integers(0, 2, 400), rng.normal(size=(400, 4))]).astype(np.float32)
+        y = np.repeat(np.where(np.arange(400) % 2, 10.0, 0.0)[:, None], 2, axis=1)
+        w = np.where(np.arange(400) % 2, 3.0, 1.0)
+        lstm.fit(panel[:300], y[:300], x_val=panel[300:], y_val=y[300:], sample_weight=w[:300], sample_weight_val=w[300:])
+        assert lstm.predict(panel[300:]).mean() == pytest.approx(7.5, abs=0.5)
+        assert lstm.convergence_.best_val == pytest.approx(lstm._held_out_fit_score(panel[300:], y[300:], sample_weight=w[300:]), rel=1e-5)  # stopping read the weights
+        weight_val = torch.tensor(w[300:] / w[300:].mean(), dtype=torch.float32)
+        expected = lstm._fit_loss(torch.tensor(lstm.predict(panel[300:])), torch.tensor(y[300:], dtype=torch.float32), weight=weight_val)
+        assert lstm._held_out_fit_score(panel[300:], y[300:], sample_weight=w[300:]) == pytest.approx(expected.item(), rel=1e-5)
+
+    def test_held_out_scores_and_library_stopping_sets_read_the_weights(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AUTOML_DEVICE", "cpu")
+        rng = np.random.default_rng(1)
+        x = rng.uniform(size=(400, 1))
+        y = 5 * x[:, 0] + rng.normal(size=400)
+        w = rng.uniform(0, 2, 400)
+        xv, yv, wv = x[300:], y[300:], w[300:]
+        boosted = {
+            "xgboost": (XGBoostModel(early_stopping_rounds=5, random_seed=0), lambda m: m.model.best_score),
+            "lightgbm": (LightGBMModel(early_stopping_rounds=5, random_seed=0, verbose=-1), lambda m: m.model.best_score_["valid_0"]["rmse"]),
+            "catboost": (CatBoostModel(early_stopping_rounds=5, random_seed=0), lambda m: m.model.get_best_score()["validation"]["RMSE"]),
+        }
+        for name, (model, best) in boosted.items():
+            model.calculate_feature_importance = False
+            model._fit_single(x[:300], y[:300], xv, yv, sample_weight=w[:300], sample_weight_val=wv)
+            stopped = {"xgboost": lambda m: m.model.predict(xv, iteration_range=(0, m.model.best_iteration + 1)),
+                       "lightgbm": lambda m: m.model.predict(xv, num_iteration=m.model.best_iteration_), "catboost": lambda m: m.model.predict(xv)}[name](model)
+            assert best(model) == pytest.approx(np.sqrt(np.average((stopped - yv) ** 2, weights=wv)), rel=1e-6), name  # stopping read the weighted error
+        for model in (NormalEquationLinearRegression(calculate_feature_importance=False), PyTorchNeuralNetwork(input_size=1, n_epochs=3, calculate_feature_importance=False)):
+            model._fit_single(x[:300], y[:300])
+            per_row = model._held_out_fit_per_sample(xv, yv)
+            assert model._held_out_fit_score(xv, yv, sample_weight=wv) == pytest.approx(np.average(per_row, weights=wv), rel=1e-6)
+        poisson = LightGBMModel(loss=ForecastLoss.POISSON_DEVIANCE, random_seed=0, verbose=-1, calculate_feature_importance=False)
+        poisson._fit_single(x[:300], np.log1p(np.abs(y[:300])))
+        per_row = poisson_deviance(np.log1p(np.abs(yv)), poisson._predict_for_scoring(xv))
+        assert poisson._held_out_fit_score(xv, np.log1p(np.abs(yv)), sample_weight=wv) == pytest.approx(np.average(per_row, weights=wv), rel=1e-6)
+
+    def test_weights_follow_folds_and_search_trials(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+        monkeypatch.setenv("AUTOML_DEVICE", "cpu")
+        x, y, w = self._data()
+        seen: list[tuple[int, int | None, int | None, int | None]] = []
+
+        def record(cls: type) -> None:
+            original = cls._fit_single
+
+            def recording(self, x_train, y_train, x_val=None, y_val=None, forced_iterations=None, sample_weight=None, sample_weight_val=None):
+                lengths = [None if part is None else len(part) for part in (x_train, sample_weight, x_val, sample_weight_val)]
+                seen.append(tuple(lengths))
+                return original(self, x_train, y_train, x_val, y_val, forced_iterations, sample_weight=sample_weight, sample_weight_val=sample_weight_val)
+
+            monkeypatch.setattr(cls, "_fit_single", recording)
+
+        record(NormalEquationLinearRegression)
+        record(XGBoostModel)
+        settings = {"optimize_hyperparameters": True, "n_trials": 2, "calculate_feature_importance": False, "random_seed": 0, "hpo_storage_dir": str(tmp_path)}
+        NormalEquationLinearRegression(cv_folds=2, validation_fraction=None, **settings).fit(x, y, sample_weight=w)  # search over CV folds, refit
+        NormalEquationLinearRegression(**settings).fit(x, y, sample_weight=w)  # search on a drawn split, refit
+        NormalEquationLinearRegression(refit_on_train_val=False, **settings).fit(x, y, sample_weight=w)  # search on the explicit one-pass split
+        selecting = XGBoostModel(cv_folds=2, validation_fraction=None, early_stopping_rounds=5, feature_selection_threshold=0.99, random_seed=0)
+        selecting.fit(x, y, sample_weight=w)  # CV epochs, feature selection, refit
+        assert len(seen) >= 13  # the folds, trials and refits of the four fits above
+        assert all(n_train == n_weight and n_val == n_weight_val for n_train, n_weight, n_val, n_weight_val in seen)  # every call weighted
+        scaled = [XGBoostModel(random_seed=0, calculate_feature_importance=False, refit_on_train_val=False) for _ in range(2)]
+        for model, factor in zip(scaled, (1.0, 1000.0), strict=True):
+            model.fit(x[:300], y[:300], x_val=x[300:], y_val=y[300:], sample_weight=factor * w[:300], sample_weight_val=w[300:])
+        np.testing.assert_allclose(scaled[0].predict(x[300:]), scaled[1].predict(x[300:]))  # weights are relative
+        unweighted = NormalEquationLinearRegression(**settings)
+        assert unweighted._hpo_journal(x, y, None, None)["study_name"] != unweighted._hpo_journal(x, y, None, None, sample_weight=w)["study_name"]
+        exact = NormalEquationLinearRegression(input_scaling="none", calculate_feature_importance=False)
+        twice = np.concatenate([x, x[:50]]), np.concatenate([y + x[:, 0], (y + x[:, 0])[:50]])
+        exact._fit_single(*twice)
+        doubled = NormalEquationLinearRegression(input_scaling="none", calculate_feature_importance=False)
+        doubled._fit_single(x, y + x[:, 0], sample_weight=np.where(np.arange(400) < 50, 2.0, 1.0))
+        np.testing.assert_allclose(np.append(doubled.weights, doubled.bias), np.append(exact.weights, exact.bias), rtol=1e-10)  # weight 2 = the row twice
+
+    @pytest.mark.parametrize(
+        ("build", "weights", "remedy"),
+        [
+            (lambda: ProbabilisticRegressionModel(input_size=1), {}, "fit it without sample_weight"),
+            (lambda: FlexibleHiddenLayersNN(input_size=1), {}, "fit it without sample_weight"),
+            (lambda: LightGBMModel(uncertainty_method=UncertaintyMethod.PROBABILISTIC), {}, "uncertainty_method=CONSTANT"),
+            (lambda: NormalEquationLinearRegression(uncertainty_method=UncertaintyMethod.BINNED_RESIDUAL_STD), {}, "uncertainty_method=CONSTANT"),
+            (NormalEquationLinearRegression, {"sample_weight": -np.ones(400)}, "non-negative"),
+            (NormalEquationLinearRegression, {"sample_weight": np.zeros(400)}, "sums to 0"),
+            (NormalEquationLinearRegression, {"sample_weight": np.ones(3)}, "one weight per row"),
+            (NormalEquationLinearRegression, {"x_val": np.zeros((5, 1)), "y_val": np.zeros(5)}, "exactly when an explicit x_val"),
+        ],
+        ids=["probreg", "flexnn", "lightgbm-nll", "binned-spread", "negative", "zero-total", "length", "validation-weights"],
+    )
+    def test_refusals_name_the_remedy(self, build, weights, remedy) -> None:
+        x, y, w = self._data()
+        with pytest.raises(ValueError, match=remedy):
+            build().fit(x, y, **({"sample_weight": w} | weights))

@@ -147,6 +147,7 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
     _supports_output_bound: ClassVar[bool] = True  # the head's output is the prediction
     _supports_input_scaling: ClassVar[bool] = False  # it standardises its own sequence layout (`_compute_input_stats`); column 0 is a series index
     _supports_training_schedule: ClassVar[bool] = True  # trains through its own `_fit_single`, which applies the `TrainingSchedule`
+    _supports_sample_weight: ClassVar[bool] = True  # row weights over every observed horizon of the row (`_fit_loss`)
     _default_missing_inputs: ClassVar[MissingInputs] = MissingInputs.NATIVE  # missing dense values become the training mean inside the model
 
     _defaults: ClassVar[dict[str, Any]] = {
@@ -234,12 +235,13 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         ).to(self.device)
         self.criterion = self._fit_loss
 
-    def _fit_loss(self, prediction: torch.Tensor, y: torch.Tensor, reduction: str = "mean", offset: torch.Tensor | None = None) -> torch.Tensor:
+    def _fit_loss(self, prediction: torch.Tensor, y: torch.Tensor, reduction: str = "mean", offset: torch.Tensor | None = None, weight: torch.Tensor | None = None) -> torch.Tensor:
         """Fit term over the observed `(row, horizon)` entries of `y` (NaN entries are skipped), per `self.loss`.
 
         `SQUARED_ERROR`: mean of `(prediction - y)^2`; `offset` is ignored. `POISSON_DEVIANCE`: mean of the Poisson deviance of the count
         `exp(y + offset)` against `exp(prediction + offset)`, so a row weighs in proportion to its size; `offset` is `(N, 1)` on the log
-        scale (see `_row_offset`), None meaning 0.
+        scale (see `_row_offset`), None meaning 0. `weight` (`(N,)` row weights, mean reduction only): each observed entry of a row carries
+        its row's weight, ``sum(w * l) / sum(w)`` over the observed entries.
         """
         observed = ~torch.isnan(y)
         prediction = torch.where(observed, prediction, torch.zeros_like(prediction))  # unobserved entries must not reach exp() or the gradient
@@ -252,6 +254,9 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
                 entry = torch.where(observed, poisson_deviance(target + shift, prediction + shift), torch.zeros_like(prediction))
         if reduction == "none":
             return entry.sum(dim=1) / observed.sum(dim=1).clamp(min=1)
+        if weight is not None:
+            entry_weight = weight.reshape(-1, 1) * observed
+            return (entry * entry_weight).sum() / entry_weight.sum().clamp(min=torch.finfo(entry_weight.dtype).tiny)
         return entry.sum() / observed.sum().clamp(min=1)
 
     def _row_offset(self, x: torch.Tensor | np.ndarray) -> torch.Tensor | None:
@@ -279,13 +284,18 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
             step = int(self.eval_batch_size)
             return torch.cat([self.model(x[i : i + step]) for i in range(0, len(x), step)])
 
-    def _held_out_fit_score(self, x_val: np.ndarray, y_val: np.ndarray) -> float:
-        """Mean held-out fit term (lower is better), the quantity early stopping reads."""
+    def _held_out_fit_score(self, x_val: np.ndarray, y_val: np.ndarray, sample_weight: np.ndarray | None = None) -> float:
+        """Mean held-out fit term (lower is better), weighted by ``sample_weight``: the quantity early stopping reads."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         x_tensor = torch.tensor(np.asarray(x_val, dtype=np.float32)).to(self.device)
         self._check_offset(x_tensor)
-        return float(self._fit_loss(self._predict_tensor(x_tensor), self._target_tensor(self._to_fit_space(y_val)), offset=self._row_offset(x_tensor)).item())
+        y_tensor, offset, weight = self._target_tensor(self._to_fit_space(y_val)), self._row_offset(x_tensor), self._weight_tensor(sample_weight)
+        return float(self._fit_loss(self._predict_tensor(x_tensor), y_tensor, offset=offset, weight=weight).item())
+
+    def _weight_tensor(self, sample_weight: np.ndarray | None) -> torch.Tensor | None:
+        """Row weights as a float `(N,)` tensor on the model's device; None stays None."""
+        return None if sample_weight is None else torch.tensor(np.asarray(sample_weight, dtype=np.float32)).to(self.device)
 
     def _fit_single(
         self,
@@ -295,10 +305,13 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         y_val: np.ndarray | None = None,
         forced_iterations: int | None = None,
         forward_pass_kwargs: dict | None = None,  # noqa: ARG002
+        sample_weight: np.ndarray | None = None,
+        sample_weight_val: np.ndarray | None = None,
     ) -> tuple[int, list[float]]:
         """Fits one network by mini-batch Adam; with a validation set, stops on its fit term and restores the best epoch.
 
-        Returns the number of epochs up to and including the best one, and the validation fit-term history.
+        ``sample_weight`` / ``sample_weight_val`` weigh the rows of each part (`_fit_loss`'s ``weight``). Returns the number of epochs up to
+        and including the best one, and the validation fit-term history.
         """
         x_train = np.asarray(x_train, dtype=np.float32)
         self.input_size = x_train.shape[1]
@@ -325,6 +338,7 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None and x_val is not None
         x_v = torch.tensor(np.asarray(x_val, dtype=np.float32)).to(self.device) if use_early_stopping else None
         y_v = self._target_tensor(y_val) if use_early_stopping else None
+        w_t, w_v = self._weight_tensor(sample_weight), self._weight_tensor(sample_weight_val) if use_early_stopping else None
         if use_early_stopping:
             self._check_offset(x_v)
 
@@ -340,12 +354,13 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
                 batch = order[start : start + self.batch_size]
                 self.optimizer.zero_grad()
                 x_batch = x_t[batch]
-                loss = self._calculate_regularization_loss(self._fit_loss(self.model(x_batch), y_t[batch], offset=self._row_offset(x_batch)), self.model)
+                fit = self._fit_loss(self.model(x_batch), y_t[batch], offset=self._row_offset(x_batch), weight=None if w_t is None else w_t[batch])
+                loss = self._calculate_regularization_loss(fit, self.model)
                 loss.backward()
                 schedule.clip(self.model)
                 self.optimizer.step()
             if use_early_stopping:
-                history.append(float(self._fit_loss(self._predict_tensor(x_v), y_v, offset=self._row_offset(x_v)).item()))
+                history.append(float(self._fit_loss(self._predict_tensor(x_v), y_v, offset=self._row_offset(x_v), weight=w_v).item()))
                 if tracker.update(epoch, history[-1]):
                     best_state = snapshot_state(self.model)
                 if tracker.done:

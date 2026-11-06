@@ -1,6 +1,6 @@
 """CatBoost model wrapper for AutoML."""
 
-from typing import Any, Never
+from typing import Any, ClassVar, Never
 
 import numpy as np
 from catboost import CatBoostClassifier, CatBoostRegressor, Pool
@@ -19,12 +19,14 @@ class CatBoostModel(ColumnRolesMixin, BaseModel):
     ``categorical_features`` go to ``cat_features`` as integer codes, NaN mapped to -1. See `ColumnRolesMixin`.
     """
 
+    _supports_sample_weight: ClassVar[bool] = True  # native row weights, on the early-stopping set too
+
     _CATEGORICAL_CAST = CategoricalCast.INTEGER_CODES
 
-    def _pool(self, x: np.ndarray, y: np.ndarray | None = None, fit: bool = False) -> Pool:
-        """Builds the CatBoost Pool for ``x`` with the starting score as baseline and the categorical columns declared."""
+    def _pool(self, x: np.ndarray, y: np.ndarray | None = None, fit: bool = False, weight: np.ndarray | None = None) -> Pool:
+        """Builds the CatBoost Pool for ``x`` with the starting score as baseline, the categorical columns declared and the row weights."""
         features, offset = self._split_column_roles(x, fit=fit)
-        return Pool(features, y, cat_features=self.categorical_features, baseline=offset)
+        return Pool(features, y, cat_features=self.categorical_features, baseline=offset, weight=weight)
 
     def __init__(self, random_seed: int | None = None, **kwargs: Any) -> None:
         """Initializes the CatBoostModel.
@@ -58,7 +60,14 @@ class CatBoostModel(ColumnRolesMixin, BaseModel):
         return "CatBoostModel"
 
     def _fit_single(
-        self, x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None, forced_iterations: int | None = None
+        self,
+        x_train: np.ndarray,
+        y_train: np.ndarray,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        forced_iterations: int | None = None,
+        sample_weight: np.ndarray | None = None,
+        sample_weight_val: np.ndarray | None = None,
     ) -> tuple[int, list[float]]:
         """Fits a single model instance.
 
@@ -68,6 +77,8 @@ class CatBoostModel(ColumnRolesMixin, BaseModel):
             x_val (np.ndarray | None): The validation features.
             y_val (np.ndarray | None): The validation targets.
             forced_iterations (int | None): If provided, train for this many iterations, ignoring early stopping.
+            sample_weight (np.ndarray | None): Row weights of the training part (the Pool's ``weight``).
+            sample_weight_val (np.ndarray | None): Row weights of the early-stopping set.
 
         Returns:
             tuple[int, list[float]]: A tuple containing:
@@ -78,7 +89,7 @@ class CatBoostModel(ColumnRolesMixin, BaseModel):
         use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
 
         if use_early_stopping and x_val is not None:
-            eval_set = self._pool(x_val, y_val)
+            eval_set = self._pool(x_val, y_val, weight=sample_weight_val)
 
         params = self.params.copy()
         iteration_synonyms = ["iterations", "n_estimators", "num_boost_round", "num_trees"]
@@ -103,7 +114,7 @@ class CatBoostModel(ColumnRolesMixin, BaseModel):
             fit_params["eval_set"] = eval_set
             fit_params["early_stopping_rounds"] = self.early_stopping_rounds
 
-        self.model.fit(self._pool(x_train, y_train, fit=True), **fit_params)
+        self.model.fit(self._pool(x_train, y_train, fit=True, weight=sample_weight), **fit_params)
 
         if self.uncertainty_method == UncertaintyMethod.CONSTANT:
             y_pred_train = self.predict(x_train, filter_data=False)

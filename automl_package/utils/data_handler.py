@@ -387,6 +387,23 @@ def _time_ordered_split(validation_fraction: float, test_fraction: float, timest
     return train_indices, val_indices, test_indices
 
 
+def check_sample_weight(weight: np.ndarray | Sequence[float], n_rows: int, name: str) -> np.ndarray:
+    """``weight`` as a float64 array after checking it holds one finite, non-negative weight per row and a positive total.
+
+    Raises:
+        ValueError: wrong shape, a NaN, infinite or negative entry, or a total of 0; the message names ``name``.
+    """
+    w = np.asarray(weight, dtype=np.float64)
+    if w.shape != (n_rows,):
+        raise ValueError(f"{name} must hold one weight per row, shape ({n_rows},); got shape {w.shape}.")
+    bad = int((~np.isfinite(w) | (w < 0)).sum())
+    if bad:
+        raise ValueError(f"{name} must be finite and non-negative; {bad} of {n_rows} entries are not.")
+    if not w.sum() > 0:
+        raise ValueError(f"{name} sums to 0: at least one row must carry weight.")
+    return w
+
+
 def check_time_gap(time_gap: int, split_strategy: DataSplitStrategy) -> None:
     """Raises ValueError for a gap that is negative, or that is asked of a split without a time order.
 

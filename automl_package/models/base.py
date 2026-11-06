@@ -30,7 +30,7 @@ from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
 from automl_package.utils.capacity_selection import cheapest_within_tolerance
 from automl_package.utils.checkpoint import stable_hash
 from automl_package.utils.cv import TimeSeriesSplit
-from automl_package.utils.data_handler import InputTransform, TargetScaler, check_time_gap, create_train_val_split
+from automl_package.utils.data_handler import InputTransform, TargetScaler, check_sample_weight, check_time_gap, create_train_val_split
 from automl_package.utils.feature_selection import select_features_by_cumulative_importance
 from automl_package.utils.metrics import Metrics, calculate_performance_score
 from automl_package.utils.numerics import find_optimal_iterations
@@ -125,6 +125,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
     _default_input_scaling: ClassVar[InputScaling] = InputScaling.NONE  # what `input_scaling=None` means for this family
     _supports_input_scaling: ClassVar[bool] = True  # False: the class scales its inputs itself or bypasses `predict`, so STANDARD is refused
     _default_missing_inputs: ClassVar[MissingInputs] = MissingInputs.RAISE  # what `missing_inputs=None` means for this family
+    _supports_sample_weight: ClassVar[bool] = False  # True: `_fit_single` takes sample_weight / sample_weight_val and `_held_out_fit_score` sample_weight
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Wraps the spread methods a subclass defines (see `_spread_in_target_units`)."""
@@ -435,11 +436,11 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         feature_importance = self.calculate_feature_importances(model_instance=model_instance, x_background=x_background)
         self._save_feature_importance(feature_importance=feature_importance)
 
-    def _perform_feature_selection(self, x_train_val: pd.DataFrame, y_train_val: np.ndarray, iterations: int | None) -> None:
+    def _perform_feature_selection(self, x_train_val: pd.DataFrame, y_train_val: np.ndarray, iterations: int | None, sample_weight: np.ndarray | None = None) -> None:
         """Performs feature selection and returns the filtered training data."""
         temp_model = self._clone_for_trial()
         logger.info("--- Training model on all the features in preparation for feature selection ---")
-        temp_model._fit_single(x_train_val.values, y_train_val, forced_iterations=iterations)
+        temp_model._fit_single(x_train_val.values, y_train_val, forced_iterations=iterations, **self._weight_kwargs(sample_weight))
 
         feature_importance = self.calculate_feature_importances(model_instance=temp_model, x_background=x_train_val)
 
@@ -488,17 +489,25 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         y_val: np.ndarray | None = None,
         timestamps_train_val: np.ndarray | None = None,
         use_explicit_split: bool = False,
+        weights_train: np.ndarray | None = None,
+        weights_val: np.ndarray | None = None,
+        weights_train_val: np.ndarray | None = None,
     ) -> None:
         """Runs the search / early-stopping pass.
 
         With ``use_explicit_split`` (a caller-given validation set, or the one-pass protocol) the search scores
         its trials on ``(x_train, x_val)`` instead of drawing an inner split from train + validation. Under
         ``refit_on_train_val=False`` this method ends with `self` fitted (best trial adopted, or one early-stopped pass).
+        The ``weights_*`` are the row weights of those parts (`fit`'s ``sample_weight``), None without weights.
         """
+        fit_weights = self._weight_kwargs(weights_train, weights_val)
         if self.optimize_hyperparameters:
             logger.info("--- Starting hyperparameter optimization ---")
             split = (x_train.values, y_train, x_val.values, y_val) if use_explicit_split and x_val is not None else None
-            best_params, self.num_iterations_used = self._find_best_hyperparameters(x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val, explicit_split=split)
+            search_weights = {} if weights_train_val is None else {"sample_weight": weights_train_val, "explicit_weights": (weights_train, weights_val) if split else None}
+            best_params, self.num_iterations_used = self._find_best_hyperparameters(
+                x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val, explicit_split=split, **search_weights
+            )
             self._update_params(best_params)
             if not self.refit_on_train_val:
                 self._adopt_fitted_state(self._best_trial_model_)
@@ -507,22 +516,22 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             logger.info(f"--- Optimal iterations from HPO: {self.num_iterations_used} ---")
         elif not self.refit_on_train_val:
             logger.info("--- One-pass fit on the training part, validation held out ---")
-            self.num_iterations_used, _ = self._fit_single(x_train.values, y_train, x_val=x_val.values if x_val is not None else None, y_val=y_val)
+            self.num_iterations_used, _ = self._fit_single(x_train.values, y_train, x_val=x_val.values if x_val is not None else None, y_val=y_val, **fit_weights)
         elif self.early_stopping_rounds is not None:
             # Step 2: Train the Model
             if self.cv_folds:
                 logger.info("--- Finding optimal iterations with cross-validation ---")
                 self.num_iterations_used, self.cv_score_mean_, self.cv_score_std_ = self._find_optimal_iterations_with_cv(
-                    x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val
+                    x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val, **self._sample_weight_kwarg(weights_train_val)
                 )
             else:
                 # Fit with a single train/validation split to find the best number of iterations
                 logger.info("--- Finding optimal iterations with train/validation split ---")
-                self.num_iterations_used, _ = self._fit_single(x_train.values, y_train, x_val=x_val.values if x_val is not None else None, y_val=y_val)
+                self.num_iterations_used, _ = self._fit_single(x_train.values, y_train, x_val=x_val.values if x_val is not None else None, y_val=y_val, **fit_weights)
 
             logger.info(f"--- Optimal iterations found: {self.num_iterations_used} ---")
 
-    def _fit_final_model(self, x_train: np.ndarray, y_train: np.ndarray) -> None:
+    def _fit_final_model(self, x_train: np.ndarray, y_train: np.ndarray, sample_weight: np.ndarray | None = None) -> None:
         """Retrain on the full training + validation set with the optimal number of iterations.
 
         ``num_iterations_used`` is 0 until HPO or an early-stopping pass sets it. Passing
@@ -531,7 +540,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         """
         logger.info("--- Training final model with optimal parameters ---")
         forced = self.num_iterations_used if self.num_iterations_used and self.num_iterations_used > 0 else None
-        self._fit_single(x_train, y_train, forced_iterations=forced)
+        self._fit_single(x_train, y_train, forced_iterations=forced, **self._weight_kwargs(sample_weight))
         logger.info("--- Final model training finished ---")
 
     def fit(
@@ -541,6 +550,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         timestamps: np.ndarray | None = None,
         x_val: np.ndarray | pd.DataFrame | None = None,
         y_val: np.ndarray | pd.DataFrame | pd.Series | None = None,
+        sample_weight: np.ndarray | None = None,
+        sample_weight_val: np.ndarray | None = None,
     ) -> None:
         """Fits the model to the training data and evaluates it on all available partitions.
 
@@ -551,6 +562,11 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             x_val: optional explicit validation inputs. When given (with ``y_val``) they are the validation set,
                 ``(x, y)`` is the training part whole, and no inner split is drawn (so no test rows are set aside).
             y_val: validation targets for ``x_val``.
+            sample_weight: optional weight per row of ``x``, relative (rescaled to mean 1). The weights follow every split, fold and search
+                trial: the training loss is the weighted mean of the per-row loss and every held-out score (early stopping, search, CV) the
+                weighted mean of the per-row fit term. Scaling statistics, the in-sample residual spread and the evaluation reports stay
+                unweighted. A class that cannot apply weights refuses them (`_sample_weight_conflict`).
+            sample_weight_val: the weight per row of ``x_val``; required with ``sample_weight`` and an explicit validation set.
         """
         logger.info(f"--- Starting training for {self.name} ---")
 
@@ -568,6 +584,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         self.target_scaler_, self._raw_target_range_ = None, None  # a refit starts in fit space again
 
         explicit_val = x_val is not None
+        weights = self._check_fit_weights(sample_weight, sample_weight_val, len(x), None if x_val is None else len(x_val))
         if explicit_val:
             if y_val is None:
                 raise ValueError("x_val was given without y_val.")
@@ -580,6 +597,14 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         x_train, y_train, x_val, y_val, x_test, y_test, _, _, _, x_train_val, y_train_val, timestamps_train_val = self._prepare_data_partitions(
             x.values, y, timestamps, x_val=x_val, y_val=y_val
         )
+
+        if weights is not None:  # the same row indices as every other array (`val_indices` index [x; x_val] under an explicit split)
+            weights_train = weights[self.train_indices]
+            weights_val = weights[self.val_indices] if self.val_indices.size else None
+            weights_train_val = weights[np.concatenate([self.train_indices, self.val_indices])]
+            weighted = {"weights_train": weights_train, "weights_val": weights_val, "weights_train_val": weights_train_val}
+        else:
+            weights_train_val, weighted = None, {}
 
         self.input_transform_ = None  # a refit starts with raw inputs again
         input_transform = self._make_input_transform()
@@ -612,14 +637,15 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             y_val=y_val,
             timestamps_train_val=timestamps_train_val,
             use_explicit_split=explicit_val or not self.refit_on_train_val,
+            **weighted,
         )
 
         if self.refit_on_train_val:
             if self.feature_selection_threshold is not None:
-                self._perform_feature_selection(x_train_val, y_train_val, self.num_iterations_used)
+                self._perform_feature_selection(x_train_val, y_train_val, self.num_iterations_used, **self._sample_weight_kwarg(weights_train_val))
 
             x_train_val_final = x_train_val[self.selected_features_] if self.selected_features_ else x_train_val
-            self._fit_final_model(x_train=x_train_val_final.values, y_train=y_train_val)
+            self._fit_final_model(x_train=x_train_val_final.values, y_train=y_train_val, **self._sample_weight_kwarg(weights_train_val))
             x_model, y_model = x_train_val_final, y_train_val
         else:
             x_model, y_model = x_train, y_train  # the model was fitted on the training part only
@@ -655,6 +681,44 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             if x_test is not None:
                 self.evaluate(x_test, y_test, "test", self.output_dir)
             logger.info("--- Final evaluation finished ---")
+
+    def _sample_weight_conflict(self) -> str | None:
+        """Why this model, as configured, cannot apply sample weights, with the remedy; None when it can."""
+        if not self._supports_sample_weight:
+            return f"{type(self).__name__} does not apply sample weights: fit it without sample_weight"
+        if self.uncertainty_method == UncertaintyMethod.BINNED_RESIDUAL_STD:
+            return "the binned residual spread is calibrated without weights: use uncertainty_method=CONSTANT, or fit without sample_weight"
+        return None
+
+    def _check_fit_weights(self, sample_weight: np.ndarray | None, sample_weight_val: np.ndarray | None, n_rows: int, n_val_rows: int | None) -> np.ndarray | None:
+        """The checked weights of the rows `fit` splits (``[x; x_val]`` under an explicit validation set), or None without weights.
+
+        Raises:
+            ValueError: weights this model cannot apply (`_sample_weight_conflict`), validation weights without training weights or the
+                other way round under an explicit validation set, or invalid weights (`data_handler.check_sample_weight`).
+        """
+        if sample_weight is None and sample_weight_val is None:
+            return None
+        if (conflict := self._sample_weight_conflict()) is not None:
+            raise ValueError(f"sample_weight cannot be used here: {conflict}.")
+        if sample_weight is None or (n_val_rows is None) != (sample_weight_val is None):
+            raise ValueError("Give sample_weight for the rows of x, and sample_weight_val exactly when an explicit x_val is given.")
+        weights = check_sample_weight(sample_weight, n_rows, "sample_weight")
+        weights = weights / weights.mean()  # weights are relative: each array is rescaled to mean 1, so penalties and leaf-size limits keep their size
+        if n_val_rows is None:
+            return weights
+        weights_val = check_sample_weight(sample_weight_val, n_val_rows, "sample_weight_val")
+        return np.concatenate([weights, weights_val / weights_val.mean()])
+
+    @staticmethod
+    def _weight_kwargs(train: np.ndarray | None, val: np.ndarray | None = None) -> dict[str, np.ndarray | None]:
+        """`_fit_single` keyword arguments for row weights: none without weights, so a class that takes none is called as before."""
+        return {} if train is None else {"sample_weight": train, "sample_weight_val": val}
+
+    @staticmethod
+    def _sample_weight_kwarg(weights: np.ndarray | None) -> dict[str, np.ndarray]:
+        """``sample_weight=`` for a held-out score or a single-set call: none without weights."""
+        return {} if weights is None else {"sample_weight": weights}
 
     def _prepare_data_partitions(
         self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None, x_val: np.ndarray | None = None, y_val: np.ndarray | None = None
@@ -750,10 +814,13 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         y: np.ndarray,
         timestamps: np.ndarray | None = None,
         explicit_split: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None,
+        sample_weight: np.ndarray | None = None,
+        explicit_weights: tuple[np.ndarray, np.ndarray | None] | None = None,
     ) -> tuple[float, int]:
         """Evaluates a trial's performance and returns the score and optimal iterations.
 
-        ``explicit_split = (x_train, y_train, x_val, y_val)`` replaces the inner split drawn from ``(x, y)``.
+        ``explicit_split = (x_train, y_train, x_val, y_val)`` replaces the inner split drawn from ``(x, y)``. ``sample_weight`` weighs the
+        rows of ``(x, y)``; ``explicit_weights = (train, val)`` the parts of the explicit split.
         """
         if self.cv_folds:
             kf = self.get_kfolds(timestamps=timestamps)
@@ -761,8 +828,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             for train_idx, val_idx in kf.split(x, y):
                 x_train_fold, x_val_fold = x[train_idx], x[val_idx]
                 y_train_fold, y_val_fold = y[train_idx], y[val_idx]
-                best_iter, loss_history = model_instance._fit_single(x_train_fold, y_train_fold, x_val=x_val_fold, y_val=y_val_fold)
-                score = model_instance._held_out_fit_score(x_val_fold, y_val_fold)
+                w_train, w_val = (None, None) if sample_weight is None else (sample_weight[train_idx], sample_weight[val_idx])
+                best_iter, loss_history = model_instance._fit_single(x_train_fold, y_train_fold, x_val=x_val_fold, y_val=y_val_fold, **self._weight_kwargs(w_train, w_val))
+                score = model_instance._held_out_fit_score(x_val_fold, y_val_fold, **self._sample_weight_kwarg(w_val))
                 fold_results.append({"best_iter": best_iter, "loss_history": loss_history, "score": score})
 
             final_score = float(np.mean([res["score"] for res in fold_results]))
@@ -770,6 +838,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         else:
             if explicit_split is not None:
                 x_train, y_train, x_val, y_val = explicit_split
+                w_train, w_val = explicit_weights or (None, None)
             else:
                 train_indices, val_indices, _ = create_train_val_split(
                     x=x,
@@ -782,8 +851,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                 )
                 x_train, y_train = x[train_indices], y[train_indices]
                 x_val, y_val = x[val_indices], y[val_indices]
-            optimal_iterations, _ = model_instance._fit_single(x_train, y_train, x_val=x_val, y_val=y_val)
-            final_score = model_instance._held_out_fit_score(x_val, y_val)
+                w_train, w_val = (None, None) if sample_weight is None else (sample_weight[train_indices], sample_weight[val_indices])
+            optimal_iterations, _ = model_instance._fit_single(x_train, y_train, x_val=x_val, y_val=y_val, **self._weight_kwargs(w_train, w_val))
+            final_score = model_instance._held_out_fit_score(x_val, y_val, **self._sample_weight_kwarg(w_val))
         return final_score, optimal_iterations
 
     def _find_best_hyperparameters(
@@ -792,14 +862,17 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         y: np.ndarray,
         timestamps: np.ndarray | None = None,
         explicit_split: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None,
+        sample_weight: np.ndarray | None = None,
+        explicit_weights: tuple[np.ndarray, np.ndarray | None] | None = None,
     ) -> tuple[dict[str, Any], int]:
-        """Finds the best hyperparameters and optimal iterations using Optuna.
+        """Finds the best hyperparameters and optimal iterations using Optuna (weights as in `_evaluate_trial_performance`).
 
         Under ``refit_on_train_val=False`` the best trial's fitted model is kept in ``self._best_trial_model_``
         (only the best so far is held in memory), for `fit` to adopt instead of refitting.
         """
         smaller_is_better = self._held_out_score_is_smaller_better()
         best_trial: dict[str, Any] = {"score": None, "model": None, "number": None}
+        weights = {} if sample_weight is None else {"sample_weight": sample_weight, "explicit_weights": explicit_weights}
 
         def objective(trial: optuna.Trial) -> float:
             search_space = self._searched_space()
@@ -816,7 +889,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             model_instance = self._clone_for_trial()
             model_instance._update_params(trial_params)
 
-            score, iterations = self._evaluate_trial_performance(model_instance, x, y, timestamps=timestamps, explicit_split=explicit_split)
+            score, iterations = self._evaluate_trial_performance(model_instance, x, y, timestamps=timestamps, explicit_split=explicit_split, **weights)
             trial.set_user_attr("iterations", iterations)
             if not self.refit_on_train_val and (best_trial["score"] is None or (score < best_trial["score"] if smaller_is_better else score > best_trial["score"])):
                 best_trial.update(score=score, model=model_instance, number=trial.number)
@@ -824,7 +897,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
 
         direction = "minimize" if smaller_is_better else "maximize"
         seed = self.hpo_seed if self.hpo_seed is not None else getattr(self, "random_seed", None)
-        optimizer = OptunaOptimizer(direction=direction, n_trials=self.n_trials, random_seed=seed, sampler=self.hpo_sampler, **self._hpo_journal(x, y, timestamps, explicit_split))
+        journal = self._hpo_journal(x, y, timestamps, explicit_split, **weights)
+        optimizer = OptunaOptimizer(direction=direction, n_trials=self.n_trials, random_seed=seed, sampler=self.hpo_sampler, **journal)
         study = optimizer.optimize(objective)
         best_iterations = study.best_trial.user_attrs["iterations"]
         if not self.refit_on_train_val and best_trial["number"] != study.best_trial.number:
@@ -832,22 +906,31 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             logger.info(f"Best trial {study.best_trial.number} was finished by an earlier process: refitting its parameters.")
             best_trial["model"] = self._clone_for_trial()
             best_trial["model"]._update_params(study.best_trial.params)
-            _, best_iterations = self._evaluate_trial_performance(best_trial["model"], x, y, timestamps=timestamps, explicit_split=explicit_split)
+            _, best_iterations = self._evaluate_trial_performance(best_trial["model"], x, y, timestamps=timestamps, explicit_split=explicit_split, **weights)
         self._best_trial_model_ = best_trial["model"]
         return study.best_trial.params, best_iterations
 
-    def _hpo_journal(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None, explicit_split: tuple | None) -> dict[str, Any]:
+    def _hpo_journal(
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        timestamps: np.ndarray | None,
+        explicit_split: tuple | None,
+        sample_weight: np.ndarray | None = None,
+        explicit_weights: tuple | None = None,
+    ) -> dict[str, Any]:
         """``OptunaOptimizer`` keyword arguments that make the search resumable (none without ``hpo_storage_dir``).
 
         The journal file is named by the model class and a hash of its settings (not ``n_trials``, so raising it continues the search)
-        and of the data, so a different config or data never continues another search.
+        and of the data (with the row weights when there are any), so a different config or data never continues another search.
         """
         if self.hpo_storage_dir is None:
             return {}
         settings = {k: v for k, v in self.get_params().items() if k not in HPO_IDENTITY_EXCLUDED}
         for key in self._settings_without_effect() & settings.keys():
             settings.pop(key)  # as before the setting existed: a search that does not use it keeps its journal
-        name = f"{type(self).__name__}-{stable_hash([settings, x, y, timestamps, explicit_split])[:HPO_HASH_LENGTH]}"
+        data = [x, y, timestamps, explicit_split] + ([sample_weight, explicit_weights] if sample_weight is not None else [])
+        name = f"{type(self).__name__}-{stable_hash([settings, *data])[:HPO_HASH_LENGTH]}"
         return {"storage_path": Path(self.hpo_storage_dir) / f"{name}.journal", "study_name": name}
 
     def _settings_without_effect(self) -> set[str]:
@@ -868,15 +951,17 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             optimization_metric = Metric.LOG_LOSS
         return optimization_metric
 
-    def _held_out_fit_score(self, x_val: np.ndarray, y_val: np.ndarray) -> float:
+    def _held_out_fit_score(self, x_val: np.ndarray, y_val: np.ndarray, sample_weight: np.ndarray | None = None) -> float:
         """Held-out score for hyperparameter search and cross-validation, on a model ALREADY fitted on the training part.
 
         Call it on the trial / fold model instance, never on the outer model (scoring the unfitted outer
         object was the F1 crash). Default: the model's optimisation metric on its predictions (trees and
         linear models). `PyTorchModelBase` overrides it with the held-out fit term of the training loss
         (owner ruling 2026-11-01, DECISIONS.md "Validation score = the held-out FIT TERM"). Direction is
-        given by `_held_out_score_is_smaller_better`.
+        given by `_held_out_score_is_smaller_better`. With ``sample_weight``: the weighted mean of `_held_out_fit_per_sample`.
         """
+        if sample_weight is not None:
+            return float(np.average(self._held_out_fit_per_sample(x_val, y_val), weights=sample_weight))
         preds = self._to_fit_space(self._predict_for_scoring(x_val))
         y_pred_std = self.predict_uncertainty(x_val)
         if self.target_scaler_ is not None and y_pred_std is not None:
@@ -1014,8 +1099,10 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             raise ValueError(f"Split strategy {self.split_strategy.value} is not supported.")
         return kf
 
-    def _find_optimal_iterations_with_cv(self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None) -> tuple[int, float, float]:
-        """Finds the optimal number of iterations using cross-validation."""
+    def _find_optimal_iterations_with_cv(
+        self, x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None, sample_weight: np.ndarray | None = None
+    ) -> tuple[int, float, float]:
+        """Finds the optimal number of iterations using cross-validation (``sample_weight``: the weight of each row of ``(x, y)``)."""
         kf = self.get_kfolds(timestamps=timestamps)
         fold_results = []
         for i, (train_idx, val_idx) in enumerate(kf.split(x, y)):
@@ -1023,8 +1110,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             x_train_fold, x_val_fold = x[train_idx], x[val_idx]
             y_train_fold, y_val_fold = y[train_idx], y[val_idx]
             model_instance = self._clone_for_trial()
-            best_iter, loss_history = model_instance._fit_single(x_train_fold, y_train_fold, x_val=x_val_fold, y_val=y_val_fold)
-            score = model_instance._held_out_fit_score(x_val_fold, y_val_fold)
+            w_train, w_val = (None, None) if sample_weight is None else (sample_weight[train_idx], sample_weight[val_idx])
+            best_iter, loss_history = model_instance._fit_single(x_train_fold, y_train_fold, x_val=x_val_fold, y_val=y_val_fold, **self._weight_kwargs(w_train, w_val))
+            score = model_instance._held_out_fit_score(x_val_fold, y_val_fold, **self._sample_weight_kwarg(w_val))
             fold_results.append({"best_iter": best_iter, "loss_history": loss_history, "score": score})
 
         scores = [res["score"] for res in fold_results]

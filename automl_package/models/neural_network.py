@@ -67,6 +67,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
 
     _scores_by_fit_term: ClassVar[bool] = True
     _supports_training_schedule: ClassVar[bool] = True  # trains through the generic `PyTorchModelBase._fit_single`, which applies the `TrainingSchedule`
+    _supports_sample_weight: ClassVar[bool] = True  # its criterion is its fit term, so `_weighted_fit_loss` is its weighted training loss
 
     _defaults: ClassVar[dict[str, Any]] = {"hidden_layers": 1, "hidden_size": 64, "activation": ActivationFunction.RELU}
 
