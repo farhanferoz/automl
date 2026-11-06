@@ -387,6 +387,8 @@ class InputScaling(Enum):
 
     NONE = "none"  # inputs as given
     STANDARD = "standard"  # each numeric column standardised by the training part's mean and sd; binary 0/1, categorical and offset columns left alone
+    QUANTILE = "quantile"  # each numeric column mapped to a standard normal through the training part's quantiles (rank-based: skew and outliers
+    # removed, values beyond the training range capped at the extreme quantile); binary 0/1, categorical and offset columns left alone
 
 
 class MissingInputs(Enum):

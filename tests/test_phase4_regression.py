@@ -43,7 +43,7 @@ from automl_package.models.probabilistic_regression import ProbabilisticRegressi
 from automl_package.models.pytorch_linear_regression import PyTorchLinearRegression
 from automl_package.models.xgboost_model import XGBoostModel
 from automl_package.utils.cv import TimeSeriesSplit
-from automl_package.utils.data_handler import create_train_val_split
+from automl_package.utils.data_handler import InputTransform, create_train_val_split
 from automl_package.utils.losses import poisson_deviance
 from automl_package.utils.transforms import symexp, symlog
 
@@ -724,12 +724,47 @@ class TestInputSettings:
         [
             lambda: PyTorchLSTMForecaster(layout=SequenceLayout(2, 2, 1), output_size=1, input_scaling="standard"),
             lambda: ClassifierRegressionModel(input_scaling="standard"),
+            lambda: PyTorchLSTMForecaster(layout=SequenceLayout(2, 2, 1), output_size=1, input_scaling="quantile"),
         ],
-        ids=["lstm", "classreg"],
+        ids=["lstm", "classreg", "lstm_quantile"],
     )
     def test_input_scaling_refusals_name_the_remedy(self, build) -> None:
         with pytest.raises(ValueError, match="input_scaling=NONE"):
             build()
+
+    def test_quantile_scaling_spreads_skewed_columns_and_caps_beyond_the_range(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AUTOML_DEVICE", "cpu")
+        rng = np.random.default_rng(0)
+        n = 400
+        zero_heavy = np.where(rng.random(n) < 0.6, 0.0, rng.exponential(5.0, n))  # rain-like: most rows at the column's minimum
+        spiky = rng.normal(0.0, 1.0, n)
+        spiky[:4] = 100.0  # four outliers
+        flag = (rng.random(n) < 0.5).astype(float)
+        x = np.column_stack([zero_heavy, spiky, flag])
+        y = zero_heavy + spiky.clip(-3, 3) + flag + rng.normal(0.0, 0.1, n)
+        transform = InputTransform(InputScaling.QUANTILE, MissingInputs.RAISE, random_seed=0).fit(x, ["rain", "spiky", "flag"])
+        z = transform.transform(x)
+        assert np.abs(z[zero_heavy == 0, 0]).max() < 1.0  # the zeros sit in the middle of their share, not at the lowest quantile
+        assert z[:4, 1].min() > 2.0  # the outliers are the top ranks, no further
+        np.testing.assert_array_equal(z[:, 2], flag)  # a binary column is left alone
+        beyond = transform.transform(np.array([[1e6, 1e6, 1.0]]))[0, :2]
+        assert (beyond >= z[:, :2].max(axis=0)).all()  # beyond the training range: the extreme quantile ...
+        assert beyond.max() < 6.0  # ... and no further
+        np.testing.assert_allclose(transform.transform(x[:, [1]], ["spiky"]), z[:, [1]])  # a subset of the columns maps the same
+        model = PyTorchNeuralNetwork(
+            input_size=3, output_size=1, hidden_layers=1, hidden_size=16, learning_rate=0.01, n_epochs=30, early_stopping_rounds=30,
+            refit_on_train_val=False, random_seed=0, calculate_feature_importance=False, input_scaling="quantile",
+        )
+        seen: list[np.ndarray] = []
+        original = model._fit_single
+        model._fit_single = lambda x_train, y_train, **kw: (seen.append(np.asarray(x_train)), original(x_train, y_train, **kw))[1]
+        model.fit(x[:300], y[:300], x_val=x[300:], y_val=y[300:])
+        assert model.input_scaling is InputScaling.QUANTILE
+        assert np.abs(seen[0][:, :2]).max() < 6.0  # the network saw normal scores
+        assert np.abs(seen[0][zero_heavy[:300] == 0, 0]).max() < 1.0
+        np.testing.assert_allclose(model.predict(pd.DataFrame(x[300:], columns=model.feature_names)), model.predict(x[300:]), rtol=1e-5)  # float32 rounding
+        with pytest.raises(ValueError, match="input_quantiles must be at least"):
+            PyTorchNeuralNetwork(input_quantiles=1)
 
 
 class TestTrainingDetails:

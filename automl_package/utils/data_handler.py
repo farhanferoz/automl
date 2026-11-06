@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import QuantileTransformer, StandardScaler
 
 from automl_package.enums import DataSplitStrategy, InputScaling, MissingInputs
 from automl_package.logger import logger
@@ -15,6 +15,12 @@ if TYPE_CHECKING:
     from automl_package.models.base import BaseModel
 
 MIN_STD = 1e-6  # a standard deviation below this is treated as 0 and replaced by 1
+DEFAULT_INPUT_QUANTILES = 1000  # InputScaling.QUANTILE: quantiles estimated per column (scikit-learn's default), capped at the training rows
+# InputScaling.QUANTILE: sd of the noise added to the training values (as a share of each column's sd) only while the quantiles are fitted.
+# Without it, scikit-learn maps every value equal to a column's minimum to the lowest quantile (-5.2 under a normal output), so a column
+# with many zeros at its minimum (rain, snowfall, disease counts) sends most rows to -5.2; the noise breaks the tie and the zeros land in the
+# middle of their share. Gorishniy et al. (NeurIPS 2021, 'Revisiting Deep Learning Models for Tabular Data') add N(0, 1e-3) for the same reason.
+DEFAULT_INPUT_QUANTILE_NOISE = 1e-3
 MATRIX_NDIM = 2  # a (rows, columns) array
 
 
@@ -90,28 +96,53 @@ class TargetScaler:
 
 
 class InputTransform:
-    """Training-part statistics for the input columns: the missing-value rule and per-column standardisation.
+    """Training-part statistics for the input columns: the missing-value rule, then per-column scaling (the one input transform of `BaseModel`).
 
-    The settings are `BaseModel.missing_inputs` and `BaseModel.input_scaling`. Statistics are kept per column name, so `transform` takes
-    all the fitted columns or any subset of them (e.g. the selected features). Columns that are not standardised: binary 0/1 columns
-    of the training part and the names in ``unscaled_columns`` (categorical codes, a
-    per-row offset). Under RAISE a NaN raises; under TRAINING_MEAN it becomes the training part's column mean (before scaling); under
-    NATIVE it is passed through.
+    The settings are `BaseModel.missing_inputs` and `BaseModel.input_scaling` (with ``input_quantiles`` / ``input_quantile_noise`` for
+    QUANTILE). Statistics are kept per column name, so `transform` takes all the fitted columns or any subset of them (e.g. the selected
+    features). Columns that are not scaled: binary 0/1 columns of the training part and the names in ``unscaled_columns`` (categorical codes, a
+    per-row offset). Under RAISE a NaN raises; under TRAINING_MEAN it becomes the training part's column mean (before scaling); under NATIVE it
+    is passed through (a NaN stays NaN through either scaling). STANDARD: (x - mean) / sd. QUANTILE: scikit-learn's `QuantileTransformer` with a
+    normal output, fitted on all training rows (no subsampling) with tie-breaking noise (`DEFAULT_INPUT_QUANTILE_NOISE`) and applied to the
+    values as given; a value beyond the training range maps to the extreme quantile.
     """
 
-    def __init__(self, scaling: InputScaling, missing: MissingInputs, unscaled_columns: Collection[str] = ()) -> None:
-        """Creates an unfitted transform for the given settings."""
+    def __init__(
+        self,
+        scaling: InputScaling,
+        missing: MissingInputs,
+        unscaled_columns: Collection[str] = (),
+        quantiles: int = DEFAULT_INPUT_QUANTILES,
+        quantile_noise: float = DEFAULT_INPUT_QUANTILE_NOISE,
+        random_seed: int | None = None,
+    ) -> None:
+        """Creates an unfitted transform for the given settings (``quantiles``, ``quantile_noise`` and ``random_seed``: QUANTILE only)."""
         self.scaling, self.missing = scaling, missing
         self.unscaled_columns = frozenset(unscaled_columns)
+        self.quantiles, self.quantile_noise, self.random_seed = quantiles, quantile_noise, random_seed
         self.columns_: dict[str, int] | None = None  # column name -> position in the fitted columns
         self.fill_: np.ndarray | None = None  # per-column training mean (TRAINING_MEAN)
         self.mean_: np.ndarray | None = None  # per-column centre (STANDARD; 0 for a column left alone)
         self.scale_: np.ndarray | None = None  # per-column scale (STANDARD; 1 for a column left alone)
+        self.quantile_: QuantileTransformer | None = None  # fitted on the scaled columns (QUANTILE)
+        self.quantile_columns_: np.ndarray | None = None  # positions (in the fitted columns) of the columns `quantile_` maps
 
     @property
     def changes_values(self) -> bool:
         """Whether `transform` changes any value (scaling or filling); a RAISE/NATIVE transform without scaling only checks."""
-        return self.scaling is InputScaling.STANDARD or self.missing is MissingInputs.TRAINING_MEAN
+        return self.scaling is not InputScaling.NONE or self.missing is MissingInputs.TRAINING_MEAN
+
+    def _left_alone(self, x: np.ndarray, columns: Sequence[str]) -> np.ndarray:
+        """Which fitted columns are not scaled: binary 0/1 in the training part, or named in ``unscaled_columns``."""
+        observed = np.where(np.isnan(x), 0.0, x)
+        binary = np.all((observed == 0.0) | (observed == 1.0), axis=0)
+        named = np.array([name in self.unscaled_columns for name in columns], dtype=bool)
+        return binary | named
+
+    def _fit_quantiles(self, x: np.ndarray) -> QuantileTransformer:
+        """The quantile map of the training columns ``x``, fitted on ``x`` plus tie-breaking noise (sd = quantile_noise x each column's sd)."""
+        noise = np.random.default_rng(self.random_seed).normal(size=x.shape) * (self.quantile_noise * np.nan_to_num(np.nanstd(x, axis=0)))
+        return QuantileTransformer(n_quantiles=min(self.quantiles, len(x)), output_distribution="normal", subsample=None).fit(x + noise)
 
     def check(self, x: np.ndarray, what: str) -> None:
         """Under RAISE, a NaN in `x` raises ValueError naming the remedy."""
@@ -134,11 +165,11 @@ class InputTransform:
             x = np.where(np.isnan(x), self.fill_, x)
         if self.scaling is InputScaling.STANDARD:
             mean, scale = standardiser_stats(x, axis=0, dtype=np.float64)
-            observed = np.where(np.isnan(x), 0.0, x)
-            binary = np.all((observed == 0.0) | (observed == 1.0), axis=0)
-            named = np.array([name in self.unscaled_columns for name in columns], dtype=bool)
-            left_alone = binary | named
+            left_alone = self._left_alone(x, columns)
             self.mean_, self.scale_ = np.where(left_alone, 0.0, mean), np.where(left_alone, 1.0, scale)
+        elif self.scaling is InputScaling.QUANTILE:
+            self.quantile_columns_ = np.flatnonzero(~self._left_alone(x, columns))
+            self.quantile_ = self._fit_quantiles(x[:, self.quantile_columns_]) if self.quantile_columns_.size else None
         return self
 
     def transform(self, x: np.ndarray, columns: Sequence[str] | None = None) -> np.ndarray:
@@ -157,6 +188,24 @@ class InputTransform:
             x = np.where(np.isnan(x), self.fill_[idx], x)
         if self.mean_ is not None:
             x = (x - self.mean_[idx]) / self.scale_[idx]
+        if self.quantile_ is not None:
+            x = self._apply_quantiles(x, np.arange(len(self.columns_))[idx])
+        return x
+
+    def _apply_quantiles(self, x: np.ndarray, positions: np.ndarray) -> np.ndarray:
+        """``x`` (its columns at fitted ``positions``) with every quantile-mapped column replaced by its normal score.
+
+        The fitted map takes all its columns at once; the columns ``x`` lacks enter as NaN, which it passes through, and are dropped again.
+        """
+        slot = {position: k for k, position in enumerate(self.quantile_columns_)}
+        mine = np.array([j for j, position in enumerate(positions) if position in slot], dtype=int)
+        if not mine.size:
+            return x
+        full = np.full((len(x), len(self.quantile_columns_)), np.nan)
+        slots = np.array([slot[positions[j]] for j in mine], dtype=int)
+        full[:, slots] = x[:, mine]
+        x = x.copy()
+        x[:, mine] = self.quantile_.transform(full)[:, slots]
         return x
 
 

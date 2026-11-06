@@ -76,6 +76,22 @@ route. HPO journal names do not change at default settings (the three settings a
 roles for boosting, which always had them). Caveat: ONE_HOT keeps every level, so an unregularised normal-equation fit with an intercept is
 singular (the one-hot columns of a column sum to 1): give `l2_lambda` > 0 there. Report: /home/ff235/cache/automl/build_reports/column_roles_every_model.md.
 
+Output bound for the plain network (2026-11-06, 6765520): `PyTorchNeuralNetwork` takes `output_bound=TRAINING_RANGE` (the LSTM's smooth tanh bound to
+the fit-space training targets, DECISIONS "Blow-up fix" (3) for neural models), for a regression mean only (classification and PROBABILISTIC refused).
+The bound is fixed once per fit by `PyTorchModelBase._set_output_bound`, shared with the LSTM. Test: extreme inputs stay inside the training range with
+target scaling off (its rounding clip in `predict` would hide the network's own bound); 3/3 mutations red.
+
+Quantile input scaling (2026-11-06; owner: "it has to be centralised transform, properly included with other transforms & controlled by config"):
+`input_scaling=QUANTILE`, a third option of the one input transform (`utils/data_handler.InputTransform`, after the missing-value rule, same
+left-alone columns as STANDARD), set per model like every other setting. Each scaled column goes to a standard normal through scikit-learn's
+`QuantileTransformer` (normal output, all training rows, no subsampling); a value beyond the training range maps to the extreme quantile. Settings
+`input_quantiles` (default 1000) and `input_quantile_noise` (default 1e-3 x each column's sd, added only while the quantiles are fitted, seeded by
+the model's seed). Why the noise: scikit-learn maps every value equal to a column's minimum to the lowest quantile (-5.2), so a column with 60% zeros
+at its minimum sends 60% of rows to -5.2; with the noise they land at -0.53 (Gorishniy et al., NeurIPS 2021, add N(0, 1e-3) for the same reason).
+Found on the NHS tabular inputs: 24 of 47 numeric columns have values beyond 10 sd after standardising (max 131). Classes that scale their own inputs
+refuse every scaling, not only STANDARD. Test: 5/5 mutations red; journal names of 7 default-configured classes identical (guard break: 7/7 change).
+Not centralised yet: the LSTM's own input standardisation and ae's log1p list on its sequence route.
+
 ## Not in this build
 Loss choice (Huber, quantile) beyond what exists, ordered target statistics and learned embeddings as categorical encodings, per-output weights for multi-output models,
 target transforms beyond ProbReg's symlog: the next build, after this one is used. ProbReg/ClassReg/baselines supporting target scaling.

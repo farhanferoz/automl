@@ -32,7 +32,15 @@ from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
 from automl_package.utils.capacity_selection import cheapest_within_tolerance
 from automl_package.utils.checkpoint import stable_hash
 from automl_package.utils.cv import TimeSeriesSplit
-from automl_package.utils.data_handler import InputTransform, TargetScaler, check_sample_weight, check_time_gap, create_train_val_split
+from automl_package.utils.data_handler import (
+    DEFAULT_INPUT_QUANTILE_NOISE,
+    DEFAULT_INPUT_QUANTILES,
+    InputTransform,
+    TargetScaler,
+    check_sample_weight,
+    check_time_gap,
+    create_train_val_split,
+)
 from automl_package.utils.feature_selection import select_features_by_cumulative_importance
 from automl_package.utils.metrics import Metrics, calculate_performance_score
 from automl_package.utils.numerics import find_optimal_iterations
@@ -43,6 +51,7 @@ HPO_IDENTITY_EXCLUDED = ("n_trials", "hpo_storage_dir", "output_dir")  # setting
 HPO_HASH_LENGTH = 16
 NESTED_PARAM_SEPARATOR = "__"  # ``a__b`` in a search space names key ``b`` of the dict parameter ``a``
 MIN_SWEEP_K = 2  # a one-class model predicts one constant, so a sweep over the number of classes starts at two
+MIN_INPUT_QUANTILES = 2  # InputScaling.QUANTILE needs at least the two ends of each column's range
 
 
 SPREAD_METHODS = ("predict_uncertainty",)  # public methods returning a spread in target units: wrapped to multiply by the target scale (see `__init_subclass__`)
@@ -192,6 +201,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         target_scaling: TargetScaling | str | None = None,
         input_scaling: InputScaling | str | None = None,
         missing_inputs: MissingInputs | str | None = None,
+        input_quantiles: int = DEFAULT_INPUT_QUANTILES,
+        input_quantile_noise: float = DEFAULT_INPUT_QUANTILE_NOISE,
         time_gap: int = 0,
         offset_feature: str | None = None,
         categorical_features: list[str] | None = None,
@@ -217,7 +228,11 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
 
         ``input_scaling`` (member, value or None): `InputScaling.STANDARD` standardises each numeric input column by the training part's mean
         and sd inside `fit` (binary 0/1, categorical and offset columns left alone); `predict` and the public methods taking x transform raw
-        inputs once. None takes the family default (`_default_input_scaling`: STANDARD for the PyTorch networks and the linear models).
+        inputs once. `InputScaling.QUANTILE` maps each such column to a standard normal through the training part's quantiles instead
+        (rank-based: skewed columns and outliers become well spread, a value beyond the training range is capped at the extreme quantile);
+        ``input_quantiles`` is the number of quantiles per column and ``input_quantile_noise`` the tie-breaking noise used only while they are
+        fitted (`utils/data_handler.py`, `DEFAULT_INPUT_QUANTILE_NOISE`). None takes the family default (`_default_input_scaling`: STANDARD for
+        the PyTorch networks and the linear models).
         ``missing_inputs`` (member, value or None): what a NaN input does: RAISE (default for networks and linear models), TRAINING_MEAN
         (filled with the training part's column mean), NATIVE (passed through; default for gradient-boosted trees and the LSTM).
         ``time_gap`` (default 0): distinct timestamps left out between each fitted part and the held-out part after it, in the TIME_ORDERED
@@ -270,6 +285,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         self._spread_call_depth = 0
         self._input_scaling = self._resolve_input_scaling(input_scaling)
         self._missing_inputs = self._default_missing_inputs if missing_inputs is None else MissingInputs(missing_inputs)
+        if input_quantiles < MIN_INPUT_QUANTILES or input_quantile_noise < 0:
+            raise ValueError(f"input_quantiles must be at least {MIN_INPUT_QUANTILES} and input_quantile_noise at least 0 (got {input_quantiles}, {input_quantile_noise}).")
+        self.input_quantiles, self.input_quantile_noise = int(input_quantiles), float(input_quantile_noise)
         self.input_transform_: InputTransform | None = None  # installed by `fit` when training is over (input_scaling / missing_inputs)
         self._input_call_depth = 0
         self.offset_feature = offset_feature
@@ -321,6 +339,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                 "target_scaling": self.target_scaling,
                 "input_scaling": self.input_scaling,
                 "missing_inputs": self.missing_inputs,
+                "input_quantiles": self.input_quantiles,
+                "input_quantile_noise": self.input_quantile_noise,
                 "offset_feature": self.offset_feature,
                 "categorical_features": self.categorical_features,
                 "categorical_encoding": self.categorical_encoding,
@@ -456,12 +476,12 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         """The input scaling this model runs with: the request, else the family default.
 
         Raises:
-            ValueError: STANDARD requested for a class that scales its inputs itself or bypasses `predict`.
+            ValueError: a scaling requested for a class that scales its inputs itself or bypasses `predict`.
         """
         requested = None if requested is None else InputScaling(requested)
         resolved = (self._default_input_scaling if self._supports_input_scaling else InputScaling.NONE) if requested is None else requested
-        if resolved is InputScaling.STANDARD and not self._supports_input_scaling:
-            raise ValueError(f"{type(self).__name__} scales its own inputs or predicts without `predict` under input_scaling=STANDARD: set input_scaling=NONE.")
+        if resolved is not InputScaling.NONE and not self._supports_input_scaling:
+            raise ValueError(f"{type(self).__name__} scales its own inputs or predicts without `predict` under input_scaling={resolved.name}: set input_scaling=NONE.")
         return resolved
 
     def _make_input_transform(self) -> InputTransform | None:
@@ -469,7 +489,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         if self.input_scaling is InputScaling.NONE and self.missing_inputs is MissingInputs.NATIVE:
             return None
         unscaled = [*(self.categorical_features or []), *([self.offset_feature] if self.offset_feature else [])]
-        return InputTransform(self.input_scaling, self.missing_inputs, unscaled_columns=unscaled)
+        return InputTransform(self.input_scaling, self.missing_inputs, unscaled_columns=unscaled, quantiles=self.input_quantiles,
+                              quantile_noise=self.input_quantile_noise, random_seed=getattr(self, "random_seed", None))
 
     def _inputs_to_fit_space(self, x: np.ndarray | pd.DataFrame) -> np.ndarray | pd.DataFrame:
         """Raw inputs to the space the model trained in (the one conversion; `predict` and the wrapped public methods call it).
@@ -1105,6 +1126,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             "input_scaling": self.input_scaling is InputScaling.NONE,
             "missing_inputs": self.missing_inputs is not MissingInputs.TRAINING_MEAN,  # RAISE and NATIVE never change a fit on data without NaN
             "time_gap": self.time_gap == 0,
+            "input_quantiles": self.input_scaling is not InputScaling.QUANTILE or self.input_quantiles == DEFAULT_INPUT_QUANTILES,  # read only by QUANTILE
+            "input_quantile_noise": self.input_scaling is not InputScaling.QUANTILE or self.input_quantile_noise == DEFAULT_INPUT_QUANTILE_NOISE,
             "offset_feature": self.offset_feature is None and not self._native_column_roles,  # the boosting wrappers always had both roles in their journal name
             "categorical_features": self.categorical_features is None and not self._native_column_roles,
             "categorical_encoding": self.categorical_encoding is self._default_categorical_encoding,
