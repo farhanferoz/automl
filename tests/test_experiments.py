@@ -121,7 +121,8 @@ def test_later_variant_slots_in_without_rerunning(tmp_path):
 
 
 def test_report_pairs_only_within_one_fingerprint():
-    """A variant record of one environment is never paired with the reference record of another, nor with one drawn from other data."""
+    """A variant record of one environment is never paired with the reference record of another, nor with one drawn from other data;
+    except a variant the study lists as environment-independent (a deterministic fit), whose record stands in, labelled."""
     def rows(variant: str, fp: str, nfe: float, data: str = "same draws") -> pd.DataFrame:
         return pd.DataFrame({"variant": variant, "toy": "toy_a", "n": 64, "seed": [0, 1], "fp": fp, "nfe": nfe, "data": data, "path": "p"})
 
@@ -140,6 +141,19 @@ def test_report_pairs_only_within_one_fingerprint():
     assert report.comparison_table(records, own, "ref", "aaaa")["noise_fp"].tolist() == ["aaaa"]  # its own wins over more records elsewhere
     with pytest.raises(ValueError, match="different data"):
         report.comparison_table(pd.concat([rows("ref", "aaaa", 1.0), rows("m", "aaaa", 0.5, data="other draws")]), noise, "ref", "aaaa")
+    # a deterministic variant listed as environment-independent stands in from another environment, labelled; its own record wins
+    elsewhere = pd.concat([rows("ref", "aaaa", 1.0), rows("m", "bbbb", 3.0), rows("u", "bbbb", 9.0)])
+    crossed = report.comparison_table(report.environment_view(elsewhere, "aaaa", ["m"]), noise, "ref", "aaaa")
+    assert crossed[["variant", "mean_pct", "stand_in_from", "pairs_dropped"]].values.tolist() == [["m", 200.0, "bbbb", 0]]  # "u" is not listed: never crosses
+    assert report.environment_view(records, "aaaa", ["m"]).query("variant == 'm'")["nfe"].tolist() == [0.5, 0.5]  # aaaa's own m record, not bbbb's
+    redrawn = pd.concat([rows("ref", "aaaa", 1.0), rows("m", "bbbb", 3.0, data="last bits differ")])
+    dropped = report.comparison_table(report.environment_view(redrawn, "aaaa", ["m"]), noise, "ref", "aaaa")
+    assert dropped["pairs_dropped"].tolist() == [2]  # draws differ across machines: left out, counted
+    assert dropped["n_seeds"].tolist() == [0]
+    study = tiny_study(Path("/x"), {"oracle": ORACLE, "nn": ModelConfig(name=ModelName.PYTORCH_NEURAL_NETWORK, tuned=True)})
+    study.report.environment_independent = ["nn"]
+    with pytest.raises(ValueError, match="untuned variant"):
+        plan(study)  # a searched model's result depends on the machine's libraries: it never stands in
     # several cards stack into one table only against one shared reference, and the table is named after every card
     card_t, card_u = (CellSpec(study="s", card=c, variant="v", model=PLAIN_NN, toy=TINY_TOY, n_train=64, protocol=TINY_PROTOCOL, results_dir="/x") for c in "tu")
     assert report.card_label([card_t, card_u, card_t]) == ("t+u", "Cards t+u")

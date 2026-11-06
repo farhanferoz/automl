@@ -13,4 +13,4 @@ defaults:
 name: probreg_5a3
 card: 5a3
 sizes: [250, 500, 1000, 2000, 4000, 8000, 16000]
-report: {kind: SIZE_SWEEP, eval_set: TEST, reference_variant: probreg}
+report: {kind: SIZE_SWEEP, eval_set: TEST, reference_variant: probreg, environment_independent: [linear]}

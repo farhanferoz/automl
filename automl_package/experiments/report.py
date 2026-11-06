@@ -10,7 +10,10 @@ for that toy and size means the cell is not shaded and is marked "n/a"; when the
 environment with the most 5a records there is used and the cell is labelled "(noise from X)", column ``noise_fp``). No variant is picked automatically. SIZE_SWEEP studies
 (card 5a) get the reference predictors against their expected values, the validation trajectories and the excess against n.
 
-A pair is only ever made inside one environment fingerprint: records of other fingerprints get their own report.
+A pair is only ever made inside one environment fingerprint: records of other fingerprints get their own report. The exception is a
+variant the study lists in ``report.environment_independent`` (a deterministic fit with no search): where an environment has no record
+of it for a cell, another environment's record stands in (`environment_view`); its pairs still need the reference's draws (hash), a
+pair whose draws differ across environments is dropped and counted, and the table and figures name the environment it came from.
 
 Reused: ``cell.all_record_paths`` / ``cell.load_record`` for the records and their layout, ``study.read_plan`` for the plan,
 ``Toy.dir_name`` for column names, the curve PNGs written by ``curves.write_curves`` (linked, not redrawn).
@@ -87,16 +90,44 @@ def seed_noise(cells: list[CellSpec], eval_set: EvalSet) -> pd.DataFrame:
     return pd.concat([(grouped.std(ddof=1) / grouped.mean()).rename("noise"), grouped.count().rename("n_records")], axis=1).reset_index()
 
 
-def comparison_table(records: pd.DataFrame, noise: pd.DataFrame, reference: str, fp: str) -> pd.DataFrame:
-    """Long table, one row per (variant, toy, n): mean/min/max paired relative change (%), seeds paired, noise, greyed."""
+def environment_view(records: pd.DataFrame, fp: str, environment_independent: list[str]) -> pd.DataFrame:
+    """The records environment ``fp`` is reported from: its own, plus stand-ins of the environment-independent variants.
+
+    For each variant in ``environment_independent``, another environment's record of every cell ``fp`` lacks (the lowest fingerprint id
+    when several have one). ``record_fp`` names where a row was written; ``fp`` is ``fp`` on every row, so the per-environment tables and
+    figures take the stand-ins as they are.
+    """
+    records = records.assign(record_fp=records["fp"])
     own = records[records["fp"] == fp]
-    ref = own[own["variant"] == reference][["toy", "n", "seed", "nfe", "data"]].rename(columns={"nfe": "nfe_ref", "data": "data_ref"})
+    others = records[(records["fp"] != fp) & records["variant"].isin(environment_independent)]
+    cell = ["variant", "toy", "n", "seed"]
+    stand_in = others[~others.set_index(cell).index.isin(own.set_index(cell).index)].sort_values("record_fp").drop_duplicates(cell)
+    return pd.concat([own, stand_in.assign(fp=fp)], ignore_index=True)
+
+
+def comparison_table(records: pd.DataFrame, noise: pd.DataFrame, reference: str, fp: str) -> pd.DataFrame:
+    """Long table, one row per (variant, toy, n): mean/min/max paired relative change (%), seeds paired, noise, greyed.
+
+    ``records`` may be an `environment_view`: a pair with a stand-in side whose draws differ from the other side's is dropped and counted
+    (``pairs_dropped``); ``stand_in_from`` names the environments of the stand-ins used. Within one environment different draws raise.
+    """
+    records = records if "record_fp" in records else records.assign(record_fp=records["fp"])
+    own = records[records["fp"] == fp]
+    ref_columns = {"nfe": "nfe_ref", "data": "data_ref", "record_fp": "record_fp_ref"}
+    ref = own[own["variant"] == reference][["toy", "n", "seed", *ref_columns]].rename(columns=ref_columns)
     paired = own[own["variant"] != reference].merge(ref, on=["toy", "n", "seed"])
-    mismatched = paired[paired["data"] != paired["data_ref"]]
-    if not mismatched.empty:  # the slot-in guarantee: a pair is the same four draws, checked by their hashes
-        raise ValueError(f"{len(mismatched)} pair(s) were drawn from different data than the reference, e.g. {mismatched['path'].iloc[0]}")
-    paired["change_pct"] = np.where(paired["nfe_ref"] > 0, 100.0 * (paired["nfe"] - paired["nfe_ref"]) / paired["nfe_ref"], np.nan)
-    table = paired.groupby(["variant", "toy", "n"])["change_pct"].agg(mean_pct="mean", min_pct="min", max_pct="max", n_seeds="count").reset_index()
+    crossing = (paired["record_fp"] != fp) | (paired["record_fp_ref"] != fp)
+    mismatched = paired["data"] != paired["data_ref"]
+    if (mismatched & ~crossing).any():  # the slot-in guarantee: a pair is the same four draws, checked by their hashes
+        within = paired[mismatched & ~crossing]
+        raise ValueError(f"{len(within)} pair(s) were drawn from different data than the reference, e.g. {within['path'].iloc[0]}")
+    paired["dropped"] = mismatched & crossing  # a stand-in drawn differently on another machine (the last bits of a generator)
+    paired["stand_in"] = np.where(crossing, np.where(paired["record_fp"] != fp, paired["record_fp"], paired["record_fp_ref"]), "")
+    kept = paired[~paired["dropped"]].copy()
+    kept["change_pct"] = np.where(kept["nfe_ref"] > 0, 100.0 * (kept["nfe"] - kept["nfe_ref"]) / kept["nfe_ref"], np.nan)
+    table = kept.groupby(["variant", "toy", "n"])["change_pct"].agg(mean_pct="mean", min_pct="min", max_pct="max", n_seeds="count").reset_index()
+    origin = paired.groupby(["variant", "toy", "n"]).agg(pairs_dropped=("dropped", "sum"), stand_in_from=("stand_in", lambda s: ",".join(sorted(set(s) - {""})))).reset_index()
+    table = origin.merge(table, on=["variant", "toy", "n"], how="left").fillna({"n_seeds": 0}).astype({"n_seeds": int})  # all pairs dropped: kept, 0 seeds
     table = table.merge(_noise_for(noise, fp), on=["toy", "n"], how="left")
     table["fp"] = fp
     table["noise_pct"] = 100.0 * pd.to_numeric(table["noise"])  # an empty noise frame is object-typed
@@ -122,7 +153,11 @@ def _markdown(frame: pd.DataFrame, index: bool = True) -> str:
 
 
 def _cell_text(row: pd.Series) -> str:
-    text = f"{row['mean_pct']:+.1f}% [{row['min_pct']:+.1f}, {row['max_pct']:+.1f}]"
+    text = f"{row['mean_pct']:+.1f}% [{row['min_pct']:+.1f}, {row['max_pct']:+.1f}]" if row.get("n_seeds", 1) else "no pair"
+    if row.get("stand_in_from"):
+        text += f" (record from {row['stand_in_from']})"
+    if row.get("pairs_dropped"):
+        text += f" ({int(row['pairs_dropped'])} dropped: draws differ)"
     if not row["noise_known"]:
         return f"{text} {NOT_AVAILABLE}"
     return text if row["noise_fp"] == row["fp"] else f"{text} (noise from {row['noise_fp']})"
@@ -169,7 +204,7 @@ def write_comparison(cells: list[CellSpec], eval_set: EvalSet, out_dir: Path) ->
     noise = seed_noise(cells, eval_set)
     written = []
     for fp in sorted(records.loc[records["variant"] == reference, "fp"].unique()):
-        table = comparison_table(records, noise, reference, fp)
+        table = comparison_table(environment_view(records, fp, cells[0].report.environment_independent), noise, reference, fp)
         stem = out_dir / f"comparison_{card_label(cells)[0]}_{eval_set.value}_{fp}"
         table.to_csv(stem.with_suffix(".csv"), index=False)
         ref_abs = records[(records["fp"] == fp) & (records["variant"] == reference)].groupby(["toy", "n"])["nfe"].mean().rename("reference noise-free excess (mean over seeds)")
@@ -178,7 +213,8 @@ def write_comparison(cells: list[CellSpec], eval_set: EvalSet, out_dir: Path) ->
             "Cell: mean over seeds of the paired change, as % of the reference's noise-free excess (negative = better), with [min, max] over seeds. "
             "Grey: the mean is smaller than the reference's seed-to-seed noise. n/a: no 5a record for that toy and size, so not shaded. "
             "(noise from X): no 5a record under this environment, so the margin is borrowed from environment X, the one with the most 5a records there. "
-            "No variant is picked automatically."
+            "(record from X): a deterministic variant's record written in environment X stands in (DECISIONS 2026-11-06); (k dropped: draws differ): "
+            "k such pairs had draws that differ across the machines and are left out. No variant is picked automatically."
         )
         stem.with_suffix(".md").write_text(f"# {title}\n\n{legend}\n\n{_markdown(_pivot(table))}\n\n{_markdown(ref_abs.to_frame())}\n")
         stem.with_suffix(".html").write_text(
@@ -236,7 +272,9 @@ def _plot_excess_against_n(records: pd.DataFrame, fp: str, out_dir: Path) -> lis
         fig, ax = plt.subplots(figsize=(5, 3.5))
         for variant, line in group.groupby("variant"):
             stats = line.groupby("n")["nfe"].agg(["mean", "min", "max"])
-            ax.errorbar(stats.index, stats["mean"], yerr=[stats["mean"] - stats["min"], stats["max"] - stats["mean"]], marker="o", capsize=2, label=variant)
+            origin = sorted(set(line.get("record_fp", line["fp"])) - {fp})
+            label = f"{variant} (record from {','.join(origin)})" if origin else variant
+            ax.errorbar(stats.index, stats["mean"], yerr=[stats["mean"] - stats["min"], stats["max"] - stats["mean"]], marker="o", capsize=2, label=label)
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlabel("n (training size)")
@@ -252,9 +290,12 @@ def _plot_excess_against_n(records: pd.DataFrame, fp: str, out_dir: Path) -> lis
 
 def write_size_sweep(cells: list[CellSpec], eval_set: EvalSet, out_dir: Path) -> list[Path]:
     """The 5a report: reference predictors against expectation, trajectories, excess against n; per fingerprint."""
-    records = load_records(cells, eval_set)
+    loaded = load_records(cells, eval_set)
+    portable = cells[0].report.environment_independent
+    owners = loaded.loc[~loaded["variant"].isin(portable), "fp"].unique()  # an environment holding only stand-ins gets no page of its own
     written = []
-    for fp in sorted(records["fp"].unique()):
+    for fp in sorted(owners if len(owners) else loaded["fp"].unique()):
+        records = environment_view(loaded, fp, portable)
         stem = out_dir / f"size_sweep_{card_label(cells)[0]}_{eval_set.value}_{fp}"
         refs = _reference_table(records, fp)
         refs.to_csv(stem.with_suffix(".csv"), index=False)

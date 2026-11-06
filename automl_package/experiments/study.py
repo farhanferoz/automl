@@ -50,6 +50,9 @@ def plan(study: StudyConfig) -> list[CellSpec]:
     reference = study.report.reference_variant
     if reference is not None and reference not in study.variants:
         raise ValueError(f"reference variant '{reference}' is not among the variants {sorted(study.variants)}")
+    for vid in study.report.environment_independent:
+        if vid not in study.variants or study.variants[vid].tuned:
+            raise ValueError(f"report.environment_independent names '{vid}': only an untuned variant of this study can stand in across environments.")
     for vid, model in study.variants.items():
         for source in (model.match_params_to, model.k_sweep.from_variant if model.k_sweep else None):
             if source is not None and source not in study.variants:

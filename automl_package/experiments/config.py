@@ -163,6 +163,10 @@ class ReportConfig:
     reference_variant: str | None = None
     noise_results_subdir: str | None = None  # record group (under runs/) of the 5a size-sweep records whose seed spread shades the table
     noise_variant: str | None = None  # the reference model's variant id in those records
+    # Variants whose fit is deterministic with no search (linear, reference predictors): where an environment has no record of theirs for a
+    # cell, the record of another environment stands in, labelled (DECISIONS 2026-11-06 "Cross-machine pairing only for deterministic fits").
+    # Never a trained or tuned model: a different machine moves a trained network as much as a new seed.
+    environment_independent: list[str] = field(default_factory=list)
 
 
 @dataclass
