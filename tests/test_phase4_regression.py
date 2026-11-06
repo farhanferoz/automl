@@ -649,6 +649,14 @@ class TestTargetScaling:
         assert model._held_out_fit_score(x[200:], y[200:]) == pytest.approx(np.mean((pred - y[200:]) ** 2) / model.target_scaler_.scale_[0] ** 2, rel=1e-4)
         assert model._held_out_fit_per_sample(x[200:], y[200:]).mean() == pytest.approx(model._held_out_fit_score(x[200:], y[200:]), rel=1e-6)  # the per-sample path (selection sweeps)
 
+    def test_normal_equation_fits_its_intercept_on_uncentred_inputs(self) -> None:
+        rng = np.random.default_rng(0)
+        flag = rng.integers(0, 2, 300).astype(np.float64)  # a binary input: no scaling centres it
+        y = 5.0 + 2.0 * flag + 0.1 * rng.normal(size=300)
+        model = NormalEquationLinearRegression(input_scaling="none", refit_on_train_val=False, calculate_feature_importance=False)
+        model.fit(flag[:200, None], y[:200], x_val=flag[200:, None], y_val=y[200:])
+        np.testing.assert_allclose(model.predict(np.array([[0.0], [1.0]])), [5.0, 7.0], atol=0.05)  # the intercept counted once
+
     def test_class_that_does_not_map_its_outputs_back_refuses(self) -> None:
         with pytest.raises(ValueError, match="target_scaling=NONE"):
             ProbabilisticRegressionModel(input_size=2, target_scaling="per_output")

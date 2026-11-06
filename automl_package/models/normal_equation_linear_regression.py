@@ -71,13 +71,13 @@ class NormalEquationLinearRegression(BaseModel):
                 - The number of iterations the model was trained for.
                 - A list of the validation loss values for each epoch.
         """
-        identity_matrix = np.identity(x_train.shape[1])
-        a = x_train.T @ x_train + self.l2_lambda * identity_matrix
-        b = x_train.T @ y_train
-
-        self.weights = np.linalg.solve(a, b)
-
-        self.bias = np.mean(y_train)
+        # Ridge with an unpenalised intercept: slopes from the centred inputs and targets, intercept from the means. Fitting the slopes on
+        # uncentred inputs and then adding mean(y) counted the intercept twice whenever an input's mean was not 0 (binary, [0, 1] inputs).
+        x_mean, y_mean = x_train.mean(axis=0), y_train.mean(axis=0)
+        x_centred = x_train - x_mean
+        a = x_centred.T @ x_centred + self.l2_lambda * np.identity(x_train.shape[1])
+        self.weights = np.linalg.solve(a, x_centred.T @ (y_train - y_mean))
+        self.bias = y_mean - x_mean @ self.weights
 
         y_pred_train = self.predict(x_train, filter_data=False)
         self._train_residual_std = np.std(y_train - y_pred_train)
