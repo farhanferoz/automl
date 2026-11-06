@@ -26,6 +26,7 @@ import torch.nn as nn
 
 from automl_package.enums import TaskType, UncertaintyMethod
 from automl_package.models.base_pytorch import PyTorchModelBase
+from automl_package.utils.pytorch_utils import make_optimizer
 
 
 class _FTTransformerNet(nn.Module):
@@ -107,9 +108,7 @@ class FTTransformerModel(PyTorchModelBase):
         self.model.to(self.device)
 
     def _setup_optimizers(self, model: nn.Module) -> None:
-        self.optimizer = torch.optim.AdamW(
-            model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay,
-        )
+        self.optimizer = make_optimizer(torch.optim.AdamW, model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
 
     def _fit_single(
         self,

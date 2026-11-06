@@ -20,7 +20,7 @@ from automl_package.models.common.training import TrainingSchedule
 from automl_package.optimizers import get_optimizer_wrapper
 from automl_package.utils.convergence import ConvergenceResult, ConvergenceTracker, snapshot_state
 from automl_package.utils.numerics import ensure_proba_shape
-from automl_package.utils.pytorch_utils import calculate_regularization_loss, get_device
+from automl_package.utils.pytorch_utils import calculate_regularization_loss, get_device, shuffled_batches
 
 
 class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
@@ -360,7 +360,6 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         weight_train = None if sample_weight is None else torch.tensor(np.asarray(sample_weight, dtype=np.float32)).to(self.device)
         drop_last = len(x_train_tensor) % self.batch_size == 1
         train_tensors = (x_train_tensor, y_train_tensor) if weight_train is None else (x_train_tensor, y_train_tensor, weight_train)
-        train_dataloader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(*train_tensors), batch_size=self.batch_size, shuffle=True, drop_last=drop_last)
 
         x_val_tensor, y_val_tensor = None, None
         if x_val is not None and y_val is not None:
@@ -381,7 +380,8 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         for epoch in range(int(n_epochs)):
             final_epoch = epoch
             self.model.train()
-            for batch in train_dataloader:
+            for rows in shuffled_batches(len(x_train_tensor), self.batch_size, drop_last=drop_last, device=x_train_tensor.device):
+                batch = [tensor[rows] for tensor in train_tensors]
                 batch_x, batch_y = batch[0], batch[1]
                 if self.lambda_optimizer:
                     self.lambda_optimizer.zero_grad()

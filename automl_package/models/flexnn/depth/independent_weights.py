@@ -26,7 +26,7 @@ from automl_package.models.flexnn.strategies.independent_weights import (
 )
 from automl_package.utils.convergence import DEFAULT_PATIENCE, ConvergenceTracker, snapshot_state
 from automl_package.utils.losses import nll_loss
-from automl_package.utils.pytorch_utils import get_activation_function_map, get_device
+from automl_package.utils.pytorch_utils import get_activation_function_map, get_device, make_optimizer, shuffled_batches
 
 
 class IndependentWeightsFlexibleNN(PyTorchModelBase):
@@ -266,8 +266,6 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         if (self.task_type == TaskType.REGRESSION) or (self.task_type == TaskType.CLASSIFICATION and self.output_size == 1):
             y_train_tensor = y_train_tensor.unsqueeze(1)
 
-        train_dataset = torch.utils.data.TensorDataset(x_train_tensor, y_train_tensor)
-        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
 
         x_val_tensor, y_val_tensor = None, None
         if x_val is not None:
@@ -290,7 +288,8 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
             final_epoch = epoch
             self.model.train()
             epoch_log_probs = []
-            for _batch_x, batch_y in train_dataloader:
+            for rows in shuffled_batches(len(x_train_tensor), self.batch_size, device=x_train_tensor.device):
+                _batch_x, batch_y = x_train_tensor[rows], y_train_tensor[rows]
                 self.optimizer.zero_grad()
                 if self.strategy.policy_optimizer:
                     self.strategy.policy_optimizer.zero_grad()
@@ -574,7 +573,7 @@ class IndependentWeightsFlexibleNN(PyTorchModelBase):
         if not uses_policy_optimizer and model.n_predictor is not None:
             main_params.extend(list(model.n_predictor.parameters()))
 
-        self.optimizer = torch.optim.Adam(main_params, lr=self.learning_rate)
+        self.optimizer = make_optimizer(torch.optim.Adam, main_params, lr=self.learning_rate)
 
         if uses_policy_optimizer and model.n_predictor is not None:
             policy_params = model.n_predictor.parameters()

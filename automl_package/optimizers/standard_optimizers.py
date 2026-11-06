@@ -7,6 +7,8 @@ import torch.nn as nn
 import torch.optim as optim
 from hessianfree.optimizer import HessianFree
 
+from automl_package.utils.pytorch_utils import make_optimizer
+
 from .base import OptimizerWrapper
 
 
@@ -15,7 +17,7 @@ class AdamWrapper(OptimizerWrapper):
 
     def create_optimizer(self, model_params: list, lr: float) -> torch.optim.Optimizer:
         """Creates an Adam optimizer instance."""
-        return optim.Adam(model_params, lr=lr)
+        return make_optimizer(optim.Adam, model_params, lr=lr)
 
     def step(
         self,

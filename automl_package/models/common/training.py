@@ -7,11 +7,11 @@ from typing import Any
 import torch
 import torch.nn as nn
 from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau
-from torch.utils.data import DataLoader, TensorDataset
 
 from automl_package.enums import LRSchedule
 from automl_package.logger import logger
 from automl_package.utils.convergence import ConvergenceTracker, snapshot_state
+from automl_package.utils.pytorch_utils import shuffled_batches
 
 
 class TrainingSchedule:
@@ -113,8 +113,7 @@ def train_model(
     y_binned_train: torch.Tensor | None = None,
 ) -> tuple[int, float | None]:
     """Trains a PyTorch model."""
-    dataset = TensorDataset(probas_train, y_train, y_binned_train) if y_binned_train is not None else TensorDataset(probas_train, y_train)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    train_tensors = (probas_train, y_train, y_binned_train) if y_binned_train is not None else (probas_train, y_train)
 
     best_model_state = None
     best_epoch = epochs
@@ -131,7 +130,8 @@ def train_model(
     for epoch in range(epochs):
         final_epoch = epoch
         model.train()
-        for batch in loader:
+        for rows in shuffled_batches(len(probas_train), batch_size, device=probas_train.device):
+            batch = [tensor[rows] for tensor in train_tensors]
             if y_binned_train is not None:
                 probas_batch_cpu, y_batch_cpu, y_binned_batch_cpu = batch
                 y_binned_batch = y_binned_batch_cpu.to(device)

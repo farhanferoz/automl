@@ -9,6 +9,7 @@ import torch.nn.functional as f
 from automl_package.models.flexnn.strategies.base import (
     BaseSelectionStrategy,
 )
+from automl_package.utils.pytorch_utils import make_optimizer
 
 # Skip-forward threshold: a mode contributes zero to the batch if no sample's weight on it
 # exceeds this floor (saves a forward pass for modes nobody selected this batch).
@@ -328,7 +329,7 @@ class ReinforceStrategy(_RetiredDepthSelectionStrategy):
 
     def setup_optimizers(self, policy_params: Any) -> None:
         """Setup separate optimizer for the policy (n_predictor)."""
-        self.policy_optimizer = torch.optim.Adam(policy_params, lr=self.model.n_predictor_learning_rate)
+        self.policy_optimizer = make_optimizer(torch.optim.Adam, policy_params, lr=self.model.n_predictor_learning_rate)
 
     def forward(self, x_input: torch.Tensor, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Performs forward pass using REINFORCE for layer selection.

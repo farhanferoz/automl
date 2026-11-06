@@ -92,6 +92,31 @@ Found on the NHS tabular inputs: 24 of 47 numeric columns have values beyond 10 
 refuse every scaling, not only STANDARD. Test: 5/5 mutations red; journal names of 7 default-configured classes identical (guard break: 7/7 change).
 Not centralised yet: the LSTM's own input standardisation and ae's log1p list on its sequence route.
 
+## Training speed (2026-11-06, standard for every network)
+Owner: "use proper optimisation, vectorisation" and "ensure all these optimisation are not throwaway". Found by profiling a real ProbReg study cell
+(toy_a, 2,000 rows, one thread, fast core): about 2.8 ms per training step, nearly all per-step overhead, not arithmetic (Adam's per-parameter
+loop 0.71 ms, forward 0.66, backward 0.64, L1/L2 penalty walking every parameter 0.38, DataLoader per-row fetch and collate 0.15). Built into the
+shared code, so every model and every future run gets it:
+- Batches: `utils/pytorch_utils.shuffled_batches` indexes the training tensors directly; it draws from the global generator exactly as
+  `DataLoader(shuffle=True)` does, so batches, later random draws and results are bit-identical. Used by `PyTorchModelBase._fit_single`,
+  `models/common/training.train_model` and both FlexNN depth loops. A new training loop uses it, never a `DataLoader` over in-memory tensors.
+- Optimisers: `utils/pytorch_utils.make_optimizer` builds every optimiser with `foreach=True` (bit-identical to the per-parameter loop for Adam
+  and AdamW, torch 2.10 and 2.15; `fused=True` is faster but changes results, so not used). Every optimiser in the package goes through it.
+- Penalties: `utils/numerics.aggregate_stats` concatenates the penalised parameters once (gradients sign(w), 2w are order-free, so identical);
+  `calculate_regularization_loss` skips the walk when both penalty weights are 0 and not learned.
+- Runner: `experiments/study.run_cells` starts the longest cells first (training rows, then the reference variant's measured seconds), so no
+  long cell starts last and holds a job open alone.
+Proof: replays of stored study records in the study's environment (4a65fc26) are identical: default ProbReg toy_a n=250 (721 numbers), the k
+sweep on OU n=250 (481), a shortened toy_a n=2,000 cell old vs new code (89); tests `tests/test_training_speed_equivalence.py` (batches and
+generator state equal the DataLoader's; penalty value and gradients equal the per-parameter sums), 6 mutations red. Measured: the shortened cell
+10.3 s -> 8.1 s on twin fast cores (training about 1.4x); the full default cell 449 s stored (core unknown) -> 125 s on a fast core.
+Core type matters more than code: a slow (Cortex-A725) core runs these fits 4-6x slower than a fast (Cortex-X925) one
+(`docs/package/torch_cpu_slowdown_2026-11-03.md`); slurm hands out the lowest free cores, which are the slow ones.
+GPU: not used for small-network fits: one toy fit took 11.0 s on the GPU vs 13.9 s on one CPU thread (`docs/probreg/PLAN.md` "Speed"), about
+7.6 s on a fast core; per-step launch overhead dominates. Batching many fits on the GPU needs fits that share one shape and settings (fixed-setting
+sweeps, refits), not per-cell searches (`docs/package/batched_gpu_training_note.md`). Next, changes results in the last bits so it needs its own
+equivalence check and a reference rerun: ProbReg's k separate heads as one batched computation (their forward alone is about a fifth of a step, plus their share of the backward).
+
 ## Not in this build
 Loss choice (Huber, quantile) beyond what exists, ordered target statistics and learned embeddings as categorical encodings, per-output weights for multi-output models,
 target transforms beyond ProbReg's symlog: the next build, after this one is used. ProbReg/ClassReg/baselines supporting target scaling.
