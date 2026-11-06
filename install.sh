@@ -51,11 +51,16 @@ esac
 cd "$(dirname "$0")"
 # GPU-native builds (scripts/gpu_builds.toml): on a machine with an NVIDIA GPU, write the machine's uv configuration so this
 # sync (and every later one, the weekly upgrade's included) builds the listed libraries for this GPU at the locked version.
-python3 scripts/gpu_builds.py configure
-REBUILD="$(python3 scripts/gpu_builds.py stale --venv .venv)"  # uv keeps an installed version, so name the ones still lacking GPU code
+REBUILD=""
+if [ "$BACKEND" = cuda ]; then
+    python3 scripts/gpu_builds.py configure
+    REBUILD="$(python3 scripts/gpu_builds.py stale --venv .venv)"  # uv keeps an installed version, so name the ones still lacking GPU code
+fi
 echo "Installing with the $EXTRA PyTorch build..."
 uv sync --locked --extra "$EXTRA" --extra experiments $DEV $REBUILD
-python3 scripts/gpu_builds.py check --venv .venv
+if [ "$BACKEND" = cuda ]; then
+    python3 scripts/gpu_builds.py check --venv .venv
+fi
 
 # --- Verify ---
 echo ""

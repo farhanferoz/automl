@@ -96,9 +96,8 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
 
     def fit_device(self, n_rows: int) -> ComputeDevice:
         """Where a fit on `n_rows` rows trains (see `compute_device`); logged whenever the choice changes."""
-        available = resolve_compute_device(self.compute_device)
         large_enough = self.compute_device is ComputeDevice.GPU or n_rows >= self.gpu_min_rows
-        device = ComputeDevice.GPU if available is ComputeDevice.GPU and large_enough else ComputeDevice.CPU
+        device = ComputeDevice.GPU if large_enough and resolve_compute_device(self.compute_device) is ComputeDevice.GPU else ComputeDevice.CPU
         if device is not self._last_fit_device:
             logger.info(f"LightGBMModel trains on the {device.value.upper()} (asked {self.compute_device.value}, {n_rows:,} rows, "
                         f"GPU from {self.gpu_min_rows:,} rows under auto)")
