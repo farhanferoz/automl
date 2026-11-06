@@ -10,7 +10,19 @@ from automl_package.enums import MapperType, ModelName, OptimizerType
 from automl_package.examples._toy_datasets import StudyToy
 from automl_package.experiments import patience, report
 from automl_package.experiments.cell import cell_status, fingerprint_id, load_record, record_path
-from automl_package.experiments.config import DEFAULT_RESULTS_ROOT, CellSpec, HpoConfig, ModelConfig, PredictorKind, ProtocolConfig, StudyConfig, ToyConfig, from_dict, to_dict
+from automl_package.experiments.config import (
+    DEFAULT_RESULTS_ROOT,
+    CellSpec,
+    EvalSet,
+    HpoConfig,
+    ModelConfig,
+    PredictorKind,
+    ProtocolConfig,
+    StudyConfig,
+    ToyConfig,
+    from_dict,
+    to_dict,
+)
 from automl_package.experiments.registry import build_model
 from automl_package.experiments.study import plan, run_cells
 
@@ -100,6 +112,8 @@ def test_later_variant_slots_in_without_rerunning(tmp_path):
     cells = {c.variant: c for c in plan(second)}
     fp = fingerprint_id()
     assert all(cell_status(c, fp).value == "done" for c in cells.values())
+    records = report.load_records(plan(first) + plan(second), EvalSet.SELECTION)  # two plans sharing records: each read once
+    assert len(records) == len(second.variants)
     hashes = {v: load_record(record_path(c, fp))["data_hashes"] for v, c in cells.items()}
     assert hashes["offset"] == hashes["oracle"] == hashes["plain_nn"]
 

@@ -42,9 +42,12 @@ GREY_STYLE = "background:#ddd;color:#666"
 
 def load_records(cells: list[CellSpec], eval_set: EvalSet) -> pd.DataFrame:
     """One row per record found for the plan's cells, any fingerprint; ``record`` holds the full JSON."""
-    rows = []
+    rows, seen = [], set()
     for cell in cells:
         for path in all_record_paths(cell):
+            if path in seen:  # a record in several cards' plans (the shared reference) counts once
+                continue
+            seen.add(path)
             rec = load_record(path)
             metrics = rec["metrics"][eval_set.value]
             rows.append(
