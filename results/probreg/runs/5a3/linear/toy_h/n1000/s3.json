@@ -1,0 +1,146 @@
+{
+ "key": {
+  "study": "probreg_5a3",
+  "card": "5a3",
+  "variant": "linear",
+  "toy": "toy_h",
+  "n_train": 1000,
+  "seed": 3
+ },
+ "config": {
+  "study": "probreg_5a3",
+  "card": "5a3",
+  "variant": "linear",
+  "model": {
+   "kind": "AUTOML",
+   "name": "NORMAL_EQUATION_LINEAR_REGRESSION",
+   "params": {
+    "early_stopping_rounds": null
+   },
+   "tuned": false,
+   "search_space": {},
+   "search_space_exclude": [],
+   "standardise_x": false,
+   "standardise_y": false,
+   "match_params_to": null,
+   "k_sweep": null,
+   "offset_sd_fraction": 0.1,
+   "scale_factor": 0.9
+  },
+  "toy_label": "toy_h",
+  "toy": {
+   "name": "TOY_H",
+   "params": {},
+   "n_val": null,
+   "n_selection": 10000,
+   "n_test": 10000
+  },
+  "n_train": 1000,
+  "seed": 3,
+  "protocol": {
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+   ],
+   "early_stopping_patience": 200,
+   "max_epochs": 5000,
+   "batch_size": 32,
+   "refit_on_train_val": false,
+   "calculate_feature_importance": false,
+   "torch_threads": 1,
+   "device": "cpu"
+  },
+  "hpo": {
+   "n_trials": 20,
+   "sampler": "TPE",
+   "seed": null
+  },
+  "curves": false,
+  "results_dir": null,
+  "report": {
+   "kind": "SIZE_SWEEP",
+   "eval_set": "TEST",
+   "reference_variant": "probreg",
+   "noise_results_subdir": null,
+   "noise_variant": null,
+   "environment_independent": [
+    "linear"
+   ]
+  }
+ },
+ "config_hash": "8310bf42c98358d87ff04c7a98987972f2e1d80cb781057b137e886c7b705d0f",
+ "fingerprint": {
+  "machine": "aarch64",
+  "torch": "2.10.0+cu130",
+  "numpy": "2.5.4",
+  "optuna": "5.0.0",
+  "lightgbm": "4.7.0",
+  "scikit-learn": "1.9.1"
+ },
+ "fingerprint_id": "4a65fc26",
+ "source_hash": "f27cf0a09a4ec85e70a642fa8fde73140e11908564e6d3baaeaf5c7d79952edf",
+ "git": {
+  "commit": "88524e963c728f39261ebd3c0aca79aa92d0022b",
+  "dirty": true
+ },
+ "data_hashes": {
+  "train": "b79cc8981ed9881cd0782ff72ea3f29379d63367cf0c61888d21b3a19f4a453d",
+  "validation": "c7947ee0c829af10a54dd6e9f5da84253aee62fa77a7715d2853509007938e99",
+  "selection": "0dd9d9e2e659ca014f7f3f046443cb59096276cb7e9c403872d371bce29ad866",
+  "test": "babdf7db8c65bdfe0061293c65ca249b41e8f2d9dedbe42c1c12232a0dbe9372"
+ },
+ "metrics": {
+  "selection": {
+   "mse": 0.7555339636295582,
+   "mae": 0.6975567102063699,
+   "noise_free_excess": 0.42073856279476823,
+   "excess": 0.4305339636295581,
+   "excess_se": 0.011462211688064968,
+   "noise_free_excess_se": 0.0039685452924928455,
+   "regions": {
+    "x_lt_0": {
+     "mse": 0.42588582106877726,
+     "mae": 0.5609614194315975,
+     "noise_free_excess": 0.41538132675200967
+    },
+    "x_ge_0": {
+     "mse": 1.0820326016435804,
+     "mae": 0.8328469504323389,
+     "noise_free_excess": 0.4260446150536789
+    }
+   }
+  },
+  "test": {
+   "mse": 0.7474213006383233,
+   "mae": 0.6961045426665703,
+   "noise_free_excess": 0.42682210506901763,
+   "excess": 0.4224213006383233,
+   "excess_se": 0.011097137631249317,
+   "noise_free_excess_se": 0.003961336572682483,
+   "regions": {
+    "x_lt_0": {
+     "mse": 0.43211628435480576,
+     "mae": 0.5658130493038387,
+     "noise_free_excess": 0.42005864736832366
+    },
+    "x_ge_0": {
+     "mse": 1.0639900644820957,
+     "mae": 0.8269182464235415,
+     "noise_free_excess": 0.43361267081660837
+    }
+   }
+  }
+ },
+ "tuned_hyperparameters": {},
+ "n_parameters": 2,
+ "convergence": null,
+ "wall_seconds": 0.022038797003915533
+}
