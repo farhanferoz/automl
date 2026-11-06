@@ -967,3 +967,121 @@ class TestSampleWeights:
         x, y, w = self._data()
         with pytest.raises(ValueError, match=remedy):
             build().fit(x, y, **({"sample_weight": w} | weights))
+
+
+class TestColumnRolesEveryModel:
+    """`offset_feature` / `categorical_features` for the models that do not split natively: `fit` works on the inner problem (offset dropped and
+    subtracted from y, categorical columns one-hot), the public methods take the raw columns and `predict` adds the offset back."""
+
+    FEATURES = ("f0", "f1")  # the inner problem of the offset-only model
+    N_ROWS, N_FIT = 300, 200
+
+    @classmethod
+    def _frame(cls) -> tuple[pd.DataFrame, np.ndarray]:
+        """f0, f1, a category code (3 levels, one NaN) and a starting score; y = offset + f(x) + category effect."""
+        rng = np.random.default_rng(0)
+        frame = pd.DataFrame(
+            {"f0": rng.normal(size=cls.N_ROWS), "f1": rng.normal(size=cls.N_ROWS), "cat": rng.integers(0, 3, cls.N_ROWS).astype(float), "off": 3.0 * rng.normal(size=cls.N_ROWS)}
+        )
+        frame.loc[0, "cat"] = np.nan
+        return frame, (frame["off"] + 2.0 * frame["f0"] - frame["f1"] + frame["cat"].fillna(0.0) + 0.1 * rng.normal(size=cls.N_ROWS)).to_numpy()
+
+    @staticmethod
+    def _build(kind: str, **kwargs):
+        if kind == "linear":
+            return NormalEquationLinearRegression(validation_fraction=0.0, test_fraction=0.0, calculate_feature_importance=False, **kwargs)
+        return PyTorchNeuralNetwork(
+            input_size=2, hidden_layers=1, hidden_size=8, learning_rate=0.02, n_epochs=8, early_stopping_rounds=8, refit_on_train_val=False,
+            random_seed=0, calculate_feature_importance=False, **kwargs,
+        )
+
+    @pytest.mark.parametrize("kind", ["linear", "network"])
+    def test_offset_model_equals_the_residual_model_plus_the_offset(self, kind: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AUTOML_DEVICE", "cpu")
+        frame, y = self._frame()
+        fit, held = slice(0, self.N_FIT), slice(self.N_FIT, self.N_ROWS)
+        offset_model, residual_model = self._build(kind, offset_feature="off"), self._build(kind)
+        seen: list[tuple] = []  # what a training path sees of the installed state: nothing is installed until training is over
+        original = offset_model._fit_single
+        offset_model._fit_single = lambda *a, **kw: (seen.append((offset_model.column_roles_, offset_model.input_feature_names_)), original(*a, **kw))[1]
+        raw = frame[[*self.FEATURES, "off"]]
+        offset_model.fit(raw.iloc[fit], y[fit], x_val=raw.iloc[held], y_val=y[held])
+        off = frame["off"].to_numpy()
+        residual_model.fit(frame[list(self.FEATURES)].iloc[fit], y[fit] - off[fit], x_val=frame[list(self.FEATURES)].iloc[held], y_val=y[held] - off[held])
+        assert seen
+        assert all(state == (None, None) for state in seen)
+        assert offset_model.column_roles_ is not None
+        assert offset_model.input_feature_names_ == [*self.FEATURES, "off"]
+
+        expected = residual_model.predict(frame[list(self.FEATURES)].iloc[held]) + off[held]
+        np.testing.assert_allclose(offset_model.predict(raw.iloc[held]), expected, rtol=1e-12 if kind == "linear" else 1e-6, atol=0.0 if kind == "linear" else 1e-6)
+        np.testing.assert_allclose(offset_model.predict(raw.iloc[held].to_numpy()), expected, rtol=1e-6, atol=1e-6)  # a numpy X is read in the raw column order
+        # the held-out score of a fitted model, called with raw inputs and raw targets, is the residual model's score on the inner problem
+        score = offset_model._held_out_fit_score(raw.iloc[held], y[held])
+        assert score == pytest.approx(residual_model._held_out_fit_score(frame[list(self.FEATURES)].iloc[held], y[held] - off[held]), rel=1e-9)
+        assert offset_model.target_scaling is residual_model.target_scaling
+        if offset_model.target_scaler_ is not None:  # PER_OUTPUT standardises the residual
+            np.testing.assert_allclose(offset_model.target_scaler_.mean_, [np.mean(y[fit] - off[fit])], rtol=1e-6)
+            np.testing.assert_allclose(offset_model.target_scaler_.scale_, residual_model.target_scaler_.scale_)
+        with pytest.raises(NotImplementedError, match="offset_feature"):
+            offset_model.predict_proba(raw.iloc[held])
+
+    def test_one_hot_levels_come_from_the_training_rows_and_unseen_or_missing_is_all_zeros(self) -> None:
+        frame, y = self._frame()
+        train = frame.iloc[: self.N_FIT].copy()
+        train["cat"] = train["cat"].where(train["cat"] != 2.0, 1.0)  # the fit rows hold levels {0, 1} (+ one NaN)
+        model = self._build("linear", categorical_features=["cat"], l2_lambda=1e-6, out_of_range_action="flag")
+        model.fit(train[["f0", "cat", "f1"]], y[: self.N_FIT])
+        roles = model.column_roles_
+        assert roles.inner_names_ == ["f0", "cat=0", "cat=1", "f1"]  # replaced in place, sorted levels, NaN is no level
+        probe = pd.DataFrame({"f0": [0.0, 0.0, 0.0], "cat": [1.0, np.nan, 7.0], "f1": [0.0, 0.0, 0.0]})
+        inner, offset = roles.transform(probe)
+        assert offset is None
+        np.testing.assert_array_equal(inner[["cat=0", "cat=1"]].to_numpy(), [[0.0, 1.0], [0.0, 0.0], [0.0, 0.0]])  # NaN and the unseen code 7: all zeros
+        model.predict(probe)
+        assert model.training_envelope_.feature_names == ["f0", "cat", "f1"]  # the envelope is on the raw columns
+        assert model.training_envelope_.categorical_columns == ["cat"]
+        assert model.last_prediction_report_.n_rows_unseen_category == 1
+
+    def test_clones_made_inside_fit_work_on_the_inner_problem_and_boosting_clones_keep_the_roles(self) -> None:
+        generic = self._build("linear", offset_feature="off", categorical_features=["cat"])
+        clone = generic._clone_for_trial()
+        assert (clone.offset_feature, clone.categorical_features) == (None, None)
+        assert (generic.offset_feature, generic.categorical_features) == ("off", ["cat"])
+        native = LightGBMModel(offset_feature="off", categorical_features=["cat"])._clone_for_trial()
+        assert (native.offset_feature, native.categorical_features) == ("off", ["cat"])
+
+    @pytest.mark.parametrize(
+        ("build", "data", "match"),
+        [
+            (lambda: PyTorchLSTMForecaster(layout=SequenceLayout(2, 2, 1), output_size=1, offset_feature="off"), None, "cannot take a per-row starting score"),
+            (lambda: ProbabilisticRegressionModel(input_size=2, offset_feature="off"), None, "cannot take a per-row starting score"),
+            (lambda: PyTorchLSTMForecaster(layout=SequenceLayout(2, 2, 1), output_size=1, categorical_features=["cat"]), None, "own input layout"),
+            (lambda: NormalEquationLinearRegression(categorical_encoding="native"), None, "use categorical_encoding=ONE_HOT"),
+            (lambda: LightGBMModel(categorical_encoding="one_hot"), None, "boosting takes NATIVE"),
+            (lambda: PyTorchNeuralNetwork(input_size=2, task_type=TaskType.CLASSIFICATION, offset_feature="off"), None, "task_type=REGRESSION"),
+            (lambda: NormalEquationLinearRegression(offset_feature="cat", categorical_features=["cat"]), None, "also listed in categorical_features"),
+            (lambda: NormalEquationLinearRegression(offset_feature="off", loss_function="poisson", calculate_feature_importance=False), "frame", "Poisson"),
+            (lambda: NormalEquationLinearRegression(offset_feature="off"), "frame", "calculate_feature_importance"),
+            (
+                lambda: NormalEquationLinearRegression(offset_feature="off", calculate_feature_importance=False, feature_selection_threshold=1.0),
+                "frame",
+                "feature_selection_threshold",
+            ),
+            (lambda: NormalEquationLinearRegression(offset_feature="off", calculate_feature_importance=False), "array", "give a DataFrame"),
+        ],
+        ids=[
+            "lstm-offset", "probreg-offset", "lstm-categorical", "native-on-linear", "one-hot-on-boosting", "offset-classification", "offset-also-categorical", "offset-poisson",
+            "importance", "feature-selection", "numpy-x",
+        ],
+    )
+    def test_column_role_refusals_name_the_remedy(self, build, data: str | None, match: str) -> None:
+        frame, y = self._frame()
+
+        def construct_and_fit() -> None:  # a setting alone is refused at construction, the rest at the start of `fit`
+            model = build()
+            if data is not None:
+                model.fit(frame if data == "frame" else frame.to_numpy(), y)
+
+        with pytest.raises(ValueError, match=match):
+            construct_and_fit()

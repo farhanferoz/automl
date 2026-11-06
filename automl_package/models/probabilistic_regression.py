@@ -91,6 +91,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
     _supports_target_scaling: ClassVar[bool] = False  # target_scaling=PER_OUTPUT refused: distribution output, symlog, capacity selection, _predict_for_scoring bypass
     _supports_input_scaling: ClassVar[bool] = False  # input_scaling=STANDARD refused: _predict_for_scoring bypasses predict, so raw inputs could reach the network
+    _supports_offset: ClassVar[bool] = False  # offset_feature refused: the class-probability supervision is on the bins of y, not of y minus a starting score
 
     _scores_by_fit_term: ClassVar[bool] = True
     _supports_training_schedule: ClassVar[bool] = True  # the generic `PyTorchModelBase._fit_single` applies the `TrainingSchedule` (each TWO_STAGE stage its own)

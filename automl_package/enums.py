@@ -346,6 +346,13 @@ class CategoricalCast(Enum):
     PANDAS_CATEGORICAL = "pandas_categorical"  # XGBoost: pandas Categorical with the category levels fixed at fit
 
 
+class CategoricalEncoding(Enum):
+    """How a model reads its ``categorical_features`` columns (integer category codes, NaN = missing; `BaseModel.categorical_encoding`)."""
+
+    NATIVE = "native"  # the boosting library splits on the codes itself (LightGBM, XGBoost, CatBoost)
+    ONE_HOT = "one_hot"  # one 0/1 column per category level seen in the training rows; a missing or unseen value is all zeros
+
+
 class OutOfRangeAction(Enum):
     """What a model does with predictions outside the range of its training targets (see ``utils/prediction_envelope.py``)."""
 

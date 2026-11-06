@@ -146,6 +146,8 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
     _scores_by_fit_term: ClassVar[bool] = True
     _supports_output_bound: ClassVar[bool] = True  # the head's output is the prediction
     _supports_input_scaling: ClassVar[bool] = False  # it standardises its own sequence layout (`_compute_input_stats`); column 0 is a series index
+    _supports_offset: ClassVar[bool] = False  # the offset is a dense column of its layout (`SequenceLayout.offset_dense_index`), handled inside the model
+    _supports_categorical_features: ClassVar[bool] = False  # its inputs are a sequence layout with its own categorical handling
     _supports_training_schedule: ClassVar[bool] = True  # trains through its own `_fit_single`, which applies the `TrainingSchedule`
     _supports_sample_weight: ClassVar[bool] = True  # row weights over every observed horizon of the row (`_fit_loss`)
     _default_missing_inputs: ClassVar[MissingInputs] = MissingInputs.NATIVE  # missing dense values become the training mean inside the model

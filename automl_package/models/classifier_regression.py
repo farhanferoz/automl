@@ -35,6 +35,7 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
 
     _supports_target_scaling: ClassVar[bool] = False  # target_scaling=PER_OUTPUT refused: two stages and a mapper-derived spread
     _supports_input_scaling: ClassVar[bool] = False  # its classifier applies its own input settings
+    _supports_offset: ClassVar[bool] = False  # offset_feature refused: the classes are bins of y, not of y minus a starting score
     _default_missing_inputs: ClassVar[MissingInputs] = MissingInputs.NATIVE  # likewise for missing inputs
 
     # The model's own options and their defaults (the rest go to `BaseModel`). Declared so a config's keys are checked

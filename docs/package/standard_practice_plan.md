@@ -54,8 +54,30 @@ defaults as ClassVars, refusals that name the remedy, docstring saying which spa
    Unweighted on purpose: scaling statistics, the in-sample residual spread, evaluation reports. Found and fixed on the way (81f4920): the
    normal-equation intercept was counted twice on uncentred inputs; the 5b linear cells were rerun (82d8598), 5a3's need the laptop.
 
+## Column roles for every model (2026-11-06)
+AS BUILT (owner ruling 2026-11-06: a feed-forward network must run on the same tabular inputs as LightGBM by config alone).
+`offset_feature` (a column holding each row's starting score), `categorical_features` (integer category codes, NaN = missing) and the new
+`categorical_encoding` (`enums.CategoricalEncoding`: NATIVE, ONE_HOT) are `BaseModel` settings. Boosting stays on the native route, unchanged
+(`ColumnRolesMixin`: the library takes `init_score` / `base_margin` / `baseline` and splits on the codes; family default NATIVE). Every other
+class takes the generic route (family default ONE_HOT), `models/common/column_roles.ColumnRolesTransform`, fitted at the top of `BaseModel.fit`:
+the offset column is dropped and subtracted from y (`y_inner = y - offset`, broadcast over output columns, validation part from its own offset
+column), each categorical column is replaced in place by one 0/1 column per level seen in the training rows named `<column>=<level>` (sorted
+levels; a missing or unseen value is all zeros; levels come from all of x when `fit` draws its own validation split, from the training rows
+when the caller gives `x_val`). The rest of `fit` runs unchanged on that inner problem: feature names are the inner names, input scaling
+leaves 0/1 columns alone, the target scaler is fitted on the residual, trial clones carry `offset_feature=None, categorical_features=None`.
+`column_roles_`, `input_feature_names_` and `training_envelope_` (recorded on the RAW columns and targets) are installed only when training is
+over. After that the outermost public call reads the raw columns (a numpy x in `input_feature_names_` order): `predict` adds the offset after
+the target-scaler inverse and before the range check; the held-out scores called from outside subtract it from y; `predict_uncertainty` takes no
+offset; `predict_proba` / `predict_distribution` / `predict_quantiles` raise NotImplementedError on a model with an offset.
+Refusals (ValueError naming the remedy): at construction, offset on a class that cannot take it (LSTM, ProbReg, ClassReg), categorical on the
+LSTM, NATIVE on a non-native class, ONE_HOT on a boosting class, offset with a non-regression task, offset also listed as categorical; at the
+start of `fit`, roles with feature importance or feature selection, a numpy x on the generic route, offset with a Poisson loss on the generic
+route. HPO journal names do not change at default settings (the three settings are dropped from the identity at their defaults, except the two
+roles for boosting, which always had them). Caveat: ONE_HOT keeps every level, so an unregularised normal-equation fit with an intercept is
+singular (the one-hot columns of a column sum to 1): give `l2_lambda` > 0 there. Report: /home/ff235/cache/automl/build_reports/column_roles_every_model.md.
+
 ## Not in this build
-Loss choice (Huber, quantile) beyond what exists, categorical encoding as a model setting, per-output weights for multi-output models,
+Loss choice (Huber, quantile) beyond what exists, ordered target statistics and learned embeddings as categorical encodings, per-output weights for multi-output models,
 target transforms beyond ProbReg's symlog: the next build, after this one is used. ProbReg/ClassReg/baselines supporting target scaling.
 
 ## Done when

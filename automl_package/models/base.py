@@ -12,6 +12,7 @@ import pandas as pd
 from sklearn.model_selection import KFold
 
 from automl_package.enums import (
+    CategoricalEncoding,
     DataSplitStrategy,
     HpoSampler,
     InputScaling,
@@ -25,6 +26,7 @@ from automl_package.enums import (
     UncertaintyMethod,
 )
 from automl_package.logger import logger
+from automl_package.models.common.column_roles import ColumnRolesTransform, broadcast_offset
 from automl_package.models.common.mixins import BinnedUncertaintyMixin
 from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
 from automl_package.utils.capacity_selection import cheapest_within_tolerance
@@ -78,23 +80,39 @@ INPUT_METHODS = (  # methods taking raw inputs x first when called on a fitted m
 )
 
 
-def _inputs_in_fit_space(method: Any) -> Any:
-    """Wraps a public method taking ``x`` first so that, when the model transforms its inputs, ``x`` reaches it in fit space.
+OFFSET_Y_METHODS = ("_held_out_fit_score", "_held_out_fit_per_sample", "fit_router")  # INPUT_METHODS taking the targets second: they lose the starting score too
+OFFSET_REFUSING_METHODS = ("predict_proba", "predict_distribution", "predict_quantiles")  # a distribution around a shifted mean is not built
 
-    Only the outermost public call transforms (`predict` takes part in the same count): an inner `self.predict(x)` is not transformed twice.
+
+def _inputs_in_fit_space(method: Any) -> Any:
+    """Wraps a public method taking ``x`` first so that ``x`` reaches it in the space the model trained in.
+
+    The outermost public call takes the column-roles step (raw columns to the inner problem, see `BaseModel._roles_to_inner`) and then the input
+    transform; `OFFSET_Y_METHODS` also get their targets minus the starting score. `predict` takes part in the same count (`_input_call_depth`):
+    an inner `self.predict(x)` is not converted twice.
+
+    Raises:
+        NotImplementedError: a method in `OFFSET_REFUSING_METHODS` on a model fitted with an ``offset_feature``.
     """
 
     @functools.wraps(method)
     def wrapper(self: "BaseModel", *args: Any, **kwargs: Any) -> Any:
-        if self.input_transform_ is None or self._input_call_depth:
+        if (self.input_transform_ is None and self.column_roles_ is None) or self._input_call_depth:
             return method(self, *args, **kwargs)
-        if args:
-            args = (self._inputs_to_fit_space(args[0]), *args[1:])
-        else:
-            kwargs["x"] = self._inputs_to_fit_space(kwargs["x"])
+        x = args[0] if args else kwargs.pop("x")
+        rest = args[1:]
+        if self.column_roles_ is not None:
+            if self.column_roles_.offset_feature is not None and method.__name__ in OFFSET_REFUSING_METHODS:
+                raise NotImplementedError(f"{method.__name__} is not built for a model fitted with offset_feature: only predict, predict_uncertainty and held-out scores take it.")
+            x, offset = self._roles_to_inner(x)
+            if offset is not None and method.__name__ in OFFSET_Y_METHODS:
+                y = np.asarray(rest[0] if rest else kwargs["y_val"])
+                y = y - broadcast_offset(offset, y)
+                rest, kwargs = ((y, *rest[1:]), kwargs) if rest else (rest, {**kwargs, "y_val": y})
+        x = self._inputs_to_fit_space(x)
         self._input_call_depth += 1
         try:
-            return method(self, *args, **kwargs)
+            return method(self, x, *rest, **kwargs)
         finally:
             self._input_call_depth -= 1
 
@@ -118,6 +136,12 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
       installed on it): fit space, the space `fit` handed down.
     - `_held_out_fit_score` / `_held_out_fit_per_sample` called from outside on a fitted model (scaler installed): raw target units; they go
       through `_to_fit_space`, the one conversion, so the score stays the fit term of the trained loss.
+
+    Column roles (`offset_feature`, `categorical_features`, `categorical_encoding`; ``models/common/column_roles.py``) work for every model.
+    The boosting wrappers hand them to their library (``CategoricalEncoding.NATIVE``). Every other model gets the generic route: `fit` turns the
+    problem into an inner one (offset column dropped and subtracted from y, categorical columns one-hot encoded, `ColumnRolesTransform`) and every
+    internal path, trial clone and the scalers work on that inner problem; `column_roles_` is installed when training is over, after which the
+    public methods take the raw columns and `predict` adds the offset back (after the target-scaler inverse, before the range check).
     """
 
     _default_target_scaling: ClassVar[TargetScaling] = TargetScaling.NONE  # what `target_scaling=None` means for this family
@@ -126,6 +150,10 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
     _supports_input_scaling: ClassVar[bool] = True  # False: the class scales its inputs itself or bypasses `predict`, so STANDARD is refused
     _default_missing_inputs: ClassVar[MissingInputs] = MissingInputs.RAISE  # what `missing_inputs=None` means for this family
     _supports_sample_weight: ClassVar[bool] = False  # True: `_fit_single` takes sample_weight / sample_weight_val and `_held_out_fit_score` sample_weight
+    _native_column_roles: ClassVar[bool] = False  # True (`ColumnRolesMixin`): the library takes the column roles itself, `fit` leaves X and y alone
+    _default_categorical_encoding: ClassVar[CategoricalEncoding] = CategoricalEncoding.ONE_HOT  # what `categorical_encoding=None` means for this family
+    _supports_offset: ClassVar[bool] = True  # False: the class cannot take a per-row starting score, `offset_feature` is refused
+    _supports_categorical_features: ClassVar[bool] = True  # False: its inputs have a layout of their own, `categorical_features` is refused
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Wraps the spread methods a subclass defines (see `_spread_in_target_units`)."""
@@ -165,6 +193,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         input_scaling: InputScaling | str | None = None,
         missing_inputs: MissingInputs | str | None = None,
         time_gap: int = 0,
+        offset_feature: str | None = None,
+        categorical_features: list[str] | None = None,
+        categorical_encoding: CategoricalEncoding | str | None = None,
         **kwargs: Any,
     ) -> None:
         """Initializes the base model with given parameters.
@@ -192,6 +223,12 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         ``time_gap`` (default 0): distinct timestamps left out between each fitted part and the held-out part after it, in the TIME_ORDERED
         split `fit` and the search draw and in the time-ordered CV folds (`data_handler.create_train_val_split`, `cv.TimeSeriesSplit`);
         needs ``split_strategy=TIME_ORDERED``. An explicit ``(x_val, y_val)`` is the caller's split and is used as given.
+
+        ``offset_feature`` (default None): the column of X holding each row's starting score on the model's raw prediction scale; ``predict``
+        returns it plus the model's output. ``categorical_features`` (default None): the columns of X holding integer category codes (NaN = missing).
+        ``categorical_encoding`` (member, value or None): how the categorical columns are read, `CategoricalEncoding.NATIVE` (boosting splits on the
+        codes) or `ONE_HOT` (one 0/1 column per training level; missing or unseen = all zeros); None takes the family default
+        (`_default_categorical_encoding`). All three need a DataFrame at `fit`, `calculate_feature_importance=False` and no feature selection.
         """
         if validation_fraction is not None and cv_folds is not None:
             raise ValueError("validation_fraction and cv_folds cannot both be set.")
@@ -235,6 +272,12 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         self._missing_inputs = self._default_missing_inputs if missing_inputs is None else MissingInputs(missing_inputs)
         self.input_transform_: InputTransform | None = None  # installed by `fit` when training is over (input_scaling / missing_inputs)
         self._input_call_depth = 0
+        self.offset_feature = offset_feature
+        self.categorical_features = list(categorical_features) if categorical_features else None
+        self._categorical_encoding = self._resolve_categorical_encoding(categorical_encoding)
+        self._check_column_roles_settings()
+        self.column_roles_: ColumnRolesTransform | None = None  # installed by `fit` when training is over (generic route only)
+        self.input_feature_names_: list[str] | None = None  # the raw columns `column_roles_` reads, installed with it
         self.training_envelope_: TrainingEnvelope | None = None
         self.last_prediction_report_: PredictionRangeReport | None = None
         self._best_trial_model_: BaseModel | None = None
@@ -278,6 +321,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                 "target_scaling": self.target_scaling,
                 "input_scaling": self.input_scaling,
                 "missing_inputs": self.missing_inputs,
+                "offset_feature": self.offset_feature,
+                "categorical_features": self.categorical_features,
+                "categorical_encoding": self.categorical_encoding,
                 "task_type": self.task_type,
                 "calculate_feature_importance": self.calculate_feature_importance,
                 "feature_selection_threshold": self.feature_selection_threshold,
@@ -312,6 +358,77 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         if resolved is TargetScaling.PER_OUTPUT and not self._supports_target_scaling:
             raise ValueError(f"{type(self).__name__} does not map all its outputs back to target units under target_scaling=PER_OUTPUT: set target_scaling=NONE.")
         return resolved
+
+    @property
+    def categorical_encoding(self) -> CategoricalEncoding:
+        """The resolved categorical encoding (a `CategoricalEncoding` member)."""
+        return self._categorical_encoding
+
+    @categorical_encoding.setter
+    def categorical_encoding(self, value: CategoricalEncoding | str | None) -> None:
+        """Coerces a value a subclass copies from its constructor kwargs (a string from a config); None leaves the resolved setting."""
+        if value is not None:
+            self._categorical_encoding = self._resolve_categorical_encoding(value)
+
+    def _resolve_categorical_encoding(self, requested: CategoricalEncoding | str | None) -> CategoricalEncoding:
+        """The encoding this model runs with: the request, else the family default.
+
+        Raises:
+            ValueError: NATIVE for a model that cannot split on category codes, ONE_HOT for a boosting wrapper.
+        """
+        resolved = self._default_categorical_encoding if requested is None else CategoricalEncoding(requested)
+        if resolved is CategoricalEncoding.NATIVE and not self._native_column_roles:
+            raise ValueError(f"{type(self).__name__} cannot split on category codes: use categorical_encoding=ONE_HOT.")
+        if resolved is CategoricalEncoding.ONE_HOT and self._native_column_roles:
+            raise ValueError(f"categorical_encoding=ONE_HOT is not built for {type(self).__name__}: boosting takes NATIVE.")
+        return resolved
+
+    @property
+    def _has_column_roles(self) -> bool:
+        return self.offset_feature is not None or bool(self.categorical_features)
+
+    @property
+    def _generic_column_roles(self) -> bool:
+        """Whether `fit` itself turns the roles into an inner problem (the class has roles set and no native handling of them)."""
+        return self._has_column_roles and not self._native_column_roles
+
+    def _check_column_roles_settings(self) -> None:
+        """Raises ValueError when the column-role settings alone cannot work for this class (called at construction).
+
+        Raises:
+            ValueError: a role the class cannot take, an offset with a task other than regression (a boosting offset also needs constant
+                uncertainty), or the offset column also listed as categorical.
+        """
+        name = type(self).__name__
+        if self.offset_feature is not None and not self._supports_offset:
+            raise ValueError(f"{name} cannot take a per-row starting score: leave offset_feature unset and add the offset to the targets yourself.")
+        if self.categorical_features and not self._supports_categorical_features:
+            raise ValueError(f"{name} has its own input layout: leave categorical_features unset and encode the categorical columns in the layout.")
+        if self.offset_feature is not None and (self.task_type != TaskType.REGRESSION or (self._native_column_roles and self.uncertainty_method != UncertaintyMethod.CONSTANT)):
+            conditions = "task_type=REGRESSION" + (" and uncertainty_method=CONSTANT" if self._native_column_roles else "")
+            raise ValueError(f"offset_feature is supported only with {conditions} (got {self.task_type}, {self.uncertainty_method}).")
+        if self.offset_feature is not None and self.offset_feature in (self.categorical_features or []):
+            raise ValueError(f"offset_feature {self.offset_feature!r} is also listed in categorical_features.")
+
+    def _check_column_roles(self, x: np.ndarray | pd.DataFrame) -> None:
+        """Raises ValueError when the data or the other settings cannot work with the column roles (called at the start of `fit`)."""
+        if not self._has_column_roles:
+            return
+        if self._generic_column_roles and not isinstance(x, pd.DataFrame):  # a boosting wrapper reads a numpy X by the default names ``feature_<i>``
+            raise ValueError("offset_feature / categorical_features name columns of X: give a DataFrame.")
+        if self.calculate_feature_importance:
+            raise ValueError("offset_feature / categorical_features need calculate_feature_importance=False: SHAP would see the offset column and the raw codes.")
+        if self.feature_selection_threshold is not None:
+            raise ValueError("offset_feature / categorical_features cannot be combined with feature_selection_threshold: selection could drop the named columns.")
+        if self.offset_feature is not None and not self._native_column_roles and (conflict := self._count_loss_conflict()) is not None:
+            raise ValueError(f"offset_feature cannot be combined with {conflict}: the starting score is subtracted from y and a count loss reads counts; use squared error.")
+
+    def _count_loss_conflict(self) -> str | None:
+        """A Poisson objective reads counts: neither a rescaled target nor a target minus a starting score is a count. None when the model has no such loss."""
+        objectives = [getattr(self, "objective", None), self.params.get("loss_function"), getattr(self, "loss", None)]
+        if any("poisson" in str(getattr(o, "value", o)).lower() for o in objectives if o is not None):
+            return "a Poisson objective (it reads counts)"
+        return None
 
     @property
     def input_scaling(self) -> InputScaling:
@@ -351,7 +468,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         """A fresh `InputTransform` for this model's settings, or None when it would neither check nor change anything (NONE + NATIVE)."""
         if self.input_scaling is InputScaling.NONE and self.missing_inputs is MissingInputs.NATIVE:
             return None
-        unscaled = [*(getattr(self, "categorical_features", None) or []), *([self.offset_feature] if getattr(self, "offset_feature", None) else [])]
+        unscaled = [*(self.categorical_features or []), *([self.offset_feature] if self.offset_feature else [])]
         return InputTransform(self.input_scaling, self.missing_inputs, unscaled_columns=unscaled)
 
     def _inputs_to_fit_space(self, x: np.ndarray | pd.DataFrame) -> np.ndarray | pd.DataFrame:
@@ -373,9 +490,32 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             return transform.transform(x, self.selected_features_)
         raise ValueError(f"{self.name}: inputs with {x.shape[1]} columns match neither the {n_fitted} fitted columns nor the selected features.")
 
+    def _roles_to_inner(self, x: np.ndarray | pd.DataFrame) -> tuple[np.ndarray | pd.DataFrame, np.ndarray | None]:
+        """Raw columns to the inner problem the model fitted on (the one conversion; `predict` and the wrapped public methods call it).
+
+        Returns ``(inner x, starting score per row or None)``; the inner x has the type of ``x``. A numpy ``x`` holds the raw columns in
+        `input_feature_names_` order.
+
+        Raises:
+            ValueError: a numpy ``x`` with another number of columns than the fitted raw columns.
+        """
+        roles = self.column_roles_
+        if isinstance(x, pd.DataFrame):
+            return roles.transform(x)
+        x = np.asarray(x)
+        if x.ndim == 1 or x.shape[1] != len(self.input_feature_names_):
+            raise ValueError(f"{self.name}: inputs of shape {x.shape} do not hold the {len(self.input_feature_names_)} fitted columns {self.input_feature_names_}.")
+        inner, offset = roles.transform(pd.DataFrame(x, columns=self.input_feature_names_))
+        return inner.to_numpy(), offset
+
     def _target_scaling_conflict(self) -> str | None:
-        """What in this model's settings cannot work with a rescaled target (a count loss, a per-row offset), or None. Subclasses extend it."""
-        return None
+        """What in this model's settings cannot work with a rescaled target (a count loss, a native per-row offset), or None. Subclasses extend it.
+
+        On the generic route the starting score is subtracted before the scaler is fitted, so it is no conflict there.
+        """
+        if self.offset_feature is not None and self._native_column_roles:
+            return "offset_feature (the per-row starting score is on the raw prediction scale)"
+        return self._count_loss_conflict()
 
     def _check_target_scaling(self) -> None:
         """Raises ValueError when PER_OUTPUT is set together with a setting named by `_target_scaling_conflict`."""
@@ -467,6 +607,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             "_spread_call_depth",
             "input_transform_",
             "_input_call_depth",
+            "column_roles_",
+            "input_feature_names_",
         }
     )
 
@@ -570,6 +712,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         """
         logger.info(f"--- Starting training for {self.name} ---")
 
+        self._check_column_roles(x)
         if isinstance(x, np.ndarray):
             self.feature_names = [f"feature_{i}" for i in range(x.shape[1])]
             x = pd.DataFrame(x, columns=self.feature_names)
@@ -579,9 +722,22 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
 
         if isinstance(y, pd.Series | pd.DataFrame):
             y = y.values
-        self.training_envelope_ = TrainingEnvelope.from_fit_data(x, y, self.feature_names, getattr(self, "categorical_features", None))
+        envelope = TrainingEnvelope.from_fit_data(x, y, self.feature_names, self.categorical_features)  # on the raw columns and targets
+        self.training_envelope_ = None if self._generic_column_roles else envelope  # generic route: internal predictions see the inner columns, so it waits for the end
         self._check_target_scaling()
         self.target_scaler_, self._raw_target_range_ = None, None  # a refit starts in fit space again
+        self.column_roles_, self.input_feature_names_ = None, None  # a refit starts with raw columns again
+
+        raw_x, raw_y, raw_x_val, raw_y_val = x, y, x_val, y_val
+        column_roles = None
+        if self._generic_column_roles:  # the model fits the inner problem: offset column dropped and subtracted from y, categorical columns one-hot encoded
+            column_roles = ColumnRolesTransform(self.offset_feature, self.categorical_features).fit(x)
+            x, y = column_roles.apply(x, y)
+            if x_val is not None and y_val is not None:  # a missing y_val is refused below
+                raw_x_val = x_val if isinstance(x_val, pd.DataFrame) else pd.DataFrame(np.asarray(x_val), columns=column_roles.input_names_)
+                x_val, y_val = column_roles.apply(raw_x_val, y_val)
+            self.feature_names = column_roles.inner_names_
+            self.feature_to_idx_ = {feature: i for i, feature in enumerate(self.feature_names)}
 
         explicit_val = x_val is not None
         weights = self._check_fit_weights(sample_weight, sample_weight_val, len(x), None if x_val is None else len(x_val))
@@ -666,6 +822,15 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             x_train_val = pd.DataFrame(x_train_val_raw, columns=self.feature_names)
             x_model_raw = x_train_val if self.refit_on_train_val else pd.DataFrame(x_train_raw, columns=self.feature_names)
             x_model = x_model_raw[self.selected_features_] if self.refit_on_train_val and self.selected_features_ else x_model_raw
+
+        if column_roles is not None:  # training is over: from here the public methods take the raw columns and `predict` adds the starting score back
+            self.column_roles_, self.input_feature_names_, self.training_envelope_ = column_roles, column_roles.input_names_, envelope
+            x_all = raw_x if raw_x_val is None else pd.concat([raw_x, raw_x_val])
+            y_all = np.asarray(raw_y) if raw_y_val is None else np.concatenate([np.asarray(raw_y), np.asarray(raw_y_val)])
+            train_val = np.concatenate([self.train_indices, self.val_indices])
+            x_train_val, y_train_val = x_all.iloc[train_val], y_all[train_val]  # the evaluation below goes through `predict`
+            if x_test is not None:
+                x_test, y_test = x_all.iloc[self.test_indices], y_all[self.test_indices]
 
         if self.calculate_feature_importance:
             self._calculate_and_save_feature_importance(model_instance=self, x_background=x_model)
@@ -940,6 +1105,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             "input_scaling": self.input_scaling is InputScaling.NONE,
             "missing_inputs": self.missing_inputs is not MissingInputs.TRAINING_MEAN,  # RAISE and NATIVE never change a fit on data without NaN
             "time_gap": self.time_gap == 0,
+            "offset_feature": self.offset_feature is None and not self._native_column_roles,  # the boosting wrappers always had both roles in their journal name
+            "categorical_features": self.categorical_features is None and not self._native_column_roles,
+            "categorical_encoding": self.categorical_encoding is self._default_categorical_encoding,
         }
         return {name for name, is_off in off.items() if is_off}
 
@@ -1131,6 +1299,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         clone = self._clone()
         clone.feature_names = self.feature_names
         clone.feature_to_idx_ = self.feature_to_idx_
+        if self._generic_column_roles:  # `fit` hands the clone the inner problem: no offset column, no raw category codes
+            clone.offset_feature, clone.categorical_features = None, None
         return clone
 
     @abc.abstractmethod
@@ -1165,6 +1335,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             ValueError: under RAISE, when any prediction is outside the training range.
         """
         x_raw = x
+        offset = None
+        if self.column_roles_ is not None and not self._input_call_depth:
+            x, offset = self._roles_to_inner(x)
         if self.input_transform_ is not None and not self._input_call_depth:
             x = self._inputs_to_fit_space(x)
         self._input_call_depth += 1
@@ -1182,6 +1355,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             if self._raw_target_range_ is not None:
                 predictions = np.clip(predictions, *self._raw_target_range_)
             predictions = predictions.astype(dtype)
+        if offset is not None:  # the starting score goes back on in target units, before the envelope (which is in target units, on raw inputs)
+            predictions = predictions + broadcast_offset(offset, predictions)
         envelope = self.training_envelope_
         if envelope is None:
             return predictions

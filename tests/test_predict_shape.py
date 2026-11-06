@@ -5,6 +5,7 @@ the invariant is preserved across refactors.
 """
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from automl_package.enums import OutOfRangeAction, TaskType, UncertaintyMethod
@@ -54,9 +55,10 @@ def _fitted_line(action: OutOfRangeAction = OutOfRangeAction.FLAG, categorical: 
     model = NormalEquationLinearRegression(
         out_of_range_action=action, calculate_feature_importance=False, validation_fraction=0.0, test_fraction=0.0,
         input_scaling="none", missing_inputs="native",  # the envelope on raw inputs; `_predict` is called directly and a NaN input is passed on purpose
+        # a role needs column names (fitted on a DataFrame); the one-hot columns of a category sum to 1, so the solve needs a ridge to stay non-singular
+        **({"categorical_features": ["feature_1"], "l2_lambda": 1e-6} if categorical else {}),
     )
-    model.categorical_features = ["feature_1"] if categorical else None
-    model.fit(x, 2.0 * x[:, 0])
+    model.fit(pd.DataFrame(x, columns=["feature_0", "feature_1"]), 2.0 * x[:, 0])
     return model
 
 
