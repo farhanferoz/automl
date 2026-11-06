@@ -1,0 +1,36 @@
+# GPU-native builds of the libraries whose published wheels carry no code for this machine's GPU (owner, 2026-11-06:
+# "standard practice in AutoML ... when the new version comes, we need to update the new versions, whether it requires
+# compile or whatever"). The single source of truth: scripts/gpu_builds.py renders it into the machine's uv configuration,
+# so EVERY uv sync on a CUDA machine builds these packages from their source release, at the version in the lock, with the
+# settings below; a new locked version is rebuilt by the next sync with no manual step. Machines without an NVIDIA GPU get
+# no configuration and keep the published wheels.
+#
+# Placeholders filled per machine by scripts/gpu_builds.py:
+#   {cuda_archs}    the GPU's compute capability as CMake architectures, e.g. "121-real;121-virtual" for 12.1
+#   {nccl_include}  {nccl_lib}  {nccl_lib_dir}   a build-time NCCL (headers and libnccl.so.2) kept under {build_root}
+#
+# Not registered (checked 2026-11-06): xgboost 3.4.1, whose wheel carries native sm_120 code and compute_120 PTX.
+
+# Where the build-time dependencies live (machine-local, never synced).
+build_root = "~/cache/automl/builds/gpu"
+
+[nccl]
+# NCCL for packages that link it, matched to the CUDA toolkit's major version; the latest release is installed.
+package = "nvidia-nccl-cu{cuda_major}"
+
+[packages.lightgbm]
+# PyPI wheels have no CUDA. The CUDA build requires NCCL (CMakeLists: find_package(NCCL REQUIRED)); its compile units
+# include nccl.h directly, so the include path also goes in the compiler flags. At run time libnccl.so.2 is found next to
+# the package (the venv's own nvidia-nccl, pulled in by torch's CUDA build) or, failing that, in the build-time copy.
+needs_nccl = true
+native_library = "lightgbm/lib/lib_lightgbm.so"
+[packages.lightgbm.settings]
+"cmake.define.USE_CUDA" = "ON"
+"cmake.define.CMAKE_CUDA_ARCHITECTURES" = "{cuda_archs}"
+"cmake.define.BUILD_WITH_SHARED_NCCL" = "ON"
+"cmake.define.USE_NCCL_LIB_PATH" = "ON"
+"cmake.define.NCCL_INCLUDE_DIR" = "{nccl_include}"
+"cmake.define.NCCL_LIBRARY" = "{nccl_lib}"
+"cmake.define.CMAKE_CXX_FLAGS" = "-I{nccl_include}"
+"cmake.define.CMAKE_CUDA_FLAGS" = "-I{nccl_include}"
+"cmake.define.CMAKE_INSTALL_RPATH" = "$ORIGIN/../../nvidia/nccl/lib;{nccl_lib_dir}"

@@ -366,3 +366,11 @@ class ForecastLoss(Enum):
 
     SQUARED_ERROR = "squared_error"  # mean squared error between the model output and the target (default)
     POISSON_DEVIANCE = "poisson_deviance"  # Poisson deviance of the count exp(target [+ offset]) against exp(output [+ offset]); `utils.losses.poisson_deviance`
+
+
+class ComputeDevice(Enum):
+    """Where a model that is not a PyTorch network trains (gradient-boosted trees); PyTorch models use `get_device()`."""
+
+    AUTO = "auto"  # the GPU when `get_device()` finds CUDA (honours AUTOML_DEVICE), else the CPU
+    CPU = "cpu"
+    GPU = "gpu"

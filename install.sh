@@ -8,6 +8,9 @@
 #   ./install.sh --xpu        # force Intel XPU
 #   ./install.sh --dev        # auto-detect + dev tools (pytest, ruff)
 #
+# On a machine with an NVIDIA GPU the libraries listed in scripts/gpu_builds.toml (LightGBM) are compiled for that GPU
+# during the sync (see scripts/gpu_builds.py); the install fails if one lacks this GPU's code.
+#
 # Requires: uv (https://docs.astral.sh/uv/)
 set -euo pipefail
 
@@ -46,8 +49,13 @@ case "$BACKEND" in
     xpu)  EXTRA="xpu" ;;    # Intel Arc/Flex/Max build, with triton-xpu
 esac
 cd "$(dirname "$0")"
+# GPU-native builds (scripts/gpu_builds.toml): on a machine with an NVIDIA GPU, write the machine's uv configuration so this
+# sync (and every later one, the weekly upgrade's included) builds the listed libraries for this GPU at the locked version.
+python3 scripts/gpu_builds.py configure
+REBUILD="$(python3 scripts/gpu_builds.py stale --venv .venv)"  # uv keeps an installed version, so name the ones still lacking GPU code
 echo "Installing with the $EXTRA PyTorch build..."
-uv sync --locked --extra "$EXTRA" --extra experiments $DEV
+uv sync --locked --extra "$EXTRA" --extra experiments $DEV $REBUILD
+python3 scripts/gpu_builds.py check --venv .venv
 
 # --- Verify ---
 echo ""

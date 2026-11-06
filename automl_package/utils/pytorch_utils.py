@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as f
 
-from automl_package.enums import ActivationFunction, LearnedRegularizationType, Monotonicity
+from automl_package.enums import ActivationFunction, ComputeDevice, LearnedRegularizationType, Monotonicity
 from automl_package.utils.numerics import aggregate_stats, log_erfc
 
 
@@ -196,3 +196,10 @@ def apply_law_of_total_variance(probabilities: torch.Tensor, per_head_outputs: t
     final_predictions = torch.stack([final_mean, final_log_var], dim=1)
 
     return final_predictions
+
+
+def resolve_compute_device(requested: ComputeDevice) -> ComputeDevice:
+    """The device a non-PyTorch model trains on: `requested` unless AUTO, which follows `get_device()` (CUDA -> GPU, else CPU)."""
+    if requested is not ComputeDevice.AUTO:
+        return requested
+    return ComputeDevice.GPU if get_device().type == "cuda" else ComputeDevice.CPU

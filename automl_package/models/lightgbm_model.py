@@ -5,12 +5,18 @@ from typing import Any, NoReturn
 import lightgbm as lgb
 import numpy as np
 
-from automl_package.enums import CategoricalCast, ExplainerType, ForecastLoss, Metric, TaskType, UncertaintyMethod
+from automl_package.enums import CategoricalCast, ComputeDevice, ExplainerType, ForecastLoss, Metric, TaskType, UncertaintyMethod
+from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 from automl_package.models.common.column_roles import ColumnRolesMixin
 from automl_package.models.common.common import get_loss_history
 from automl_package.utils.losses import poisson_deviance, tree_model_gaussian_nll_eval_metric, tree_model_gaussian_nll_objective
 from automl_package.utils.numerics import ensure_proba_shape
+from automl_package.utils.pytorch_utils import resolve_compute_device
+
+LIGHTGBM_DEVICE_PARAM = "device_type"  # LightGBM's parameter naming the training device
+LIGHTGBM_CUDA_DEVICE = "cuda"  # its CUDA tree learner (only in a build compiled with USE_CUDA)
+BINARY_CLASS_COUNT = 2  # more classes than this is a multiclass objective
 
 
 class LightGBMModel(ColumnRolesMixin, BaseModel):
@@ -29,17 +35,29 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
 
     _CATEGORICAL_CAST = CategoricalCast.NATIVE_CODES
 
-    def __init__(self, random_seed: int | None = None, loss: ForecastLoss = ForecastLoss.SQUARED_ERROR, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        random_seed: int | None = None,
+        loss: ForecastLoss = ForecastLoss.SQUARED_ERROR,
+        compute_device: ComputeDevice = ComputeDevice.AUTO,
+        **kwargs: Any,
+    ) -> None:
         """Initializes the LightGBMModel.
 
         Args:
             random_seed: seed handed to LightGBM.
             loss: the fit term (enums.ForecastLoss); POISSON_DEVIANCE needs a regression task with constant uncertainty.
+            compute_device: where it trains (enums.ComputeDevice); AUTO takes the GPU whenever `get_device()` finds CUDA. The GPU needs
+                LightGBM's CUDA build, which install.sh compiles on a GPU machine (scripts/gpu_builds.toml).
             **kwargs: passed on to the base class; LightGBM's own parameters go in ``params``.
         """
         super().__init__(**kwargs)
         self.random_seed = random_seed
         self.loss = ForecastLoss(loss)
+        self.compute_device = resolve_compute_device(ComputeDevice(compute_device))
+        if self.compute_device is ComputeDevice.GPU:
+            self.params[LIGHTGBM_DEVICE_PARAM] = LIGHTGBM_CUDA_DEVICE
+        logger.info(f"LightGBMModel trains on the {self.compute_device.value.upper()} (asked: {ComputeDevice(compute_device).value})")
         self.model = None
         self._train_residual_std = 0.0
         self.num_iterations_used = 0
@@ -103,7 +121,7 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
         # Dynamically set objective for classification
         if self.task_type == TaskType.CLASSIFICATION:
             num_classes = len(np.unique(y_train))
-            if num_classes > 2:
+            if num_classes > BINARY_CLASS_COUNT:
                 self.objective = "multiclass"
                 self.metric = "multi_logloss"
                 params["num_class"] = num_classes
@@ -126,7 +144,15 @@ class LightGBMModel(ColumnRolesMixin, BaseModel):
         if self.uncertainty_method == UncertaintyMethod.PROBABILISTIC and eval_set is not None:
             fit_params["eval_metric"] = tree_model_gaussian_nll_eval_metric
 
-        self.model.fit(features_train, self._fit_label(y_train), **fit_params)
+        try:
+            self.model.fit(features_train, self._fit_label(y_train), **fit_params)
+        except lgb.basic.LightGBMError as error:
+            if self.compute_device is ComputeDevice.GPU and "CUDA" in str(error):
+                raise RuntimeError(
+                    f"LightGBM was asked for the GPU but this build cannot use it ({error}). Remedy: rebuild the environment with ./install.sh, "
+                    "which compiles LightGBM for this GPU (scripts/gpu_builds.toml), or pass compute_device=ComputeDevice.CPU."
+                ) from error
+            raise
 
         if self.is_regression_model and self.uncertainty_method == UncertaintyMethod.CONSTANT:
             y_pred_train = self.predict(x_train, filter_data=False)

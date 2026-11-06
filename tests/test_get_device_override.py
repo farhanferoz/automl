@@ -57,6 +57,28 @@ def test_empty_override_falls_back_to_autodetect() -> None:
             os.environ["AUTOML_DEVICE"] = prev
 
 
+def test_tree_models_follow_the_device_override() -> None:
+    """AUTO follows get_device() (and so AUTOML_DEVICE); an explicit choice wins; only the GPU puts LightGBM on its CUDA learner."""
+    from automl_package.enums import ComputeDevice
+    from automl_package.models.lightgbm_model import LIGHTGBM_CUDA_DEVICE, LIGHTGBM_DEVICE_PARAM, LightGBMModel
+    from automl_package.utils.pytorch_utils import resolve_compute_device
+
+    prev = os.environ.get("AUTOML_DEVICE")
+    try:
+        for forced, expected in (("cuda", ComputeDevice.GPU), ("cpu", ComputeDevice.CPU), ("xpu", ComputeDevice.CPU)):
+            os.environ["AUTOML_DEVICE"] = forced
+            assert resolve_compute_device(ComputeDevice.AUTO) is expected, f"AUTO under AUTOML_DEVICE={forced} must give {expected}"
+            assert resolve_compute_device(ComputeDevice.CPU) is ComputeDevice.CPU, "an explicit CPU must not follow the override"
+        os.environ["AUTOML_DEVICE"] = "cpu"
+        assert LIGHTGBM_DEVICE_PARAM not in LightGBMModel().params, "a CPU LightGBM must not name a device"
+        assert LightGBMModel(compute_device=ComputeDevice.GPU).params[LIGHTGBM_DEVICE_PARAM] == LIGHTGBM_CUDA_DEVICE
+    finally:
+        if prev is None:
+            os.environ.pop("AUTOML_DEVICE", None)
+        else:
+            os.environ["AUTOML_DEVICE"] = prev
+
+
 if __name__ == "__main__":
     n = 0
     for name, fn in sorted(globals().items()):
