@@ -64,7 +64,7 @@
    "kind": "COMPARISON",
    "eval_set": "TEST",
    "reference_variant": "probreg",
-   "noise_results_subdir": "probreg_5a3",
+   "noise_results_subdir": "5a3",
    "noise_variant": "probreg"
   }
  },
@@ -78,9 +78,9 @@
   "scikit-learn": "1.9.1"
  },
  "fingerprint_id": "4a65fc26",
- "source_hash": "ab9de7b1977af67caae90e9421d585e028da9f267730513985187f246f10895d",
+ "source_hash": "a32c9188daa0311f78e174fb7047d9a7cbd52726a5332fc66083bf776d509954",
  "git": {
-  "commit": "b5ef1b728a3d2968cbd146dc10590fd2dfed041a",
+  "commit": "81f492068f231658161e5798041a89790b30ec80",
   "dirty": true
  },
  "data_hashes": {
@@ -91,42 +91,42 @@
  },
  "metrics": {
   "selection": {
-   "mse": 0.3774782100369391,
-   "mae": 0.5039913077685065,
-   "noise_free_excess": 0.28331876828841895,
-   "excess": 0.2874782100369391,
-   "excess_se": 0.00474601387757701,
-   "noise_free_excess_se": 0.0031917297531168826,
+   "mse": 0.23562411596856836,
+   "mae": 0.3909953452098877,
+   "noise_free_excess": 0.14607579289874478,
+   "excess": 0.14562411596856836,
+   "excess_se": 0.003167496294870857,
+   "noise_free_excess_se": 0.0018012886556034594,
    "regions": {
     "near_jump": {
-     "mse": 0.846683737765059,
-     "mae": 0.7992906028299803,
-     "noise_free_excess": 0.7389285106045361
+     "mse": 0.4340101762086653,
+     "mae": 0.5344707549035355,
+     "noise_free_excess": 0.3340391141637013
     },
     "away": {
-     "mse": 0.32412495869375946,
-     "mae": 0.4704128936625075,
-     "noise_free_excess": 0.23151149053981052
+     "mse": 0.21306568323606598,
+     "mae": 0.37468078976972574,
+     "noise_free_excess": 0.12470252738905323
     }
    }
   },
   "test": {
-   "mse": 0.3850027395005866,
-   "mae": 0.5119440133448965,
-   "noise_free_excess": 0.29499543122071975,
-   "excess": 0.29500273950058664,
-   "excess_se": 0.00477185798452549,
-   "noise_free_excess_se": 0.00327684720458491,
+   "mse": 0.2356412043018844,
+   "mae": 0.39082504242468474,
+   "noise_free_excess": 0.1479384322305483,
+   "excess": 0.1456412043018844,
+   "excess_se": 0.0032011554890129684,
+   "noise_free_excess_se": 0.0018299370174158331,
    "regions": {
     "near_jump": {
-     "mse": 0.8851084291396737,
-     "mae": 0.8188204769021998,
-     "noise_free_excess": 0.7839908494811145
+     "mse": 0.4616926397098835,
+     "mae": 0.5541148936666083,
+     "noise_free_excess": 0.36078578906875125
     },
     "away": {
-     "mse": 0.3273904748192911,
-     "mae": 0.47659178998650525,
-     "noise_free_excess": 0.2386630717846778
+     "mse": 0.20960003860806672,
+     "mae": 0.3720140224254757,
+     "noise_free_excess": 0.12341837874400167
     }
    }
   }
@@ -134,5 +134,5 @@
  "tuned_hyperparameters": {},
  "n_parameters": 2,
  "convergence": null,
- "wall_seconds": 0.05059410794638097
+ "wall_seconds": 0.0321964820032008
 }

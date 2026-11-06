@@ -62,7 +62,7 @@
    "kind": "COMPARISON",
    "eval_set": "TEST",
    "reference_variant": "probreg",
-   "noise_results_subdir": "probreg_5a3",
+   "noise_results_subdir": "5a3",
    "noise_variant": "probreg"
   }
  },
@@ -76,9 +76,9 @@
   "scikit-learn": "1.9.1"
  },
  "fingerprint_id": "4a65fc26",
- "source_hash": "ab9de7b1977af67caae90e9421d585e028da9f267730513985187f246f10895d",
+ "source_hash": "a32c9188daa0311f78e174fb7047d9a7cbd52726a5332fc66083bf776d509954",
  "git": {
-  "commit": "b5ef1b728a3d2968cbd146dc10590fd2dfed041a",
+  "commit": "81f492068f231658161e5798041a89790b30ec80",
   "dirty": true
  },
  "data_hashes": {
@@ -89,26 +89,26 @@
  },
  "metrics": {
   "selection": {
-   "mse": 0.677196665796326,
-   "mae": 0.6713748102899926,
-   "noise_free_excess": 0.4224149502717354,
-   "excess": 0.427196665796326,
-   "excess_se": 0.008584008209873501,
-   "noise_free_excess_se": 0.0040356898632622215,
+   "mse": 0.44341749908207584,
+   "mae": 0.5374930110472512,
+   "noise_free_excess": 0.19324738121425294,
+   "excess": 0.19341749908207584,
+   "excess_se": 0.0059176738402557634,
+   "noise_free_excess_se": 0.0016919070487963447,
    "regions": {}
   },
   "test": {
-   "mse": 0.6872499860064553,
-   "mae": 0.6790585475365931,
-   "noise_free_excess": 0.42827021727973824,
-   "excess": 0.43724998600645526,
-   "excess_se": 0.008531028364466802,
-   "noise_free_excess_se": 0.004069801934740847,
+   "mse": 0.45133251650873246,
+   "mae": 0.5436909595430874,
+   "noise_free_excess": 0.19627319712650632,
+   "excess": 0.20133251650873246,
+   "excess_se": 0.005943615816688677,
+   "noise_free_excess_se": 0.0017166160146534323,
    "regions": {}
   }
  },
  "tuned_hyperparameters": {},
  "n_parameters": 2,
  "convergence": null,
- "wall_seconds": 0.07169528503436595
+ "wall_seconds": 0.05154210000182502
 }
