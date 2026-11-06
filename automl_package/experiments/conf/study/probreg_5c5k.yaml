@@ -1,0 +1,21 @@
+# Card 5c-5, grid extension: on the three toys whose validation error still falls at k = 10 on every seed
+# (exponential, piecewise, OU), card 5c-5's result table says "the top of the grid binds; extend before concluding".
+# Same tuned settings as the reference in the same cell (from_variant), k = 11..20; joined with sweep_min's k = 2..10
+# curve (same draws, same settings), the minimum over k = 2..20 is the extended sweep_min.
+defaults:
+  - study_schema
+  - _toys_all
+  - /protocol@protocol: cards_5bc
+  - /hpo@hpo: tpe20
+  - /model@variants.probreg: probreg_tuned
+  - /model@variants.sweep_min_k11_20: probreg_base
+  - _self_
+
+name: probreg_5c5k
+card: 5c5k
+sizes: ???
+toy_filter: [exponential, piecewise, ou]
+output: {results_subdir: main}
+variants:
+  sweep_min_k11_20: {params: {capacity_selection: GLOBAL_SWEEP}, k_sweep: {from_variant: probreg, rule: MINIMUM, k_values: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20]}}
+report: {kind: COMPARISON, eval_set: SELECTION, reference_variant: probreg, noise_results_subdir: 5a3, noise_variant: probreg}
