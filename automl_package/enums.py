@@ -368,6 +368,13 @@ class ForecastLoss(Enum):
     POISSON_DEVIANCE = "poisson_deviance"  # Poisson deviance of the count exp(target [+ offset]) against exp(output [+ offset]); `utils.losses.poisson_deviance`
 
 
+class TargetScaling(Enum):
+    """How a multi-output model scales its targets before fitting (the forecasts always come back in target units)."""
+
+    NONE = "none"  # targets as given
+    PER_OUTPUT = "per_output"  # each output column standardised by the mean and standard deviation of the rows being fitted; NaN stays NaN
+
+
 class ComputeDevice(Enum):
     """Where a model that is not a PyTorch network trains (gradient-boosted trees); PyTorch models use `get_device()`."""
 

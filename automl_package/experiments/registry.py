@@ -16,7 +16,7 @@ import copy
 import dataclasses
 import inspect
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
@@ -26,6 +26,7 @@ from automl_package.experiments.config import MISSING, HpoConfig, ModelConfig, P
 from automl_package.experiments.toys import Toy
 from automl_package.models.base import NESTED_PARAM_SEPARATOR, BaseModel
 from automl_package.models.registry import model_class
+from automl_package.utils.data_handler import TargetScaler
 
 _UNSET = object()
 
@@ -118,15 +119,14 @@ class Standardiser:
     standardise_y: bool
     x_mean: np.ndarray | float = 0.0
     x_sd: np.ndarray | float = 1.0
-    y_mean: float = 0.0
-    y_sd: float = 1.0
+    y_scaler: TargetScaler = field(default_factory=TargetScaler)
 
     def fit(self, x: np.ndarray, y: np.ndarray) -> Standardiser:
         """Statistics of the training part (a zero sd becomes 1)."""
         if self.standardise_x:
             self.x_mean, self.x_sd = x.mean(axis=0), np.where(x.std(axis=0) > 0, x.std(axis=0), 1.0)
         if self.standardise_y:
-            self.y_mean, self.y_sd = float(y.mean()), float(y.std()) or 1.0
+            self.y_scaler.fit(y)
         return self
 
     def x(self, x: np.ndarray) -> np.ndarray:
@@ -135,11 +135,11 @@ class Standardiser:
 
     def y(self, y: np.ndarray) -> np.ndarray:
         """Targets in model space."""
-        return ((y - self.y_mean) / self.y_sd).astype(np.float32)
+        return self.y_scaler.transform(y).astype(np.float32) if self.standardise_y else y.astype(np.float32)
 
     def y_back(self, y: np.ndarray) -> np.ndarray:
         """Model-space values in original y units."""
-        return np.asarray(y, dtype=np.float64) * self.y_sd + self.y_mean
+        return self.y_scaler.inverse(np.asarray(y, dtype=np.float64)) if self.standardise_y else np.asarray(y, dtype=np.float64)
 
 
 @dataclass

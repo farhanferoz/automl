@@ -12,6 +12,61 @@ from automl_package.enums import DataSplitStrategy
 if TYPE_CHECKING:
     from automl_package.models.base import BaseModel
 
+MIN_STD = 1e-6  # a standard deviation below this is treated as 0 and replaced by 1
+
+
+def standardiser_stats(values: np.ndarray, axis: int | tuple[int, ...] | None, dtype: type | np.dtype = np.float32) -> tuple[np.ndarray, np.ndarray]:
+    """Nan-aware mean and population standard deviation along `axis`; the deviation is floored (below `MIN_STD` it becomes 1). Results are cast to `dtype`."""
+    mean = np.nan_to_num(np.nanmean(values, axis=axis))
+    std = np.nan_to_num(np.nanstd(values, axis=axis))
+    return mean.astype(dtype), np.where(std < MIN_STD, 1.0, std).astype(dtype)
+
+
+class TargetScaler:
+    """Per-output standardisation of targets by the mean and standard deviation of the rows passed to `fit`.
+
+    NaN means "no target" and stays NaN. A 1-D `y` is one output and comes back 1-D. The `transform`/`inverse_transform`/`mean_`/`scale_` names
+    mirror sklearn's `StandardScaler`, so a caller written against that works unchanged (those work on `(n, 1)` arrays too).
+    """
+
+    def __init__(self) -> None:
+        """Creates an unfitted scaler."""
+        self.mean_: np.ndarray | None = None
+        self.scale_: np.ndarray | None = None
+
+    def fit(self, y: np.ndarray) -> "TargetScaler":
+        """Statistics per output column of `y`; returns self."""
+        y = np.asarray(y)
+        y = y.astype(np.float64) if not np.issubdtype(y.dtype, np.floating) else y
+        self.mean_, self.scale_ = standardiser_stats(y.reshape(len(y), -1), axis=0, dtype=y.dtype)
+        return self
+
+    def _fitted(self) -> tuple[np.ndarray, np.ndarray]:
+        """Mean and scale, both `(n_outputs,)` and so broadcast along the last axis of a 1-D, `(n, 1)` or `(n, n_outputs)` array."""
+        if self.mean_ is None or self.scale_ is None:
+            raise RuntimeError("TargetScaler is not fitted.")
+        return self.mean_, self.scale_
+
+    def transform(self, y: np.ndarray) -> np.ndarray:
+        """Targets in scaled units (the dtype of `y` when floating)."""
+        y = np.asarray(y)
+        y = y if np.issubdtype(y.dtype, np.floating) else y.astype(np.float64)
+        mean, scale = self._fitted()
+        return (y - mean.astype(y.dtype)) / scale.astype(y.dtype)
+
+    def inverse(self, pred: np.ndarray) -> np.ndarray:
+        """Scaled values back in target units (float64 for float64 input, else the input's floating dtype)."""
+        pred = np.asarray(pred)
+        pred = pred if np.issubdtype(pred.dtype, np.floating) else pred.astype(np.float64)
+        mean, scale = self._fitted()
+        return pred * scale.astype(pred.dtype) + mean.astype(pred.dtype)
+
+    inverse_transform = inverse
+
+    def fit_transform(self, y: np.ndarray) -> np.ndarray:
+        """`fit(y)` then `transform(y)`."""
+        return self.fit(y).transform(y)
+
 
 class DataHandler:
     """Handles data scaling and splitting."""
@@ -23,7 +78,7 @@ class DataHandler:
         self.scale_binary_features = scale_binary_features
         self.log_transform_y = log_transform_y
         self.x_scaler = StandardScaler() if scale_x else None
-        self.y_scaler = StandardScaler() if scale_y else None
+        self.y_scaler = TargetScaler() if scale_y else None
         self.binary_feature_indices_ = []
         self.non_binary_feature_indices_ = []
         self.y_was_log_transformed = False

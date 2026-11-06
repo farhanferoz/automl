@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from automl_package.enums import ForecastLoss, OutputBound, RnnBackend
+from automl_package.enums import ForecastLoss, OutputBound, RnnBackend, TargetScaling
 from automl_package.models.common.output_bound import TrainingRangeBound
 from automl_package.models.common.unknown_category_embedding import UnknownCategoryEmbedding
 from automl_package.models.lstm_model import PyTorchLSTMForecaster, SequenceLayout
@@ -96,6 +96,55 @@ def test_input_statistics_come_from_the_fit_rows_only(model: PyTorchLSTMForecast
     assert np.allclose(model._input_stats["dense_mean"], x_train[:, 1 + N_STEPS * N_CHANNELS :].mean(axis=0), atol=1e-5)
 
 
+def test_per_output_target_scaling_is_fitted_on_the_fit_rows_and_forecasts_return_in_target_units(model: PyTorchLSTMForecaster) -> None:
+    assert model.target_scaling is TargetScaling.PER_OUTPUT  # the default
+    x_train, y_train = _panel(300, 3)
+    y_train = y_train * np.array([5.0, 40.0], dtype=np.float32) + np.array([100.0, -7.0], dtype=np.float32)  # horizons on very different scales
+    y_train[::3, 0] = np.nan
+    x_val, y_val = _panel(100, 4)
+    y_val = y_val * np.array([5.0, 40.0], dtype=np.float32) + np.array([100.0, -7.0], dtype=np.float32)
+    seen: list[torch.Tensor] = []
+    original = model._target_tensor
+    model._target_tensor = lambda y: seen.append(original(y)) or seen[-1]  # the targets the network trains on
+    model.fit(x_train, y_train, x_val=x_val, y_val=y_val)
+    trained_on = seen[0].numpy()
+    assert np.allclose(np.nanmean(trained_on, axis=0), 0.0, atol=1e-5)
+    assert np.allclose(np.nanstd(trained_on, axis=0), 1.0, atol=1e-5)
+    assert np.array_equal(np.isnan(trained_on), np.isnan(y_train))  # NaN stays NaN
+    scaler = model._target_scaler
+    assert np.allclose(scaler.mean_, np.nanmean(y_train, axis=0))  # fit rows only
+    assert np.allclose(scaler.scale_, np.nanstd(y_train, axis=0))
+    raw = model._predict_tensor(torch.tensor(x_val)).numpy()  # in the network's scale
+    np.testing.assert_allclose(model.predict(x_val), raw * scaler.scale_ + scaler.mean_, rtol=1e-6)  # forecasts in target units
+    np.testing.assert_allclose(scaler.inverse(scaler.transform(y_val)), y_val, rtol=1e-5, atol=1e-4)  # exact round trip
+    assert model._held_out_fit_score(x_val, y_val) == pytest.approx(model.convergence_.best_val, rel=1e-4)  # the held-out score reads scaled targets
+    assert model.convergence_.best_val < 1.0  # in standardised units (the squared error of the mean forecast is 1)
+    # an output bound is built from the scaled training targets
+    bounded = PyTorchLSTMForecaster(**{**model.get_params(), "output_bound": "training_range", "n_epochs": 2, "early_stopping_rounds": None})
+    bounded.fit(x_train, y_train)
+    assert float(bounded._output_bound.centre.abs().max()) < 2.0  # raw targets centre near 100; scaled ones near 0
+    with pytest.raises(ValueError, match="target_scaling=NONE"):
+        PyTorchLSTMForecaster(layout=model.layout, output_size=N_HORIZONS, loss="poisson_deviance")  # PER_OUTPUT is the default
+
+
+def test_target_scaling_none_reproduces_the_unscaled_predictions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Golden values from the code before target scaling existed (automl 95ee1aa, CPU, one thread)."""
+    monkeypatch.setenv("AUTOML_DEVICE", "cpu")
+    torch.set_num_threads(1)
+    x_train, y_train = _panel(150, 1)
+    x_val, y_val = _panel(60, 2)
+    y_train[::2, 0] = np.nan
+    unscaled = PyTorchLSTMForecaster(
+        layout=SequenceLayout(N_SERIES, N_STEPS, N_CHANNELS), output_size=N_HORIZONS, window=N_STEPS, hidden_size=16, embedding_dim=4, learning_rate=1e-2,
+        batch_size=64, n_epochs=4, early_stopping_rounds=4, refit_on_train_val=False, calculate_feature_importance=False, random_seed=0, target_scaling="none",
+    )
+    unscaled.fit(x_train, y_train, x_val=x_val, y_val=y_val)
+    pred = unscaled.predict(x_val)
+    assert unscaled._target_scaler is None
+    np.testing.assert_allclose(pred[:2], [[-0.15867209, 0.90455155], [-0.12159690, 0.40740809]], rtol=1e-4)
+    assert float(pred.sum()) == pytest.approx(30.399474, rel=1e-4)
+
+
 def test_poisson_deviance_formula_and_offset_reach_the_loss(model: PyTorchLSTMForecaster) -> None:
     # hand example: count u = 2, mean mu = 1 -> 2 * (2 log 2 - (2 - 1)) = 4 log 2 - 2; zero when mu == u; numpy and torch agree
     expected = 4 * math.log(2) - 2
@@ -106,7 +155,7 @@ def test_poisson_deviance_formula_and_offset_reach_the_loss(model: PyTorchLSTMFo
     nan = float("nan")
     offset = torch.tensor([[math.log(2)], [math.log(5)]])
     target = torch.tensor([[0.0, nan], [0.0, 0.0]])
-    loss = PyTorchLSTMForecaster(layout=model.layout, output_size=N_HORIZONS, loss="poisson_deviance")
+    loss = PyTorchLSTMForecaster(layout=model.layout, output_size=N_HORIZONS, loss="poisson_deviance", target_scaling="none")
     assert loss.loss is ForecastLoss.POISSON_DEVIANCE
     got = loss._fit_loss(torch.zeros(2, 2), target, offset=offset)
     assert got.item() == pytest.approx(0.0, abs=1e-6)  # prediction == target: deviance 0
@@ -139,7 +188,7 @@ def test_offset_column_is_not_an_input_and_poisson_model_trains(monkeypatch: pyt
         "calculate_feature_importance": False,
         "random_seed": 0,
     }
-    poisson = PyTorchLSTMForecaster(**common, loss=ForecastLoss.POISSON_DEVIANCE, early_stopping_rounds=3)
+    poisson = PyTorchLSTMForecaster(**common, loss=ForecastLoss.POISSON_DEVIANCE, target_scaling=TargetScaling.NONE, early_stopping_rounds=3)
     poisson.fit(x[:300], y[:300], x_val=x[300:], y_val=y[300:])
     assert poisson._input_stats["dense_mean"].shape == (N_DENSE - 1,)  # the offset column is not standardised or fed in
     changed = x[300:].copy()
