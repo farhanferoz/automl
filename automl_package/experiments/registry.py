@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-import importlib
 import inspect
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -23,34 +22,12 @@ from typing import Any
 
 import numpy as np
 
-from automl_package.enums import ModelName
 from automl_package.experiments.config import MISSING, HpoConfig, ModelConfig, PredictorKind, ProtocolConfig, coerce_enum
 from automl_package.experiments.toys import Toy
-from automl_package.models.base import BaseModel
+from automl_package.models.base import NESTED_PARAM_SEPARATOR, BaseModel
+from automl_package.models.registry import model_class
 
-# ModelName member name -> "module:Class". Keyed by member NAME so a member the enum has not gained yet is simply absent.
-_CLASS_PATHS: dict[str, str] = {
-    "NORMAL_EQUATION_LINEAR_REGRESSION": "automl_package.models.normal_equation_linear_regression:NormalEquationLinearRegression",
-    "PYTORCH_LINEAR_REGRESSION": "automl_package.models.pytorch_linear_regression:PyTorchLinearRegression",
-    "PYTORCH_NEURAL_NETWORK": "automl_package.models.neural_network:PyTorchNeuralNetwork",
-    "FLEXIBLE_NEURAL_NETWORK": "automl_package.models.flexible_neural_network:FlexibleHiddenLayersNN",
-    "XGBOOST": "automl_package.models.xgboost_model:XGBoostModel",
-    "LIGHTGBM": "automl_package.models.lightgbm_model:LightGBMModel",
-    "CATBOOST": "automl_package.models.catboost_model:CatBoostModel",
-    "PROBABILISTIC_REGRESSION": "automl_package.models.probabilistic_regression:ProbabilisticRegressionModel",
-    "LSTM_FORECASTER": "automl_package.models.lstm_model:PyTorchLSTMForecaster",
-}
-NESTED_PARAM_SEPARATOR = "__"  # ``a__b`` in a search space names key ``b`` of the dict parameter ``a``
 _UNSET = object()
-
-
-def model_class(name: ModelName) -> type[BaseModel]:
-    """The class registered for ``name``."""
-    path = _CLASS_PATHS.get(name.name)
-    if path is None:
-        raise ValueError(f"No class registered for {name.name}; registered: {sorted(_CLASS_PATHS)}")
-    module, cls = path.split(":")
-    return getattr(importlib.import_module(module), cls)
 
 
 def accepted_keys(cls: type[BaseModel]) -> tuple[dict[str, Any], bool]:

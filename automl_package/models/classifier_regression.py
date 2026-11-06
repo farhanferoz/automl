@@ -2,7 +2,7 @@
 """Composite model for regression using classification and probability mapping."""
 
 import os
-from typing import Any
+from typing import Any, ClassVar
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,11 +11,12 @@ import torch
 
 from automl_package.enums import BoundaryRegularizationMethod, MapperType, Metric, ModelName, OptimizerType, RegressionStrategy, TaskType, UncertaintyMethod
 from automl_package.logger import logger
-from automl_package.models.base import BaseModel
+from automl_package.models.base import NESTED_PARAM_SEPARATOR, BaseModel
 from automl_package.models.common.middle_class_penalty_mixin import MiddleClassPenaltyMixin
 from automl_package.models.mappers.base_mapper import BaseMapper
 from automl_package.models.mappers.nn_mapper import NeuralNetworkMapper
 from automl_package.models.probability_mapper import ClassProbabilityMapper
+from automl_package.models.registry import resolve_model_class
 from automl_package.utils.data_handler import create_train_val_split
 from automl_package.utils.feature_selection import select_features_by_cumulative_importance
 from automl_package.utils.metrics import Metrics
@@ -32,23 +33,31 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
     back to continuous regression output using various mapping strategies.
     """
 
+    # The model's own options and their defaults (the rest go to `BaseModel`). Declared so a config's keys are checked
+    # against them and its strings turned into these enums (`experiments/registry.py`).
+    _defaults: ClassVar[dict[str, Any]] = {
+        "base_classifier_class": None,  # a model class, or its ModelName (member or name): `models/registry.py`
+        "n_classes": 3,
+        "auto_include_nn_mappers": True,
+        "mapper_type": MapperType.SPLINE,
+        "base_classifier_params": None,
+        "mapper_params": None,
+        "nn_mapper_params": None,
+        "regression_strategy": None,
+        "boundary_regularization_method": BoundaryRegularizationMethod.NONE,
+        "boundary_loss_weight": 1.0,
+        "use_monotonic_constraints": False,
+        "constrain_middle_class": False,
+        "apply_boundary_loss_during_validation": False,
+        "use_middle_class_nll_penalty": False,
+        "optimizer_type": OptimizerType.ADAM,
+        "random_seed": None,  # seeds the classifier and the inner split
+    }
+
     def __init__(self, **kwargs: Any) -> None:
-        """Initializes the ClassifierRegressionModel."""
-        self.base_classifier_class: type[BaseModel] | None = kwargs.pop("base_classifier_class", None)
-        self.n_classes: int = kwargs.pop("n_classes", 3)
-        self.auto_include_nn_mappers: bool = kwargs.pop("auto_include_nn_mappers", True)
-        self.mapper_type: MapperType | str = kwargs.pop("mapper_type", MapperType.SPLINE)
-        self.base_classifier_params: dict | None = kwargs.pop("base_classifier_params", None)
-        self.mapper_params: dict | None = kwargs.pop("mapper_params", None)
-        self.nn_mapper_params: dict | None = kwargs.pop("nn_mapper_params", None)
-        self.regression_strategy: RegressionStrategy | None = kwargs.pop("regression_strategy", None)
-        self.boundary_regularization_method: BoundaryRegularizationMethod = kwargs.pop("boundary_regularization_method", BoundaryRegularizationMethod.NONE)
-        self.boundary_loss_weight: float = kwargs.pop("boundary_loss_weight", 1.0)
-        self.use_monotonic_constraints: bool = kwargs.pop("use_monotonic_constraints", False)
-        self.constrain_middle_class: bool = kwargs.pop("constrain_middle_class", False)
-        self.apply_boundary_loss_during_validation: bool = kwargs.pop("apply_boundary_loss_during_validation", False)
-        self.use_middle_class_nll_penalty: bool = kwargs.pop("use_middle_class_nll_penalty", False)
-        self.optimizer_type: OptimizerType = kwargs.pop("optimizer_type", OptimizerType.ADAM)
+        """Initializes the ClassifierRegressionModel (options: `_defaults`, plus every `BaseModel` setting)."""
+        for key, default in self._defaults.items():
+            setattr(self, key, kwargs.pop(key, default))
         self.device = get_device()
 
         if self.boundary_regularization_method == BoundaryRegularizationMethod.PENALTY and kwargs.get("uncertainty_method") == UncertaintyMethod.PROBABILISTIC:
@@ -63,7 +72,7 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
         }
 
         super().__init__(**kwargs)
-        MiddleClassPenaltyMixin.__init__(self, **kwargs)
+        MiddleClassPenaltyMixin.__init__(self, use_middle_class_nll_penalty=self.use_middle_class_nll_penalty, **kwargs)
         assert self.is_regression_model
 
         if isinstance(self.mapper_type, str):
@@ -74,10 +83,12 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
 
         if self.base_classifier_class is None:
             raise ValueError("base_classifier_class must be provided.")
+        self.base_classifier_class = resolve_model_class(self.base_classifier_class)
 
-        self.base_classifier_params = self.base_classifier_params if self.base_classifier_params is not None else {}
-        self.mapper_params = self.mapper_params if self.mapper_params is not None else {}
-        self.nn_mapper_params = self.nn_mapper_params if self.nn_mapper_params is not None else {}
+        # Own copies: a search trial updates these dicts, which must never reach the model it was cloned from.
+        self.base_classifier_params = dict(self.base_classifier_params or {})
+        self.mapper_params = dict(self.mapper_params or {})
+        self.nn_mapper_params = dict(self.nn_mapper_params or {})
 
         self.base_classifier: BaseModel | None = None
         self.class_boundaries: np.ndarray | None = None
@@ -311,6 +322,8 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
                 "cv_folds": None,
             }
         )
+        if self.random_seed is not None:
+            params.setdefault("random_seed", self.random_seed)
         if self.base_classifier_class.__name__ == ModelName.PYTORCH_NEURAL_NETWORK.value:
             params["input_size"] = input_size
             params["output_size"] = classifier_output_size
@@ -336,13 +349,18 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
     def _evaluate_trial_performance(
         self, model_instance: "ClassifierRegressionModel", x: np.ndarray, y: np.ndarray, timestamps: np.ndarray | None = None, explicit_split: tuple | None = None
     ) -> tuple[float, int]:
-        """Evaluates a trial's performance and returns the score and optimal iterations."""
-        if explicit_split is not None:
-            raise NotImplementedError("ClassifierRegressionModel does not support an explicit validation set or refit_on_train_val=False.")
+        """Evaluates a trial's performance and returns the score and optimal iterations.
+
+        With ``explicit_split = (x_train, y_train, x_val, y_val)`` (the one-pass protocol) the trial is one `_fit_single` on the
+        training part, the classifier early-stopped on its held-out cross-entropy, and the score is the held-out fit term of the
+        final prediction (`BaseModel._evaluate_trial_performance`).
+        """
         # Set the class boundaries for the trial based on the trial's n_classes
         model_instance.class_boundaries = self.precomputed_boundaries_[model_instance.n_classes]
         if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE:
             model_instance.class_value_ranges_ = self.precomputed_class_value_ranges_[model_instance.n_classes]
+        if explicit_split is not None:
+            return super()._evaluate_trial_performance(model_instance, x, y, timestamps=timestamps, explicit_split=explicit_split)
 
         if self.cv_folds:
             kf = self.get_kfolds(timestamps=timestamps)
@@ -555,32 +573,19 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
             fold_mapper_params[m].append(params)
 
     def _update_params(self, best_params: dict[str, Any]) -> None:
-        """Updates the model's parameters from a successful hyperparameter optimization trial."""
-        super()._update_params(best_params)
-        base_classifier_params = {}
-        mapper_params = {}
-        nn_mapper_params = {}
-        known_mapper_params = {"lookup_n_partitions", "spline_k", "spline_s"}
+        """Updates the model's parameters from a search trial.
 
+        ``a__b`` sets key ``b`` of the dict parameter ``a`` (``base_classifier_params``, ``mapper_params``, ``nn_mapper_params``);
+        other names are attributes (``n_classes``, ``mapper_type``).
+        """
+        flat = {}
         for key, value in best_params.items():
-            if key.startswith("base_classifier__"):
-                param_name = key.split("__", 1)[1]
-                base_classifier_params[param_name] = value
-            elif key.startswith("nn_mapper_"):
-                param_name = key.replace("nn_mapper_", "")
-                nn_mapper_params[param_name] = value
-            elif key in known_mapper_params:
-                mapper_params[key] = value
+            outer, _, inner = key.partition(NESTED_PARAM_SEPARATOR)
+            if inner:
+                getattr(self, outer)[inner] = value
             else:
-                # Handle direct attributes like 'n_classes' and 'mapper_type'
-                if key == "mapper_type":
-                    self.mapper_type = MapperType[value]
-                else:
-                    setattr(self, key, value)
-
-        self.base_classifier_params.update(base_classifier_params)
-        self.mapper_params.update(mapper_params)
-        self.nn_mapper_params.update(nn_mapper_params)
+                flat[key] = MapperType[value] if key == "mapper_type" else value
+        super()._update_params(flat)
 
     def _determine_optimal_parameters(
         self,
@@ -593,24 +598,24 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
         timestamps_train_val: np.ndarray | None = None,
         use_explicit_split: bool = False,
     ) -> None:
-        """Finds the optimal parameters for the model."""
+        """Finds the optimal parameters for the model.
+
+        Under ``use_explicit_split`` (a caller-given validation set, or ``refit_on_train_val=False``) the class boundaries come from
+        the TRAINING targets only and `BaseModel._determine_optimal_parameters` runs the search on the caller's split (or the one
+        early-stopped pass), so the validation rows are never binned, fitted or used for anything but stopping and scoring.
+        """
         if use_explicit_split:
-            raise NotImplementedError("ClassifierRegressionModel does not support an explicit validation set or refit_on_train_val=False.")
+            self._precompute_class_boundaries(y_train)
+            self.class_boundaries = self.precomputed_boundaries_[self.n_classes]
+            if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE:
+                self.class_value_ranges_ = self.precomputed_class_value_ranges_[self.n_classes]
+            super()._determine_optimal_parameters(
+                x_train, y_train, x_train_val, y_train_val, x_val=x_val, y_val=y_val, timestamps_train_val=timestamps_train_val, use_explicit_split=True
+            )
+            return
         if self.optimize_hyperparameters:
             logger.info("--- Starting hyperparameter optimization for ClassifierRegressionModel ---")
-            # Pre-calculate class boundaries for all possible n_classes values to speed up trials
-            n_classes_space = self._searched_space().get("n_classes", {"low": self.n_classes, "high": self.n_classes})
-            self.precomputed_boundaries_ = {}
-            self.precomputed_class_value_ranges_ = {}
-            y_min, y_max = np.min(y_train_val), np.max(y_train_val)
-
-            for n in range(n_classes_space["low"], n_classes_space["high"] + 1):
-                boundaries, y_binned = create_bins(data=y_train_val, n_bins=n, min_value=-np.inf, max_value=np.inf)
-                self.precomputed_boundaries_[n] = boundaries
-                self._calculate_middle_class_dist_params(y_train_val, y_binned, n_classes=n)
-                if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE:
-                    self.precomputed_class_value_ranges_[n] = calculate_class_value_ranges(y_flat=y_train_val, y_binned=y_binned, k=n, y_min=y_min, y_max=y_max, device=self.device)
-
+            self._precompute_class_boundaries(y_train_val)
             best_params, best_iterations = self._find_best_hyperparameters(x=x_train_val.values, y=y_train_val, timestamps=timestamps_train_val)
             self._update_params(best_params)
             self.num_iterations_used = best_iterations
@@ -679,6 +684,21 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
                     self.optimal_mapper_params_ = {"epochs": avg_epochs}
                     logger.info(f"--- Aggregated optimal NN mapper epochs: {avg_epochs} ---")
 
+    def _precompute_class_boundaries(self, y: np.ndarray) -> None:
+        """Class boundaries (percentile bins of ``y``) for every k a fit may use: the searched ``n_classes`` range and this model's own k."""
+        y = np.asarray(y).ravel()
+        space = self._searched_space().get("n_classes") if self.optimize_hyperparameters else None
+        k_values = sorted({self.n_classes, *(range(int(space["low"]), int(space["high"]) + 1) if space else ())})
+        self.precomputed_boundaries_ = {}
+        self.precomputed_class_value_ranges_ = {}
+        y_min, y_max = np.min(y), np.max(y)
+        for n in k_values:
+            boundaries, y_binned = create_bins(data=y, n_bins=n, min_value=-np.inf, max_value=np.inf)
+            self.precomputed_boundaries_[n] = boundaries
+            self._calculate_middle_class_dist_params(y, y_binned, n_classes=n)
+            if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE:
+                self.precomputed_class_value_ranges_[n] = calculate_class_value_ranges(y_flat=y, y_binned=y_binned, k=n, y_min=y_min, y_max=y_max, device=self.device)
+
     def _fit_final_model(self, x_train: np.ndarray, y_train: np.ndarray) -> None:
         """Retrain on the full training + validation set with the optimal number of iterations."""
         logger.info("--- Training final model with optimal parameters ---")
@@ -692,21 +712,7 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
     def get_params(self) -> dict[str, Any]:
         """Gets parameters for this estimator."""
         params = super().get_params()
-        params.update(
-            {
-                "n_classes": self.n_classes,
-                "base_classifier_class": self.base_classifier_class,
-                "base_classifier_params": self.base_classifier_params,
-                "mapper_type": self.mapper_type,
-                "mapper_params": self.mapper_params,
-                "nn_mapper_params": self.nn_mapper_params,
-                "auto_include_nn_mappers": self.auto_include_nn_mappers,
-                "boundary_regularization_method": self.boundary_regularization_method,
-                "boundary_loss_weight": self.boundary_loss_weight,
-                "use_monotonic_constraints": self.use_monotonic_constraints,
-                "use_middle_class_nll_penalty": self.use_middle_class_nll_penalty,
-            }
-        )
+        params.update({key: getattr(self, key) for key in self._defaults})
         return params
 
     def _predict(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
@@ -735,46 +741,43 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
         return self.base_classifier.predict_proba(x, filter_data=False)
 
     def get_hyperparameter_search_space(self) -> dict[str, Any]:
-        """Defines the hyperparameter search space for the ClassifierRegressionModel."""
-        space = {
-            "n_classes": {"type": "int", "low": 2, "high": 10},
-            "boundary_regularization_method": {"type": "categorical", "choices": [e.value for e in BoundaryRegularizationMethod]},
-            "boundary_loss_weight": {"type": "float", "low": 0.1, "high": 10.0, "log": True},
-        }
+        """Defines the hyperparameter search space for the ClassifierRegressionModel.
 
-        # Add base classifier hyperparameters
+        ``n_classes``; the classifier's own space as ``base_classifier_params__<name>`` (read off a classifier built with this
+        model's classifier settings, so e.g. its epochs are searched only when it does not stop early); the parameters of the
+        chosen mapper only (every mapper's when ``mapper_type`` is AUTO, which also searches the mapper); and the boundary
+        weight only when a boundary method is set. The boundary METHOD is a design choice, never searched.
+        """
+        sep = NESTED_PARAM_SEPARATOR
+        space: dict[str, Any] = {"n_classes": {"type": "int", "low": 2, "high": 10}}
+        if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE:
+            space["boundary_loss_weight"] = {"type": "float", "low": 0.1, "high": 10.0, "log": True}
+
         if self.base_classifier_class:
-            base_classifier_space = self.base_classifier_class().get_hyperparameter_search_space()
-            for name, params in base_classifier_space.items():
-                space[f"base_classifier__{name}"] = params
+            classifier = self.base_classifier_class(**self._get_base_classifier_params(input_size=1))
+            space.update({f"base_classifier_params{sep}{name}": params for name, params in classifier.get_hyperparameter_search_space().items()})
 
-        # Add mapper type to search space only if it's set to AUTO
-        if self.mapper_type == MapperType.AUTO:
-            # Exclude AUTO itself from the choices
-            mapper_choices = [m.name for m in MapperType if m != MapperType.AUTO and (self.auto_include_nn_mappers or not m.is_nn)]
-            space["mapper_type"] = {"type": "categorical", "choices": mapper_choices}
-
-        # Add parameters for all possible mappers that might be chosen
-        # Optuna will only sample parameters for the mapper_type chosen in a given trial
-        mapper_params = {
-            # Parameters for lookup mappers
-            "lookup_n_partitions": {"type": "int", "low": 5, "high": 50},
-            # Parameters for spline mapper
-            "spline_k": {"type": "int", "low": 1, "high": 3},
-            "spline_s": {"type": "float", "low": 0.01, "high": 10.0, "log": True},
-            # Parameters for NeuralNetworkMapper
-            "nn_mapper_learning_rate": {"type": "float", "low": 1e-4, "high": 1e-2, "log": True},
-            "nn_mapper_hidden_layers": {"type": "int", "low": 0, "high": 2},
-            "nn_mapper_hidden_size": {"type": "int", "low": 16, "high": 64, "step": 16},
-            "nn_mapper_l1_lambda": {"type": "float", "low": 1e-8, "high": 1e-2, "log": True},
-            "nn_mapper_l2_lambda": {"type": "float", "low": 1e-8, "high": 1e-2, "log": True},
-            "nn_mapper_learn_regularization_lambdas": {"type": "categorical", "choices": [True, False]},
-        }
-        # Only add epochs to the search space if early stopping is disabled
-        if self.early_stopping_rounds is None:
-            mapper_params["nn_mapper_epochs"] = {"type": "int", "low": 5, "high": 100, "step": 20}
-
-        space.update(mapper_params)
+        auto = self.mapper_type == MapperType.AUTO
+        searched_mappers = [m for m in MapperType if m != MapperType.AUTO and (self.auto_include_nn_mappers or not m.is_nn)] if auto else [self.mapper_type]
+        if auto:
+            space["mapper_type"] = {"type": "categorical", "choices": [m.name for m in searched_mappers]}
+        if any(m in (MapperType.LOOKUP_MEAN, MapperType.LOOKUP_MEDIAN) for m in searched_mappers):
+            space[f"mapper_params{sep}lookup_n_partitions"] = {"type": "int", "low": 5, "high": 50}
+        if MapperType.SPLINE in searched_mappers:
+            space[f"mapper_params{sep}spline_k"] = {"type": "int", "low": 1, "high": 3}
+            space[f"mapper_params{sep}spline_s"] = {"type": "float", "low": 0.01, "high": 10.0, "log": True}
+        if any(m.is_nn for m in searched_mappers):
+            nn_space = {
+                "learning_rate": {"type": "float", "low": 1e-4, "high": 1e-2, "log": True},
+                "hidden_layers": {"type": "int", "low": 0, "high": 2},
+                "hidden_size": {"type": "int", "low": 16, "high": 64, "step": 16},
+                "l1_lambda": {"type": "float", "low": 1e-8, "high": 1e-2, "log": True},
+                "l2_lambda": {"type": "float", "low": 1e-8, "high": 1e-2, "log": True},
+                "learn_regularization_lambdas": {"type": "categorical", "choices": [True, False]},
+            }
+            if self.early_stopping_rounds is None:  # epochs are searched only without early stopping
+                nn_space["epochs"] = {"type": "int", "low": 5, "high": 100, "step": 20}
+            space.update({f"nn_mapper_params{sep}{name}": params for name, params in nn_space.items()})
 
         if self.search_space_override:
             space.update(self.search_space_override)

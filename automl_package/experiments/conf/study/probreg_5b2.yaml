@@ -1,0 +1,22 @@
+# Card 5b2: the simplest two-stage model, ClassReg (classifier, then per-class medians), against default ProbReg on the test
+# draw (DECISIONS.md, 2026-11-05). `classreg`: the classifier's settings and k chosen by the same 20-trial search as the other
+# models; `classreg_sweep`: those settings, then one model per k = 2..10, the best on the validation draw (as card 5c-5's
+# sweep_min). The reference records are card 5b's (same config, found done). Sizes and patience as cards 5b/5c.
+defaults:
+  - study_schema
+  - _toys_all
+  - /protocol@protocol: cards_5bc
+  - /hpo@hpo: tpe20
+  - /model@variants.probreg: probreg_tuned
+  - /model@variants.classreg: classreg
+  - /model@variants.classreg_sweep: classreg
+  - _self_
+
+name: probreg_5b2
+card: 5b2
+sizes: ???
+output: {results_subdir: probreg_main}
+variants:
+  classreg: {tuned: true}
+  classreg_sweep: {k_sweep: {from_variant: classreg, rule: MINIMUM}}
+report: {kind: COMPARISON, eval_set: TEST, reference_variant: probreg, noise_results_subdir: probreg_5a3, noise_variant: probreg}

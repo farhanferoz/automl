@@ -1,17 +1,20 @@
 """Experiment runner guards: one cell end to end, config validation, slot-in of a later variant, pairing within a fingerprint."""
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from automl_package.enums import ModelName, OptimizerType
+from automl_package.enums import MapperType, ModelName, OptimizerType
 from automl_package.examples._toy_datasets import StudyToy
 from automl_package.experiments import patience, report
 from automl_package.experiments.cell import cell_status, fingerprint_id, load_record, record_path
-from automl_package.experiments.config import CellSpec, HpoConfig, ModelConfig, PredictorKind, ProtocolConfig, StudyConfig, ToyConfig, from_dict, to_dict
+from automl_package.experiments.config import DEFAULT_RESULTS_ROOT, CellSpec, HpoConfig, ModelConfig, PredictorKind, ProtocolConfig, StudyConfig, ToyConfig, from_dict, to_dict
 from automl_package.experiments.registry import build_model
 from automl_package.experiments.study import plan, run_cells
 
+RESULTS_ROOT = Path(DEFAULT_RESULTS_ROOT)
 TINY_TOY = ToyConfig(name=StudyToy.TOY_A, n_selection=300, n_test=300)
 TINY_PROTOCOL = ProtocolConfig(seeds=[0], early_stopping_patience=2, max_epochs=2)
 PLAIN_NN = ModelConfig(name=ModelName.PYTORCH_NEURAL_NETWORK, standardise_x=True, standardise_y=True)
@@ -58,6 +61,30 @@ def test_config_validation_and_round_trip():
         build_model(ModelConfig(name=ModelName.PYTORCH_NEURAL_NETWORK, params={"optimizer_type": "NOPE"}), TINY_PROTOCOL, HpoConfig(n_trials=1), seed=0)
     cell = CellSpec(study="s", card="c", variant="v", model=PLAIN_NN, toy=TINY_TOY, n_train=64, protocol=TINY_PROTOCOL, results_dir="/x")
     assert from_dict(CellSpec, to_dict(cell)).config_hash() == cell.config_hash()
+    # a composite model names its inner classifier in the config, and its own keys are checked too
+    classreg = ModelConfig(name=ModelName.CLASSIFIER_REGRESSION, params={"base_classifier_class": "PYTORCH_NEURAL_NETWORK", "mapper_type": "LOOKUP_MEDIAN"})
+    model = build_model(classreg, TINY_PROTOCOL, HpoConfig(n_trials=1), seed=0)
+    assert model.base_classifier_class.__name__ == "PyTorchNeuralNetwork"
+    assert model.mapper_type is MapperType.LOOKUP_MEDIAN
+    assert model.random_seed == 0
+    classreg.params["n_clases"] = 3
+    with pytest.raises(ValueError, match="valid keys"):
+        build_model(classreg, TINY_PROTOCOL, HpoConfig(n_trials=1), seed=0)
+
+
+def test_finished_cells_keep_their_identity():
+    """A cell composed from today's YAML hashes as the record it wrote did (a schema change would silently re-run every finished cell)."""
+    from hydra import compose, initialize_config_dir
+    from omegaconf import OmegaConf
+
+    from automl_package.experiments import run
+
+    record = load_record(RESULTS_ROOT / "probreg_main" / "probreg" / "toy_a" / "n250" / "s0.json")
+    with initialize_config_dir(config_dir=run.CONF_DIR, version_base="1.3"):
+        patience_override = f"study.protocol.early_stopping_patience={record['config']['protocol']['early_stopping_patience']}"
+        cfg = compose(config_name="config", overrides=["+study=probreg_5b", "study.sizes=[250]", patience_override])
+    (cell,) = [c for c in plan(OmegaConf.to_object(cfg).study) if c.variant == "probreg" and c.toy_label == "toy_a" and c.seed == 0]
+    assert cell.config_hash() == record["config_hash"]
 
 
 def test_later_variant_slots_in_without_rerunning(tmp_path):

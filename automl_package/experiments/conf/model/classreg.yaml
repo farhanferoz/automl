@@ -1,0 +1,21 @@
+# ClassReg: a classifier over percentile bins of y (a plain network trained on the bins alone, stopped on its held-out
+# cross-entropy), then for each class the median y at each probability (LOOKUP_MEDIAN); the prediction is the
+# probability-weighted sum of those medians. Two-stage by construction. Boundary penalties off (DECISIONS.md "Only likelihoods
+# and priors train the model"), dropout off (DECISIONS.md "Dropout OFF"); the classifier trains with the study's epoch cap
+# and batch size.
+defaults:
+  - model_schema
+  - _self_
+
+name: CLASSIFIER_REGRESSION
+standardise_x: true
+standardise_y: true
+params:
+  n_classes: 3
+  base_classifier_class: PYTORCH_NEURAL_NETWORK
+  mapper_type: LOOKUP_MEDIAN
+  boundary_regularization_method: NONE
+  base_classifier_params: {dropout_rate: 0.0, n_epochs: '${study.protocol.max_epochs}', batch_size: '${study.protocol.batch_size}'}
+search_space:
+  n_classes: {type: INT, low: 2, high: 10}
+search_space_exclude: [base_classifier_params__dropout_rate]

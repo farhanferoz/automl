@@ -12,7 +12,6 @@ from automl_package.enums import (
     BoundaryRegularizationMethod,
     CapacitySelection,
     ExplainerType,
-    KSelectionRule,
     NClassesRegularization,
     NClassesSelectionMethod,
     ProbabilisticRegressionOptimizationStrategy,
@@ -23,6 +22,9 @@ from automl_package.enums import (
 )
 from automl_package.logger import logger
 from automl_package.models.architectures.probabilistic_regression_net import ProbabilisticRegressionNet
+
+# MIN_SWEEP_K: k=1 is a constant predictor (the nested model's k=1 rung is the direct-regression bypass, a different thing).
+from automl_package.models.base import MIN_SWEEP_K, BaseModel
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.common.distilled_router import DEFAULT_TOLERANCE, DistilledCapacityRouter
 from automl_package.models.common.middle_class_penalty_mixin import MiddleClassPenaltyMixin
@@ -51,10 +53,6 @@ _RETIRED_N_CLASSES_SELECTION_METHODS = frozenset(
     }
 )
 _RETIRED_N_CLASSES_REGULARIZATIONS = frozenset({NClassesRegularization.K_PENALTY, NClassesRegularization.ELBO})
-
-# Smallest k the per-k sweep (M3) trains: k=1 is a constant predictor (the nested model's k=1 rung is the direct-regression bypass, a different thing).
-MIN_SWEEP_K = 2
-
 
 class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleClassPenaltyMixin):
     """A PyTorch-based probabilistic regression model that directly learns both mean and variance.
@@ -1190,120 +1188,54 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         }
         return selected_k
 
-    def fit_sweep_selector(
-        self,
-        x_train: np.ndarray,
-        y_train: np.ndarray,
-        x_val: np.ndarray,
-        y_val: np.ndarray,
-        *,
-        capacity_grid: list[int] | None = None,
-        n_bootstrap: int = 1000,
-        rule: KSelectionRule = KSelectionRule.CHEAPEST_WITHIN_TOLERANCE,
-        early_stop_on_val: bool = False,
-    ) -> int:
-        """`CapacitySelection.GLOBAL_SWEEP` (M3): trains one ORDINARY model per candidate k.
+    # `CapacitySelection.GLOBAL_SWEEP` (M3, capacity-programme Task PA) is `BaseModel.fit_sweep_selector`: one ORDINARY model
+    # per candidate k, each scored per sample by its held-out FIT TERM (`_held_out_fit_per_sample`: Gaussian NLL of its mean
+    # and spread under PROBABILISTIC, squared error under CONSTANT) in the space the models were trained in -- the same
+    # score and space `fit_global_selector` reads off the NESTED ladder -- and the strand's cheapest-within-tolerance rule
+    # (`docs/probreg/PLAN.md` §1) via the SAME primitive `fit_global_selector` (M1) uses. Expensive by design: M3 is the
+    # reference the cheap arms are measured against, exempt from the matched-cost budget. The hooks below are ProbReg's part.
 
-        Each is `NClassesSelectionMethod.NONE`, scored on held-out `(x_val, y_val)`; the winner
-        is kept (capacity-programme Task PA). Generalises `report_a_benchmark.select_k_for_toy`
-        (`automl_package/examples/report_a_benchmark.py:331`) into a package method: unlike that
-        script's argmin-val-NLL rule, this applies the strand's own cheapest-within-tolerance rule
-        (`docs/probreg/PLAN.md` §1) via
-        `automl_package.utils.capacity_selection.cheapest_within_tolerance` -- the SAME primitive
-        `fit_global_selector` (M1) uses, so the two are selected consistently.
+    def _default_sweep_grid(self) -> list[int]:
+        """Default candidates 2..`max_n_classes_for_probabilistic_path`.
 
-        Each sub-model is trained ORDINARILY at its own fixed k
-        (`n_classes_selection_method=NONE`) -- never with k-dropout -- matching §1's ruling that a
-        per-k model trained with dropout across the whole ladder "is not dedicated to anything...
-        and cannot serve as an independent reference". Every sub-model is built from
-        `self.get_params()` with `n_classes`/`n_classes_selection_method`/`capacity_selection`
-        overridden, plus a short list of fields re-stated explicitly at the call site below.
-        **Correction, root-verified 2026-07-21:** an earlier version of this docstring claimed
-        `get_params()` "does not round-trip" six fields and that this was a pre-existing
-        silent-wrong-answer bug. That was checked and is **FALSE for five of the six** --
-        `target_transform`, `prob_reg_loss_type`, `use_anchored_heads`, `loss_type` and `beta` are
-        all present in `get_params()` and survive `_clone()` intact. Only
-        `calculate_feature_importance` is genuinely absent, and dropping it from a clone is
-        arguably right (it is a diagnostic switch, not a model hyper-parameter). No CV/HPO bug
-        follows, and none is filed.
-        Each is trained on the FULL
-        `(x_train, y_train)` this method receives -- expensive by design (`docs/probreg/PLAN.md` §1: M3 is
-        the reference the cheap arms are measured against, exempt from the matched-cost budget).
-
-        Scored by each sub-model's per-sample held-out FIT TERM (`_held_out_fit_per_sample`: Gaussian NLL of
-        its mean and spread under PROBABILISTIC, squared error under CONSTANT; lower is better) in the space
-        the models were trained in -- the same score and space `fit_global_selector` reads off the NESTED
-        ladder. Only each model's own selected k is reported.
-
-        Args:
-            x_train: data every per-k sub-model is trained on.
-            y_train: targets every per-k sub-model is trained on.
-            x_val: held-out inputs the per-k curve is scored on.
-            y_val: held-out targets the per-k curve is scored on.
-            capacity_grid: candidate k values, cheapest first. Defaults to `2..max_n_classes_for_probabilistic_path`.
-                `fit_global_selector` defaults to the same grid plus k=1; the one difference is that at
-                k=1 a one-class ProbReg is a constant predictor, which means nothing as a trained
-                candidate, whereas M1's rung 1 is the direct-regression bypass, a real candidate (owner
-                ruling 2026-11-01). A grid containing 1 raises `ValueError`.
-            n_bootstrap: bootstrap resamples for the selection rule's standard-error estimate.
-            rule: `CHEAPEST_WITHIN_TOLERANCE` (default, the rule above) or `MINIMUM` (the k with the lowest mean held-out error).
-            early_stop_on_val: when True each per-k sub-model is fitted in one pass, early-stopped on `(x_val, y_val)` (which
-                also choose k: the study protocol), instead of on an inner split of `(x_train, y_train)`.
-
-        Returns:
-            The selected k (also stored as `self.selected_k_`; the mean held-out fit term per k is `self.sweep_val_errors_`; the winning sub-model is stored as
-            `self._sweep_submodel_` and is what `predict`/`predict_uncertainty` delegate to under
-            `CapacitySelection.GLOBAL_SWEEP`; the curve is `self.global_selector_curve_`).
+        `fit_global_selector` defaults to the same grid plus k=1; the one difference is that at k=1 a one-class ProbReg is a
+        constant predictor, which means nothing as a trained candidate, whereas M1's rung 1 is the direct-regression bypass,
+        a real candidate (owner ruling 2026-11-01).
         """
-        if capacity_grid is None:
-            capacity_grid = list(range(MIN_SWEEP_K, self.max_n_classes_for_probabilistic_path + 1))
-        if min(capacity_grid) < MIN_SWEEP_K:
-            raise ValueError(
-                f"fit_sweep_selector candidates start at k={MIN_SWEEP_K}: a one-class ProbReg is a constant predictor, which means nothing (got {capacity_grid})."
-            )
+        return list(range(MIN_SWEEP_K, self.max_n_classes_for_probabilistic_path + 1))
 
-        base_params = self.get_params()
-        # Explicit, not compensatory. VERIFIED AT THE ROOT 2026-07-21: `get_params()` DOES
-        # round-trip `target_transform`, `prob_reg_loss_type`, `use_anchored_heads`, `loss_type`
-        # and `beta` (checked by constructing with non-defaults and reading `_clone()` back --
-        # e.g. symlog survives the clone). Only `calculate_feature_importance` is genuinely
-        # absent, and that one matters here beyond correctness: left at `BaseModel`'s `True`
-        # default, every per-k sub-model would run SHAP unasked, multiplying an
-        # already-expensive-by-design sweep. Re-stating the other five is harmless and keeps this
-        # sweep's contract explicit at the call site.
-        for field in ("target_transform", "prob_reg_loss_type", "use_anchored_heads", "loss_type", "beta", "calculate_feature_importance"):
-            base_params[field] = getattr(self, field)
+    def _sweep_candidate_params(self, k: int, *, early_stop_on_val: bool) -> dict[str, Any]:
+        """Each candidate is an ORDINARY ProbReg at its own fixed k (`NClassesSelectionMethod.NONE`, `CapacitySelection.FIXED`).
 
-        n_selection = len(np.asarray(y_val).ravel())
-        error_table = np.empty((n_selection, len(capacity_grid)), dtype=np.float64)
-        submodels: list[ProbabilisticRegressionModel] = []
-        for col, k in enumerate(capacity_grid):
-            params = dict(base_params)
-            params.update(n_classes=k, n_classes_selection_method=NClassesSelectionMethod.NONE, capacity_selection=CapacitySelection.FIXED)
-            if early_stop_on_val:
-                params["refit_on_train_val"] = False  # one pass: the validation rows stay held out, they also choose k
-            sub_model = ProbabilisticRegressionModel(**params)
-            if early_stop_on_val:
-                sub_model.fit(x_train, y_train, x_val=x_val, y_val=y_val)
-            else:
-                self._fit_without_test_part(sub_model.fit, sub_model, x_train, y_train)
-            error_table[:, col] = sub_model._held_out_fit_per_sample(x_val, y_val)
-            submodels.append(sub_model)
+        Never trained with k-dropout: §1 rules that a per-k model trained with dropout across the whole ladder "is not
+        dedicated to anything... and cannot serve as an independent reference". Built from `get_params()` plus five fields
+        re-stated explicitly: VERIFIED AT THE ROOT 2026-07-21, `get_params()` does round-trip `target_transform`,
+        `prob_reg_loss_type`, `use_anchored_heads`, `loss_type` and `beta` (re-stating them keeps the contract explicit);
+        `calculate_feature_importance` is the one field it drops, re-stated by the base class so no candidate runs SHAP unasked.
+        """
+        params = super()._sweep_candidate_params(k, early_stop_on_val=early_stop_on_val)
+        for field in ("target_transform", "prob_reg_loss_type", "use_anchored_heads", "loss_type", "beta"):
+            params[field] = getattr(self, field)
+        params.update(n_classes_selection_method=NClassesSelectionMethod.NONE, capacity_selection=CapacitySelection.FIXED)
+        return params
 
-        minimum = rule == KSelectionRule.MINIMUM
-        idx = int(np.argmin(error_table.mean(axis=0))) if minimum else cheapest_within_tolerance(error_table, n_boot=n_bootstrap, seed=self.random_seed or 0)
-        selected_k = capacity_grid[idx]
+    def _fit_sweep_candidate(
+        self, candidate: "BaseModel", x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray, y_val: np.ndarray, *, early_stop_on_val: bool
+    ) -> None:
+        """Without ``early_stop_on_val`` each candidate is trained on the FULL ``(x_train, y_train)``, split by `_fit_without_test_part`."""
+        if early_stop_on_val:
+            super()._fit_sweep_candidate(candidate, x_train, y_train, x_val, y_val, early_stop_on_val=True)
+        else:
+            self._fit_without_test_part(candidate.fit, candidate, x_train, y_train)
 
-        self.selected_k_ = selected_k
-        self.sweep_val_errors_ = dict(zip(capacity_grid, error_table.mean(axis=0).tolist(), strict=True))
-        self._sweep_submodel_ = submodels[idx]
+    def _record_sweep(self, capacity_grid: list[int], error_table: np.ndarray, selected_k: int) -> None:
+        """Keeps the held-out curve as ``global_selector_curve_`` (only each model's own selected k is reported)."""
         self.global_selector_curve_ = {
             "capacity_grid": list(capacity_grid),
             "mean_fit_loss": error_table.mean(axis=0).tolist(),
-            "n_selection": n_selection,
+            "n_selection": error_table.shape[0],
             "selected_k": selected_k,
         }
-        return selected_k
 
     def _y_in_model_space(self, y: np.ndarray) -> np.ndarray:
         """`y` as a flat float64 array in the space the heads were trained in.
