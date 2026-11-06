@@ -33,6 +33,8 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
     back to continuous regression output using various mapping strategies.
     """
 
+    _supports_target_scaling: ClassVar[bool] = False  # target_scaling=PER_OUTPUT refused: two stages and a mapper-derived spread
+
     # The model's own options and their defaults (the rest go to `BaseModel`). Declared so a config's keys are checked
     # against them and its strings turned into these enums (`experiments/registry.py`).
     _defaults: ClassVar[dict[str, Any]] = {

@@ -63,6 +63,24 @@ class TargetScaler:
 
     inverse_transform = inverse
 
+    def _spread_scale(self, spread: np.ndarray) -> np.ndarray:
+        """The scale a spread of one output (1-D) or of `n_outputs` columns is multiplied by; anything else is not mapped with certainty."""
+        _, scale = self._fitted()
+        spread = np.asarray(spread)
+        if len(scale) == 1 and spread.ndim <= 1:
+            return scale[0]
+        if spread.ndim == 2 and spread.shape[1] == len(scale):
+            return scale
+        raise NotImplementedError(f"A spread of shape {spread.shape} cannot be mapped to {len(scale)} scaled outputs: set target_scaling=NONE.")
+
+    def spread_inverse(self, spread: np.ndarray) -> np.ndarray:
+        """A spread (standard deviation) in scaled units to target units."""
+        return np.asarray(spread) * self._spread_scale(spread)
+
+    def spread_transform(self, spread: np.ndarray) -> np.ndarray:
+        """A spread in target units to scaled units."""
+        return np.asarray(spread) / self._spread_scale(spread)
+
     def fit_transform(self, y: np.ndarray) -> np.ndarray:
         """`fit(y)` then `transform(y)`."""
         return self.fit(y).transform(y)

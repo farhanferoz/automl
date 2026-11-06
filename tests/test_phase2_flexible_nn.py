@@ -5,7 +5,7 @@ import pytest
 import torch
 from sklearn.model_selection import train_test_split
 
-from automl_package.enums import CapacitySelection, DepthRegularization, LayerSelectionMethod, UncertaintyMethod
+from automl_package.enums import CapacitySelection, DepthRegularization, LayerSelectionMethod, TargetScaling, UncertaintyMethod
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
 from automl_package.models.independent_weights_flexible_neural_network import IndependentWeightsFlexibleNN
 from automl_package.utils.pytorch_utils import get_device
@@ -297,13 +297,13 @@ class TestFlexibleNNModelComparison:
         defaults.update(kwargs)
         return FlexibleHiddenLayersNN(**defaults)
 
-    def _make_fixed_nn(self, hidden_layers=1):
+    def _make_fixed_nn(self, hidden_layers=1, **kwargs):
         from automl_package.models.neural_network import PyTorchNeuralNetwork
         return PyTorchNeuralNetwork(
             input_size=1, output_size=1, hidden_layers=hidden_layers, hidden_size=32,
             learning_rate=0.01, n_epochs=80, early_stopping_rounds=15,
             validation_fraction=0.2, uncertainty_method=UncertaintyMethod.CONSTANT,
-            random_seed=42,
+            random_seed=42, **kwargs,
         )
 
     def test_flexible_mse_reasonable_on_linear(self, simple_linear_data):
@@ -345,12 +345,12 @@ class TestFlexibleNNModelComparison:
         x, y, _ = piecewise_data
         x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=42)
 
-        shallow = self._make_fixed_nn(hidden_layers=1)
+        shallow = self._make_fixed_nn(hidden_layers=1, target_scaling=TargetScaling.NONE)
         shallow.fit(x_train, y_train)
         shallow_pred = shallow.predict(x_test)
         shallow_mse = float(np.mean((y_test - shallow_pred) ** 2))
 
-        flex = self._make_flexible(n_epochs=100, allow_retired_capacity_selection=True)
+        flex = self._make_flexible(n_epochs=100, allow_retired_capacity_selection=True, target_scaling=TargetScaling.NONE)
         flex.fit(x_train, y_train)
         flex_pred = flex.predict(x_test)
         flex_mse = float(np.mean((y_test - flex_pred) ** 2))
@@ -569,6 +569,7 @@ class TestDD2PairedDepthUncertainty:
                 x_subset = x_tensor[torch.as_tensor(mask, device=model.device)]
                 raw = model.model.forward_at_depth(x_subset, depth)
                 expected[mask] = torch.exp(0.5 * raw[:, 1]).cpu().numpy()
+        expected = model.target_scaler_.spread_inverse(expected)  # the network's spread is in scaled units; the public method returns target units
 
         np.testing.assert_allclose(got, expected, rtol=1e-5, atol=1e-6)
 
@@ -593,6 +594,7 @@ class TestDD2PairedDepthUncertainty:
                 x_subset = x_tensor[torch.as_tensor(mask, device=model.device)]
                 raw = model.model.forward_at_depth(x_subset, depth)
                 expected[mask] = torch.exp(0.5 * raw[:, 1]).cpu().numpy()
+        expected = model.target_scaler_.spread_inverse(expected)  # the network's spread is in scaled units; the public method returns target units
 
         np.testing.assert_allclose(got, expected, rtol=1e-5, atol=1e-6)
 
@@ -783,6 +785,7 @@ class TestCapacityRouterPerInput:
         model.model.eval()
         with torch.no_grad():
             expected = model.model.hard_forward(x_tensor).cpu().numpy().flatten()
+        expected = model.target_scaler_.inverse(expected)  # the network's output is in scaled units; predict returns target units
 
         got = model.predict(x, hard_execution=True)
         np.testing.assert_allclose(got, expected, rtol=1e-5, atol=1e-6)

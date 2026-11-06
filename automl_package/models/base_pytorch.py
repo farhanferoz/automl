@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from automl_package.enums import LearnedRegularizationType, OptimizerType, OutputBound, TaskType, UncertaintyMethod
+from automl_package.enums import LearnedRegularizationType, OptimizerType, OutputBound, TargetScaling, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 from automl_package.models.common.losses import calculate_combined_loss
@@ -28,6 +28,10 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
     # True; a class with its own training loop (and its own output layout) keeps the prediction-metric
     # score of `BaseModel` until it declares its fit term (listed follow-up, DECISIONS.md "Validation score").
     _scores_by_fit_term: ClassVar[bool] = False
+
+    # Standard practice for a regression network: standardise the targets (`BaseModel`, `TargetScaling`). A class whose public outputs are not all
+    # mapped back sets `_supports_target_scaling = False` (the default then is NONE and PER_OUTPUT is refused).
+    _default_target_scaling: ClassVar[TargetScaling] = TargetScaling.PER_OUTPUT
 
     # Whether this class applies `output_bound` (a `TrainingRangeBound` on the network's final output, which must be the regression
     # prediction itself). A class that does not declare True raises NotImplementedError when `OutputBound.TRAINING_RANGE` is requested.
@@ -84,6 +88,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         self.device: torch.device | None = get_device()
         self._train_residual_std = 0.0
         self.optimizer_wrapper = get_optimizer_wrapper(self.optimizer_type)
+        self._check_target_scaling()
 
     @property
     @abstractmethod
@@ -178,11 +183,11 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         return y_tensor.unsqueeze(1) if as_float else y_tensor
 
     def _held_out_fit_per_sample(self, x_val: np.ndarray, y_val: np.ndarray) -> np.ndarray:
-        """Per-sample fit term on held-out `(x_val, y_val)` (raw target units in, training space scored), `(N,)`."""
+        """Per-sample fit term on held-out `(x_val, y_val)` (y in the space `BaseModel` documents; the fit-space score of the trained loss), `(N,)`."""
         if self.model is None:
             raise RuntimeError("Model has not been fitted yet.")
         x_tensor = torch.tensor(np.asarray(x_val, dtype=np.float32)).to(self.device)
-        y_tensor = self._target_tensor(self._y_in_model_space(y_val))
+        y_tensor = self._target_tensor(self._y_in_model_space(self._to_fit_space(y_val)))
         self.model.eval()
         with torch.no_grad():
             per_sample = self._fit_loss(self._final_prediction(self.model(x_tensor)), y_tensor, reduction="none")

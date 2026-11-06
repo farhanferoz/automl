@@ -13,6 +13,9 @@ from sklearn.model_selection import train_test_split
 
 from automl_package.enums import (
     DepthRegularization,
+    ForecastLoss,
+    TargetScaling,
+    TaskType,
     LayerSelectionMethod,
     NClassesSelectionMethod,
     RegressionStrategy,
@@ -23,8 +26,12 @@ from automl_package.explainers.feature_explainer import FeatureExplainer
 from automl_package.models.conformal import ConformalWrapper
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
 from automl_package.models.independent_weights_flexible_neural_network import IndependentWeightsFlexibleNN
+from automl_package.models.lightgbm_model import LightGBMModel
+from automl_package.models.lstm_model import PyTorchLSTMForecaster, SequenceLayout
 from automl_package.models.neural_network import PyTorchNeuralNetwork
+from automl_package.models.normal_equation_linear_regression import NormalEquationLinearRegression
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+from automl_package.models.xgboost_model import XGBoostModel
 from automl_package.utils.transforms import symexp, symlog
 
 
@@ -573,3 +580,67 @@ class TestPredictShapes:
         y_std = model.predict_uncertainty(x)
         assert y_pred.shape == (80,), f"predict shape {y_pred.shape} for {uncertainty_method.value}"
         assert y_std.shape == (80,), f"predict_uncertainty shape {y_std.shape} for {uncertainty_method.value}"
+
+
+class TestTargetScaling:
+    """`BaseModel` standardises the targets once (TargetScaling.PER_OUTPUT); the outputs come back in target units."""
+
+    @staticmethod
+    def _data(seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+        rng = np.random.default_rng(seed)
+        x = rng.uniform(-1, 1, size=(300, 2)).astype(np.float32)
+        y = (100.0 + 20.0 * (x[:, 0] - 0.5 * x[:, 1]) + rng.normal(0, 2.0, 300)).astype(np.float32)  # far from zero mean, sd well above 1
+        return x, y
+
+    def test_plain_network_trains_scaled_and_answers_in_target_units(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AUTOML_DEVICE", "cpu")
+        x, y = self._data()
+        model = PyTorchNeuralNetwork(
+            input_size=2, output_size=1, hidden_layers=1, hidden_size=16, learning_rate=0.01, n_epochs=60, early_stopping_rounds=60,
+            refit_on_train_val=False, random_seed=0, calculate_feature_importance=False,
+        )
+        assert model.target_scaling is TargetScaling.PER_OUTPUT  # the family default
+        seen: list[np.ndarray] = []
+        original = model._fit_single
+        model._fit_single = lambda x_train, y_train, **kw: (seen.append(np.asarray(y_train)), original(x_train, y_train, **kw))[1]
+        model.fit(x[:200], y[:200], x_val=x[200:], y_val=y[200:])
+        assert abs(seen[0].mean()) < 1e-4 and seen[0].std() == pytest.approx(1.0, abs=1e-4)  # the network trained on standardised targets
+        scale = model.target_scaler_.scale_[0]
+        pred = model.predict(x[200:])
+        assert np.sqrt(np.mean((pred - y[200:]) ** 2)) < 0.5 * y.std()  # forecasts are in target units (around 100), not in scaled units
+        assert model._held_out_fit_score(x[200:], y[200:]) == pytest.approx(np.mean((pred - y[200:]) ** 2) / scale**2, rel=1e-3)  # the fit term in scaled space
+        assert model.predict_uncertainty(x[200:])[0] == pytest.approx(np.std(y[:200] - model.predict(x[:200])), rel=1e-3)  # spread in target units
+
+    @pytest.mark.parametrize(
+        "build",
+        [
+            lambda: PyTorchNeuralNetwork(input_size=2, task_type=TaskType.CLASSIFICATION, target_scaling="per_output"),
+            lambda: PyTorchLSTMForecaster(layout=SequenceLayout(2, 2, 1), output_size=1, loss="poisson_deviance"),  # PER_OUTPUT is this model's default
+            lambda: LightGBMModel(loss=ForecastLoss.POISSON_DEVIANCE, target_scaling="per_output", calculate_feature_importance=False),
+            lambda: XGBoostModel(offset_feature="feature_0", target_scaling="per_output", calculate_feature_importance=False),
+            lambda: ProbabilisticRegressionModel(input_size=2, target_transform="symlog", target_scaling="per_output"),
+        ],
+        ids=["classifier", "lstm-poisson", "lightgbm-poisson", "xgboost-offset", "probreg-symlog"],
+    )
+    def test_refusals_name_the_remedy(self, build, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+        monkeypatch.setenv("AUTOML_DEVICE", "cpu")
+        x, y = self._data()
+        with pytest.raises(ValueError, match="target_scaling=NONE"):
+            build().fit(x, y)
+        assert PyTorchNeuralNetwork(input_size=2, task_type=TaskType.CLASSIFICATION).target_scaling is TargetScaling.NONE  # unset: a classifier never scales
+
+    def test_closed_form_model_scores_in_scaled_space_and_keeps_the_enum(self) -> None:
+        """The base-class held-out score (models without a fit-term override) also reads scaled targets; a subclass copying its kwargs keeps the enum."""
+        x, y = self._data()
+        model = NormalEquationLinearRegression(target_scaling="per_output", uncertainty_method=UncertaintyMethod.CONSTANT)
+        assert model.target_scaling is TargetScaling.PER_OUTPUT  # the class re-sets every kwarg after the base constructor
+        model.fit(x[:200], y[:200], x_val=x[200:], y_val=y[200:])
+        pred = model.predict(x[200:])
+        assert np.sqrt(np.mean((pred - y[200:]) ** 2)) < 0.5 * y.std()
+        assert model._held_out_fit_score(x[200:], y[200:]) == pytest.approx(np.mean((pred - y[200:]) ** 2) / model.target_scaler_.scale_[0] ** 2, rel=1e-4)
+        assert model._held_out_fit_per_sample(x[200:], y[200:]).mean() == pytest.approx(model._held_out_fit_score(x[200:], y[200:]), rel=1e-6)  # the per-sample path (selection sweeps)
+
+    def test_class_that_does_not_map_its_outputs_back_refuses(self) -> None:
+        with pytest.raises(ValueError, match="target_scaling=NONE"):
+            ProbabilisticRegressionModel(input_size=2, target_scaling="per_output")
+        assert ProbabilisticRegressionModel(input_size=2).target_scaling is TargetScaling.NONE  # its family default

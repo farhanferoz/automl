@@ -53,6 +53,15 @@ class ColumnRolesMixin:
     def _has_column_roles(self) -> bool:
         return self.offset_feature is not None or bool(self.categorical_features)
 
+    def _target_scaling_conflict(self) -> str | None:
+        """A starting score lives on the raw prediction scale and a Poisson objective reads counts: neither survives a rescaled target."""
+        if self.offset_feature is not None:
+            return "offset_feature (the per-row starting score is on the raw prediction scale)"
+        objectives = [getattr(self, "objective", None), self.params.get("loss_function"), getattr(self, "loss", None)]
+        if any("poisson" in str(getattr(o, "value", o)).lower() for o in objectives if o is not None):
+            return "a Poisson objective (it reads counts)"
+        return None
+
     def _validate_column_roles(self) -> None:
         """Raises ValueError when the model's other settings cannot work with the column roles."""
         if self.offset_feature is not None and (self.task_type != TaskType.REGRESSION or self.uncertainty_method != UncertaintyMethod.CONSTANT):

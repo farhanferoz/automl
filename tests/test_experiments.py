@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from automl_package.enums import MapperType, ModelName, OptimizerType
+from automl_package.enums import MapperType, ModelName, OptimizerType, TargetScaling
 from automl_package.examples._toy_datasets import StudyToy
 from automl_package.experiments import patience, report
 from automl_package.experiments.cell import cell_status, fingerprint_id, load_record, record_path
@@ -69,6 +69,7 @@ def test_config_validation_and_round_trip():
         build_model(ModelConfig(name=ModelName.PYTORCH_NEURAL_NETWORK, params={"hiden_size": 8}), TINY_PROTOCOL, HpoConfig(n_trials=1), seed=0)
     model = build_model(ModelConfig(name=ModelName.PYTORCH_NEURAL_NETWORK, params={"optimizer_type": "ADAM"}), TINY_PROTOCOL, HpoConfig(n_trials=1), seed=0)
     assert model.optimizer_type is OptimizerType.ADAM
+    assert model.target_scaling is TargetScaling.NONE  # the runner standardises y itself, so the network (default PER_OUTPUT) must not scale it again
     with pytest.raises(ValueError, match="members"):
         build_model(ModelConfig(name=ModelName.PYTORCH_NEURAL_NETWORK, params={"optimizer_type": "NOPE"}), TINY_PROTOCOL, HpoConfig(n_trials=1), seed=0)
     cell = CellSpec(study="s", card="c", variant="v", model=PLAIN_NN, toy=TINY_TOY, n_train=64, protocol=TINY_PROTOCOL, results_dir="/x")

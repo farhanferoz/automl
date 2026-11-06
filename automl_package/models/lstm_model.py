@@ -19,15 +19,15 @@ Targets are `(N, n_horizons)`; NaN means "no target for this row and horizon" (u
 caller's protocol) and is excluded from the loss. The fit term is the mean squared error over the observed
 entries: the model is mean-only, its spread is not fitted (DECISIONS.md, "Spread is never fitted in-sample").
 
-Options (each defaults to the original behaviour, bit for bit, except `target_scaling`):
+Options (each defaults to the original behaviour, bit for bit, except `target_scaling`, a `BaseModel` setting):
 
 - `loss=ForecastLoss.POISSON_DEVIANCE`: the fit term becomes the Poisson deviance of the count `exp(target + o)` against `exp(output + o)`, with
   `o` a per-row offset (log scale) read from the dense column `SequenceLayout.offset_dense_index`. That column is NOT a network input. The
   prediction stays in target space; the caller adds the offset back as it does today.
 - `output_bound=OutputBound.TRAINING_RANGE`: the network output passes through `TrainingRangeBound` (range of the fitted rows' targets, per horizon).
-- `target_scaling=TargetScaling.NONE`: targets as given (the default is `PER_OUTPUT`: each horizon's targets are standardised by the mean and
-  standard deviation of the fitted rows, the bound, loss and early stopping all read the scaled targets, forecasts come back in target units; it
-  cannot be combined with the Poisson deviance, which reads the counts).
+- `target_scaling` (`BaseModel`; default `PER_OUTPUT` for this model): each horizon's targets are standardised by the mean and standard deviation of the
+  training part before any fit, so the loss, early stopping, the held-out fit term and the output bound all read the scaled targets, and `predict`
+  returns forecasts in target units. It cannot be combined with the Poisson deviance, which reads the counts (`_target_scaling_conflict`).
 - `unknown_category_rate`: share of training rows whose series embedding is hidden (replaced by the "unknown" row), so a series never seen in
   training gets a trained fallback vector. Series without a training row that has an observed target are always looked up as unknown at prediction.
 """
@@ -39,13 +39,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import ActivationFunction, ExplainerType, ForecastLoss, OutputBound, RnnBackend, TargetScaling
+from automl_package.enums import ActivationFunction, ExplainerType, ForecastLoss, OutputBound, RnnBackend
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.common.output_bound import TrainingRangeBound
 from automl_package.models.common.unknown_category_embedding import UnknownCategoryEmbedding
 from automl_package.utils.convergence import ConvergenceTracker, snapshot_state
-from automl_package.utils.data_handler import TargetScaler, standardiser_stats
+from automl_package.utils.data_handler import standardiser_stats
 from automl_package.utils.losses import poisson_deviance
 from automl_package.utils.pytorch_utils import cudnn_enabled, get_activation_function_map, get_device
 
@@ -161,7 +161,6 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         "head_activation": ActivationFunction.RELU,
         "eval_batch_size": 8192,  # rows per chunk when predicting; memory only, the predictions do not depend on it
         "loss": ForecastLoss.SQUARED_ERROR,  # the fit term (enums.ForecastLoss); POISSON_DEVIANCE reads the offset column of the layout
-        "target_scaling": TargetScaling.PER_OUTPUT,  # enums.TargetScaling: each horizon's targets standardised on the fit rows; NONE: targets as given
         "unknown_category_rate": 0.0,  # share of training rows whose series embedding is replaced by the unknown row (0: nothing is drawn)
     }
 
@@ -172,9 +171,6 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         kwargs["rnn_backend"] = RnnBackend(kwargs["rnn_backend"])  # a config may hand over the value ("native") or the member
         kwargs["head_activation"] = ActivationFunction(kwargs["head_activation"])
         kwargs["loss"] = ForecastLoss(kwargs["loss"])
-        kwargs["target_scaling"] = TargetScaling(kwargs["target_scaling"])
-        if kwargs["loss"] is ForecastLoss.POISSON_DEVIANCE and kwargs["target_scaling"] is TargetScaling.PER_OUTPUT:
-            raise ValueError("loss=POISSON_DEVIANCE with target_scaling=PER_OUTPUT: set target_scaling=NONE, the Poisson deviance reads the counts.")
         if kwargs["layout"] is None:
             raise ValueError("PyTorchLSTMForecaster needs a SequenceLayout (layout=...).")
         if kwargs.get("output_size", 1) < 1:
@@ -185,13 +181,15 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         self._input_stats: dict[str, np.ndarray] | None = None
         self._seen_series: np.ndarray | None = None  # bool (n_series,): which series have fit rows with an observed target; set by `_fit_single`
         self._output_bound: TrainingRangeBound | None = None  # set by `_fit_single` under OutputBound.TRAINING_RANGE
-        self._target_range: tuple[np.ndarray, np.ndarray] | None = None  # raw-unit min, max per horizon; set with the scaler when the output is bounded
-        self._target_scaler: TargetScaler | None = None  # set by `_fit_single` under TargetScaling.PER_OUTPUT; maps targets in and forecasts out
 
     @property
     def name(self) -> str:
         """Returns the name of the model."""
         return "PyTorchLSTMForecaster"
+
+    def _target_scaling_conflict(self) -> str | None:
+        """The Poisson deviance reads the counts exp(target + offset), which a rescaled target no longer is."""
+        return "loss=POISSON_DEVIANCE (the deviance reads the counts)" if self.loss is ForecastLoss.POISSON_DEVIANCE else None
 
     def _compute_input_stats(self, x_train: np.ndarray) -> dict[str, np.ndarray]:
         """Standardisation statistics of the rows being fitted: per channel over the window, per column for the dense block."""
@@ -268,12 +266,8 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
             raise ValueError("The offset column holds NaN: every row needs an offset under ForecastLoss.POISSON_DEVIANCE.")
 
     def _target_tensor(self, y: np.ndarray) -> torch.Tensor:
-        """Targets (already in the network's scale) as a float `(N, n_horizons)` tensor on the model's device."""
+        """Targets (in the space `_fit_single` was given: scaled under `target_scaling`) as a float `(N, n_horizons)` tensor on the model's device."""
         return torch.tensor(np.asarray(y, dtype=np.float32)).to(self.device)
-
-    def _scaled(self, y: np.ndarray) -> np.ndarray:
-        """`y` in the network's scale: through the fitted target scaler under PER_OUTPUT, unchanged otherwise."""
-        return y if self._target_scaler is None else self._target_scaler.transform(np.asarray(y, dtype=np.float64))
 
     def _predict_tensor(self, x: torch.Tensor) -> torch.Tensor:
         """Evaluation-mode predictions for all rows of `x`, in chunks so large folds fit on the device."""
@@ -288,7 +282,7 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
             raise RuntimeError("Model has not been fitted yet.")
         x_tensor = torch.tensor(np.asarray(x_val, dtype=np.float32)).to(self.device)
         self._check_offset(x_tensor)
-        return float(self._fit_loss(self._predict_tensor(x_tensor), self._target_tensor(self._scaled(y_val)), offset=self._row_offset(x_tensor)).item())
+        return float(self._fit_loss(self._predict_tensor(x_tensor), self._target_tensor(self._to_fit_space(y_val)), offset=self._row_offset(x_tensor)).item())
 
     def _fit_single(
         self,
@@ -311,15 +305,6 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
             torch.manual_seed(self.random_seed)
             np.random.seed(self.random_seed)
         self._input_stats = self._compute_input_stats(x_train)
-        if self.target_scaling is TargetScaling.PER_OUTPUT:
-            self._target_scaler = TargetScaler().fit(np.asarray(y_train, dtype=np.float64))  # the fit rows only
-            raw = np.asarray(y_train, dtype=np.float64).reshape(len(y_train), -1)
-            self._target_range = (np.nanmin(raw, axis=0), np.nanmax(raw, axis=0)) if self.output_bound is OutputBound.TRAINING_RANGE else None
-            y_train = self._scaled(y_train)
-            y_val = None if y_val is None else self._scaled(y_val)
-            logger.info(f"Target scaling is on: per-horizon mean {self._target_scaler.mean_.tolist()}, sd {self._target_scaler.scale_.tolist()}")
-        else:
-            self._target_scaler, self._target_range = None, None
         series = x_train[:, 0].astype(np.int64)
         if series.min() < 0 or series.max() >= self.layout.n_series:
             raise ValueError(f"Series indices must be in 0..{self.layout.n_series - 1}; the fit rows hold {series.min()}..{series.max()}.")
@@ -379,13 +364,7 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         x_tensor = torch.tensor(np.asarray(x, dtype=np.float32)).to(self.device)
         n_unseen = self.model.embedding.n_unseen(x_tensor[:, 0].long())
         logger.info(f"{n_unseen} of {len(x_tensor)} rows are of a series without training rows and use the unknown embedding")
-        pred = self._predict_tensor(x_tensor).cpu().numpy()
-        if self._target_scaler is None:
-            return pred
-        pred = self._target_scaler.inverse(pred)
-        if self._target_range is not None:  # the bound holds in scaled units; unscaling must not step outside the range by rounding
-            pred = np.clip(pred, *self._target_range)
-        return pred.astype(np.float32)
+        return self._predict_tensor(x_tensor).cpu().numpy()
 
     def predict_uncertainty(self, x: np.ndarray, filter_data: bool = True) -> np.ndarray:
         """Not available: the model is mean-only and its spread is not fitted in-sample."""

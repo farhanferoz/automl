@@ -7,7 +7,7 @@ concrete baseline wrappers.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -29,6 +29,8 @@ class BaselineModel(BaseModel):
         - get_hyperparameter_search_space() — for Optuna HPO
         - get_num_parameters() — for parameter counting
     """
+
+    _supports_target_scaling: ClassVar[bool] = False  # target_scaling=PER_OUTPUT refused: own distribution/calibration paths
 
     def __init__(self, **kwargs: Any) -> None:
         # Filter kwargs to only those accepted by BaseModel

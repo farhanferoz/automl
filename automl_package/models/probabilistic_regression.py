@@ -89,6 +89,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         (docs/probreg/cleanup_plan.md, "Cross-entropy with the nested k ladder").
     """
 
+    _supports_target_scaling: ClassVar[bool] = False  # target_scaling=PER_OUTPUT refused: distribution output, symlog, capacity selection, _predict_for_scoring bypass
+
     _scores_by_fit_term: ClassVar[bool] = True
 
     _defaults: ClassVar[dict[str, Any]] = {

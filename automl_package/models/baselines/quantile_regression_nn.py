@@ -6,7 +6,7 @@ Distribution-free — no Gaussian assumption.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -16,7 +16,6 @@ import torch.nn as nn
 from automl_package.enums import TaskType, UncertaintyMethod
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.utils.distributions import QuantileDistribution
-
 
 _DEFAULT_QUANTILES = (0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.975)
 
@@ -49,6 +48,8 @@ class QuantileRegressionNN(PyTorchModelBase):
         hidden_size: Width of hidden layers.
         n_hidden: Number of hidden layers.
     """
+
+    _supports_target_scaling: ClassVar[bool] = False  # target_scaling=PER_OUTPUT refused: quantile outputs
 
     def __init__(
         self,

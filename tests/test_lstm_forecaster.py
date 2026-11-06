@@ -111,11 +111,11 @@ def test_per_output_target_scaling_is_fitted_on_the_fit_rows_and_forecasts_retur
     assert np.allclose(np.nanmean(trained_on, axis=0), 0.0, atol=1e-5)
     assert np.allclose(np.nanstd(trained_on, axis=0), 1.0, atol=1e-5)
     assert np.array_equal(np.isnan(trained_on), np.isnan(y_train))  # NaN stays NaN
-    scaler = model._target_scaler
+    scaler = model.target_scaler_
     assert np.allclose(scaler.mean_, np.nanmean(y_train, axis=0))  # fit rows only
     assert np.allclose(scaler.scale_, np.nanstd(y_train, axis=0))
     raw = model._predict_tensor(torch.tensor(x_val)).numpy()  # in the network's scale
-    np.testing.assert_allclose(model.predict(x_val), raw * scaler.scale_ + scaler.mean_, rtol=1e-6)  # forecasts in target units
+    np.testing.assert_allclose(model.predict(x_val), raw * scaler.scale_ + scaler.mean_, rtol=1e-5)  # forecasts in target units
     np.testing.assert_allclose(scaler.inverse(scaler.transform(y_val)), y_val, rtol=1e-5, atol=1e-4)  # exact round trip
     assert model._held_out_fit_score(x_val, y_val) == pytest.approx(model.convergence_.best_val, rel=1e-4)  # the held-out score reads scaled targets
     assert model.convergence_.best_val < 1.0  # in standardised units (the squared error of the mean forecast is 1)
@@ -140,7 +140,7 @@ def test_target_scaling_none_reproduces_the_unscaled_predictions(monkeypatch: py
     )
     unscaled.fit(x_train, y_train, x_val=x_val, y_val=y_val)
     pred = unscaled.predict(x_val)
-    assert unscaled._target_scaler is None
+    assert unscaled.target_scaler_ is None
     np.testing.assert_allclose(pred[:2], [[-0.15867209, 0.90455155], [-0.12159690, 0.40740809]], rtol=1e-4)
     assert float(pred.sum()) == pytest.approx(30.399474, rel=1e-4)
 

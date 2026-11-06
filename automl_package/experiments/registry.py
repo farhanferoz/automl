@@ -22,6 +22,7 @@ from typing import Any
 
 import numpy as np
 
+from automl_package.enums import TargetScaling
 from automl_package.experiments.config import MISSING, HpoConfig, ModelConfig, PredictorKind, ProtocolConfig, coerce_enum
 from automl_package.experiments.toys import Toy
 from automl_package.models.base import NESTED_PARAM_SEPARATOR, BaseModel
@@ -64,7 +65,7 @@ def build_model(config: ModelConfig, protocol: ProtocolConfig, hpo: HpoConfig, s
     """The automl model of ``config`` with the protocol applied.
 
     Protocol values are defaults a variant's own ``params`` override (a linear model sets ``early_stopping_rounds: null``).
-    The runner always forces ``refit_on_train_val``, ``calculate_feature_importance``, ``random_seed``, the search switches
+    The runner always forces ``target_scaling`` (NONE), ``refit_on_train_val``, ``calculate_feature_importance``, ``random_seed``, the search switches
     and the search space. ``overrides`` are applied on top of ``params`` (matched width, tuned settings of a source variant).
     """
     if config.kind != PredictorKind.AUTOML or config.name is None:
@@ -86,6 +87,7 @@ def build_model(config: ModelConfig, protocol: ProtocolConfig, hpo: HpoConfig, s
         n_trials=hpo.n_trials,
         hpo_sampler=hpo.sampler,
         hpo_seed=hpo.seed,
+        target_scaling=TargetScaling.NONE,  # the runner standardises y itself (Standardiser, `standardise_y`): the model must not scale it again
     )
     if "random_seed" in keys:
         params["random_seed"] = seed

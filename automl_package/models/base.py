@@ -1,6 +1,7 @@
 """Base classes for machine learning models."""
 
 import abc
+import functools
 import inspect
 from pathlib import Path
 from typing import Any, ClassVar
@@ -10,14 +11,14 @@ import optuna
 import pandas as pd
 from sklearn.model_selection import KFold
 
-from automl_package.enums import DataSplitStrategy, HpoSampler, KSelectionRule, Metric, OutOfRangeAction, TaskType, UncertaintyMethod
+from automl_package.enums import DataSplitStrategy, HpoSampler, KSelectionRule, Metric, OutOfRangeAction, OutputBound, TargetScaling, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.common.mixins import BinnedUncertaintyMixin
 from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
 from automl_package.utils.capacity_selection import cheapest_within_tolerance
 from automl_package.utils.checkpoint import stable_hash
 from automl_package.utils.cv import TimeSeriesSplit
-from automl_package.utils.data_handler import create_train_val_split
+from automl_package.utils.data_handler import TargetScaler, create_train_val_split
 from automl_package.utils.feature_selection import select_features_by_cumulative_importance
 from automl_package.utils.metrics import Metrics, calculate_performance_score
 from automl_package.utils.numerics import find_optimal_iterations
@@ -30,11 +31,58 @@ NESTED_PARAM_SEPARATOR = "__"  # ``a__b`` in a search space names key ``b`` of t
 MIN_SWEEP_K = 2  # a one-class model predicts one constant, so a sweep over the number of classes starts at two
 
 
+SPREAD_METHODS = ("predict_uncertainty",)  # public methods returning a spread in target units: wrapped to multiply by the target scale (see `__init_subclass__`)
+
+
+def _spread_in_target_units(method: Any) -> Any:
+    """Wraps a spread method so that, when the model scales its targets, the spread it returns is in target units.
+
+    Only the outermost call scales: a subclass that calls `super().predict_uncertainty` is not scaled twice.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self: "BaseModel", *args: Any, **kwargs: Any) -> np.ndarray:
+        if self.target_scaler_ is None or self._spread_call_depth:
+            return method(self, *args, **kwargs)
+        self._spread_call_depth += 1
+        try:
+            spread = method(self, *args, **kwargs)
+        finally:
+            self._spread_call_depth -= 1
+        return self.target_scaler_.spread_inverse(spread)
+
+    wrapper._spread_wrapped = True  # type: ignore[attr-defined]
+    return wrapper
+
+
 class BaseModel(abc.ABC, BinnedUncertaintyMixin):
     """Abstract base class for all machine learning models in the package.
 
     Defines a common interface for fitting, predicting, and hyperparameter search.
+
+    Target scaling (`target_scaling`, `enums.TargetScaling`) lives here once, like sklearn's ``TransformedTargetRegressor``: `fit` fits a
+    `TargetScaler` on the TRAINING part of ``y`` and hands scaled targets to every internal path (search trials, CV folds, early stopping,
+    the final refit, selection passes); `predict` and the spread methods return target units. The scaler is installed on ``target_scaler_``
+    only when training is over, so during training the model is entirely in "fit space" (scaled), afterwards entirely in target units.
+
+    Which space each caller passes y in:
+
+    - `_fit_single`, and `_held_out_fit_score` / `_held_out_fit_per_sample` called by `fit` on a trial, fold or selection model (no scaler
+      installed on it): fit space, the space `fit` handed down.
+    - `_held_out_fit_score` / `_held_out_fit_per_sample` called from outside on a fitted model (scaler installed): raw target units; they go
+      through `_to_fit_space`, the one conversion, so the score stays the fit term of the trained loss.
     """
+
+    _default_target_scaling: ClassVar[TargetScaling] = TargetScaling.NONE  # what `target_scaling=None` means for this family
+    _supports_target_scaling: ClassVar[bool] = True  # False: every public y-unit output of the class is not mapped back, so PER_OUTPUT is refused
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Wraps the spread methods a subclass defines (see `_spread_in_target_units`)."""
+        super().__init_subclass__(**kwargs)
+        for name in SPREAD_METHODS:
+            method = cls.__dict__.get(name)
+            if callable(method) and not getattr(method, "_spread_wrapped", False):
+                setattr(cls, name, _spread_in_target_units(method))
 
     def __init__(
         self,
@@ -58,6 +106,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         uncertainty_method: UncertaintyMethod = UncertaintyMethod.CONSTANT,
         refit_on_train_val: bool = True,
         out_of_range_action: OutOfRangeAction = OutOfRangeAction.FLAG,
+        target_scaling: TargetScaling | str | None = None,
         **kwargs: Any,
     ) -> None:
         """Initializes the base model with given parameters.
@@ -72,6 +121,10 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
 
         ``out_of_range_action`` (member or its value) is what `predict` does with predictions outside the training targets' range
         (see `predict`): FLAG (default) only reports, CLIP clips to the range, RAISE raises.
+
+        ``target_scaling`` (member, value or None): `TargetScaling.PER_OUTPUT` standardises each target column by the training part's mean
+        and sd inside `fit` (class docstring). None takes the family default (`_default_target_scaling`: PER_OUTPUT for the PyTorch
+        regression networks that map every output back, NONE otherwise). A classifier never scales: it gets NONE, and PER_OUTPUT raises.
         """
         if validation_fraction is not None and cv_folds is not None:
             raise ValueError("validation_fraction and cv_folds cannot both be set.")
@@ -105,6 +158,10 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         self.uncertainty_method = uncertainty_method
         self.refit_on_train_val = refit_on_train_val
         self.out_of_range_action = OutOfRangeAction(out_of_range_action)
+        self._target_scaling = self._resolve_target_scaling(target_scaling)
+        self.target_scaler_: TargetScaler | None = None  # installed by `fit` when training is over (PER_OUTPUT)
+        self._raw_target_range_: tuple[np.ndarray, np.ndarray] | None = None  # raw-unit min, max of the training targets; kept for a bounded output
+        self._spread_call_depth = 0
         self.training_envelope_: TrainingEnvelope | None = None
         self.last_prediction_report_: PredictionRangeReport | None = None
         self._best_trial_model_: BaseModel | None = None
@@ -144,6 +201,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                 "uncertainty_method": self.uncertainty_method,
                 "refit_on_train_val": self.refit_on_train_val,
                 "out_of_range_action": self.out_of_range_action,
+                "target_scaling": self.target_scaling,
                 "task_type": self.task_type,
                 "calculate_feature_importance": self.calculate_feature_importance,
                 "feature_selection_threshold": self.feature_selection_threshold,
@@ -151,6 +209,47 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             }
         )
         return params
+
+    @property
+    def target_scaling(self) -> TargetScaling:
+        """The resolved target scaling (a `TargetScaling` member)."""
+        return self._target_scaling
+
+    @target_scaling.setter
+    def target_scaling(self, value: TargetScaling | str | None) -> None:
+        """Coerces a value a subclass copies from its constructor kwargs (a string from a config); None leaves the resolved setting."""
+        if value is not None:
+            self._target_scaling = TargetScaling(value)
+
+    def _resolve_target_scaling(self, requested: TargetScaling | str | None) -> TargetScaling:
+        """The setting this model runs with: the request, else the family default; classifiers never scale.
+
+        Raises:
+            ValueError: PER_OUTPUT requested for a classifier or for a class that does not map its outputs back.
+        """
+        requested = None if requested is None else TargetScaling(requested)
+        if self.task_type == TaskType.CLASSIFICATION:
+            if requested is TargetScaling.PER_OUTPUT:
+                raise ValueError("target_scaling=PER_OUTPUT is for regression targets: a classifier is fitted on class labels, set target_scaling=NONE (or leave it unset).")
+            return TargetScaling.NONE
+        resolved = (self._default_target_scaling if self._supports_target_scaling else TargetScaling.NONE) if requested is None else requested
+        if resolved is TargetScaling.PER_OUTPUT and not self._supports_target_scaling:
+            raise ValueError(f"{type(self).__name__} does not map all its outputs back to target units under target_scaling=PER_OUTPUT: set target_scaling=NONE.")
+        return resolved
+
+    def _target_scaling_conflict(self) -> str | None:
+        """What in this model's settings cannot work with a rescaled target (a count loss, a per-row offset), or None. Subclasses extend it."""
+        return None
+
+    def _check_target_scaling(self) -> None:
+        """Raises ValueError when PER_OUTPUT is set together with a setting named by `_target_scaling_conflict`."""
+        conflict = self._target_scaling_conflict() if self.target_scaling is TargetScaling.PER_OUTPUT else None
+        if conflict is not None:
+            raise ValueError(f"target_scaling=PER_OUTPUT cannot be combined with {conflict}: set target_scaling=NONE.")
+
+    def _to_fit_space(self, y: np.ndarray) -> np.ndarray:
+        """Raw target units to the space the model trained in: scaled once training is over, unchanged while it runs and on trial models."""
+        return y if self.target_scaler_ is None else self.target_scaler_.transform(y)
 
     def _update_params(self, params: dict[str, Any]) -> None:
         """Updates the model's parameters from a given dictionary."""
@@ -227,6 +326,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             "num_iterations_used",
             "training_envelope_",
             "last_prediction_report_",
+            "target_scaler_",
+            "_raw_target_range_",
+            "_spread_call_depth",
         }
     )
 
@@ -325,6 +427,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         if isinstance(y, pd.Series | pd.DataFrame):
             y = y.values
         self.training_envelope_ = TrainingEnvelope.from_fit_data(x, y, self.feature_names, getattr(self, "categorical_features", None))
+        self._check_target_scaling()
+        self.target_scaler_, self._raw_target_range_ = None, None  # a refit starts in fit space again
 
         explicit_val = x_val is not None
         if explicit_val:
@@ -339,6 +443,13 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         x_train, y_train, x_val, y_val, x_test, y_test, _, _, _, x_train_val, y_train_val, timestamps_train_val = self._prepare_data_partitions(
             x.values, y, timestamps, x_val=x_val, y_val=y_val
         )
+
+        scaler = TargetScaler().fit(y_train) if self.target_scaling is TargetScaling.PER_OUTPUT else None
+        y_train_raw, y_train_val_raw = y_train, y_train_val
+        if scaler is not None:  # from here to the end of training every path sees fit space; the test part and the post-fit calls stay raw
+            logger.info(f"Target scaling is on: per-output mean {scaler.mean_.tolist()}, sd {scaler.scale_.tolist()}")
+            y_train, y_train_val = scaler.transform(y_train), scaler.transform(y_train_val)
+            y_val = None if y_val is None else scaler.transform(y_val)
 
         x_train = pd.DataFrame(x_train, columns=self.feature_names)
         x_val = pd.DataFrame(x_val, columns=self.feature_names) if x_val is not None else None
@@ -369,6 +480,13 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         if self.uncertainty_method == UncertaintyMethod.BINNED_RESIDUAL_STD:
             logger.info("--- Calibrating uncertainty model ---")
             self.calibrate_uncertainty(x=x_model.values, y=y_model)
+
+        if scaler is not None:  # training is over: from here the public outputs are in target units
+            self.target_scaler_ = scaler
+            if getattr(self, "output_bound", OutputBound.NONE) is OutputBound.TRAINING_RANGE:  # the bound holds in fit space; unscaling must not leave the range by rounding
+                raw = np.asarray(y_train_raw, dtype=np.float64).reshape(len(y_train_raw), -1)
+                self._raw_target_range_ = (np.nanmin(raw, axis=0), np.nanmax(raw, axis=0))
+            y_train_val = y_train_val_raw
 
         if self.calculate_feature_importance:
             self._calculate_and_save_feature_importance(model_instance=self, x_background=x_model)
@@ -572,6 +690,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         if self.hpo_storage_dir is None:
             return {}
         settings = {k: v for k, v in self.get_params().items() if k not in HPO_IDENTITY_EXCLUDED}
+        if self.target_scaling is TargetScaling.NONE:
+            settings.pop("target_scaling")  # as before the setting existed: a search without scaling keeps its journal
         name = f"{type(self).__name__}-{stable_hash([settings, x, y, timestamps, explicit_split])[:HPO_HASH_LENGTH]}"
         return {"storage_path": Path(self.hpo_storage_dir) / f"{name}.journal", "study_name": name}
 
@@ -592,9 +712,11 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         (owner ruling 2026-11-01, DECISIONS.md "Validation score = the held-out FIT TERM"). Direction is
         given by `_held_out_score_is_smaller_better`.
         """
-        preds = self._predict_for_scoring(x_val)
+        preds = self._to_fit_space(self._predict_for_scoring(x_val))
         y_pred_std = self.predict_uncertainty(x_val)
-        return self._evaluate_trial(y_val, preds, y_pred_std=y_pred_std)
+        if self.target_scaler_ is not None and y_pred_std is not None:
+            y_pred_std = self.target_scaler_.spread_transform(y_pred_std)
+        return self._evaluate_trial(self._to_fit_space(y_val), preds, y_pred_std=y_pred_std)
 
     def _held_out_score_is_smaller_better(self) -> bool:
         """Direction of `_held_out_fit_score` for the Optuna study."""
@@ -611,8 +733,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         """
         if self._get_optimization_metric() != Metric.MSE:
             raise NotImplementedError(f"{type(self).__name__} is scored by {self._get_optimization_metric().name}: it must define its own _held_out_fit_per_sample.")
-        predictions = np.asarray(self._predict_for_scoring(x_val), dtype=np.float64).ravel()
-        return (predictions - np.asarray(y_val, dtype=np.float64).ravel()) ** 2
+        predictions = np.asarray(self._to_fit_space(self._predict_for_scoring(x_val)), dtype=np.float64).ravel()
+        return (predictions - np.asarray(self._to_fit_space(y_val), dtype=np.float64).ravel()) ** 2
 
     def fit_sweep_selector(
         self,
@@ -793,6 +915,12 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         if winner is not None:  # after `fit_sweep_selector` the winning candidate is the fitted model
             return winner.predict(x, filter_data=filter_data, **kwargs)
         predictions = self._predict(x, filter_data=filter_data, **kwargs)
+        if self.target_scaler_ is not None:  # the one place forecasts go back to target units (before the envelope check, which is in target units)
+            dtype = predictions.dtype
+            predictions = self.target_scaler_.inverse(predictions)
+            if self._raw_target_range_ is not None:
+                predictions = np.clip(predictions, *self._raw_target_range_)
+            predictions = predictions.astype(dtype)
         envelope = self.training_envelope_
         if envelope is None:
             return predictions
@@ -927,6 +1055,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         """
         raise NotImplementedError
 
+
+for _name in SPREAD_METHODS:
+    setattr(BaseModel, _name, _spread_in_target_units(BaseModel.__dict__[_name]))
 
 # BaseModel's own settings (its constructor arguments): a one-pass search never takes these from a trial clone.
 _BASE_SETTINGS: frozenset[str] = frozenset(p for p in inspect.signature(BaseModel.__init__).parameters if p not in ("self", "kwargs"))

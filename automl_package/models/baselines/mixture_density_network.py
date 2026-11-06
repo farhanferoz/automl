@@ -6,7 +6,7 @@ Closest neural-network baseline to ProbReg for multimodal predictions.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -54,6 +54,8 @@ class MixtureDensityNetwork(PyTorchModelBase):
         hidden_size: Width of hidden layers in the trunk.
         n_hidden: Number of hidden layers in the trunk.
     """
+
+    _supports_target_scaling: ClassVar[bool] = False  # target_scaling=PER_OUTPUT refused: mixture distribution output
 
     def __init__(
         self,
