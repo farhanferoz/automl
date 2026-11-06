@@ -9,6 +9,10 @@ import torch.nn as nn
 
 from automl_package.logger import logger
 
+LOG_ERFC_ASYMPTOTIC_FROM = 5.0  # above this, log(erfc(x)) is computed from the scaled erfcx: log(erfcx(x)) - x^2
+BINARY_CLASSES = 2  # a two-class problem, whose probabilities may arrive as the positive class alone
+MATRIX_NDIM = 2  # (rows, columns)
+
 
 def create_bins(
     data: np.ndarray,
@@ -94,7 +98,7 @@ def aggregate_stats(
 def log_erfc(x: torch.Tensor) -> torch.Tensor:
     """Numerically-stable log(erfc(x))."""
     x64 = x.to(dtype=torch.float64)
-    mask = x64 > 5.0
+    mask = x64 > LOG_ERFC_ASYMPTOTIC_FROM
     out = torch.empty_like(x64)
 
     out[~mask] = torch.log(torch.special.erfc(x64[~mask]))
@@ -133,11 +137,11 @@ def ensure_proba_shape(y_proba: np.ndarray, n_classes: int) -> np.ndarray:
         return None
 
     # Case 1: Binary classification with a single output column (e.g., from sigmoid)
-    if n_classes == 2 and y_proba.ndim == 2 and y_proba.shape[1] == 1:
+    if n_classes == BINARY_CLASSES and y_proba.ndim == MATRIX_NDIM and y_proba.shape[1] == 1:
         return np.hstack((1 - y_proba, y_proba))
 
     # Case 2: Binary classification with a 1D array of probabilities for the positive class
-    if n_classes == 2 and y_proba.ndim == 1:
+    if n_classes == BINARY_CLASSES and y_proba.ndim == 1:
         return np.vstack((1 - y_proba, y_proba)).T
 
     # Case 3: Mismatch between columns and n_classes (error condition)
