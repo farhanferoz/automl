@@ -40,11 +40,11 @@ Experiment folders and the runs that go in them (from the write-ups #2-#10):
 
 | Experiment | Runs |
 |---|---|
-| 01_like_for_like | lightgbm_asis, lightgbm_noleak, catboost_asis/noleak (+ the GPU attempts), lstm_paper, lstm_paper_noleak, sarima_log |
+| 01_initial_setup | lightgbm_asis, lightgbm_noleak, catboost_asis/noleak (+ the GPU attempts), lstm_paper, lstm_paper_noleak, sarima_log |
 | 02_post_period_features | the as-is vs no-leak pairs above (results only; same runs) |
 | 03_lstm_dropout | dropout_test |
 | 04_lightgbm_round2 | lgbm_r2_reference, lgbm_r2_covid_drop/phase/stringency, lgbm_r2_ordered_target |
-| 06_best_effort_bases | lightgbm_best, lstm_best |
+| 06_setup_b | lightgbm_best, lstm_best |
 | 07_poisson_deviance | lightgbm_best_poisson, lstm_best_poisson |
 | 08_lstm_ordered_target | lstm_best_ordered |
 
