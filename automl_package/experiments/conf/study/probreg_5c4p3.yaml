@@ -1,0 +1,21 @@
+# Card 5c-4 Part 3: structure on the heads / classifier, one change each from the default (selection draw). Curves on.
+defaults:
+  - study_schema
+  - _toys_all
+  - /protocol@protocol: cards_5bc
+  - /hpo@hpo: tpe20
+  - /model@variants.probreg: probreg_tuned
+  - /model@variants.anchored_heads: probreg_tuned
+  - /model@variants.bin_limits: probreg_tuned
+  - /model@variants.ordinal: probreg_tuned
+  - _self_
+
+name: probreg_5c4p3
+card: 5c4p3
+sizes: ???
+output: {results_subdir: main, curves: true}
+variants:
+  anchored_heads: {params: {use_anchored_heads: true}}
+  bin_limits: {params: {boundary_regularization_method: BIN_LIMITS}}
+  ordinal: {params: {classifier_link: PROPORTIONAL_ODDS}}
+report: {kind: COMPARISON, eval_set: SELECTION, reference_variant: probreg, noise_results_subdir: 5a3, noise_variant: probreg}

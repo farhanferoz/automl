@@ -11,6 +11,7 @@ import torch.nn as nn
 from automl_package.enums import (
     BoundaryRegularizationMethod,
     CapacitySelection,
+    ClassifierLink,
     ExplainerType,
     NClassesRegularization,
     NClassesSelectionMethod,
@@ -35,7 +36,7 @@ from automl_package.utils.capacity_selection import cheapest_within_tolerance
 from automl_package.utils.data_handler import create_train_val_split
 from automl_package.utils.distributions import GaussianDistribution
 from automl_package.utils.losses import masked_cross_entropy_loss
-from automl_package.utils.numerics import calculate_class_value_ranges, create_bins
+from automl_package.utils.numerics import calculate_class_value_ranges, create_bins, per_class_value_ranges
 from automl_package.utils.ordering_loss import ordering_loss as ordering_loss_fn
 from automl_package.utils.plotting import plot_nn_probability_mappers
 from automl_package.utils.transforms import symexp, symlog
@@ -53,6 +54,11 @@ _RETIRED_N_CLASSES_SELECTION_METHODS = frozenset(
     }
 )
 _RETIRED_N_CLASSES_REGULARIZATIONS = frozenset({NClassesRegularization.K_PENALTY, NClassesRegularization.ELBO})
+# The boundary methods that work from the half-open `class_value_ranges` (a loss term or a forward kwarg). BIN_LIMITS is not one of them:
+# it is structure inside the head module (two-sided per-bin limits), with no loss term and no forward kwarg.
+_RANGE_BOUNDARY_METHODS = frozenset({BoundaryRegularizationMethod.PENALTY, BoundaryRegularizationMethod.HARDSIGMOID})
+# Capacity selections that run the classifier at fewer than n_classes classes (a proportional-odds output is defined for one k).
+_DYNAMIC_K_CAPACITY_SELECTIONS = frozenset({CapacitySelection.PER_INPUT, CapacitySelection.GLOBAL_CHEAP})
 
 class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleClassPenaltyMixin):
     """A PyTorch-based probabilistic regression model that directly learns both mean and variance.
@@ -138,6 +144,9 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
         "target_transform": None,
         "prob_reg_loss_type": ProbRegLossType.GAUSSIAN_LTV,
         "use_anchored_heads": False,
+        # How the classifier makes class probabilities: SOFTMAX (one score per class) or PROPORTIONAL_ODDS (one score per row and ordered
+        # thresholds; the classes are ordered bins of y). Only for a fixed k.
+        "classifier_link": ClassifierLink.SOFTMAX,
         # Ordering-constraint identifiability (see docs/probreg/history/identifiability_2026-04/probreg_identifiability_research.md §3.3, §7.7).
         # None = auto: enable (weight=1.0) only for the (SEPARATE_HEADS, Gaussian-LTV, REGRESSION_ONLY)
         # triple — the single configuration where the penalty measurably helps. Redundant under
@@ -200,6 +209,10 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             self.prob_reg_loss_type = ProbRegLossType[self.prob_reg_loss_type.upper()]
         if isinstance(self.capacity_selection, str):
             self.capacity_selection = CapacitySelection[self.capacity_selection.upper()]
+        if isinstance(self.classifier_link, str):
+            self.classifier_link = ClassifierLink[self.classifier_link.upper()]
+        if isinstance(self.boundary_regularization_method, str):
+            self.boundary_regularization_method = BoundaryRegularizationMethod[self.boundary_regularization_method.upper()]
 
         if self.n_classes_selection_method == NClassesSelectionMethod.NESTED and self.uncertainty_method != UncertaintyMethod.PROBABILISTIC:
             raise ValueError(
@@ -276,6 +289,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             logger.warning("The `constrain_middle_class` option is not supported for the SINGLE_HEAD_FINAL_OUTPUT strategy.")
             self.constrain_middle_class = False
 
+        self._check_structure_settings()
+
         if self.use_middle_class_nll_penalty:
             if self.regression_strategy == RegressionStrategy.SINGLE_HEAD_FINAL_OUTPUT:
                 logger.warning("The `use_middle_class_nll_penalty` option is not supported for the SINGLE_HEAD_FINAL_OUTPUT strategy.")
@@ -300,6 +315,34 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
 
         self.precomputed_class_boundaries = {}
         self.class_value_ranges_ = {}
+
+    def _check_structure_settings(self) -> None:
+        """Refuses the BIN_LIMITS and PROPORTIONAL_ODDS settings that are not defined (they would otherwise fail late or silently do nothing)."""
+        if self.boundary_regularization_method == BoundaryRegularizationMethod.BIN_LIMITS:
+            if self.use_anchored_heads:
+                raise ValueError(
+                    "boundary_regularization_method=BIN_LIMITS with use_anchored_heads=True is refused: an anchored head fixes its value at p=1 to the "
+                    "bin centroid, and the limits squash the head's raw output, so the two define the head output twice."
+                )
+            if self.regression_strategy != RegressionStrategy.SEPARATE_HEADS:
+                raise ValueError(
+                    f"boundary_regularization_method=BIN_LIMITS needs regression_strategy=SEPARATE_HEADS (got {self.regression_strategy.name}): the limits are per class head."
+                )
+            if self.use_monotonic_constraints or self.constrain_middle_class:
+                raise ValueError(
+                    "boundary_regularization_method=BIN_LIMITS with use_monotonic_constraints=True or constrain_middle_class=True is refused: "
+                    "a constant head has no raw output to squash."
+                )
+            if self.n_classes_selection_method != NClassesSelectionMethod.NONE:
+                raise ValueError("boundary_regularization_method=BIN_LIMITS is defined for a fixed k (n_classes_selection_method=NONE): the limits are those of the k bins.")
+        if self.classifier_link == ClassifierLink.PROPORTIONAL_ODDS and (
+            self.n_classes_selection_method != NClassesSelectionMethod.NONE or self.capacity_selection in _DYNAMIC_K_CAPACITY_SELECTIONS
+        ):
+            raise ValueError(
+                "classifier_link=PROPORTIONAL_ODDS needs n_classes_selection_method=NONE and a capacity_selection that keeps one k "
+                f"(got {self.n_classes_selection_method.name} and {self.capacity_selection.name}): the ordinal output is defined for one k, "
+                "and renormalising a subset of its classes breaks it."
+            )
 
     def fit(
         self,
@@ -480,7 +523,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 total_loss += classification_loss
 
         # 3. Apply additional penalties (Middle Class NLL, Boundary Regularization)
-        boundary_reg_active = self.boundary_regularization_method != BoundaryRegularizationMethod.NONE and include_boundary_loss
+        boundary_reg_active = self.boundary_regularization_method in _RANGE_BOUNDARY_METHODS and include_boundary_loss
         if per_head_outputs is not None and (self.use_middle_class_nll_penalty or boundary_reg_active):
             if probabilistic_indices.numel() == 0:
                 probabilistic_indices = torch.where(selected_k_values != DIRECT_REGRESSION_K_SENTINEL)[0]
@@ -613,6 +656,8 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
             constrain_middle_class=self.constrain_middle_class,
             centroids=getattr(self, "_per_class_centroids", None),
             use_anchored_heads=self.use_anchored_heads,
+            bin_limits=getattr(self, "_per_class_limits", None),
+            classifier_link=self.classifier_link,
         )
         self.model.to(self.device)
         if self.optimization_strategy == ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP and not self.direct_regression:
@@ -777,7 +822,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                     self._calculate_middle_class_dist_params(y_flat, y_binned, n_classes=k)
                     middle_class_params_per_k[k] = self.middle_class_dist_params_
 
-                if self.boundary_regularization_method != BoundaryRegularizationMethod.NONE:
+                if self.boundary_regularization_method in _RANGE_BOUNDARY_METHODS:
                     self.class_value_ranges_[k] = calculate_class_value_ranges(y_flat=y_flat, y_binned=y_binned, k=k, y_min=y_min, y_max=y_max, device=self.device)
 
             self.middle_class_dist_params_ = middle_class_params_per_k
@@ -788,6 +833,14 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 self._constant_head_init_value = float(y_flat[mid_mask].mean()) if mid_mask.any() else 0.0
             else:
                 self._constant_head_init_value = None
+
+            # BIN_LIMITS: the minimum and maximum training y of each bin of the fixed k (None for every other boundary method).
+            self._per_class_limits = None
+            if self.boundary_regularization_method == BoundaryRegularizationMethod.BIN_LIMITS:
+                limits = per_class_value_ranges(y_flat, y_binned, max_k)
+                if np.isnan(limits).any():
+                    raise ValueError(f"boundary_regularization_method=BIN_LIMITS needs training y in every one of the {max_k} bins; some bin is empty (tied targets?).")
+                self._per_class_limits = limits
 
             # Per-class centroids for monotonic head init (B1 fix) and anchored heads (C6).
             # Only computed when one of those two consumers is actually active — otherwise the
@@ -1457,6 +1510,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
                 "boundary_loss_weight": self.boundary_loss_weight,
                 "use_monotonic_constraints": self.use_monotonic_constraints,
                 "constrain_middle_class": self.constrain_middle_class,
+                "classifier_link": self.classifier_link,
             }
         )
         return params

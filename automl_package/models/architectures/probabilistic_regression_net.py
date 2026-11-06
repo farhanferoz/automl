@@ -5,8 +5,9 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from automl_package.enums import NClassesSelectionMethod, ProbabilisticRegressionOptimizationStrategy, RegressionStrategy, TaskType, UncertaintyMethod
+from automl_package.enums import ClassifierLink, NClassesSelectionMethod, ProbabilisticRegressionOptimizationStrategy, RegressionStrategy, TaskType, UncertaintyMethod
 from automl_package.models.common.monotonicity_config_mixin import MonotonicityConfigMixin
+from automl_package.models.common.ordinal import ProportionalOddsOutput
 from automl_package.models.common.regression_heads import SeparateHeadsRegressionModule, SingleHeadFinalOutputRegressionModule, SingleHeadNOutputsRegressionModule
 from automl_package.models.neural_network import PyTorchNeuralNetwork
 from automl_package.models.selection_strategies.n_classes_strategies import GumbelSoftmaxStrategy, NestedStrategy, NoneStrategy, ReinforceStrategy, SoftGatingStrategy, SteStrategy
@@ -40,6 +41,8 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
         # object.__init__ via cooperative MRO.
         centroids = kwargs.pop("centroids", None)
         use_anchored_heads = kwargs.pop("use_anchored_heads", False)
+        bin_limits = kwargs.pop("bin_limits", None)
+        classifier_link = kwargs.pop("classifier_link", ClassifierLink.SOFTMAX)
         MonotonicityConfigMixin.__init__(self, **kwargs)
         self.input_size = input_size
         self.device = device
@@ -96,7 +99,10 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
             self.n_classes_predictor = None
             self.direct_regression_head = None
 
-        classifier_output_size = self.n_classes
+        # PROPORTIONAL_ODDS: the body emits one score per row and the ordinal output turns it into class log-probabilities, so
+        # `classifier_layers(x)` has the same (batch, n_classes) meaning for every consumer (masked softmax, cross-entropy).
+        ordinal = classifier_link == ClassifierLink.PROPORTIONAL_ODDS
+        classifier_output_size = 1 if ordinal else self.n_classes
         temp_classifier_instance = PyTorchNeuralNetwork(
             input_size=input_size,
             output_size=classifier_output_size,
@@ -106,6 +112,8 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
         )
         temp_classifier_instance.build_model()
         self.classifier_layers = temp_classifier_instance.get_internal_model()
+        if ordinal:
+            self.classifier_layers = nn.Sequential(self.classifier_layers, ProportionalOddsOutput(self.n_classes))
 
         if self.regression_strategy == RegressionStrategy.SEPARATE_HEADS:
             self.regression_module = SeparateHeadsRegressionModule(
@@ -117,6 +125,7 @@ class ProbabilisticRegressionNet(nn.Module, MonotonicityConfigMixin):
                 constrain_middle_class=self.constrain_middle_class,
                 centroids=centroids,
                 use_anchored_heads=use_anchored_heads,
+                bin_limits=bin_limits,
             )
         elif self.regression_strategy == RegressionStrategy.SINGLE_HEAD_N_OUTPUTS:
             self.regression_module = SingleHeadNOutputsRegressionModule(

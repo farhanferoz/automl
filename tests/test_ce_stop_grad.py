@@ -11,6 +11,9 @@ import pytest
 import torch
 
 from automl_package.enums import (
+    BoundaryRegularizationMethod,
+    CapacitySelection,
+    ClassifierLink,
     HpoSampler,
     NClassesSelectionMethod,
     ProbabilisticRegressionOptimizationStrategy,
@@ -21,6 +24,7 @@ from automl_package.enums import (
 )
 from automl_package.models.base import _BASE_SETTINGS
 from automl_package.models.common.losses import calculate_combined_loss
+from automl_package.models.common.ordinal import MIN_CLASS_PROBABILITY, ProportionalOddsOutput
 from automl_package.models.common.regression_heads import ConstantHead
 from automl_package.models.neural_network import PyTorchNeuralNetwork
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
@@ -28,6 +32,7 @@ from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
 from automl_package.models.pytorch_linear_regression import PyTorchLinearRegression
 from automl_package.utils.convergence import ConvergenceResult
 from automl_package.utils.losses import beta_nll_loss
+from automl_package.utils.numerics import create_bins
 
 
 def _make_tiny_dataset(n: int = 80, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
@@ -101,8 +106,11 @@ class TestCeModesConstructAndTrain:
             {"refit_on_train_val": False, "optimize_hyperparameters": True, "n_trials": 2, "validation_fraction": 0.2},
             {"optimize_hyperparameters": True, "n_trials": 2, "validation_fraction": 0.2, "search_space_exclude": ["n_classes"]},
             {"optimize_hyperparameters": True, "n_trials": 2, "validation_fraction": 0.2, "hpo_sampler": HpoSampler.RANDOM, "hpo_seed": 3},
+            {"use_anchored_heads": True, "validation_fraction": 0.2},
+            {"boundary_regularization_method": BoundaryRegularizationMethod.BIN_LIMITS, "validation_fraction": 0.2},
+            {"classifier_link": ClassifierLink.PROPORTIONAL_ODDS, "validation_fraction": 0.2},
         ],
-        ids=["cv", "hpo", "hpo_cv", "direct_regression", "one_pass", "one_pass_hpo", "hpo_excluding_n_classes", "hpo_random_sampler"],
+        ids=["cv", "hpo", "hpo_cv", "direct_regression", "one_pass", "one_pass_hpo", "hpo_excluding_n_classes", "hpo_random_sampler", "anchored_heads", "bin_limits", "ordinal"],
     )
     def test_default_fits_under_cv_hpo_and_direct_regression(self, extra):
         """The CE_STOP_GRAD default must not crash where trials are scored on a clone (CV, search) or where no classes exist.
@@ -166,6 +174,60 @@ class TestCeModesConstructAndTrain:
         preds = model.predict(x[:10])
         assert preds.shape == (10,)
         assert np.all(np.isfinite(preds))
+
+
+class TestProportionalOddsClassifier:
+    """The ordinal classifier link: one score, ordered thresholds, class log-probabilities that every softmax consumer reads unchanged."""
+
+    def test_probabilities_cross_entropy_and_ordered_thresholds(self):
+        x, y = _make_tiny_dataset()
+        model = _make_model(classifier_link=ClassifierLink.PROPORTIONAL_ODDS, n_epochs=5)
+        model.fit(x, y)
+        output = next(m for m in model.model.classifier_layers if isinstance(m, ProportionalOddsOutput))
+        assert bool(torch.all(torch.diff(output.thresholds()) > 0))  # strictly increasing after training
+        output.raw_gaps.data.fill_(-5.0)  # ordered by construction, whatever the raw gaps are
+        assert bool(torch.all(torch.diff(output.thresholds()) > 0))
+        output.raw_gaps.data.fill_(0.0)
+
+        x_t = torch.tensor(x)
+        model.model.eval()
+        with torch.no_grad():
+            log_p = model.model.classifier_layers(x_t)
+            eta = model.model.classifier_layers[0](x_t)
+            cumulative = torch.sigmoid(output.thresholds().unsqueeze(0) - eta)
+            f_all = torch.cat([torch.zeros_like(eta), cumulative, torch.ones_like(eta)], dim=1)
+            expected = f_all[:, 1:] - f_all[:, :-1]
+            probabilities = model.get_classifier_predictions(x, y)[1]
+            assert np.allclose(probabilities, expected.numpy(), atol=1e-6)
+            assert np.allclose(probabilities.sum(axis=1), 1.0, atol=1e-6)
+            assert torch.allclose(torch.softmax(log_p, dim=1), expected.clamp_min(MIN_CLASS_PROBABILITY), atol=1e-6)
+            # The classification term is the ordinary cross-entropy on the classifier output: -log p_y.
+            y_t = torch.tensor(y)
+            ce, _ = model._class_cross_entropy(log_p, y_t, torch.full((len(y),), model.n_classes))
+            _, y_binned = create_bins(data=y, unique_bin_edges=model.precomputed_class_boundaries[model.n_classes])
+            picked = expected.clamp_min(MIN_CLASS_PROBABILITY)[torch.arange(len(y)), torch.tensor(y_binned)]
+            assert float(ce) == pytest.approx(float(-torch.log(picked).mean()), abs=1e-5)
+
+    def test_frozen_classifier_freezes_the_thresholds(self):
+        model = _make_model(ProbabilisticRegressionOptimizationStrategy.GRADIENT_STOP, classifier_link=ClassifierLink.PROPORTIONAL_ODDS)
+        model.build_model()
+        assert not any(p.requires_grad for p in model.model.classifier_layers.parameters())
+
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            {"n_classes_selection_method": NClassesSelectionMethod.NESTED, "allow_unredesigned_nested": True},
+            {"capacity_selection": CapacitySelection.PER_INPUT},
+            {"capacity_selection": CapacitySelection.GLOBAL_CHEAP},
+        ],
+        ids=["nested", "per_input", "global_cheap"],
+    )
+    def test_refused_for_a_dynamic_k(self, extra):
+        with pytest.raises(ValueError, match="PROPORTIONAL_ODDS"):
+            _make_model(classifier_link=ClassifierLink.PROPORTIONAL_ODDS, **extra)
+
+    def test_global_sweep_is_allowed(self):
+        _make_model(classifier_link=ClassifierLink.PROPORTIONAL_ODDS, capacity_selection=CapacitySelection.GLOBAL_SWEEP)
 
 
 class TestCeStopGradRouting:

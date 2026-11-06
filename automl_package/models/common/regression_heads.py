@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as f
@@ -169,7 +170,8 @@ class AnchoredHead(RegressionHead):
 
     Hard constraint: h_i(1) = c_i exactly (structural identifiability).
     f_i retains full expressivity away from p_i = 1.
-    log_var is produced by f_i and left unconstrained.
+    log_var is produced by f_i and left unconstrained when ``output_size`` is 2; with ``output_size=1`` (the mean-only
+    spread) f_i emits the mean part alone.
 
     Accepts the same structural knobs (hidden_layers, hidden_size, activation) as
     BaseRegressionHead so callers can pass one regression_head_params dict uniformly.
@@ -183,8 +185,17 @@ class AnchoredHead(RegressionHead):
         hidden_layers: int = 1,
         hidden_size: int = 16,
         activation: ActivationFunction = ActivationFunction.RELU,
+        output_size: int = _PROBABILISTIC_OUTPUT_SIZE,
     ) -> None:
-        """Initializes the AnchoredHead."""
+        """Initializes the AnchoredHead.
+
+        Args:
+            centroid: The anchor value h(1).
+            hidden_layers: Hidden layers of f.
+            hidden_size: Width of f's hidden layers.
+            activation: Hidden activation.
+            output_size: 1 = mean only (``UncertaintyMethod.CONSTANT``); 2 = mean and log-variance (``PROBABILISTIC``).
+        """
         super().__init__()
         self.register_buffer("centroid", torch.tensor(float(centroid)))
 
@@ -197,15 +208,17 @@ class AnchoredHead(RegressionHead):
         for _ in range(max(0, hidden_layers - 1)):
             layers.append(nn.Linear(hidden_size, hidden_size))
             layers.append(activation_module())
-        layers.append(nn.Linear(hidden_size, 2))
+        layers.append(nn.Linear(hidden_size, output_size))
         self.f = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor, boundaries: torch.Tensor | None = None) -> torch.Tensor:
-        """Forward pass: mean = centroid + (1 - p_i) * f_mean; log_var from f."""
+        """Forward pass: mean = centroid + (1 - p_i) * f_mean; log_var from f when the head has one."""
         _ = boundaries
         f_out = self.f(x)
         gate = 1.0 - x
         mean = self.centroid + gate * f_out[:, 0:1]
+        if f_out.shape[1] == 1:
+            return mean
         log_var = f_out[:, 1:2]
         return torch.cat([mean, log_var], dim=-1)
 
@@ -296,12 +309,18 @@ class SeparateHeadsRegressionModule(nn.Module):
         constrain_middle_class: bool = True,
         centroids: list[float] | None = None,
         use_anchored_heads: bool = False,
+        bin_limits: np.ndarray | None = None,
     ) -> None:
-        """Initializes the SeparateHeadsRegressionModule."""
+        """Initializes the SeparateHeadsRegressionModule.
+
+        ``bin_limits`` (n_classes, 2), the minimum and maximum training y of each bin, squashes every head's mean into its bin's
+        limits (`_limit_means`); None leaves the heads unbounded.
+        """
         super().__init__()
         self.heads = nn.ModuleList()
         self.n_classes = n_classes
         self.regression_output_size = regression_output_size
+        self.register_buffer("bin_limits", None if bin_limits is None else torch.tensor(np.asarray(bin_limits), dtype=torch.float32))
 
         for i in range(n_classes):
             middle_point = (n_classes - 1) / 2.0
@@ -316,6 +335,7 @@ class SeparateHeadsRegressionModule(nn.Module):
                         hidden_layers=regression_head_params.get("hidden_layers", 1),
                         hidden_size=regression_head_params.get("hidden_size", 16),
                         activation=activation,
+                        output_size=regression_output_size,
                     )
                 )
             elif is_middle_class and constrain_middle_class:
@@ -356,6 +376,18 @@ class SeparateHeadsRegressionModule(nn.Module):
             if isinstance(head, (ConstantHead, ProbabilisticMiddleClassHead)):
                 head.init_mean(value)
 
+    def _limit_means(self, head_outputs: torch.Tensor) -> torch.Tensor:
+        """Squashes each head's mean column into its bin's limits: ``lo_c + (hi_c - lo_c) * sigmoid(raw_c)``.
+
+        The one place the limits are applied; every path that produces head outputs goes through it. ``head_outputs`` is
+        ``(batch, n_classes, regression_output_size)``; the log-variance column, if any, is left as it is.
+        """
+        if self.bin_limits is None:
+            return head_outputs
+        lower, upper = self.bin_limits[:, 0], self.bin_limits[:, 1]
+        mean = lower + (upper - lower) * torch.sigmoid(head_outputs[..., 0])
+        return torch.cat([mean.unsqueeze(-1), head_outputs[..., 1:]], dim=-1)
+
     def forward(self, probabilities: torch.Tensor, return_head_outputs: bool = False, boundaries: torch.Tensor | None = None) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """Performs the forward pass.
 
@@ -380,7 +412,7 @@ class SeparateHeadsRegressionModule(nn.Module):
             # no test, so this never surfaced until the structure phase's PS-2 patch audit ran it.
             head_boundaries = None if boundaries is None else boundaries[i : i + 1]
             per_head_outputs.append(self.heads[i](p_i, boundaries=head_boundaries))
-        per_head_outputs = torch.stack(per_head_outputs, dim=1)
+        per_head_outputs = self._limit_means(torch.stack(per_head_outputs, dim=1))
         final_predictions = _calculate_final_predictions(probabilities, per_head_outputs, self.regression_output_size)
         return (final_predictions, per_head_outputs) if return_head_outputs else final_predictions
 
@@ -390,7 +422,7 @@ class SeparateHeadsRegressionModule(nn.Module):
         for i in range(len(self.heads)):
             p_i = probabilities[:, i].unsqueeze(1)
             head_outputs.append(self.heads[i](p_i))
-        return torch.stack(head_outputs, dim=1)
+        return self._limit_means(torch.stack(head_outputs, dim=1))
 
 
 class SingleHeadNOutputsRegressionModule(nn.Module):

@@ -196,14 +196,21 @@ def calculate_binned_stats(
     return bin_edges, final_lookups
 
 
+def per_class_value_ranges(y_flat: np.ndarray, y_binned: np.ndarray, k: int) -> np.ndarray:
+    """Minimum and maximum of ``y_flat`` in each of the ``k`` bins, shape ``(k, 2)``; a bin with no row is NaN."""
+    df = pd.DataFrame({"y": y_flat, "bin": y_binned})
+    return df.groupby("bin")["y"].agg(["min", "max"]).reindex(range(k)).to_numpy()
+
+
 def calculate_class_value_ranges(y_flat: np.ndarray, y_binned: np.ndarray, k: int, y_min: float, y_max: float, device: str) -> torch.Tensor:
     """Calculates the value ranges for each class based on the sophisticated bounding logic."""
     # Coerce to Python float — callers may pass numpy scalars which PyTorch 2.6+ rejects
     # when assigned to tensor elements via tensor[i, j] = value.
     y_min, y_max = float(y_min), float(y_max)
-    df = pd.DataFrame({"y": y_flat, "bin": y_binned})
-    agg = df.groupby("bin")["y"].agg(["min", "max"])
-    per_class_ranges = torch.tensor(agg.values, dtype=torch.float32)
+    ranges = per_class_value_ranges(y_flat, y_binned, k)
+    if np.isnan(ranges).any():
+        raise ValueError(f"class value ranges need training y in every one of the {k} bins; some bin is empty (tied targets?).")
+    per_class_ranges = torch.tensor(ranges, dtype=torch.float32)
 
     # Apply the sophisticated bounding logic
     final_bounds = torch.zeros_like(per_class_ranges)

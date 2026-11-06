@@ -8,11 +8,14 @@ n_classes happens to equal batch_size. Boundary regularization is off by default
 so it only surfaced when the structure phase's PS-2 patch audit first exercised it.
 """
 
+import numpy as np
 import pytest
 import torch
 
-from automl_package.enums import UncertaintyMethod
+from automl_package.enums import BoundaryRegularizationMethod, RegressionStrategy, UncertaintyMethod
 from automl_package.models.common.regression_heads import SeparateHeadsRegressionModule
+from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
+from automl_package.utils.plotting import evaluate_mapper_heads
 
 _BATCH = 64  # deliberately != n_classes, which is what the original bug needed to stay hidden
 _PROBABILISTIC_OUTPUT_SIZE = 2  # (mean, log_variance) per class
@@ -108,3 +111,72 @@ def test_middle_class_head_is_exempt_from_boundaries_at_odd_k():
     middle = per_head[:, 1, 0]
     assert torch.allclose(middle, middle[0].expand_as(middle)), "middle head should emit one constant"
     assert not (middle >= lowers[1]).all(), "middle head is expected to be exempt from its class range"
+
+
+_LIMIT_TOLERANCE = 1e-5
+
+
+def _bin_limits_model(**extra) -> ProbabilisticRegressionModel:
+    return ProbabilisticRegressionModel(
+        input_size=1,
+        n_classes=4,
+        boundary_regularization_method=BoundaryRegularizationMethod.BIN_LIMITS,
+        n_epochs=3,
+        learning_rate=0.05,
+        early_stopping_rounds=2,
+        validation_fraction=0.2,
+        random_seed=0,
+        calculate_feature_importance=False,
+        **extra,
+    )
+
+
+def test_bin_limits_bound_every_head_in_training_prediction_and_curves():
+    """Each head's mean lies in its bin's [lo, hi] on every path, and `predict` applies the limits (it is not the unbounded head)."""
+    rng = np.random.default_rng(0)
+    x = rng.uniform(-3, 3, (120, 1)).astype(np.float32)
+    y = (3.0 * x.ravel() + rng.normal(0, 0.5, 120)).astype(np.float32)
+    model = _bin_limits_model()
+    model.fit(x, y)
+    limits = model._per_class_limits
+    assert limits.shape == (4, 2)
+    lower, upper = limits[:, 0], limits[:, 1]
+
+    module = model.model.regression_module
+    x_t = torch.tensor(x)
+    model.model.eval()
+    with torch.no_grad():
+        _, _, _, _, per_head = model.model(x_t)
+        means = per_head[:, :, 0].numpy()
+        assert (means >= lower - _LIMIT_TOLERANCE).all()
+        assert (means <= upper + _LIMIT_TOLERANCE).all()
+
+        _, grid = evaluate_mapper_heads(module, RegressionStrategy.SEPARATE_HEADS, 4, torch.device("cpu"))
+        assert (grid >= lower - _LIMIT_TOLERANCE).all()
+        assert (grid <= upper + _LIMIT_TOLERANCE).all()
+
+        # The prediction is the probability-weighted mean of the SQUASHED heads: rebuild it from the unbounded heads.
+        probabilities = model.get_classifier_predictions(x, y)[1]
+        saved, module.bin_limits = module.bin_limits, None
+        raw = module(torch.tensor(probabilities), return_head_outputs=True)[1][:, :, 0].numpy()
+        module.bin_limits = saved
+    squashed = lower + (upper - lower) / (1.0 + np.exp(-raw))
+    assert not np.allclose(raw, squashed)  # the limits do something here
+
+    # Structure only: the training loss is the fit term plus the classification term, nothing else.
+    outputs = model.model(x_t)
+    y_t = torch.tensor(y)
+    k_values = torch.full((len(y),), 4)
+    expected = model._fit_loss(outputs[0], y_t) + model._class_cross_entropy(outputs[1], y_t, k_values)[0]
+    assert float(model._calculate_custom_loss(outputs, y_t).detach()) == pytest.approx(float(expected.detach()), rel=1e-6)
+    assert np.allclose(model.predict(x), (probabilities * squashed).sum(axis=1), atol=1e-4)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{"use_anchored_heads": True}, {"use_monotonic_constraints": True}, {"constrain_middle_class": True}, {"regression_strategy": RegressionStrategy.SINGLE_HEAD_N_OUTPUTS}],
+    ids=["anchored", "monotonic", "middle_class", "single_head"],
+)
+def test_bin_limits_refused_where_it_is_undefined(extra):
+    with pytest.raises(ValueError, match="BIN_LIMITS"):
+        _bin_limits_model(**extra)

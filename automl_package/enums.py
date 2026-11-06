@@ -33,6 +33,17 @@ class BoundaryRegularizationMethod(Enum):
     NONE = "none"
     PENALTY = "penalty"
     HARDSIGMOID = "hardsigmoid"
+    BIN_LIMITS = "bin_limits"
+    # BIN_LIMITS: each head's mean is `lo_c + (hi_c - lo_c) * sigmoid(raw_c)`, where lo_c / hi_c are the minimum / maximum of the
+    # training y that fall in bin c. It is part of the network, so it applies in every forward pass (training, validation,
+    # prediction, curves), and adds no loss term.
+
+
+class ClassifierLink(Enum):
+    """How the ProbabilisticRegressionModel classifier turns its output into class probabilities."""
+
+    SOFTMAX = "softmax"  # one score per class, softmax across classes
+    PROPORTIONAL_ODDS = "proportional_odds"  # one score per row and ordered thresholds: P(class <= c) = sigmoid(theta_c - eta)
 
 
 class MapperType(Enum):
