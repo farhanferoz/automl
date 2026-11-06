@@ -6,6 +6,7 @@ from typing import Any
 import torch
 
 from automl_package.enums import ProbabilisticRegressionOptimizationStrategy, RegressionStrategy
+from automl_package.utils.pytorch_utils import make_optimizer
 
 # Sentinel value for direct regression mode (must exceed any valid n_classes_inf).
 # Loss function checks `selected_k_values < n_classes_inf` to identify probabilistic samples.
@@ -43,7 +44,7 @@ class BaseSelectionStrategy(ABC):
     @abstractmethod
     def setup_optimizers(self, policy_params: Any) -> None:
         """Sets up optimizers for policy-based strategies (e.g., REINFORCE)."""
-        self.policy_optimizer = torch.optim.Adam(policy_params, lr=self.model.n_predictor_learning_rate)
+        self.policy_optimizer = make_optimizer(torch.optim.Adam, policy_params, lr=self.model.n_predictor_learning_rate)
 
     @abstractmethod
     def on_epoch_end(self, **kwargs: Any) -> None:

@@ -9,6 +9,7 @@ from torch.distributions import Categorical
 from automl_package.models.flexnn.strategies.base import (
     BaseSelectionStrategy,
 )
+from automl_package.utils.pytorch_utils import make_optimizer
 
 SelectionOutput = tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]
 ForwardOutput = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
@@ -30,7 +31,7 @@ class IndependentWeightsGumbelSoftmaxStrategy(BaseSelectionStrategy):
 
     def setup_optimizers(self, policy_params: Any) -> None:
         """Setup the optimizers for the policy parameters."""
-        self.policy_optimizer = torch.optim.Adam(policy_params, lr=self.n_predictor_learning_rate)
+        self.policy_optimizer = make_optimizer(torch.optim.Adam, policy_params, lr=self.n_predictor_learning_rate)
 
     def select_n(self, x_input: torch.Tensor, n_logits: torch.Tensor) -> SelectionOutput:  # noqa: ARG002
         """Selects the number of layers 'n' using Gumbel-Softmax.
@@ -130,7 +131,7 @@ class IndependentWeightsSoftGatingStrategy(BaseSelectionStrategy):
 
     def setup_optimizers(self, policy_params: Any) -> None:
         """Setup the optimizers for the policy parameters."""
-        self.policy_optimizer = torch.optim.Adam(policy_params, lr=self.n_predictor_learning_rate)
+        self.policy_optimizer = make_optimizer(torch.optim.Adam, policy_params, lr=self.n_predictor_learning_rate)
 
     def select_n(self, x_input: torch.Tensor, n_logits: torch.Tensor) -> SelectionOutput:  # noqa: ARG002
         """Selects the number of layers 'n' using softmax.
@@ -176,7 +177,7 @@ class IndependentWeightsSteStrategy(BaseSelectionStrategy):
 
     def setup_optimizers(self, policy_params: Any) -> None:
         """Setup the optimizers for the policy parameters."""
-        self.policy_optimizer = torch.optim.Adam(policy_params, lr=self.n_predictor_learning_rate)
+        self.policy_optimizer = make_optimizer(torch.optim.Adam, policy_params, lr=self.n_predictor_learning_rate)
 
     def select_n(self, x_input: torch.Tensor, n_logits: torch.Tensor) -> SelectionOutput:  # noqa: ARG002
         """Selects the number of layers 'n' using STE.
@@ -268,7 +269,7 @@ class IndependentWeightsReinforceStrategy(BaseSelectionStrategy):
 
     def setup_optimizers(self, policy_params: Any) -> None:
         """Setup the optimizers for the policy parameters."""
-        self.policy_optimizer = torch.optim.Adam(policy_params, lr=self.n_predictor_learning_rate)
+        self.policy_optimizer = make_optimizer(torch.optim.Adam, policy_params, lr=self.n_predictor_learning_rate)
 
     def select_n(self, x_input: torch.Tensor, n_logits: torch.Tensor) -> SelectionOutput:  # noqa: ARG002
         """Selects the number of layers 'n' using REINFORCE.

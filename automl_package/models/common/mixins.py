@@ -8,6 +8,7 @@ from automl_package.enums import LearnedRegularizationType, Monotonicity
 from automl_package.models.common.regression_heads import ConstantHead
 from automl_package.utils.losses import boundary_regularization_loss
 from automl_package.utils.numerics import calculate_binned_stats
+from automl_package.utils.pytorch_utils import make_optimizer
 
 
 class BoundaryLossMixin:
@@ -136,4 +137,4 @@ class RegularizationMixin:
         if self.learn_regularization_lambdas:
             lambda_params = [p for p in [self.l1_log_lambda, self.l2_log_lambda] if p is not None]
             if lambda_params:
-                self.lambda_optimizer = torch.optim.Adam(lambda_params, lr=self.lambda_learning_rate)
+                self.lambda_optimizer = make_optimizer(torch.optim.Adam, lambda_params, lr=self.lambda_learning_rate)

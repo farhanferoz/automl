@@ -73,20 +73,22 @@ def aggregate_stats(
     model: nn.Sequential,
     include_bias: bool = True,
     exclude_names_pattern: str | None = None,
-) -> tuple[int, float, float]:
-    """Return (d, sum|w|, sum w²) across selected parameters."""
-    d = 0  # total #elements
-    l1_sum = 0.0
-    l2_sum = 0.0
-    for name, p in model.named_parameters():
-        if exclude_names_pattern and re.search(exclude_names_pattern, name):
-            continue
-        if p.requires_grad and (include_bias or "bias" not in name):
-            flat = p.view(-1)
-            d += flat.numel()
-            l1_sum = l1_sum + flat.abs().sum()
-            l2_sum = l2_sum + (flat**2).sum()
-    return d, l1_sum, l2_sum
+) -> tuple[int, torch.Tensor | float, torch.Tensor | float]:
+    """Return (d, sum|w|, sum w²) across selected parameters.
+
+    The selected parameters are concatenated once and reduced with two ops, not two per parameter: a penalty is computed
+    every training step, and per-parameter sums were a measured eighth of a small network's step (2026-11-06). The
+    gradients of both sums are elementwise (sign(w), 2w), so they do not depend on the order of summation.
+    """
+    selected = [
+        p
+        for name, p in model.named_parameters()
+        if p.requires_grad and (include_bias or "bias" not in name) and not (exclude_names_pattern and re.search(exclude_names_pattern, name))
+    ]
+    if not selected:
+        return 0, 0.0, 0.0
+    flat = torch.cat([p.reshape(-1) for p in selected])
+    return flat.numel(), flat.abs().sum(), flat.pow(2).sum()
 
 
 def log_erfc(x: torch.Tensor) -> torch.Tensor:

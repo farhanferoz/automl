@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from automl_package.enums import ModelName
-from automl_package.experiments.cell import CellStatus, cell_status, fingerprint_id, run_cell
+from automl_package.experiments.cell import CellStatus, cell_status, fingerprint_id, load_record, record_path, run_cell
 from automl_package.experiments.config import CellSpec, PredictorKind, StudyConfig, from_dict, to_dict
 from automl_package.experiments.toys import Toy
 
@@ -148,6 +148,20 @@ def _run_stage(cells: list[CellSpec], workers: int, summary: RunSummary) -> None
                 summary.failed[label] = "".join(traceback.format_exception(type(error), error, error.__traceback__))
 
 
+def _expected_cost(cell: CellSpec, fp_id: str) -> tuple[int, float]:
+    """Sort key, larger = longer: training rows, then the measured seconds of the reference variant's record of the same cell (0 if none).
+
+    Running the longest cells first keeps one long cell from starting last and holding the job open on its own.
+    """
+    reference = cell.report.reference_variant
+    seconds = 0.0
+    if reference and reference != cell.variant:
+        path = record_path(cell, fp_id, variant=reference)
+        if path.exists():
+            seconds = float(load_record(path).get("wall_seconds", 0.0))
+    return cell.n_train, seconds
+
+
 def run_cells(cells: list[CellSpec], workers: int = 1, shard: tuple[int, int] = (0, 1)) -> RunSummary:
     """Runs the cells of ``shard`` (index, count) that are not done on this machine: independent variants first, then dependent ones."""
     summary = RunSummary()
@@ -159,6 +173,7 @@ def run_cells(cells: list[CellSpec], workers: int = 1, shard: tuple[int, int] = 
             summary.skipped.append(_label(cell))
         else:
             todo.append(cell)
+    todo.sort(key=lambda cell: _expected_cost(cell, fp_id), reverse=True)
     if todo:
         threads = str(todo[0].protocol.torch_threads)
         os.environ["OMP_NUM_THREADS"] = os.environ["MKL_NUM_THREADS"] = threads  # inherited by the spawned workers

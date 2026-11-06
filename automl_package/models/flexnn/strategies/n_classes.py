@@ -8,6 +8,7 @@ import torch.nn.functional as f
 
 from automl_package.enums import ProbabilisticRegressionOptimizationStrategy, RegressionStrategy
 from automl_package.models.flexnn.strategies.base import BaseSelectionStrategy
+from automl_package.utils.pytorch_utils import make_optimizer
 
 
 class NoneStrategy(BaseSelectionStrategy):
@@ -136,7 +137,7 @@ class ReinforceStrategy(BaseSelectionStrategy):
         Args:
             policy_params (Any): Parameters of the policy network.
         """
-        self.policy_optimizer = torch.optim.Adam(policy_params, lr=self.model.n_classes_predictor_learning_rate)
+        self.policy_optimizer = make_optimizer(torch.optim.Adam, policy_params, lr=self.model.n_classes_predictor_learning_rate)
 
     def forward(
         self, x_input: torch.Tensor, logits: torch.Tensor, boundaries: torch.Tensor | None = None,

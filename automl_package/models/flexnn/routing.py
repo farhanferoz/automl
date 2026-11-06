@@ -72,7 +72,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as nnf
 
-from automl_package.utils.pytorch_utils import get_device
+from automl_package.utils.pytorch_utils import get_device, make_optimizer
 
 DEFAULT_TOLERANCE = 0.25  # matches sinc_width_experiment.py:333 DELTA_TIE
 DEFAULT_HIDDEN: tuple[int, ...] = (32, 32)  # capacity_ladder_k6.py:64 HIDDEN convention
@@ -277,7 +277,7 @@ class DistilledCapacityRouter:
 
         torch.manual_seed(self.seed)
         self.router_ = _CapacityRouterMLP(x_arr.shape[1], len(capacity_grid), hidden=self.hidden).to(self.device)
-        optimizer = torch.optim.Adam(self.router_.parameters(), lr=self.lr)
+        optimizer = make_optimizer(torch.optim.Adam, self.router_.parameters(), lr=self.lr)
         x_tensor = torch.as_tensor(x_arr, dtype=torch.float32, device=self.device)
         if hard_labels is not None:
             target_tensor = torch.as_tensor(hard_labels, dtype=torch.long, device=self.device)
