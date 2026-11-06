@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from automl_package.enums import LearnedRegularizationType, OptimizerType, OutputBound, TargetScaling, TaskType, UncertaintyMethod
+from automl_package.enums import InputScaling, LearnedRegularizationType, OptimizerType, OutputBound, TargetScaling, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 from automl_package.models.common.losses import calculate_combined_loss
@@ -32,6 +32,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
     # Standard practice for a regression network: standardise the targets (`BaseModel`, `TargetScaling`). A class whose public outputs are not all
     # mapped back sets `_supports_target_scaling = False` (the default then is NONE and PER_OUTPUT is refused).
     _default_target_scaling: ClassVar[TargetScaling] = TargetScaling.PER_OUTPUT
+    _default_input_scaling: ClassVar[InputScaling] = InputScaling.STANDARD  # standard practice for a network: standardised inputs
 
     # Whether this class applies `output_bound` (a `TrainingRangeBound` on the network's final output, which must be the regression
     # prediction itself). A class that does not declare True raises NotImplementedError when `OutputBound.TRAINING_RANGE` is requested.

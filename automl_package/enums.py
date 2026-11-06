@@ -375,6 +375,21 @@ class TargetScaling(Enum):
     PER_OUTPUT = "per_output"  # each output column standardised by the mean and standard deviation of the rows being fitted; NaN stays NaN
 
 
+class InputScaling(Enum):
+    """How a model scales its input columns before fitting (`BaseModel.input_scaling`)."""
+
+    NONE = "none"  # inputs as given
+    STANDARD = "standard"  # each numeric column standardised by the training part's mean and sd; binary 0/1, categorical and offset columns left alone
+
+
+class MissingInputs(Enum):
+    """What a model does with a missing (NaN) input value (`BaseModel.missing_inputs`)."""
+
+    RAISE = "raise"  # a NaN in the inputs raises ValueError naming the remedy
+    TRAINING_MEAN = "training_mean"  # replaced by the training part's column mean (before any scaling)
+    NATIVE = "native"  # passed through: the model handles NaN itself (gradient-boosted trees, the LSTM)
+
+
 class ComputeDevice(Enum):
     """Where a model that is not a PyTorch network trains (gradient-boosted trees); PyTorch models use `get_device()`."""
 

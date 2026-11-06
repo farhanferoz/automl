@@ -90,6 +90,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
     """
 
     _supports_target_scaling: ClassVar[bool] = False  # target_scaling=PER_OUTPUT refused: distribution output, symlog, capacity selection, _predict_for_scoring bypass
+    _supports_input_scaling: ClassVar[bool] = False  # input_scaling=STANDARD refused: _predict_for_scoring bypasses predict, so raw inputs could reach the network
 
     _scores_by_fit_term: ClassVar[bool] = True
 

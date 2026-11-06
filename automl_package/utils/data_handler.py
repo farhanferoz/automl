@@ -1,5 +1,6 @@
 """Data handling utilities."""
 
+from collections.abc import Collection, Sequence
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
@@ -7,12 +8,13 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-from automl_package.enums import DataSplitStrategy
+from automl_package.enums import DataSplitStrategy, InputScaling, MissingInputs
 
 if TYPE_CHECKING:
     from automl_package.models.base import BaseModel
 
 MIN_STD = 1e-6  # a standard deviation below this is treated as 0 and replaced by 1
+MATRIX_NDIM = 2  # a (rows, columns) array
 
 
 def standardiser_stats(values: np.ndarray, axis: int | tuple[int, ...] | None, dtype: type | np.dtype = np.float32) -> tuple[np.ndarray, np.ndarray]:
@@ -69,7 +71,7 @@ class TargetScaler:
         spread = np.asarray(spread)
         if len(scale) == 1 and spread.ndim <= 1:
             return scale[0]
-        if spread.ndim == 2 and spread.shape[1] == len(scale):
+        if spread.ndim == MATRIX_NDIM and spread.shape[1] == len(scale):
             return scale
         raise NotImplementedError(f"A spread of shape {spread.shape} cannot be mapped to {len(scale)} scaled outputs: set target_scaling=NONE.")
 
@@ -84,6 +86,77 @@ class TargetScaler:
     def fit_transform(self, y: np.ndarray) -> np.ndarray:
         """`fit(y)` then `transform(y)`."""
         return self.fit(y).transform(y)
+
+
+class InputTransform:
+    """Training-part statistics for the input columns: the missing-value rule and per-column standardisation.
+
+    The settings are `BaseModel.missing_inputs` and `BaseModel.input_scaling`. Statistics are kept per column name, so `transform` takes
+    all the fitted columns or any subset of them (e.g. the selected features). Columns that are not standardised: binary 0/1 columns
+    of the training part and the names in ``unscaled_columns`` (categorical codes, a
+    per-row offset). Under RAISE a NaN raises; under TRAINING_MEAN it becomes the training part's column mean (before scaling); under
+    NATIVE it is passed through.
+    """
+
+    def __init__(self, scaling: InputScaling, missing: MissingInputs, unscaled_columns: Collection[str] = ()) -> None:
+        """Creates an unfitted transform for the given settings."""
+        self.scaling, self.missing = scaling, missing
+        self.unscaled_columns = frozenset(unscaled_columns)
+        self.columns_: dict[str, int] | None = None  # column name -> position in the fitted columns
+        self.fill_: np.ndarray | None = None  # per-column training mean (TRAINING_MEAN)
+        self.mean_: np.ndarray | None = None  # per-column centre (STANDARD; 0 for a column left alone)
+        self.scale_: np.ndarray | None = None  # per-column scale (STANDARD; 1 for a column left alone)
+
+    @property
+    def changes_values(self) -> bool:
+        """Whether `transform` changes any value (scaling or filling); a RAISE/NATIVE transform without scaling only checks."""
+        return self.scaling is InputScaling.STANDARD or self.missing is MissingInputs.TRAINING_MEAN
+
+    def check(self, x: np.ndarray, what: str) -> None:
+        """Under RAISE, a NaN in `x` raises ValueError naming the remedy."""
+        if self.missing is not MissingInputs.RAISE:
+            return
+        n_missing = int(np.isnan(np.asarray(x, dtype=np.float64)).sum())
+        if n_missing:
+            raise ValueError(
+                f"{what} hold {n_missing} missing values and missing_inputs=RAISE: clean them, or set missing_inputs=TRAINING_MEAN "
+                "(filled with the training mean) or NATIVE (for a model that handles NaN itself)."
+            )
+
+    def fit(self, x: np.ndarray, columns: Sequence[str]) -> "InputTransform":
+        """Statistics of the training part `x` whose columns are named `columns`; returns self."""
+        x = np.asarray(x, dtype=np.float64)
+        self.check(x, "The training inputs")
+        self.columns_ = {name: j for j, name in enumerate(columns)}
+        if self.missing is MissingInputs.TRAINING_MEAN:
+            self.fill_ = np.nan_to_num(np.nanmean(x, axis=0))
+            x = np.where(np.isnan(x), self.fill_, x)
+        if self.scaling is InputScaling.STANDARD:
+            mean, scale = standardiser_stats(x, axis=0, dtype=np.float64)
+            observed = np.where(np.isnan(x), 0.0, x)
+            binary = np.all((observed == 0.0) | (observed == 1.0), axis=0)
+            named = np.array([name in self.unscaled_columns for name in columns], dtype=bool)
+            left_alone = binary | named
+            self.mean_, self.scale_ = np.where(left_alone, 0.0, mean), np.where(left_alone, 1.0, scale)
+        return self
+
+    def transform(self, x: np.ndarray, columns: Sequence[str] | None = None) -> np.ndarray:
+        """`x` (all fitted columns, or the named subset `columns` in that order) after the missing-value rule and scaling.
+
+        Without a value change (scaling NONE, missing RAISE or NATIVE) `x` is only checked and returned as given.
+        """
+        self.check(x, "The inputs")
+        if not self.changes_values:
+            return x
+        if self.columns_ is None:
+            raise RuntimeError("InputTransform is not fitted.")
+        idx = slice(None) if columns is None else np.array([self.columns_[name] for name in columns], dtype=int)
+        x = np.asarray(x, dtype=np.float64)
+        if self.fill_ is not None:
+            x = np.where(np.isnan(x), self.fill_[idx], x)
+        if self.mean_ is not None:
+            x = (x - self.mean_[idx]) / self.scale_[idx]
+        return x
 
 
 class DataHandler:

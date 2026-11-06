@@ -11,14 +11,26 @@ import optuna
 import pandas as pd
 from sklearn.model_selection import KFold
 
-from automl_package.enums import DataSplitStrategy, HpoSampler, KSelectionRule, Metric, OutOfRangeAction, OutputBound, TargetScaling, TaskType, UncertaintyMethod
+from automl_package.enums import (
+    DataSplitStrategy,
+    HpoSampler,
+    InputScaling,
+    KSelectionRule,
+    Metric,
+    MissingInputs,
+    OutOfRangeAction,
+    OutputBound,
+    TargetScaling,
+    TaskType,
+    UncertaintyMethod,
+)
 from automl_package.logger import logger
 from automl_package.models.common.mixins import BinnedUncertaintyMixin
 from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
 from automl_package.utils.capacity_selection import cheapest_within_tolerance
 from automl_package.utils.checkpoint import stable_hash
 from automl_package.utils.cv import TimeSeriesSplit
-from automl_package.utils.data_handler import TargetScaler, create_train_val_split
+from automl_package.utils.data_handler import InputTransform, TargetScaler, create_train_val_split
 from automl_package.utils.feature_selection import select_features_by_cumulative_importance
 from automl_package.utils.metrics import Metrics, calculate_performance_score
 from automl_package.utils.numerics import find_optimal_iterations
@@ -55,6 +67,41 @@ def _spread_in_target_units(method: Any) -> Any:
     return wrapper
 
 
+INPUT_METHODS = (  # methods taking raw inputs x first when called on a fitted model (the held-out scores: callers such as the ae adapter)
+    "predict_uncertainty",
+    "predict_proba",
+    "predict_distribution",
+    "predict_quantiles",
+    "_held_out_fit_score",
+    "_held_out_fit_per_sample",
+    "fit_router",  # FlexNN / ProbReg routers: fitted on held-out inputs; the router then works in fit space
+)
+
+
+def _inputs_in_fit_space(method: Any) -> Any:
+    """Wraps a public method taking ``x`` first so that, when the model transforms its inputs, ``x`` reaches it in fit space.
+
+    Only the outermost public call transforms (`predict` takes part in the same count): an inner `self.predict(x)` is not transformed twice.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self: "BaseModel", *args: Any, **kwargs: Any) -> Any:
+        if self.input_transform_ is None or self._input_call_depth:
+            return method(self, *args, **kwargs)
+        if args:
+            args = (self._inputs_to_fit_space(args[0]), *args[1:])
+        else:
+            kwargs["x"] = self._inputs_to_fit_space(kwargs["x"])
+        self._input_call_depth += 1
+        try:
+            return method(self, *args, **kwargs)
+        finally:
+            self._input_call_depth -= 1
+
+    wrapper._inputs_wrapped = True  # type: ignore[attr-defined]
+    return wrapper
+
+
 class BaseModel(abc.ABC, BinnedUncertaintyMixin):
     """Abstract base class for all machine learning models in the package.
 
@@ -75,6 +122,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
 
     _default_target_scaling: ClassVar[TargetScaling] = TargetScaling.NONE  # what `target_scaling=None` means for this family
     _supports_target_scaling: ClassVar[bool] = True  # False: every public y-unit output of the class is not mapped back, so PER_OUTPUT is refused
+    _default_input_scaling: ClassVar[InputScaling] = InputScaling.NONE  # what `input_scaling=None` means for this family
+    _supports_input_scaling: ClassVar[bool] = True  # False: the class scales its inputs itself or bypasses `predict`, so STANDARD is refused
+    _default_missing_inputs: ClassVar[MissingInputs] = MissingInputs.RAISE  # what `missing_inputs=None` means for this family
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Wraps the spread methods a subclass defines (see `_spread_in_target_units`)."""
@@ -83,6 +133,10 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             method = cls.__dict__.get(name)
             if callable(method) and not getattr(method, "_spread_wrapped", False):
                 setattr(cls, name, _spread_in_target_units(method))
+        for name in INPUT_METHODS:
+            method = cls.__dict__.get(name)
+            if callable(method) and not getattr(method, "_inputs_wrapped", False):
+                setattr(cls, name, _inputs_in_fit_space(method))
 
     def __init__(
         self,
@@ -107,6 +161,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         refit_on_train_val: bool = True,
         out_of_range_action: OutOfRangeAction = OutOfRangeAction.FLAG,
         target_scaling: TargetScaling | str | None = None,
+        input_scaling: InputScaling | str | None = None,
+        missing_inputs: MissingInputs | str | None = None,
         **kwargs: Any,
     ) -> None:
         """Initializes the base model with given parameters.
@@ -125,6 +181,12 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         ``target_scaling`` (member, value or None): `TargetScaling.PER_OUTPUT` standardises each target column by the training part's mean
         and sd inside `fit` (class docstring). None takes the family default (`_default_target_scaling`: PER_OUTPUT for the PyTorch
         regression networks that map every output back, NONE otherwise). A classifier never scales: it gets NONE, and PER_OUTPUT raises.
+
+        ``input_scaling`` (member, value or None): `InputScaling.STANDARD` standardises each numeric input column by the training part's mean
+        and sd inside `fit` (binary 0/1, categorical and offset columns left alone); `predict` and the public methods taking x transform raw
+        inputs once. None takes the family default (`_default_input_scaling`: STANDARD for the PyTorch networks and the linear models).
+        ``missing_inputs`` (member, value or None): what a NaN input does: RAISE (default for networks and linear models), TRAINING_MEAN
+        (filled with the training part's column mean), NATIVE (passed through; default for gradient-boosted trees and the LSTM).
         """
         if validation_fraction is not None and cv_folds is not None:
             raise ValueError("validation_fraction and cv_folds cannot both be set.")
@@ -162,6 +224,10 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         self.target_scaler_: TargetScaler | None = None  # installed by `fit` when training is over (PER_OUTPUT)
         self._raw_target_range_: tuple[np.ndarray, np.ndarray] | None = None  # raw-unit min, max of the training targets; kept for a bounded output
         self._spread_call_depth = 0
+        self._input_scaling = self._resolve_input_scaling(input_scaling)
+        self._missing_inputs = self._default_missing_inputs if missing_inputs is None else MissingInputs(missing_inputs)
+        self.input_transform_: InputTransform | None = None  # installed by `fit` when training is over (input_scaling / missing_inputs)
+        self._input_call_depth = 0
         self.training_envelope_: TrainingEnvelope | None = None
         self.last_prediction_report_: PredictionRangeReport | None = None
         self._best_trial_model_: BaseModel | None = None
@@ -202,6 +268,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                 "refit_on_train_val": self.refit_on_train_val,
                 "out_of_range_action": self.out_of_range_action,
                 "target_scaling": self.target_scaling,
+                "input_scaling": self.input_scaling,
+                "missing_inputs": self.missing_inputs,
                 "task_type": self.task_type,
                 "calculate_feature_importance": self.calculate_feature_importance,
                 "feature_selection_threshold": self.feature_selection_threshold,
@@ -236,6 +304,66 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         if resolved is TargetScaling.PER_OUTPUT and not self._supports_target_scaling:
             raise ValueError(f"{type(self).__name__} does not map all its outputs back to target units under target_scaling=PER_OUTPUT: set target_scaling=NONE.")
         return resolved
+
+    @property
+    def input_scaling(self) -> InputScaling:
+        """The resolved input scaling (an `InputScaling` member)."""
+        return self._input_scaling
+
+    @input_scaling.setter
+    def input_scaling(self, value: InputScaling | str | None) -> None:
+        """Coerces a value a subclass copies from its constructor kwargs (a string from a config); None leaves the resolved setting."""
+        if value is not None:
+            self._input_scaling = self._resolve_input_scaling(value)
+
+    @property
+    def missing_inputs(self) -> MissingInputs:
+        """The missing-input rule (a `MissingInputs` member)."""
+        return self._missing_inputs
+
+    @missing_inputs.setter
+    def missing_inputs(self, value: MissingInputs | str | None) -> None:
+        """Coerces a value a subclass copies from its constructor kwargs; None leaves the setting."""
+        if value is not None:
+            self._missing_inputs = MissingInputs(value)
+
+    def _resolve_input_scaling(self, requested: InputScaling | str | None) -> InputScaling:
+        """The input scaling this model runs with: the request, else the family default.
+
+        Raises:
+            ValueError: STANDARD requested for a class that scales its inputs itself or bypasses `predict`.
+        """
+        requested = None if requested is None else InputScaling(requested)
+        resolved = (self._default_input_scaling if self._supports_input_scaling else InputScaling.NONE) if requested is None else requested
+        if resolved is InputScaling.STANDARD and not self._supports_input_scaling:
+            raise ValueError(f"{type(self).__name__} scales its own inputs or predicts without `predict` under input_scaling=STANDARD: set input_scaling=NONE.")
+        return resolved
+
+    def _make_input_transform(self) -> InputTransform | None:
+        """A fresh `InputTransform` for this model's settings, or None when it would neither check nor change anything (NONE + NATIVE)."""
+        if self.input_scaling is InputScaling.NONE and self.missing_inputs is MissingInputs.NATIVE:
+            return None
+        unscaled = [*(getattr(self, "categorical_features", None) or []), *([self.offset_feature] if getattr(self, "offset_feature", None) else [])]
+        return InputTransform(self.input_scaling, self.missing_inputs, unscaled_columns=unscaled)
+
+    def _inputs_to_fit_space(self, x: np.ndarray | pd.DataFrame) -> np.ndarray | pd.DataFrame:
+        """Raw inputs to the space the model trained in (the one conversion; `predict` and the wrapped public methods call it).
+
+        A DataFrame keeps its columns and index; an array holds either all fitted columns or the selected features, in order.
+        """
+        transform = self.input_transform_
+        if transform is None:
+            return x
+        if isinstance(x, pd.DataFrame):
+            values = transform.transform(x.values, list(x.columns))
+            return x if values is x.values else pd.DataFrame(values, columns=x.columns, index=x.index)
+        x = np.asarray(x)
+        n_fitted = len(transform.columns_ or {})
+        if x.shape[1] == n_fitted:
+            return transform.transform(x)
+        if self.selected_features_ and x.shape[1] == len(self.selected_features_):
+            return transform.transform(x, self.selected_features_)
+        raise ValueError(f"{self.name}: inputs with {x.shape[1]} columns match neither the {n_fitted} fitted columns nor the selected features.")
 
     def _target_scaling_conflict(self) -> str | None:
         """What in this model's settings cannot work with a rescaled target (a count loss, a per-row offset), or None. Subclasses extend it."""
@@ -329,6 +457,8 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             "target_scaler_",
             "_raw_target_range_",
             "_spread_call_depth",
+            "input_transform_",
+            "_input_call_depth",
         }
     )
 
@@ -444,6 +574,16 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             x.values, y, timestamps, x_val=x_val, y_val=y_val
         )
 
+        self.input_transform_ = None  # a refit starts with raw inputs again
+        input_transform = self._make_input_transform()
+        x_train_raw, x_train_val_raw = x_train, x_train_val
+        if input_transform is not None:  # the inputs' missing-value rule and scaling: training-part statistics, applied to every internal path
+            input_transform.fit(x_train, self.feature_names)
+            x_train, x_train_val = input_transform.transform(x_train), input_transform.transform(x_train_val)
+            x_val = None if x_val is None else input_transform.transform(x_val)
+            if x_test is not None:
+                input_transform.check(x_test, "The test inputs")  # the test part stays raw: it is evaluated through `predict`
+
         scaler = TargetScaler().fit(y_train) if self.target_scaling is TargetScaling.PER_OUTPUT else None
         y_train_raw, y_train_val_raw = y_train, y_train_val
         if scaler is not None:  # from here to the end of training every path sees fit space; the test part and the post-fit calls stay raw
@@ -487,6 +627,12 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                 raw = np.asarray(y_train_raw, dtype=np.float64).reshape(len(y_train_raw), -1)
                 self._raw_target_range_ = (np.nanmin(raw, axis=0), np.nanmax(raw, axis=0))
             y_train_val = y_train_val_raw
+
+        if input_transform is not None:  # training is over: from here the public methods take raw inputs
+            self.input_transform_ = input_transform
+            x_train_val = pd.DataFrame(x_train_val_raw, columns=self.feature_names)
+            x_model_raw = x_train_val if self.refit_on_train_val else pd.DataFrame(x_train_raw, columns=self.feature_names)
+            x_model = x_model_raw[self.selected_features_] if self.refit_on_train_val and self.selected_features_ else x_model_raw
 
         if self.calculate_feature_importance:
             self._calculate_and_save_feature_importance(model_instance=self, x_background=x_model)
@@ -692,6 +838,10 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         settings = {k: v for k, v in self.get_params().items() if k not in HPO_IDENTITY_EXCLUDED}
         if self.target_scaling is TargetScaling.NONE:
             settings.pop("target_scaling")  # as before the setting existed: a search without scaling keeps its journal
+        if self.input_scaling is InputScaling.NONE:
+            settings.pop("input_scaling")  # likewise: no input scaling is the behaviour before the setting existed
+        if self.missing_inputs is not MissingInputs.TRAINING_MEAN:
+            settings.pop("missing_inputs")  # RAISE and NATIVE never change a fit on data without NaN
         name = f"{type(self).__name__}-{stable_hash([settings, x, y, timestamps, explicit_split])[:HPO_HASH_LENGTH]}"
         return {"storage_path": Path(self.hpo_storage_dir) / f"{name}.journal", "study_name": name}
 
@@ -911,10 +1061,18 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         Raises:
             ValueError: under RAISE, when any prediction is outside the training range.
         """
-        winner = getattr(self, "_sweep_submodel_", None)
-        if winner is not None:  # after `fit_sweep_selector` the winning candidate is the fitted model
-            return winner.predict(x, filter_data=filter_data, **kwargs)
-        predictions = self._predict(x, filter_data=filter_data, **kwargs)
+        x_raw = x
+        if self.input_transform_ is not None and not self._input_call_depth:
+            x = self._inputs_to_fit_space(x)
+        self._input_call_depth += 1
+        try:
+            winner = getattr(self, "_sweep_submodel_", None)
+            if winner is not None:  # after `fit_sweep_selector` the winning candidate is the fitted model
+                return winner.predict(x, filter_data=filter_data, **kwargs)
+            predictions = self._predict(x, filter_data=filter_data, **kwargs)
+        finally:
+            self._input_call_depth -= 1
+        x = x_raw  # the envelope is recorded on raw inputs
         if self.target_scaler_ is not None:  # the one place forecasts go back to target units (before the envelope check, which is in target units)
             dtype = predictions.dtype
             predictions = self.target_scaler_.inverse(predictions)
@@ -1058,6 +1216,9 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
 
 for _name in SPREAD_METHODS:
     setattr(BaseModel, _name, _spread_in_target_units(BaseModel.__dict__[_name]))
+for _name in INPUT_METHODS:
+    if callable(BaseModel.__dict__.get(_name)):
+        setattr(BaseModel, _name, _inputs_in_fit_space(BaseModel.__dict__[_name]))
 
 # BaseModel's own settings (its constructor arguments): a one-pass search never takes these from a trial clone.
 _BASE_SETTINGS: frozenset[str] = frozenset(p for p in inspect.signature(BaseModel.__init__).parameters if p not in ("self", "kwargs"))

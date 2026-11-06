@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-from automl_package.enums import TargetScaling
+from automl_package.enums import InputScaling, TargetScaling
 from automl_package.experiments.config import MISSING, HpoConfig, ModelConfig, PredictorKind, ProtocolConfig, coerce_enum
 from automl_package.experiments.toys import Toy
 from automl_package.models.base import NESTED_PARAM_SEPARATOR, BaseModel
@@ -88,6 +88,7 @@ def build_model(config: ModelConfig, protocol: ProtocolConfig, hpo: HpoConfig, s
         hpo_sampler=hpo.sampler,
         hpo_seed=hpo.seed,
         target_scaling=TargetScaling.NONE,  # the runner standardises y itself (Standardiser, `standardise_y`): the model must not scale it again
+        input_scaling=InputScaling.NONE,  # likewise x (`standardise_x`)
     )
     if "random_seed" in keys:
         params["random_seed"] = seed

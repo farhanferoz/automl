@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import grad, jit
 
-from automl_package.enums import ExplainerType, Penalty
+from automl_package.enums import ExplainerType, InputScaling, Penalty
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 
@@ -15,6 +15,7 @@ from automl_package.models.base import BaseModel
 class LinearRegressionModel(BaseModel):
     """Linear Regression model implemented using JAX."""
 
+    _default_input_scaling: ClassVar[InputScaling] = InputScaling.STANDARD  # standard practice for a (penalised) linear model
     _defaults: ClassVar[dict[str, Any]] = {
         "learning_rate": 0.01,
         "n_iterations": 1000,

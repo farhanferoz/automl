@@ -5,7 +5,7 @@ import pytest
 import torch
 from sklearn.model_selection import train_test_split
 
-from automl_package.enums import CapacitySelection, DepthRegularization, LayerSelectionMethod, TargetScaling, UncertaintyMethod
+from automl_package.enums import CapacitySelection, DepthRegularization, InputScaling, LayerSelectionMethod, TargetScaling, UncertaintyMethod
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
 from automl_package.models.independent_weights_flexible_neural_network import IndependentWeightsFlexibleNN
 from automl_package.utils.pytorch_utils import get_device
@@ -345,12 +345,12 @@ class TestFlexibleNNModelComparison:
         x, y, _ = piecewise_data
         x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.3, random_state=42)
 
-        shallow = self._make_fixed_nn(hidden_layers=1, target_scaling=TargetScaling.NONE)
+        shallow = self._make_fixed_nn(hidden_layers=1, target_scaling=TargetScaling.NONE, input_scaling=InputScaling.NONE)
         shallow.fit(x_train, y_train)
         shallow_pred = shallow.predict(x_test)
         shallow_mse = float(np.mean((y_test - shallow_pred) ** 2))
 
-        flex = self._make_flexible(n_epochs=100, allow_retired_capacity_selection=True, target_scaling=TargetScaling.NONE)
+        flex = self._make_flexible(n_epochs=100, allow_retired_capacity_selection=True, target_scaling=TargetScaling.NONE, input_scaling=InputScaling.NONE)
         flex.fit(x_train, y_train)
         flex_pred = flex.predict(x_test)
         flex_mse = float(np.mean((y_test - flex_pred) ** 2))
@@ -371,10 +371,10 @@ class TestFlexibleNNModelComparison:
         x_lin, y_lin = simple_linear_data
         x_pw, y_pw, _ = piecewise_data
 
-        flex_lin = self._make_flexible(depth_reg=DepthRegularization.ELBO, n_epochs=60, allow_retired_capacity_selection=True)
+        flex_lin = self._make_flexible(depth_reg=DepthRegularization.ELBO, n_epochs=60, allow_retired_capacity_selection=True, input_scaling=InputScaling.NONE)
         flex_lin.fit(x_lin, y_lin)
 
-        flex_pw = self._make_flexible(depth_reg=DepthRegularization.ELBO, n_epochs=60, allow_retired_capacity_selection=True)
+        flex_pw = self._make_flexible(depth_reg=DepthRegularization.ELBO, n_epochs=60, allow_retired_capacity_selection=True, input_scaling=InputScaling.NONE)
         flex_pw.fit(x_pw, y_pw)
 
         x_lin_t = torch.tensor(x_lin, dtype=torch.float32).to(flex_lin.device)
@@ -554,7 +554,7 @@ class TestDD2PairedDepthUncertainty:
         )
         model.fit(x, y)
 
-        x_tensor = torch.tensor(x, dtype=torch.float32).to(model.device)
+        x_tensor = torch.tensor(model._inputs_to_fit_space(x), dtype=torch.float32).to(model.device)
         model.model.eval()
         with torch.no_grad():
             n_logits = model.model.n_predictor(x_tensor)
@@ -583,10 +583,10 @@ class TestDD2PairedDepthUncertainty:
         model.fit(x, y)
         router = model.fit_router(x, y)
 
-        routed_depths = np.array([capacity[0] for capacity in router.route(x)], dtype=np.int64)
+        routed_depths = np.array([capacity[0] for capacity in router.route(model._inputs_to_fit_space(x))], dtype=np.int64)  # the router works in fit space
         got = model.predict_uncertainty(x)
 
-        x_tensor = torch.tensor(x, dtype=torch.float32).to(model.device)
+        x_tensor = torch.tensor(model._inputs_to_fit_space(x), dtype=torch.float32).to(model.device)
         expected = np.empty_like(got)
         with torch.no_grad():
             for depth in np.unique(routed_depths).tolist():
@@ -781,7 +781,7 @@ class TestCapacityRouterPerInput:
         )
         model.fit(x, y)
 
-        x_tensor = torch.tensor(x, dtype=torch.float32).to(model.device)
+        x_tensor = torch.tensor(model._inputs_to_fit_space(x), dtype=torch.float32).to(model.device)
         model.model.eval()
         with torch.no_grad():
             expected = model.model.hard_forward(x_tensor).cpu().numpy().flatten()

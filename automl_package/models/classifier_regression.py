@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from automl_package.enums import BoundaryRegularizationMethod, MapperType, Metric, ModelName, OptimizerType, RegressionStrategy, TaskType, UncertaintyMethod
+from automl_package.enums import BoundaryRegularizationMethod, MapperType, Metric, MissingInputs, ModelName, OptimizerType, RegressionStrategy, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import NESTED_PARAM_SEPARATOR, BaseModel
 from automl_package.models.common.middle_class_penalty_mixin import MiddleClassPenaltyMixin
@@ -34,6 +34,8 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
     """
 
     _supports_target_scaling: ClassVar[bool] = False  # target_scaling=PER_OUTPUT refused: two stages and a mapper-derived spread
+    _supports_input_scaling: ClassVar[bool] = False  # its classifier applies its own input settings
+    _default_missing_inputs: ClassVar[MissingInputs] = MissingInputs.NATIVE  # likewise for missing inputs
 
     # The model's own options and their defaults (the rest go to `BaseModel`). Declared so a config's keys are checked
     # against them and its strings turned into these enums (`experiments/registry.py`).

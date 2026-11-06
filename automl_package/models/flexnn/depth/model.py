@@ -512,7 +512,7 @@ class FlexibleHiddenLayersNN(PyTorchModelBase):
         if capacity_grid is None:
             capacity_grid = [(depth,) for depth in range(1, self.max_hidden_layers + 1)]
 
-        y_val_arr = np.asarray(y_val)
+        y_val_arr = np.asarray(self._to_fit_space(np.asarray(y_val)))  # the network's outputs are in fit space (target scaling)
 
         def eval_fn(x: np.ndarray, capacity: tuple[int, ...]) -> np.ndarray:
             depth = capacity[0]

@@ -51,7 +51,10 @@ def test_predict_uncertainty_returns_1d_array(trained_regression_nn):
 def _fitted_line(action: OutOfRangeAction = OutOfRangeAction.FLAG, categorical: bool = False) -> NormalEquationLinearRegression:
     """y = 2 * x0 on x0 in [-5, 5] (zero-mean, as this solver has no centred intercept); column x1 holds category codes {-1, 1}."""
     x = np.column_stack([np.linspace(-5.0, 5.0, 50), np.tile([-1.0, 1.0], 25)])
-    model = NormalEquationLinearRegression(out_of_range_action=action, calculate_feature_importance=False, validation_fraction=0.0, test_fraction=0.0)
+    model = NormalEquationLinearRegression(
+        out_of_range_action=action, calculate_feature_importance=False, validation_fraction=0.0, test_fraction=0.0,
+        input_scaling="none", missing_inputs="native",  # the envelope on raw inputs; `_predict` is called directly and a NaN input is passed on purpose
+    )
     model.categorical_features = ["feature_1"] if categorical else None
     model.fit(x, 2.0 * x[:, 0])
     return model

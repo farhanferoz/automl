@@ -10,7 +10,7 @@ from typing import Any, ClassVar
 import numpy as np
 import pandas as pd
 
-from automl_package.enums import CategoricalCast, TaskType, UncertaintyMethod
+from automl_package.enums import CategoricalCast, MissingInputs, TaskType, UncertaintyMethod
 
 MISSING_CATEGORY_CODE = -1  # CatBoost: a NaN category becomes this integer code, its own category
 
@@ -28,6 +28,7 @@ class ColumnRolesMixin:
     Subclasses set ``_CATEGORICAL_CAST``.
     """
 
+    _default_missing_inputs: ClassVar[MissingInputs] = MissingInputs.NATIVE  # the boosting libraries handle NaN inputs themselves
     _CATEGORICAL_CAST: ClassVar[CategoricalCast]
 
     def __init__(self, offset_feature: str | None = None, categorical_features: list[str] | None = None, **kwargs: Any) -> None:

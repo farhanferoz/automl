@@ -39,7 +39,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from automl_package.enums import ActivationFunction, ExplainerType, ForecastLoss, OutputBound, RnnBackend
+from automl_package.enums import ActivationFunction, ExplainerType, ForecastLoss, MissingInputs, OutputBound, RnnBackend
 from automl_package.logger import logger
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.models.common.output_bound import TrainingRangeBound
@@ -145,6 +145,8 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
 
     _scores_by_fit_term: ClassVar[bool] = True
     _supports_output_bound: ClassVar[bool] = True  # the head's output is the prediction
+    _supports_input_scaling: ClassVar[bool] = False  # it standardises its own sequence layout (`_compute_input_stats`); column 0 is a series index
+    _default_missing_inputs: ClassVar[MissingInputs] = MissingInputs.NATIVE  # missing dense values become the training mean inside the model
 
     _defaults: ClassVar[dict[str, Any]] = {
         "layout": None,

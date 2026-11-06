@@ -4,7 +4,7 @@ from typing import Any, ClassVar, Never
 
 import numpy as np
 
-from automl_package.enums import ExplainerType, UncertaintyMethod
+from automl_package.enums import ExplainerType, InputScaling, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 
@@ -12,6 +12,7 @@ from automl_package.models.base import BaseModel
 class NormalEquationLinearRegression(BaseModel):
     """Linear Regression model implemented using the Normal Equation (Ridge Regression)."""
 
+    _default_input_scaling: ClassVar[InputScaling] = InputScaling.STANDARD  # standard practice for a (penalised) linear model
     _defaults: ClassVar[dict[str, Any]] = {"l2_lambda": 0.0}
 
     def __init__(self, **kwargs: Any) -> None:

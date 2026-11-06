@@ -7,22 +7,26 @@ Update thresholds only when intentional changes are made.
 import time
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 from sklearn.model_selection import train_test_split
 
 from automl_package.enums import (
     DepthRegularization,
+    ExplainerType,
     ForecastLoss,
-    TargetScaling,
-    TaskType,
+    InputScaling,
     LayerSelectionMethod,
+    MissingInputs,
     NClassesSelectionMethod,
     RegressionStrategy,
+    TargetScaling,
+    TaskType,
     UncertaintyMethod,
 )
-from automl_package.enums import ExplainerType
 from automl_package.explainers.feature_explainer import FeatureExplainer
+from automl_package.models.classifier_regression import ClassifierRegressionModel
 from automl_package.models.conformal import ConformalWrapper
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
 from automl_package.models.independent_weights_flexible_neural_network import IndependentWeightsFlexibleNN
@@ -33,7 +37,6 @@ from automl_package.models.normal_equation_linear_regression import NormalEquati
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
 from automl_package.models.xgboost_model import XGBoostModel
 from automl_package.utils.transforms import symexp, symlog
-
 
 # ----- Helpers ---------------------------------------------------------------
 
@@ -622,7 +625,7 @@ class TestTargetScaling:
         ],
         ids=["classifier", "lstm-poisson", "lightgbm-poisson", "xgboost-offset", "probreg-symlog"],
     )
-    def test_refusals_name_the_remedy(self, build, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    def test_refusals_name_the_remedy(self, build, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("AUTOML_DEVICE", "cpu")
         x, y = self._data()
         with pytest.raises(ValueError, match="target_scaling=NONE"):
@@ -644,3 +647,69 @@ class TestTargetScaling:
         with pytest.raises(ValueError, match="target_scaling=NONE"):
             ProbabilisticRegressionModel(input_size=2, target_scaling="per_output")
         assert ProbabilisticRegressionModel(input_size=2).target_scaling is TargetScaling.NONE  # its family default
+
+
+class TestInputSettings:
+    """`BaseModel` applies the inputs' missing-value rule and scaling once (`missing_inputs`, `input_scaling`); callers pass raw inputs."""
+
+    @staticmethod
+    def _data(seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+        rng = np.random.default_rng(seed)
+        big = rng.uniform(1000.0, 3000.0, 300)  # a column far from zero mean and unit sd
+        flag = rng.integers(0, 2, 300).astype(np.float64)  # a binary column: left alone
+        x = np.column_stack([big, flag])
+        y = 0.01 * big + 5.0 * flag + rng.normal(0, 1.0, 300)
+        return x, y
+
+    def test_network_trains_on_standardised_inputs_and_takes_raw_ones(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AUTOML_DEVICE", "cpu")
+        x, y = self._data()
+        model = PyTorchNeuralNetwork(
+            input_size=2, output_size=1, hidden_layers=1, hidden_size=16, learning_rate=0.01, n_epochs=40, early_stopping_rounds=40,
+            refit_on_train_val=False, random_seed=0, calculate_feature_importance=False,
+        )
+        assert model.input_scaling is InputScaling.STANDARD  # the family defaults
+        assert model.missing_inputs is MissingInputs.RAISE
+        seen: list[np.ndarray] = []
+        original = model._fit_single
+        model._fit_single = lambda x_train, y_train, **kw: (seen.append(np.asarray(x_train)), original(x_train, y_train, **kw))[1]
+        model.fit(x[:200], y[:200], x_val=x[200:], y_val=y[200:])
+        assert abs(seen[0][:, 0].mean()) < 1e-6  # the network saw the big column standardised
+        assert seen[0][:, 0].std() == pytest.approx(1.0, abs=1e-6)
+        assert set(np.unique(seen[0][:, 1])) == {0.0, 1.0}  # and the binary column untouched
+        pred = model.predict(x[200:])
+        assert np.sqrt(np.mean((pred - y[200:]) ** 2)) < 0.5 * y.std()  # raw inputs were converted once: the forecasts are sensible
+        outside = ((x[200:] < x[:200].min(axis=0)) | (x[200:] > x[:200].max(axis=0))).any(axis=1).sum()
+        assert model.last_prediction_report_.n_rows_input_out_of_range == outside  # the envelope check read the raw inputs, as recorded
+        frame = pd.DataFrame(x[200:], columns=model.feature_names)  # a DataFrame goes through the same, name-keyed conversion
+        np.testing.assert_allclose(model.predict(frame), pred, rtol=1e-6)
+        assert np.isfinite(model.predict_uncertainty(x[200:])).all()  # a wrapped public method also takes raw inputs
+
+    def test_missing_inputs_rules(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AUTOML_DEVICE", "cpu")
+        x_clean, y = self._data()
+        x = x_clean.copy()
+        x[::10, 0] = np.nan
+        settings = {"input_size": 2, "output_size": 1, "n_epochs": 3, "refit_on_train_val": False, "random_seed": 0, "calculate_feature_importance": False}
+        with pytest.raises(ValueError, match="missing_inputs=TRAINING_MEAN"):
+            PyTorchNeuralNetwork(**settings).fit(x, y)
+        filled = PyTorchNeuralNetwork(missing_inputs="training_mean", **settings)
+        filled.fit(x[:200], y[:200], x_val=x[200:], y_val=y[200:])
+        assert np.isfinite(filled.predict(x[200:])).all()
+        clean = PyTorchNeuralNetwork(**settings)
+        clean.fit(x_clean[:200], y[:200], x_val=x_clean[200:], y_val=y[200:])
+        with pytest.raises(ValueError, match="missing_inputs=TRAINING_MEAN"):
+            clean.predict(x[200:])  # a model fitted under RAISE refuses NaN at predict time too
+        assert XGBoostModel(calculate_feature_importance=False).missing_inputs is MissingInputs.NATIVE  # trees take NaN natively
+
+    @pytest.mark.parametrize(
+        "build",
+        [
+            lambda: PyTorchLSTMForecaster(layout=SequenceLayout(2, 2, 1), output_size=1, input_scaling="standard"),
+            lambda: ClassifierRegressionModel(input_scaling="standard"),
+        ],
+        ids=["lstm", "classreg"],
+    )
+    def test_input_scaling_refusals_name_the_remedy(self, build) -> None:
+        with pytest.raises(ValueError, match="input_scaling=NONE"):
+            build()
