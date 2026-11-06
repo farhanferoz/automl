@@ -1,0 +1,182 @@
+{
+ "key": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg_sweep",
+  "toy": "toy_h",
+  "n_train": 250,
+  "seed": 0
+ },
+ "config": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg_sweep",
+  "model": {
+   "kind": "AUTOML",
+   "name": "CLASSIFIER_REGRESSION",
+   "params": {
+    "n_classes": 3,
+    "base_classifier_class": "PYTORCH_NEURAL_NETWORK",
+    "mapper_type": "LOOKUP_MEDIAN",
+    "boundary_regularization_method": "NONE",
+    "base_classifier_params": {
+     "dropout_rate": 0.0,
+     "n_epochs": 5000,
+     "batch_size": 32
+    }
+   },
+   "tuned": false,
+   "search_space": {
+    "n_classes": {
+     "type": "INT",
+     "low": 2.0,
+     "high": 10.0,
+     "step": null,
+     "log": false,
+     "choices": null
+    }
+   },
+   "search_space_exclude": [
+    "base_classifier_params__dropout_rate"
+   ],
+   "standardise_x": true,
+   "standardise_y": true,
+   "match_params_to": null,
+   "k_sweep": {
+    "from_variant": "classreg",
+    "k_values": [
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10
+    ],
+    "rule": "MINIMUM"
+   },
+   "offset_sd_fraction": 0.1,
+   "scale_factor": 0.9
+  },
+  "toy_label": "toy_h",
+  "toy": {
+   "name": "TOY_H",
+   "params": {},
+   "n_val": null,
+   "n_selection": 10000,
+   "n_test": 10000
+  },
+  "n_train": 250,
+  "seed": 0,
+  "protocol": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "early_stopping_patience": 200,
+   "max_epochs": 5000,
+   "batch_size": 32,
+   "refit_on_train_val": false,
+   "calculate_feature_importance": false,
+   "torch_threads": 1,
+   "device": "cpu"
+  },
+  "hpo": {
+   "n_trials": 20,
+   "sampler": "TPE",
+   "seed": null
+  },
+  "curves": false,
+  "results_dir": null,
+  "report": {
+   "kind": "COMPARISON",
+   "eval_set": "TEST",
+   "reference_variant": "probreg",
+   "noise_results_subdir": "probreg_5a3",
+   "noise_variant": "probreg"
+  }
+ },
+ "config_hash": "385306ad4af35555a21e5f69b1666536172a464d195bc957cddccb33e29e3aef",
+ "fingerprint": {
+  "machine": "aarch64",
+  "torch": "2.10.0+cu130",
+  "numpy": "2.5.4",
+  "optuna": "5.0.0",
+  "lightgbm": "4.7.0",
+  "scikit-learn": "1.9.1"
+ },
+ "fingerprint_id": "4a65fc26",
+ "source_hash": "85d774d41c04b75346481bb52b35666767e459fe66c9ae93f500c274b1031ffb",
+ "git": {
+  "commit": null,
+  "dirty": null
+ },
+ "data_hashes": {
+  "train": "a5aa51712d2de3a4ffcef2c2fd063126b305209fa76270ea8aab67ce13e48118",
+  "validation": "38e0889bd23a042a2f6b0481ac85e350e7c92662c9f73d2e27c4fc3effd24d55",
+  "selection": "cefcf7b9ef19980357d279a47c4fa56df815f7edb49e786fe66fa4d1007de6e9",
+  "test": "ebb63020ca9d9ed99ba364ad8a4ce697ab88bdd1ecdaa7fa0a27e10f433a94e6"
+ },
+ "metrics": {
+  "selection": {
+   "mse": 0.3552421363728788,
+   "mae": 0.3985897256193527,
+   "noise_free_excess": 0.032682584080519536,
+   "excess": 0.03024213637287876,
+   "excess_se": 0.007544658252885753,
+   "noise_free_excess_se": 0.0006157843087259296,
+   "regions": {
+    "x_lt_0": {
+     "mse": 0.03242280439426339,
+     "mae": 0.14192794797671204,
+     "noise_free_excess": 0.021881861147285138
+    },
+    "x_ge_0": {
+     "mse": 0.6813058837482643,
+     "mae": 0.6578310186151857,
+     "noise_free_excess": 0.043591856992982424
+    }
+   }
+  },
+  "test": {
+   "mse": 0.3531160563568416,
+   "mae": 0.40098030619725994,
+   "noise_free_excess": 0.03361304494075129,
+   "excess": 0.028116056356841557,
+   "excess_se": 0.007316962885883505,
+   "noise_free_excess_se": 0.0006359627270337223,
+   "regions": {
+    "x_lt_0": {
+     "mse": 0.032063284683422455,
+     "mae": 0.1421046166335315,
+     "noise_free_excess": 0.02177772417255833
+    },
+    "x_ge_0": {
+     "mse": 0.6581412325645051,
+     "mae": 0.6469324043943125,
+     "noise_free_excess": 0.04485752286248221
+    }
+   }
+  }
+ },
+ "tuned_hyperparameters": {},
+ "n_parameters": 4548,
+ "convergence": null,
+ "sweep_source": "classreg",
+ "selected_k": 4,
+ "k_val_errors": {
+  "2": 0.24505226785883052,
+  "3": 0.2700741042386572,
+  "4": 0.19469218335515384,
+  "5": 0.236805831816818,
+  "6": 0.2032315774782534,
+  "7": 0.21112854670006004,
+  "8": 0.22812764698705063,
+  "9": 0.23864667219998428,
+  "10": 0.24101866018738957
+ },
+ "wall_seconds": 49.039711580990115
+}

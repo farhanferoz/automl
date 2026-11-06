@@ -1,0 +1,160 @@
+{
+ "key": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg_sweep",
+  "toy": "heteroscedastic",
+  "n_train": 250,
+  "seed": 0
+ },
+ "config": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg_sweep",
+  "model": {
+   "kind": "AUTOML",
+   "name": "CLASSIFIER_REGRESSION",
+   "params": {
+    "n_classes": 3,
+    "base_classifier_class": "PYTORCH_NEURAL_NETWORK",
+    "mapper_type": "LOOKUP_MEDIAN",
+    "boundary_regularization_method": "NONE",
+    "base_classifier_params": {
+     "dropout_rate": 0.0,
+     "n_epochs": 5000,
+     "batch_size": 32
+    }
+   },
+   "tuned": false,
+   "search_space": {
+    "n_classes": {
+     "type": "INT",
+     "low": 2.0,
+     "high": 10.0,
+     "step": null,
+     "log": false,
+     "choices": null
+    }
+   },
+   "search_space_exclude": [
+    "base_classifier_params__dropout_rate"
+   ],
+   "standardise_x": true,
+   "standardise_y": true,
+   "match_params_to": null,
+   "k_sweep": {
+    "from_variant": "classreg",
+    "k_values": [
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10
+    ],
+    "rule": "MINIMUM"
+   },
+   "offset_sd_fraction": 0.1,
+   "scale_factor": 0.9
+  },
+  "toy_label": "heteroscedastic",
+  "toy": {
+   "name": "HETEROSCEDASTIC",
+   "params": {},
+   "n_val": null,
+   "n_selection": 10000,
+   "n_test": 20000
+  },
+  "n_train": 250,
+  "seed": 0,
+  "protocol": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "early_stopping_patience": 200,
+   "max_epochs": 5000,
+   "batch_size": 32,
+   "refit_on_train_val": false,
+   "calculate_feature_importance": false,
+   "torch_threads": 1,
+   "device": "cpu"
+  },
+  "hpo": {
+   "n_trials": 20,
+   "sampler": "TPE",
+   "seed": null
+  },
+  "curves": false,
+  "results_dir": null,
+  "report": {
+   "kind": "COMPARISON",
+   "eval_set": "TEST",
+   "reference_variant": "probreg",
+   "noise_results_subdir": "probreg_5a3",
+   "noise_variant": "probreg"
+  }
+ },
+ "config_hash": "e6766589a59079933860c02f87a8f5b41651d8b34bc7beb20d0fa9d041d3e7ef",
+ "fingerprint": {
+  "machine": "aarch64",
+  "torch": "2.10.0+cu130",
+  "numpy": "2.5.4",
+  "optuna": "5.0.0",
+  "lightgbm": "4.7.0",
+  "scikit-learn": "1.9.1"
+ },
+ "fingerprint_id": "4a65fc26",
+ "source_hash": "85d774d41c04b75346481bb52b35666767e459fe66c9ae93f500c274b1031ffb",
+ "git": {
+  "commit": null,
+  "dirty": null
+ },
+ "data_hashes": {
+  "train": "cdadd02c1c21e6756f5398003823e6b19982c4bfbf409269b9f2d74fb7ea81f2",
+  "validation": "98ac4a6616b13839f67933435609562bc5ee3503f321882d770336c888296568",
+  "selection": "7ac1d263b0efe02efcb97ed9eb4ca4fe0faf8654d9f70110bbc9136cca76142c",
+  "test": "3fb7e52d0dd23c5a1f9119399cf57d6755e8a0ad21096b286873e45dfa8a2a3e"
+ },
+ "metrics": {
+  "selection": {
+   "mse": 1.8354932947679343,
+   "mae": 1.0111749608013947,
+   "noise_free_excess": 0.29559165841253227,
+   "excess": 0.2921599614346011,
+   "excess_se": 0.034542486132191005,
+   "noise_free_excess_se": 0.0036603044092371616,
+   "regions": {}
+  },
+  "test": {
+   "mse": 1.8486078469629221,
+   "mae": 1.0032076541790693,
+   "noise_free_excess": 0.30132847577627725,
+   "excess": 0.3052745136295889,
+   "excess_se": 0.02527377242985056,
+   "noise_free_excess_se": 0.0027027759704677814,
+   "regions": {}
+  }
+ },
+ "tuned_hyperparameters": {},
+ "n_parameters": 901,
+ "convergence": null,
+ "sweep_source": "classreg",
+ "selected_k": 5,
+ "k_val_errors": {
+  "2": 0.5311640978695726,
+  "3": 0.5059660944520987,
+  "4": 0.5185719483996059,
+  "5": 0.4757243831442328,
+  "6": 0.51422809415782,
+  "7": 0.5289161208318007,
+  "8": 0.4986102338698217,
+  "9": 0.47915395937027905,
+  "10": 0.5442226267670754
+ },
+ "wall_seconds": 90.05513535501086
+}

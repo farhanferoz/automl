@@ -1,0 +1,160 @@
+{
+ "key": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg_sweep",
+  "toy": "exponential",
+  "n_train": 250,
+  "seed": 0
+ },
+ "config": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg_sweep",
+  "model": {
+   "kind": "AUTOML",
+   "name": "CLASSIFIER_REGRESSION",
+   "params": {
+    "n_classes": 3,
+    "base_classifier_class": "PYTORCH_NEURAL_NETWORK",
+    "mapper_type": "LOOKUP_MEDIAN",
+    "boundary_regularization_method": "NONE",
+    "base_classifier_params": {
+     "dropout_rate": 0.0,
+     "n_epochs": 5000,
+     "batch_size": 32
+    }
+   },
+   "tuned": false,
+   "search_space": {
+    "n_classes": {
+     "type": "INT",
+     "low": 2.0,
+     "high": 10.0,
+     "step": null,
+     "log": false,
+     "choices": null
+    }
+   },
+   "search_space_exclude": [
+    "base_classifier_params__dropout_rate"
+   ],
+   "standardise_x": true,
+   "standardise_y": true,
+   "match_params_to": null,
+   "k_sweep": {
+    "from_variant": "classreg",
+    "k_values": [
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10
+    ],
+    "rule": "MINIMUM"
+   },
+   "offset_sd_fraction": 0.1,
+   "scale_factor": 0.9
+  },
+  "toy_label": "exponential",
+  "toy": {
+   "name": "EXPONENTIAL",
+   "params": {},
+   "n_val": null,
+   "n_selection": 10000,
+   "n_test": 10000
+  },
+  "n_train": 250,
+  "seed": 0,
+  "protocol": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "early_stopping_patience": 200,
+   "max_epochs": 5000,
+   "batch_size": 32,
+   "refit_on_train_val": false,
+   "calculate_feature_importance": false,
+   "torch_threads": 1,
+   "device": "cpu"
+  },
+  "hpo": {
+   "n_trials": 20,
+   "sampler": "TPE",
+   "seed": null
+  },
+  "curves": false,
+  "results_dir": null,
+  "report": {
+   "kind": "COMPARISON",
+   "eval_set": "TEST",
+   "reference_variant": "probreg",
+   "noise_results_subdir": "probreg_5a3",
+   "noise_variant": "probreg"
+  }
+ },
+ "config_hash": "fd918a1f7bd76bf991d8cdb45ede3cb241770f7f20444e8470ab5cba1268eb5a",
+ "fingerprint": {
+  "machine": "aarch64",
+  "torch": "2.10.0+cu130",
+  "numpy": "2.5.4",
+  "optuna": "5.0.0",
+  "lightgbm": "4.7.0",
+  "scikit-learn": "1.9.1"
+ },
+ "fingerprint_id": "4a65fc26",
+ "source_hash": "85d774d41c04b75346481bb52b35666767e459fe66c9ae93f500c274b1031ffb",
+ "git": {
+  "commit": null,
+  "dirty": null
+ },
+ "data_hashes": {
+  "train": "93855c1eadd023ced3868ff08c32a33e1fb903435e2b3dc9e92e04f17840b098",
+  "validation": "8ecb0fb6fce130f31b4140a0b8b4ca7557a5d5077c5a77239a41ab61ec00e3c7",
+  "selection": "99dce22add4da185ebd95550d02de75d50cf202cf3c42abaff6b0bea6f3b8736",
+  "test": "639211043f9861b8eea61d11f969702abfdfb69a2bcd58d620e4ecafb3905051"
+ },
+ "metrics": {
+  "selection": {
+   "mse": 0.3846275988527258,
+   "mae": 0.4910254043277986,
+   "noise_free_excess": 0.12918140825682362,
+   "excess": 0.1346275988527258,
+   "excess_se": 0.0058067336149049105,
+   "noise_free_excess_se": 0.0023773755082538988,
+   "regions": {}
+  },
+  "test": {
+   "mse": 0.39852384210203085,
+   "mae": 0.5001676638099701,
+   "noise_free_excess": 0.13904458785444482,
+   "excess": 0.14852384210203085,
+   "excess_se": 0.006005778215324633,
+   "noise_free_excess_se": 0.0028038374588635058,
+   "regions": {}
+  }
+ },
+ "tuned_hyperparameters": {},
+ "n_parameters": 25649,
+ "convergence": null,
+ "sweep_source": "classreg",
+ "selected_k": 2,
+ "k_val_errors": {
+  "2": 0.021251366668746052,
+  "3": 0.024219639776500972,
+  "4": 0.02764730133527928,
+  "5": 0.03130904909314439,
+  "6": 0.03611686825855176,
+  "7": 0.04108669072161769,
+  "8": 0.03462815686235491,
+  "9": 0.04338987689683363,
+  "10": 0.034746654403743416
+ },
+ "wall_seconds": 99.18596812602482
+}

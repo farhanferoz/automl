@@ -15,8 +15,8 @@ defaults:
 name: probreg_5b2
 card: 5b2
 sizes: ???
-output: {results_subdir: probreg_main}
+output: {results_subdir: main}
 variants:
   classreg: {tuned: true}
   classreg_sweep: {k_sweep: {from_variant: classreg, rule: MINIMUM}}
-report: {kind: COMPARISON, eval_set: TEST, reference_variant: probreg, noise_results_subdir: probreg_5a3, noise_variant: probreg}
+report: {kind: COMPARISON, eval_set: TEST, reference_variant: probreg, noise_results_subdir: 5a3, noise_variant: probreg}

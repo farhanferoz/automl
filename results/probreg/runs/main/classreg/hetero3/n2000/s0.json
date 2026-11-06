@@ -1,0 +1,173 @@
+{
+ "key": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg",
+  "toy": "hetero3",
+  "n_train": 2000,
+  "seed": 0
+ },
+ "config": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg",
+  "model": {
+   "kind": "AUTOML",
+   "name": "CLASSIFIER_REGRESSION",
+   "params": {
+    "n_classes": 3,
+    "base_classifier_class": "PYTORCH_NEURAL_NETWORK",
+    "mapper_type": "LOOKUP_MEDIAN",
+    "boundary_regularization_method": "NONE",
+    "base_classifier_params": {
+     "dropout_rate": 0.0,
+     "n_epochs": 5000,
+     "batch_size": 32
+    }
+   },
+   "tuned": true,
+   "search_space": {
+    "n_classes": {
+     "type": "INT",
+     "low": 2.0,
+     "high": 10.0,
+     "step": null,
+     "log": false,
+     "choices": null
+    }
+   },
+   "search_space_exclude": [
+    "base_classifier_params__dropout_rate"
+   ],
+   "standardise_x": true,
+   "standardise_y": true,
+   "match_params_to": null,
+   "k_sweep": null,
+   "offset_sd_fraction": 0.1,
+   "scale_factor": 0.9
+  },
+  "toy_label": "hetero3",
+  "toy": {
+   "name": "HETERO3",
+   "params": {},
+   "n_val": null,
+   "n_selection": 10000,
+   "n_test": 10000
+  },
+  "n_train": 2000,
+  "seed": 0,
+  "protocol": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "early_stopping_patience": 200,
+   "max_epochs": 5000,
+   "batch_size": 32,
+   "refit_on_train_val": false,
+   "calculate_feature_importance": false,
+   "torch_threads": 1,
+   "device": "cpu"
+  },
+  "hpo": {
+   "n_trials": 20,
+   "sampler": "TPE",
+   "seed": null
+  },
+  "curves": false,
+  "results_dir": null,
+  "report": {
+   "kind": "COMPARISON",
+   "eval_set": "TEST",
+   "reference_variant": "probreg",
+   "noise_results_subdir": "probreg_5a3",
+   "noise_variant": "probreg"
+  }
+ },
+ "config_hash": "f7c236f7e5935f89a91b204f8d827ec3e7f9998fb6b072a9a4a8f9b6f285f432",
+ "fingerprint": {
+  "machine": "aarch64",
+  "torch": "2.10.0+cu130",
+  "numpy": "2.5.4",
+  "optuna": "5.0.0",
+  "lightgbm": "4.7.0",
+  "scikit-learn": "1.9.1"
+ },
+ "fingerprint_id": "4a65fc26",
+ "source_hash": "85d774d41c04b75346481bb52b35666767e459fe66c9ae93f500c274b1031ffb",
+ "git": {
+  "commit": null,
+  "dirty": null
+ },
+ "data_hashes": {
+  "train": "8d4f93f899b4d45eb5b7330c4f203f27ebff93d2372118ed7900bc9e52edc073",
+  "validation": "0e54f1f21275d8111f8323fd48455814cce5675686a1693e7b1a1d873f89cb31",
+  "selection": "d38f1aab764e49d280abfd4b8d3d196b16ad9cabf2025bad4c1ff656331cb786",
+  "test": "32648d22b99e5869a0e492b3e697c4eec83da2a491054cffb60166ce65db7957"
+ },
+ "metrics": {
+  "selection": {
+   "mse": 0.08710066439330594,
+   "mae": 0.16609037281090672,
+   "noise_free_excess": 0.001884015920242377,
+   "excess": 0.0021006643933059316,
+   "excess_se": 0.0024087593930461823,
+   "noise_free_excess_se": 3.411570881035574e-05,
+   "regions": {
+    "easy_linear": {
+     "mse": 0.0032106697560156045,
+     "mae": 0.044740021403681655,
+     "noise_free_excess": 0.0006748738967026992
+    },
+    "hard_sine": {
+     "mse": 0.004666252475958845,
+     "mae": 0.05492391656192569,
+     "noise_free_excess": 0.002150079093218477
+    },
+    "noisy_linear": {
+     "mse": 0.2551873062624968,
+     "mae": 0.4010904310499628,
+     "noise_free_excess": 0.00284063235429292
+    }
+   }
+  },
+  "test": {
+   "mse": 0.08302831323579526,
+   "mae": 0.16431372832578905,
+   "noise_free_excess": 0.0018769636455231663,
+   "excess": -0.0019716867642047414,
+   "excess_se": 0.0022463747838488333,
+   "noise_free_excess_se": 3.3197067848214034e-05,
+   "regions": {
+    "easy_linear": {
+     "mse": 0.0032302172274839267,
+     "mae": 0.044852234301062464,
+     "noise_free_excess": 0.0006667345912125891
+    },
+    "hard_sine": {
+     "mse": 0.004558789861838778,
+     "mae": 0.05423413293776273,
+     "noise_free_excess": 0.0021780943527341524
+    },
+    "noisy_linear": {
+     "mse": 0.23600178795330254,
+     "mae": 0.3860376677790882,
+     "noise_free_excess": 0.0027276419259602684
+    }
+   }
+  }
+ },
+ "tuned_hyperparameters": {
+  "n_classes": 8,
+  "base_classifier_params__learning_rate": 0.002170467740131872,
+  "base_classifier_params__l1_lambda": 0.0005491378598438987,
+  "base_classifier_params__l2_lambda": 1.9931611540299415e-06,
+  "base_classifier_params__hidden_layers": 3,
+  "base_classifier_params__hidden_size": 96,
+  "mapper_params__lookup_n_partitions": 27
+ },
+ "n_parameters": 19592,
+ "convergence": null,
+ "wall_seconds": 1009.5005155349791
+}

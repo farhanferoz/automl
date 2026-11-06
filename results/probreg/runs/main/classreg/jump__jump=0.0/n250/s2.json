@@ -1,0 +1,165 @@
+{
+ "key": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg",
+  "toy": "jump__jump=0.0",
+  "n_train": 250,
+  "seed": 2
+ },
+ "config": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg",
+  "model": {
+   "kind": "AUTOML",
+   "name": "CLASSIFIER_REGRESSION",
+   "params": {
+    "n_classes": 3,
+    "base_classifier_class": "PYTORCH_NEURAL_NETWORK",
+    "mapper_type": "LOOKUP_MEDIAN",
+    "boundary_regularization_method": "NONE",
+    "base_classifier_params": {
+     "dropout_rate": 0.0,
+     "n_epochs": 5000,
+     "batch_size": 32
+    }
+   },
+   "tuned": true,
+   "search_space": {
+    "n_classes": {
+     "type": "INT",
+     "low": 2.0,
+     "high": 10.0,
+     "step": null,
+     "log": false,
+     "choices": null
+    }
+   },
+   "search_space_exclude": [
+    "base_classifier_params__dropout_rate"
+   ],
+   "standardise_x": true,
+   "standardise_y": true,
+   "match_params_to": null,
+   "k_sweep": null,
+   "offset_sd_fraction": 0.1,
+   "scale_factor": 0.9
+  },
+  "toy_label": "jump_0",
+  "toy": {
+   "name": "JUMP",
+   "params": {
+    "jump": 0.0
+   },
+   "n_val": null,
+   "n_selection": 10000,
+   "n_test": 10000
+  },
+  "n_train": 250,
+  "seed": 2,
+  "protocol": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "early_stopping_patience": 200,
+   "max_epochs": 5000,
+   "batch_size": 32,
+   "refit_on_train_val": false,
+   "calculate_feature_importance": false,
+   "torch_threads": 1,
+   "device": "cpu"
+  },
+  "hpo": {
+   "n_trials": 20,
+   "sampler": "TPE",
+   "seed": null
+  },
+  "curves": false,
+  "results_dir": null,
+  "report": {
+   "kind": "COMPARISON",
+   "eval_set": "TEST",
+   "reference_variant": "probreg",
+   "noise_results_subdir": "probreg_5a3",
+   "noise_variant": "probreg"
+  }
+ },
+ "config_hash": "a9b6b6c824b55229b7a42f881127192f31b0abae3099ba385ad23f466f8eb1dc",
+ "fingerprint": {
+  "machine": "aarch64",
+  "torch": "2.10.0+cu130",
+  "numpy": "2.5.4",
+  "optuna": "5.0.0",
+  "lightgbm": "4.7.0",
+  "scikit-learn": "1.9.1"
+ },
+ "fingerprint_id": "4a65fc26",
+ "source_hash": "85d774d41c04b75346481bb52b35666767e459fe66c9ae93f500c274b1031ffb",
+ "git": {
+  "commit": null,
+  "dirty": null
+ },
+ "data_hashes": {
+  "train": "eea28845457b2518f7bba0c6903d1a58cb5a223d165735fa2fda51972400c82f",
+  "validation": "2076f244705fe2de141452fb1192d6a51d0be9a1e69c62fb7ec77b7557ed9f6f",
+  "selection": "53ce28845a57d75c0c8b987535d628f2003a230f4e43ae541334709b36a7d8b6",
+  "test": "ecb68ef63d2dac06fa1f9bccf3bcb71d7b220eba65fc96767b1b2f875f6e1c15"
+ },
+ "metrics": {
+  "selection": {
+   "mse": 0.106375393683356,
+   "mae": 0.2599096512406398,
+   "noise_free_excess": 0.01579201360117276,
+   "excess": 0.016375393683356,
+   "excess_se": 0.001508422124511137,
+   "noise_free_excess_se": 0.00015898380195508206,
+   "regions": {
+    "near_jump": {
+     "mse": 0.09933393151612425,
+     "mae": 0.24948670784729787,
+     "noise_free_excess": 0.013381900958034314
+    },
+    "away": {
+     "mse": 0.10716735254986741,
+     "mae": 0.26108192799786184,
+     "noise_free_excess": 0.016063080892552553
+    }
+   }
+  },
+  "test": {
+   "mse": 0.10580679465439917,
+   "mae": 0.2602492450129789,
+   "noise_free_excess": 0.015945361575982447,
+   "excess": 0.015806794654399173,
+   "excess_se": 0.0014695748928622984,
+   "noise_free_excess_se": 0.00016133942002241947,
+   "regions": {
+    "near_jump": {
+     "mse": 0.09322795045678532,
+     "mae": 0.2465266000794095,
+     "noise_free_excess": 0.013768100449423636
+    },
+    "away": {
+     "mse": 0.10715801047629124,
+     "mae": 0.2617233275805938,
+     "noise_free_excess": 0.0161792423393005
+    }
+   }
+  }
+ },
+ "tuned_hyperparameters": {
+  "n_classes": 8,
+  "base_classifier_params__learning_rate": 0.001876592876821943,
+  "base_classifier_params__l1_lambda": 5.19076122958123e-08,
+  "base_classifier_params__l2_lambda": 1.0994405918778257e-06,
+  "base_classifier_params__hidden_layers": 3,
+  "base_classifier_params__hidden_size": 80,
+  "mapper_params__lookup_n_partitions": 15
+ },
+ "n_parameters": 13768,
+ "convergence": null,
+ "wall_seconds": 490.1499277060211
+}

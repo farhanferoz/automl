@@ -1,0 +1,192 @@
+{
+ "key": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg_sweep",
+  "toy": "hetero3",
+  "n_train": 2000,
+  "seed": 2
+ },
+ "config": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg_sweep",
+  "model": {
+   "kind": "AUTOML",
+   "name": "CLASSIFIER_REGRESSION",
+   "params": {
+    "n_classes": 3,
+    "base_classifier_class": "PYTORCH_NEURAL_NETWORK",
+    "mapper_type": "LOOKUP_MEDIAN",
+    "boundary_regularization_method": "NONE",
+    "base_classifier_params": {
+     "dropout_rate": 0.0,
+     "n_epochs": 5000,
+     "batch_size": 32
+    }
+   },
+   "tuned": false,
+   "search_space": {
+    "n_classes": {
+     "type": "INT",
+     "low": 2.0,
+     "high": 10.0,
+     "step": null,
+     "log": false,
+     "choices": null
+    }
+   },
+   "search_space_exclude": [
+    "base_classifier_params__dropout_rate"
+   ],
+   "standardise_x": true,
+   "standardise_y": true,
+   "match_params_to": null,
+   "k_sweep": {
+    "from_variant": "classreg",
+    "k_values": [
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10
+    ],
+    "rule": "MINIMUM"
+   },
+   "offset_sd_fraction": 0.1,
+   "scale_factor": 0.9
+  },
+  "toy_label": "hetero3",
+  "toy": {
+   "name": "HETERO3",
+   "params": {},
+   "n_val": null,
+   "n_selection": 10000,
+   "n_test": 10000
+  },
+  "n_train": 2000,
+  "seed": 2,
+  "protocol": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "early_stopping_patience": 200,
+   "max_epochs": 5000,
+   "batch_size": 32,
+   "refit_on_train_val": false,
+   "calculate_feature_importance": false,
+   "torch_threads": 1,
+   "device": "cpu"
+  },
+  "hpo": {
+   "n_trials": 20,
+   "sampler": "TPE",
+   "seed": null
+  },
+  "curves": false,
+  "results_dir": null,
+  "report": {
+   "kind": "COMPARISON",
+   "eval_set": "TEST",
+   "reference_variant": "probreg",
+   "noise_results_subdir": "probreg_5a3",
+   "noise_variant": "probreg"
+  }
+ },
+ "config_hash": "c6fcef3daf19d1e3fe392e171f16678ce36e0caf173a4a7bd03406336417796b",
+ "fingerprint": {
+  "machine": "aarch64",
+  "torch": "2.10.0+cu130",
+  "numpy": "2.5.4",
+  "optuna": "5.0.0",
+  "lightgbm": "4.7.0",
+  "scikit-learn": "1.9.1"
+ },
+ "fingerprint_id": "4a65fc26",
+ "source_hash": "85d774d41c04b75346481bb52b35666767e459fe66c9ae93f500c274b1031ffb",
+ "git": {
+  "commit": null,
+  "dirty": null
+ },
+ "data_hashes": {
+  "train": "3d471ac74ee4525e3dfe2f4e223ae0118a8f7a6c46c53004f053970783f0dee8",
+  "validation": "60847bb51eee7401b7be6239f1de1d61e9f81eb2df03dcd153fb46418d518ca6",
+  "selection": "b05a06c0b823b19a6394008b4361955abbec31a0bf916f31c9701040f85c9e4f",
+  "test": "408e184bcdc93a01218e6048395711452358338ce1ad69b3c1aa315219c9a460"
+ },
+ "metrics": {
+  "selection": {
+   "mse": 0.08552169129222294,
+   "mae": 0.1637103853332104,
+   "noise_free_excess": 0.00128669091400904,
+   "excess": 0.0005216912922229311,
+   "excess_se": 0.002369244666273354,
+   "noise_free_excess_se": 2.35804165750536e-05,
+   "regions": {
+    "easy_linear": {
+     "mse": 0.003072181422296426,
+     "mae": 0.04440920775928957,
+     "noise_free_excess": 0.00041634504055857683
+    },
+    "hard_sine": {
+     "mse": 0.003909452144746603,
+     "mae": 0.049571195068756,
+     "noise_free_excess": 0.0013805887632565021
+    },
+    "noisy_linear": {
+     "mse": 0.25033471583916955,
+     "mae": 0.39815341203581045,
+     "noise_free_excess": 0.002050656066639791
+    }
+   }
+  },
+  "test": {
+   "mse": 0.08533553080458996,
+   "mae": 0.16307811870279484,
+   "noise_free_excess": 0.0012894468931121147,
+   "excess": 0.00033553080458995077,
+   "excess_se": 0.0023216497385249372,
+   "noise_free_excess_se": 2.48300988509246e-05,
+   "regions": {
+    "easy_linear": {
+     "mse": 0.002924825189248428,
+     "mae": 0.042947952993626415,
+     "noise_free_excess": 0.0004015694288621694
+    },
+    "hard_sine": {
+     "mse": 0.003821413888573579,
+     "mae": 0.04913180225317999,
+     "noise_free_excess": 0.0013382757693959193
+    },
+    "noisy_linear": {
+     "mse": 0.2535712932691828,
+     "mae": 0.4033523191903091,
+     "noise_free_excess": 0.0021585278242101337
+    }
+   }
+  }
+ },
+ "tuned_hyperparameters": {},
+ "n_parameters": 19592,
+ "convergence": null,
+ "sweep_source": "classreg",
+ "selected_k": 8,
+ "k_val_errors": {
+  "2": 0.5050446659685391,
+  "3": 0.47686213862893023,
+  "4": 0.4617659429416409,
+  "5": 0.4422680020171911,
+  "6": 0.45161481497914885,
+  "7": 0.447429848005435,
+  "8": 0.44180969124846403,
+  "9": 0.4453521416646253,
+  "10": 0.45382751301872354
+ },
+ "wall_seconds": 552.5342817789933
+}

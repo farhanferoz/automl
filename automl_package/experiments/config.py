@@ -24,7 +24,7 @@ from automl_package.utils.checkpoint import stable_hash
 
 MISSING = "???"  # Hydra's marker for a value the study must set before it can run
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_RESULTS_ROOT = str(REPO_ROOT / "results")
+DEFAULT_RESULTS_ROOT = str(REPO_ROOT / "results" / "probreg")  # the ProbReg toy study; another study family sets output.results_root
 
 
 class PredictorKind(StrEnum):
@@ -149,7 +149,7 @@ class OutputConfig:
     """Where records go (small JSON and NPZ; tracked in git per docs/RULES.md)."""
 
     results_root: str = DEFAULT_RESULTS_ROOT
-    results_subdir: str | None = None  # None = the study name; cards that share reference records name one folder
+    results_subdir: str | None = None  # record group under runs/; None = the card; cards that share reference records name one group
     curves: bool = False
     curve_seeds: list[int] | None = None  # None = the first seed
 
@@ -161,7 +161,7 @@ class ReportConfig:
     kind: ReportKind = ReportKind.COMPARISON
     eval_set: EvalSet = EvalSet.TEST
     reference_variant: str | None = None
-    noise_results_subdir: str | None = None  # folder of the 5a size-sweep records whose seed spread shades the table
+    noise_results_subdir: str | None = None  # record group (under runs/) of the 5a size-sweep records whose seed spread shades the table
     noise_variant: str | None = None  # the reference model's variant id in those records
 
 

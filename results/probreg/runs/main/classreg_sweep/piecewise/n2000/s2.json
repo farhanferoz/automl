@@ -1,0 +1,182 @@
+{
+ "key": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg_sweep",
+  "toy": "piecewise",
+  "n_train": 2000,
+  "seed": 2
+ },
+ "config": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg_sweep",
+  "model": {
+   "kind": "AUTOML",
+   "name": "CLASSIFIER_REGRESSION",
+   "params": {
+    "n_classes": 3,
+    "base_classifier_class": "PYTORCH_NEURAL_NETWORK",
+    "mapper_type": "LOOKUP_MEDIAN",
+    "boundary_regularization_method": "NONE",
+    "base_classifier_params": {
+     "dropout_rate": 0.0,
+     "n_epochs": 5000,
+     "batch_size": 32
+    }
+   },
+   "tuned": false,
+   "search_space": {
+    "n_classes": {
+     "type": "INT",
+     "low": 2.0,
+     "high": 10.0,
+     "step": null,
+     "log": false,
+     "choices": null
+    }
+   },
+   "search_space_exclude": [
+    "base_classifier_params__dropout_rate"
+   ],
+   "standardise_x": true,
+   "standardise_y": true,
+   "match_params_to": null,
+   "k_sweep": {
+    "from_variant": "classreg",
+    "k_values": [
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10
+    ],
+    "rule": "MINIMUM"
+   },
+   "offset_sd_fraction": 0.1,
+   "scale_factor": 0.9
+  },
+  "toy_label": "piecewise",
+  "toy": {
+   "name": "PIECEWISE",
+   "params": {},
+   "n_val": null,
+   "n_selection": 10000,
+   "n_test": 10000
+  },
+  "n_train": 2000,
+  "seed": 2,
+  "protocol": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "early_stopping_patience": 200,
+   "max_epochs": 5000,
+   "batch_size": 32,
+   "refit_on_train_val": false,
+   "calculate_feature_importance": false,
+   "torch_threads": 1,
+   "device": "cpu"
+  },
+  "hpo": {
+   "n_trials": 20,
+   "sampler": "TPE",
+   "seed": null
+  },
+  "curves": false,
+  "results_dir": null,
+  "report": {
+   "kind": "COMPARISON",
+   "eval_set": "TEST",
+   "reference_variant": "probreg",
+   "noise_results_subdir": "probreg_5a3",
+   "noise_variant": "probreg"
+  }
+ },
+ "config_hash": "a704428be1aa76486f032746e3092ebb48fcce5735f649b8544ab545eab03486",
+ "fingerprint": {
+  "machine": "aarch64",
+  "torch": "2.10.0+cu130",
+  "numpy": "2.5.4",
+  "optuna": "5.0.0",
+  "lightgbm": "4.7.0",
+  "scikit-learn": "1.9.1"
+ },
+ "fingerprint_id": "4a65fc26",
+ "source_hash": "85d774d41c04b75346481bb52b35666767e459fe66c9ae93f500c274b1031ffb",
+ "git": {
+  "commit": null,
+  "dirty": null
+ },
+ "data_hashes": {
+  "train": "961c6ed9b1c7173e6484dcd7a68f0f285480a97cce1d3c631ce452d5ea15f8de",
+  "validation": "37512a80c5b8951268f8677807f2f9decfcbdad363466f91106af49697bcec57",
+  "selection": "2f73d72f7f22770ca9c4fe70ef4bd6fddb63e5e4339468d5cf92cc22be73df5c",
+  "test": "ec6f40cbb791a21f8006ffdf274b6581cf0c1087645d92708978c29f5dde825b"
+ },
+ "metrics": {
+  "selection": {
+   "mse": 0.06591618012751568,
+   "mae": 0.20203471401764453,
+   "noise_free_excess": 0.02658224988148038,
+   "excess": 0.025916180127515676,
+   "excess_se": 0.0010040376406677675,
+   "noise_free_excess_se": 0.000543625745868557,
+   "regions": {
+    "x_lt_0": {
+     "mse": 0.049329004760082854,
+     "mae": 0.17638965605848184,
+     "noise_free_excess": 0.00829395655864189
+    },
+    "x_ge_0": {
+     "mse": 0.08252991622411975,
+     "mae": 0.22772083692149758,
+     "noise_free_excess": 0.04489982790139307
+    }
+   }
+  },
+  "test": {
+   "mse": 0.06525065397068465,
+   "mae": 0.20007900951292126,
+   "noise_free_excess": 0.025886640437484607,
+   "excess": 0.02525065397068464,
+   "excess_se": 0.0009977816190717289,
+   "noise_free_excess_se": 0.0005348475895604544,
+   "regions": {
+    "x_lt_0": {
+     "mse": 0.048163393091496705,
+     "mae": 0.17346000318555088,
+     "noise_free_excess": 0.007967516370136518
+    },
+    "x_ge_0": {
+     "mse": 0.08265523983995847,
+     "mae": 0.22719235346284272,
+     "noise_free_excess": 0.044138537902934434
+    }
+   }
+  }
+ },
+ "tuned_hyperparameters": {},
+ "n_parameters": 8968,
+ "convergence": null,
+ "sweep_source": "classreg",
+ "selected_k": 8,
+ "k_val_errors": {
+  "2": 0.20178122133177132,
+  "3": 0.08769978249777796,
+  "4": 0.0664217868490959,
+  "5": 0.053945354897171234,
+  "6": 0.04305058775944612,
+  "7": 0.038059704387872866,
+  "8": 0.027290396430435664,
+  "9": 0.029711187673787675,
+  "10": 0.04552985743939261
+ },
+ "wall_seconds": 636.4796839730116
+}

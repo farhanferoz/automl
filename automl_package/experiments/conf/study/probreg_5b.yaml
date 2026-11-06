@@ -15,9 +15,9 @@ defaults:
 name: probreg_5b
 card: 5b
 sizes: ???
-output: {results_subdir: probreg_main}
+output: {results_subdir: main}
 variants:
   plain_nn: {tuned: true}
   plain_nn_matched: {match_params_to: probreg}
   lightgbm: {tuned: true}
-report: {kind: COMPARISON, eval_set: TEST, reference_variant: probreg, noise_results_subdir: probreg_5a3, noise_variant: probreg}
+report: {kind: COMPARISON, eval_set: TEST, reference_variant: probreg, noise_results_subdir: 5a3, noise_variant: probreg}

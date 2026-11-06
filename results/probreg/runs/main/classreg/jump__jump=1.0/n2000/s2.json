@@ -1,0 +1,165 @@
+{
+ "key": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg",
+  "toy": "jump__jump=1.0",
+  "n_train": 2000,
+  "seed": 2
+ },
+ "config": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg",
+  "model": {
+   "kind": "AUTOML",
+   "name": "CLASSIFIER_REGRESSION",
+   "params": {
+    "n_classes": 3,
+    "base_classifier_class": "PYTORCH_NEURAL_NETWORK",
+    "mapper_type": "LOOKUP_MEDIAN",
+    "boundary_regularization_method": "NONE",
+    "base_classifier_params": {
+     "dropout_rate": 0.0,
+     "n_epochs": 5000,
+     "batch_size": 32
+    }
+   },
+   "tuned": true,
+   "search_space": {
+    "n_classes": {
+     "type": "INT",
+     "low": 2.0,
+     "high": 10.0,
+     "step": null,
+     "log": false,
+     "choices": null
+    }
+   },
+   "search_space_exclude": [
+    "base_classifier_params__dropout_rate"
+   ],
+   "standardise_x": true,
+   "standardise_y": true,
+   "match_params_to": null,
+   "k_sweep": null,
+   "offset_sd_fraction": 0.1,
+   "scale_factor": 0.9
+  },
+  "toy_label": "jump_1",
+  "toy": {
+   "name": "JUMP",
+   "params": {
+    "jump": 1.0
+   },
+   "n_val": null,
+   "n_selection": 10000,
+   "n_test": 10000
+  },
+  "n_train": 2000,
+  "seed": 2,
+  "protocol": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "early_stopping_patience": 200,
+   "max_epochs": 5000,
+   "batch_size": 32,
+   "refit_on_train_val": false,
+   "calculate_feature_importance": false,
+   "torch_threads": 1,
+   "device": "cpu"
+  },
+  "hpo": {
+   "n_trials": 20,
+   "sampler": "TPE",
+   "seed": null
+  },
+  "curves": false,
+  "results_dir": null,
+  "report": {
+   "kind": "COMPARISON",
+   "eval_set": "TEST",
+   "reference_variant": "probreg",
+   "noise_results_subdir": "probreg_5a3",
+   "noise_variant": "probreg"
+  }
+ },
+ "config_hash": "d820b8eb89add3bc7fe5ea75ff33546df79b0821c1e0a3685b513fc27b3421e0",
+ "fingerprint": {
+  "machine": "aarch64",
+  "torch": "2.10.0+cu130",
+  "numpy": "2.5.4",
+  "optuna": "5.0.0",
+  "lightgbm": "4.7.0",
+  "scikit-learn": "1.9.1"
+ },
+ "fingerprint_id": "4a65fc26",
+ "source_hash": "85d774d41c04b75346481bb52b35666767e459fe66c9ae93f500c274b1031ffb",
+ "git": {
+  "commit": null,
+  "dirty": null
+ },
+ "data_hashes": {
+  "train": "7c2a38cffd38dcc4606ac0a02a16842c86dbb10ffe4c00818cc409a707ec3f22",
+  "validation": "202d2f5f353c76e82c276c5cd93bcef5ba632cac7a059bfaf483e57655fcb53c",
+  "selection": "353fcacf35e558d7a311618b1822048b360dce47294aa37a5ca3240c4c0c1e60",
+  "test": "e2ac1d432907acb7956f66d03c0898f438f29b3dec6641be65c7cbec30b0e7f6"
+ },
+ "metrics": {
+  "selection": {
+   "mse": 0.09827609562913085,
+   "mae": 0.24888441217478313,
+   "noise_free_excess": 0.007727204727032091,
+   "excess": 0.008276095629130856,
+   "excess_se": 0.0014111242338723307,
+   "noise_free_excess_se": 0.0002256420165230848,
+   "regions": {
+    "near_jump": {
+     "mse": 0.12089750909914827,
+     "mae": 0.2760044521333708,
+     "noise_free_excess": 0.03422990696207115
+    },
+    "away": {
+     "mse": 0.0957318472123784,
+     "mae": 0.24583419964856973,
+     "noise_free_excess": 0.004746424667000443
+    }
+   }
+  },
+  "test": {
+   "mse": 0.09759642906505941,
+   "mae": 0.24910712441294044,
+   "noise_free_excess": 0.007243385758850954,
+   "excess": 0.007596429065059418,
+   "excess_se": 0.0013561031897931098,
+   "noise_free_excess_se": 0.00018879307406977235,
+   "regions": {
+    "near_jump": {
+     "mse": 0.11270114506907487,
+     "mae": 0.26845694323413294,
+     "noise_free_excess": 0.030955814607145183
+    },
+    "away": {
+     "mse": 0.09597388482099574,
+     "mae": 0.24702857244654433,
+     "noise_free_excess": 0.004696203479466081
+    }
+   }
+  }
+ },
+ "tuned_hyperparameters": {
+  "n_classes": 5,
+  "base_classifier_params__learning_rate": 0.00011268145953419515,
+  "base_classifier_params__l1_lambda": 1.985979984885012e-05,
+  "base_classifier_params__l2_lambda": 4.091988040159675e-06,
+  "base_classifier_params__hidden_layers": 2,
+  "base_classifier_params__hidden_size": 48,
+  "mapper_params__lookup_n_partitions": 14
+ },
+ "n_parameters": 2693,
+ "convergence": null,
+ "wall_seconds": 1101.8828714860138
+}

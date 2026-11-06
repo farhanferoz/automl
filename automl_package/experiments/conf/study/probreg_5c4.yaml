@@ -11,7 +11,7 @@ defaults:
 name: probreg_5c4
 card: 5c4
 sizes: ???
-output: {results_subdir: probreg_main}
+output: {results_subdir: main}
 variants:
   monotonic: {params: {use_monotonic_constraints: true}}
-report: {kind: COMPARISON, eval_set: SELECTION, reference_variant: probreg, noise_results_subdir: probreg_5a3, noise_variant: probreg}
+report: {kind: COMPARISON, eval_set: SELECTION, reference_variant: probreg, noise_results_subdir: 5a3, noise_variant: probreg}

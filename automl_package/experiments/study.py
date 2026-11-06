@@ -21,15 +21,28 @@ from automl_package.experiments.cell import CellStatus, cell_status, fingerprint
 from automl_package.experiments.config import CellSpec, PredictorKind, StudyConfig, from_dict, to_dict
 from automl_package.experiments.toys import Toy
 
-PLAN_FILE = "cells_{card}.jsonl"
+CELLS_DIR = "cells"  # <results_root>/cells/<card>.jsonl: the plan of each card
+RUNS_DIR = "runs"  # <results_root>/runs/<group>/<variant>/...: the records; cards sharing reference records name one group
+REPORTS_DIR = "reports"  # <results_root>/reports/<card label>/: tables and pages
+PLAN_FILE = "{card}.jsonl"
 POLL_SECONDS = 30  # records and plans written on the laptop arrive by Syncthing; check this often while waiting
 SECONDS_PER_MINUTE = 60
 EXIT_NOT_READY = 2  # exit status of a step whose input (plan file, records) never arrived
 
 
 def results_dir(study: StudyConfig) -> Path:
-    """``<results_root>/<results_subdir or study name>``."""
-    return Path(study.output.results_root) / (study.output.results_subdir or study.name)
+    """Where the study's records go: ``<results_root>/runs/<results_subdir or card>``."""
+    return Path(study.output.results_root) / RUNS_DIR / (study.output.results_subdir or study.card)
+
+
+def plan_path(study: StudyConfig) -> Path:
+    """Where the study's plan goes: ``<results_root>/cells/<card>.jsonl``."""
+    return Path(study.output.results_root) / CELLS_DIR / PLAN_FILE.format(card=study.card)
+
+
+def layout_root(records_dir: str | Path) -> Path:
+    """The results root a cell's records folder (``<results_root>/runs/<group>``) sits in."""
+    return Path(records_dir).parents[1]
 
 
 def plan(study: StudyConfig) -> list[CellSpec]:

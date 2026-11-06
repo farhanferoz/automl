@@ -2,8 +2,8 @@
 
     python -m automl_package.experiments.run +study=probreg_5b [study.sizes=[500] ...]
 
-The cells go to ``<results_dir>/cells_<card>.jsonl``; ``execute.py`` (no Hydra) runs them. Every YAML under ``conf/`` extends a
-schema registered here, so a wrong key or type fails at composition.
+The cells go to ``<results_root>/cells/<card>.jsonl`` (records to ``runs/<group>/``, reports to ``reports/``); ``execute.py`` (no Hydra)
+runs them. Every YAML under ``conf/`` extends a schema registered here, so a wrong key or type fails at composition.
 
 Reused: the structured-config layout of ``/home/ff235/dev/ae/automl_adapter/config.py`` and ``/home/ff235/dev/ae/conf``.
 """
@@ -19,7 +19,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from automl_package.experiments.cell import CellStatus, cell_status, environment_fingerprint, fingerprint_id
 from automl_package.experiments.config import HpoConfig, ModelConfig, ProtocolConfig, RootConfig, StudyConfig, ToyConfig
-from automl_package.experiments.study import PLAN_FILE, plan, results_dir, write_plan
+from automl_package.experiments.study import plan, plan_path, write_plan
 
 CONF_DIR = str(Path(__file__).resolve().parent / "conf")
 
@@ -44,7 +44,7 @@ def main(cfg: DictConfig) -> None:
     root: RootConfig = OmegaConf.to_object(cfg)  # type: ignore[assignment]
     study = root.study
     cells = plan(study)
-    path = results_dir(study) / PLAN_FILE.format(card=study.card)
+    path = plan_path(study)
     write_plan(cells, path)
     target = root.target_fingerprint or fingerprint_id()
     status = Counter(cell_status(c, target) for c in cells)

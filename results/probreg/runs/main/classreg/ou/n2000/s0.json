@@ -1,0 +1,141 @@
+{
+ "key": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg",
+  "toy": "ou",
+  "n_train": 2000,
+  "seed": 0
+ },
+ "config": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg",
+  "model": {
+   "kind": "AUTOML",
+   "name": "CLASSIFIER_REGRESSION",
+   "params": {
+    "n_classes": 3,
+    "base_classifier_class": "PYTORCH_NEURAL_NETWORK",
+    "mapper_type": "LOOKUP_MEDIAN",
+    "boundary_regularization_method": "NONE",
+    "base_classifier_params": {
+     "dropout_rate": 0.0,
+     "n_epochs": 5000,
+     "batch_size": 32
+    }
+   },
+   "tuned": true,
+   "search_space": {
+    "n_classes": {
+     "type": "INT",
+     "low": 2.0,
+     "high": 10.0,
+     "step": null,
+     "log": false,
+     "choices": null
+    }
+   },
+   "search_space_exclude": [
+    "base_classifier_params__dropout_rate"
+   ],
+   "standardise_x": true,
+   "standardise_y": true,
+   "match_params_to": null,
+   "k_sweep": null,
+   "offset_sd_fraction": 0.1,
+   "scale_factor": 0.9
+  },
+  "toy_label": "ou",
+  "toy": {
+   "name": "OU",
+   "params": {},
+   "n_val": null,
+   "n_selection": 10000,
+   "n_test": 10000
+  },
+  "n_train": 2000,
+  "seed": 0,
+  "protocol": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "early_stopping_patience": 200,
+   "max_epochs": 5000,
+   "batch_size": 32,
+   "refit_on_train_val": false,
+   "calculate_feature_importance": false,
+   "torch_threads": 1,
+   "device": "cpu"
+  },
+  "hpo": {
+   "n_trials": 20,
+   "sampler": "TPE",
+   "seed": null
+  },
+  "curves": false,
+  "results_dir": null,
+  "report": {
+   "kind": "COMPARISON",
+   "eval_set": "TEST",
+   "reference_variant": "probreg",
+   "noise_results_subdir": "probreg_5a3",
+   "noise_variant": "probreg"
+  }
+ },
+ "config_hash": "7f368d24fec42165323130a0f2baffe666e38b2082626b1a4f16ee645f65a56d",
+ "fingerprint": {
+  "machine": "aarch64",
+  "torch": "2.10.0+cu130",
+  "numpy": "2.5.4",
+  "optuna": "5.0.0",
+  "lightgbm": "4.7.0",
+  "scikit-learn": "1.9.1"
+ },
+ "fingerprint_id": "4a65fc26",
+ "source_hash": "85d774d41c04b75346481bb52b35666767e459fe66c9ae93f500c274b1031ffb",
+ "git": {
+  "commit": null,
+  "dirty": null
+ },
+ "data_hashes": {
+  "train": "8a3feedd9d9bb5a855dbd78cb8fa7b4c28c15b9f1ba23f9b350166a59df0bf21",
+  "validation": "296a8d5abefeb5885dedce728ff7a51b9f6ee8b0c5dcf7a93c11affdf0b17206",
+  "selection": "2398da6b5cd6944f16a53f7a1bebd565857a34cd07b31fe49efe22489ed70c05",
+  "test": "42954ad46e15f7ae6f0edef492ccc5c7f12c487b772b9dbdcd557e1e5005badf"
+ },
+ "metrics": {
+  "selection": {
+   "mse": 0.013060052626568674,
+   "mae": 0.09122819626394162,
+   "noise_free_excess": 0.0005250208945271616,
+   "excess": 0.0005600526265686755,
+   "excess_se": 0.00018309083950429205,
+   "noise_free_excess_se": 7.215549618446623e-06,
+   "regions": {}
+  },
+  "test": {
+   "mse": 0.012871995815405426,
+   "mae": 0.09043996938517236,
+   "noise_free_excess": 0.0005161728119170366,
+   "excess": 0.00037199581540542717,
+   "excess_se": 0.00018210472894446739,
+   "noise_free_excess_se": 7.170736430069899e-06,
+   "regions": {}
+  }
+ },
+ "tuned_hyperparameters": {
+  "n_classes": 2,
+  "base_classifier_params__learning_rate": 0.000267185163577215,
+  "base_classifier_params__l1_lambda": 3.386703785687157e-08,
+  "base_classifier_params__l2_lambda": 1.1976457647219747e-05,
+  "base_classifier_params__hidden_layers": 3,
+  "base_classifier_params__hidden_size": 128,
+  "mapper_params__lookup_n_partitions": 46
+ },
+ "n_parameters": 33409,
+ "convergence": null,
+ "wall_seconds": 417.09673083300004
+}

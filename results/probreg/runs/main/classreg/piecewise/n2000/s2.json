@@ -1,0 +1,163 @@
+{
+ "key": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg",
+  "toy": "piecewise",
+  "n_train": 2000,
+  "seed": 2
+ },
+ "config": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg",
+  "model": {
+   "kind": "AUTOML",
+   "name": "CLASSIFIER_REGRESSION",
+   "params": {
+    "n_classes": 3,
+    "base_classifier_class": "PYTORCH_NEURAL_NETWORK",
+    "mapper_type": "LOOKUP_MEDIAN",
+    "boundary_regularization_method": "NONE",
+    "base_classifier_params": {
+     "dropout_rate": 0.0,
+     "n_epochs": 5000,
+     "batch_size": 32
+    }
+   },
+   "tuned": true,
+   "search_space": {
+    "n_classes": {
+     "type": "INT",
+     "low": 2.0,
+     "high": 10.0,
+     "step": null,
+     "log": false,
+     "choices": null
+    }
+   },
+   "search_space_exclude": [
+    "base_classifier_params__dropout_rate"
+   ],
+   "standardise_x": true,
+   "standardise_y": true,
+   "match_params_to": null,
+   "k_sweep": null,
+   "offset_sd_fraction": 0.1,
+   "scale_factor": 0.9
+  },
+  "toy_label": "piecewise",
+  "toy": {
+   "name": "PIECEWISE",
+   "params": {},
+   "n_val": null,
+   "n_selection": 10000,
+   "n_test": 10000
+  },
+  "n_train": 2000,
+  "seed": 2,
+  "protocol": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "early_stopping_patience": 200,
+   "max_epochs": 5000,
+   "batch_size": 32,
+   "refit_on_train_val": false,
+   "calculate_feature_importance": false,
+   "torch_threads": 1,
+   "device": "cpu"
+  },
+  "hpo": {
+   "n_trials": 20,
+   "sampler": "TPE",
+   "seed": null
+  },
+  "curves": false,
+  "results_dir": null,
+  "report": {
+   "kind": "COMPARISON",
+   "eval_set": "TEST",
+   "reference_variant": "probreg",
+   "noise_results_subdir": "probreg_5a3",
+   "noise_variant": "probreg"
+  }
+ },
+ "config_hash": "b8bd3248041b650ac223d96fd65e70bfde890743103a092ad89e7c5bf52b56e7",
+ "fingerprint": {
+  "machine": "aarch64",
+  "torch": "2.10.0+cu130",
+  "numpy": "2.5.4",
+  "optuna": "5.0.0",
+  "lightgbm": "4.7.0",
+  "scikit-learn": "1.9.1"
+ },
+ "fingerprint_id": "4a65fc26",
+ "source_hash": "85d774d41c04b75346481bb52b35666767e459fe66c9ae93f500c274b1031ffb",
+ "git": {
+  "commit": null,
+  "dirty": null
+ },
+ "data_hashes": {
+  "train": "961c6ed9b1c7173e6484dcd7a68f0f285480a97cce1d3c631ce452d5ea15f8de",
+  "validation": "37512a80c5b8951268f8677807f2f9decfcbdad363466f91106af49697bcec57",
+  "selection": "2f73d72f7f22770ca9c4fe70ef4bd6fddb63e5e4339468d5cf92cc22be73df5c",
+  "test": "ec6f40cbb791a21f8006ffdf274b6581cf0c1087645d92708978c29f5dde825b"
+ },
+ "metrics": {
+  "selection": {
+   "mse": 0.06977395941428251,
+   "mae": 0.2086056506841062,
+   "noise_free_excess": 0.02941278531539715,
+   "excess": 0.0297739594142825,
+   "excess_se": 0.0010340792422090146,
+   "noise_free_excess_se": 0.0005121284527778238,
+   "regions": {
+    "x_lt_0": {
+     "mse": 0.05823412014367707,
+     "mae": 0.19067993150517076,
+     "noise_free_excess": 0.017937667984567276
+    },
+    "x_ge_0": {
+     "mse": 0.08133227721054144,
+     "mae": 0.22656007397701908,
+     "noise_free_excess": 0.04090627753386647
+    }
+   }
+  },
+  "test": {
+   "mse": 0.06834806703425482,
+   "mae": 0.20687707997582175,
+   "noise_free_excess": 0.029551576126524582,
+   "excess": 0.028348067034254812,
+   "excess_se": 0.0010090005070519776,
+   "noise_free_excess_se": 0.000520409663231344,
+   "regions": {
+    "x_lt_0": {
+     "mse": 0.0578988040689224,
+     "mae": 0.19108111487950902,
+     "noise_free_excess": 0.018267756369467435
+    },
+    "x_ge_0": {
+     "mse": 0.07899138171392125,
+     "mae": 0.22296638959955892,
+     "noise_free_excess": 0.04104494602844431
+    }
+   }
+  }
+ },
+ "tuned_hyperparameters": {
+  "n_classes": 9,
+  "base_classifier_params__learning_rate": 0.0006836720138010787,
+  "base_classifier_params__l1_lambda": 5.206457039311585e-08,
+  "base_classifier_params__l2_lambda": 5.538415246489889e-08,
+  "base_classifier_params__hidden_layers": 3,
+  "base_classifier_params__hidden_size": 64,
+  "mapper_params__lookup_n_partitions": 14
+ },
+ "n_parameters": 9033,
+ "convergence": null,
+ "wall_seconds": 2459.6033322729927
+}

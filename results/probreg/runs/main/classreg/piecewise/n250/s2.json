@@ -1,0 +1,163 @@
+{
+ "key": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg",
+  "toy": "piecewise",
+  "n_train": 250,
+  "seed": 2
+ },
+ "config": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg",
+  "model": {
+   "kind": "AUTOML",
+   "name": "CLASSIFIER_REGRESSION",
+   "params": {
+    "n_classes": 3,
+    "base_classifier_class": "PYTORCH_NEURAL_NETWORK",
+    "mapper_type": "LOOKUP_MEDIAN",
+    "boundary_regularization_method": "NONE",
+    "base_classifier_params": {
+     "dropout_rate": 0.0,
+     "n_epochs": 5000,
+     "batch_size": 32
+    }
+   },
+   "tuned": true,
+   "search_space": {
+    "n_classes": {
+     "type": "INT",
+     "low": 2.0,
+     "high": 10.0,
+     "step": null,
+     "log": false,
+     "choices": null
+    }
+   },
+   "search_space_exclude": [
+    "base_classifier_params__dropout_rate"
+   ],
+   "standardise_x": true,
+   "standardise_y": true,
+   "match_params_to": null,
+   "k_sweep": null,
+   "offset_sd_fraction": 0.1,
+   "scale_factor": 0.9
+  },
+  "toy_label": "piecewise",
+  "toy": {
+   "name": "PIECEWISE",
+   "params": {},
+   "n_val": null,
+   "n_selection": 10000,
+   "n_test": 10000
+  },
+  "n_train": 250,
+  "seed": 2,
+  "protocol": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "early_stopping_patience": 200,
+   "max_epochs": 5000,
+   "batch_size": 32,
+   "refit_on_train_val": false,
+   "calculate_feature_importance": false,
+   "torch_threads": 1,
+   "device": "cpu"
+  },
+  "hpo": {
+   "n_trials": 20,
+   "sampler": "TPE",
+   "seed": null
+  },
+  "curves": false,
+  "results_dir": null,
+  "report": {
+   "kind": "COMPARISON",
+   "eval_set": "TEST",
+   "reference_variant": "probreg",
+   "noise_results_subdir": "probreg_5a3",
+   "noise_variant": "probreg"
+  }
+ },
+ "config_hash": "5ae3bc2676b6d5ad2d6bffc52c72fe4c76daed959ac9a52018dfb15a80905241",
+ "fingerprint": {
+  "machine": "aarch64",
+  "torch": "2.10.0+cu130",
+  "numpy": "2.5.4",
+  "optuna": "5.0.0",
+  "lightgbm": "4.7.0",
+  "scikit-learn": "1.9.1"
+ },
+ "fingerprint_id": "4a65fc26",
+ "source_hash": "85d774d41c04b75346481bb52b35666767e459fe66c9ae93f500c274b1031ffb",
+ "git": {
+  "commit": null,
+  "dirty": null
+ },
+ "data_hashes": {
+  "train": "4b7577e0e5c0f7e042ff6cf60c64bf479153b62c992d69c9e80f37bea502309f",
+  "validation": "1c953fe1b77ffd5a6d3cb35dfc06f8dedc7227de61e0ec7fc70829d7609b9a1f",
+  "selection": "2f73d72f7f22770ca9c4fe70ef4bd6fddb63e5e4339468d5cf92cc22be73df5c",
+  "test": "ec6f40cbb791a21f8006ffdf274b6581cf0c1087645d92708978c29f5dde825b"
+ },
+ "metrics": {
+  "selection": {
+   "mse": 0.16353145180654743,
+   "mae": 0.31094424787492164,
+   "noise_free_excess": 0.12267583812282437,
+   "excess": 0.12353145180654743,
+   "excess_se": 0.0026143185000492906,
+   "noise_free_excess_se": 0.0021506399863153933,
+   "regions": {
+    "x_lt_0": {
+     "mse": 0.07052944563761188,
+     "mae": 0.2104372631154913,
+     "noise_free_excess": 0.029332714750804657
+    },
+    "x_ge_0": {
+     "mse": 0.2566823803232315,
+     "mae": 0.4116121725619091,
+     "noise_free_excess": 0.21616843006709713
+    }
+   }
+  },
+  "test": {
+   "mse": 0.1606557309802634,
+   "mae": 0.30897840210315985,
+   "noise_free_excess": 0.12183332158835067,
+   "excess": 0.12065573098026339,
+   "excess_se": 0.002548014695052531,
+   "noise_free_excess_se": 0.0021387585821978734,
+   "regions": {
+    "x_lt_0": {
+     "mse": 0.07005232871418249,
+     "mae": 0.21047251773742723,
+     "noise_free_excess": 0.02938821596190786
+    },
+    "x_ge_0": {
+     "mse": 0.2529417156057467,
+     "mae": 0.40931362465251125,
+     "noise_free_excess": 0.2159952115744287
+    }
+   }
+  }
+ },
+ "tuned_hyperparameters": {
+  "n_classes": 9,
+  "base_classifier_params__learning_rate": 0.00013600432216387068,
+  "base_classifier_params__l1_lambda": 3.8245408854572437e-07,
+  "base_classifier_params__l2_lambda": 1.8018675935524566e-06,
+  "base_classifier_params__hidden_layers": 2,
+  "base_classifier_params__hidden_size": 48,
+  "mapper_params__lookup_n_partitions": 50
+ },
+ "n_parameters": 2889,
+ "convergence": null,
+ "wall_seconds": 309.9885435769975
+}

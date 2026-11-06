@@ -73,18 +73,20 @@ def test_config_validation_and_round_trip():
 
 
 def test_finished_cells_keep_their_identity():
-    """A cell composed from today's YAML hashes as the record it wrote did (a schema change would silently re-run every finished cell)."""
+    """A cell composed from today's YAML hashes as the record it wrote did and finds it in the layout (a schema or path change would silently re-run every finished cell)."""
     from hydra import compose, initialize_config_dir
     from omegaconf import OmegaConf
 
     from automl_package.experiments import run
 
-    record = load_record(RESULTS_ROOT / "probreg_main" / "probreg" / "toy_a" / "n250" / "s0.json")
+    path = RESULTS_ROOT / "runs" / "main" / "probreg" / "toy_a" / "n250" / "s0.json"
+    record = load_record(path)
     with initialize_config_dir(config_dir=run.CONF_DIR, version_base="1.3"):
         patience_override = f"study.protocol.early_stopping_patience={record['config']['protocol']['early_stopping_patience']}"
         cfg = compose(config_name="config", overrides=["+study=probreg_5b", "study.sizes=[250]", patience_override])
     (cell,) = [c for c in plan(OmegaConf.to_object(cfg).study) if c.variant == "probreg" and c.toy_label == "toy_a" and c.seed == 0]
     assert cell.config_hash() == record["config_hash"]
+    assert record_path(cell, record["fingerprint_id"]) == path  # the configured layout finds the finished records
 
 
 def test_later_variant_slots_in_without_rerunning(tmp_path):

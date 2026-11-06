@@ -1,0 +1,184 @@
+{
+ "key": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg_sweep",
+  "toy": "jump__jump=1.0",
+  "n_train": 250,
+  "seed": 0
+ },
+ "config": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg_sweep",
+  "model": {
+   "kind": "AUTOML",
+   "name": "CLASSIFIER_REGRESSION",
+   "params": {
+    "n_classes": 3,
+    "base_classifier_class": "PYTORCH_NEURAL_NETWORK",
+    "mapper_type": "LOOKUP_MEDIAN",
+    "boundary_regularization_method": "NONE",
+    "base_classifier_params": {
+     "dropout_rate": 0.0,
+     "n_epochs": 5000,
+     "batch_size": 32
+    }
+   },
+   "tuned": false,
+   "search_space": {
+    "n_classes": {
+     "type": "INT",
+     "low": 2.0,
+     "high": 10.0,
+     "step": null,
+     "log": false,
+     "choices": null
+    }
+   },
+   "search_space_exclude": [
+    "base_classifier_params__dropout_rate"
+   ],
+   "standardise_x": true,
+   "standardise_y": true,
+   "match_params_to": null,
+   "k_sweep": {
+    "from_variant": "classreg",
+    "k_values": [
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10
+    ],
+    "rule": "MINIMUM"
+   },
+   "offset_sd_fraction": 0.1,
+   "scale_factor": 0.9
+  },
+  "toy_label": "jump_1",
+  "toy": {
+   "name": "JUMP",
+   "params": {
+    "jump": 1.0
+   },
+   "n_val": null,
+   "n_selection": 10000,
+   "n_test": 10000
+  },
+  "n_train": 250,
+  "seed": 0,
+  "protocol": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "early_stopping_patience": 200,
+   "max_epochs": 5000,
+   "batch_size": 32,
+   "refit_on_train_val": false,
+   "calculate_feature_importance": false,
+   "torch_threads": 1,
+   "device": "cpu"
+  },
+  "hpo": {
+   "n_trials": 20,
+   "sampler": "TPE",
+   "seed": null
+  },
+  "curves": false,
+  "results_dir": null,
+  "report": {
+   "kind": "COMPARISON",
+   "eval_set": "TEST",
+   "reference_variant": "probreg",
+   "noise_results_subdir": "probreg_5a3",
+   "noise_variant": "probreg"
+  }
+ },
+ "config_hash": "439b030d5899c20ebce4cfd462913ceb358b2f94ca6107f5f0f4fa144073c746",
+ "fingerprint": {
+  "machine": "aarch64",
+  "torch": "2.10.0+cu130",
+  "numpy": "2.5.4",
+  "optuna": "5.0.0",
+  "lightgbm": "4.7.0",
+  "scikit-learn": "1.9.1"
+ },
+ "fingerprint_id": "4a65fc26",
+ "source_hash": "85d774d41c04b75346481bb52b35666767e459fe66c9ae93f500c274b1031ffb",
+ "git": {
+  "commit": null,
+  "dirty": null
+ },
+ "data_hashes": {
+  "train": "c8f5d5f25de250b272a398de9c576df8d226f6255a2258aa6e048fe1831631ae",
+  "validation": "102c8e68a1cb7f5ab599484bf990930de69d515690e0e66b5546893b3f912e3d",
+  "selection": "81fab937f175cf1e95e0ca8dceb245743f0995ba7b03cc555ddee63aa0bc5211",
+  "test": "ac0f2c1e453a5034632bbadea8a0ff822eb6b4341efba7ac825a2baaa87a140f"
+ },
+ "metrics": {
+  "selection": {
+   "mse": 0.12390884379719232,
+   "mae": 0.28062439141454837,
+   "noise_free_excess": 0.03342703248150768,
+   "excess": 0.03390884379719232,
+   "excess_se": 0.0017424902521489486,
+   "noise_free_excess_se": 0.0005139431943432475,
+   "regions": {
+    "near_jump": {
+     "mse": 0.16028482035785083,
+     "mae": 0.3221636869611617,
+     "noise_free_excess": 0.06920476074115503
+    },
+    "away": {
+     "mse": 0.11977253996954645,
+     "mae": 0.27590096778685136,
+     "noise_free_excess": 0.029358755328918316
+    }
+   }
+  },
+  "test": {
+   "mse": 0.12191911744761785,
+   "mae": 0.278722366680511,
+   "noise_free_excess": 0.033682032474257904,
+   "excess": 0.031919117447617856,
+   "excess_se": 0.0017314118265620549,
+   "noise_free_excess_se": 0.0005185903316949871,
+   "regions": {
+    "near_jump": {
+     "mse": 0.16447202149107104,
+     "mae": 0.32713852914878655,
+     "noise_free_excess": 0.07243489475331699
+    },
+    "away": {
+     "mse": 0.11701701530901105,
+     "mae": 0.2731448161251715,
+     "noise_free_excess": 0.029217695824958465
+    }
+   }
+  }
+ },
+ "tuned_hyperparameters": {},
+ "n_parameters": 8903,
+ "convergence": null,
+ "sweep_source": "classreg",
+ "selected_k": 7,
+ "k_val_errors": {
+  "2": 0.39782627852005764,
+  "3": 0.4136219928831864,
+  "4": 0.3236982968178345,
+  "5": 0.3755351147597717,
+  "6": 0.39238241299956383,
+  "7": 0.29713989507001043,
+  "8": 0.30848311141072093,
+  "9": 0.3649165913104525,
+  "10": 0.2989688523560894
+ },
+ "wall_seconds": 90.95795518602245
+}

@@ -1,0 +1,163 @@
+{
+ "key": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg",
+  "toy": "toy_h",
+  "n_train": 2000,
+  "seed": 2
+ },
+ "config": {
+  "study": "probreg_5b2",
+  "card": "5b2",
+  "variant": "classreg",
+  "model": {
+   "kind": "AUTOML",
+   "name": "CLASSIFIER_REGRESSION",
+   "params": {
+    "n_classes": 3,
+    "base_classifier_class": "PYTORCH_NEURAL_NETWORK",
+    "mapper_type": "LOOKUP_MEDIAN",
+    "boundary_regularization_method": "NONE",
+    "base_classifier_params": {
+     "dropout_rate": 0.0,
+     "n_epochs": 5000,
+     "batch_size": 32
+    }
+   },
+   "tuned": true,
+   "search_space": {
+    "n_classes": {
+     "type": "INT",
+     "low": 2.0,
+     "high": 10.0,
+     "step": null,
+     "log": false,
+     "choices": null
+    }
+   },
+   "search_space_exclude": [
+    "base_classifier_params__dropout_rate"
+   ],
+   "standardise_x": true,
+   "standardise_y": true,
+   "match_params_to": null,
+   "k_sweep": null,
+   "offset_sd_fraction": 0.1,
+   "scale_factor": 0.9
+  },
+  "toy_label": "toy_h",
+  "toy": {
+   "name": "TOY_H",
+   "params": {},
+   "n_val": null,
+   "n_selection": 10000,
+   "n_test": 10000
+  },
+  "n_train": 2000,
+  "seed": 2,
+  "protocol": {
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "early_stopping_patience": 200,
+   "max_epochs": 5000,
+   "batch_size": 32,
+   "refit_on_train_val": false,
+   "calculate_feature_importance": false,
+   "torch_threads": 1,
+   "device": "cpu"
+  },
+  "hpo": {
+   "n_trials": 20,
+   "sampler": "TPE",
+   "seed": null
+  },
+  "curves": false,
+  "results_dir": null,
+  "report": {
+   "kind": "COMPARISON",
+   "eval_set": "TEST",
+   "reference_variant": "probreg",
+   "noise_results_subdir": "probreg_5a3",
+   "noise_variant": "probreg"
+  }
+ },
+ "config_hash": "8ffdc433684491fd059b2d73705f7f5bfcfe558de2f411221ec8c39f73d874f0",
+ "fingerprint": {
+  "machine": "aarch64",
+  "torch": "2.10.0+cu130",
+  "numpy": "2.5.4",
+  "optuna": "5.0.0",
+  "lightgbm": "4.7.0",
+  "scikit-learn": "1.9.1"
+ },
+ "fingerprint_id": "4a65fc26",
+ "source_hash": "85d774d41c04b75346481bb52b35666767e459fe66c9ae93f500c274b1031ffb",
+ "git": {
+  "commit": null,
+  "dirty": null
+ },
+ "data_hashes": {
+  "train": "1a3b70c4b3d125ed78bb5e1989b6c9f4cfa00e9bacf8cd76861c178fcb2e7691",
+  "validation": "228fa90b9ed6af074cc98543bdf09e58548650910ebb676bb4f93afa7b8426fb",
+  "selection": "a8df464bd9808db8175473b3da5fe59fcb094b0558ea2b3113c2df6f7381c692",
+  "test": "43cb4abf9682f88c5d255951e3cf8403cfad47f5bf4234c73c5fd25b7602848e"
+ },
+ "metrics": {
+  "selection": {
+   "mse": 0.33656820632770745,
+   "mae": 0.37024156394740143,
+   "noise_free_excess": 0.013711035003562671,
+   "excess": 0.011568206327707387,
+   "excess_se": 0.007387156533952572,
+   "noise_free_excess_se": 0.00022932403113092034,
+   "regions": {
+    "x_lt_0": {
+     "mse": 0.013804704372206504,
+     "mae": 0.0935096544473542,
+     "noise_free_excess": 0.003493630724710926
+    },
+    "x_ge_0": {
+     "mse": 0.658944624331233,
+     "mae": 0.6466415942835471,
+     "noise_free_excess": 0.0239161857493996
+    }
+   }
+  },
+  "test": {
+   "mse": 0.3324049098504495,
+   "mae": 0.3664628848451974,
+   "noise_free_excess": 0.013453225483177574,
+   "excess": 0.007404909850449448,
+   "excess_se": 0.0071941724742869894,
+   "noise_free_excess_se": 0.00022732668081231866,
+   "regions": {
+    "x_lt_0": {
+     "mse": 0.013497433495790558,
+     "mae": 0.09260896215422407,
+     "noise_free_excess": 0.003529558273295085
+    },
+    "x_ge_0": {
+     "mse": 0.6660603071496866,
+     "mae": 0.6529812205765144,
+     "noise_free_excess": 0.023835814074159606
+    }
+   }
+  }
+ },
+ "tuned_hyperparameters": {
+  "n_classes": 10,
+  "base_classifier_params__learning_rate": 0.00027632625384287177,
+  "base_classifier_params__l1_lambda": 0.0001286799052524395,
+  "base_classifier_params__l2_lambda": 8.095427828192387e-08,
+  "base_classifier_params__hidden_layers": 2,
+  "base_classifier_params__hidden_size": 128,
+  "mapper_params__lookup_n_partitions": 29
+ },
+ "n_parameters": 18058,
+ "convergence": null,
+ "wall_seconds": 1498.6149953530112
+}

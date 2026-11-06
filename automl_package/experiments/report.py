@@ -31,7 +31,7 @@ import pandas as pd
 
 from automl_package.experiments.cell import all_record_paths, load_record
 from automl_package.experiments.config import CellSpec, EvalSet, PredictorKind, ReportKind
-from automl_package.experiments.study import read_plan
+from automl_package.experiments.study import REPORTS_DIR, layout_root, read_plan
 from automl_package.experiments.toys import Toy
 
 KEY = ["variant", "toy", "n", "seed", "fp"]
@@ -281,7 +281,7 @@ def build_report(cells: list[CellSpec], eval_set: EvalSet | None = None, out_dir
     if len({(c.report.kind, c.report.reference_variant) for c in cells}) > 1:
         raise ValueError(f"Cards {card_label(cells)[0]} differ in report kind or reference variant; report them separately.")
     eval_set = eval_set or report.eval_set
-    out_dir = out_dir or Path(cells[0].results_dir) / f"report_{card_label(cells)[0]}"
+    out_dir = out_dir or layout_root(cells[0].results_dir) / REPORTS_DIR / card_label(cells)[0]
     out_dir.mkdir(parents=True, exist_ok=True)
     return (write_comparison if report.kind == ReportKind.COMPARISON else write_size_sweep)(cells, eval_set, out_dir)
 
