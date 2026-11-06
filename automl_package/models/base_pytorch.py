@@ -15,6 +15,7 @@ from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 from automl_package.models.common.losses import calculate_combined_loss
 from automl_package.models.common.mixins import RegularizationMixin
+from automl_package.models.common.output_bound import TrainingRangeBound
 from automl_package.models.common.training import TrainingSchedule
 from automl_package.optimizers import get_optimizer_wrapper
 from automl_package.utils.convergence import ConvergenceResult, ConvergenceTracker, snapshot_state
@@ -88,6 +89,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         # Now, override any attributes set by the parent's constructor if necessary
         self.l1_log_lambda, self.l2_log_lambda = None, None
         self.convergence_: ConvergenceResult | None = None  # frozen result of the last `_fit_single` (converged / hit_cap / best_epoch)
+        self._output_bound: TrainingRangeBound | None = None  # set by `_set_output_bound` under OutputBound.TRAINING_RANGE
         self.using_l1_regularization = (
             self.learned_regularization_type in [LearnedRegularizationType.L1_ONLY, LearnedRegularizationType.L1_L2] if self.learn_regularization_lambdas else self.l1_lambda > 0
         )
@@ -281,6 +283,13 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         """The fit term is a loss, so smaller is better; classes that do not score by it keep their metric's direction."""
         return True if self._scores_by_fit_term else super()._held_out_score_is_smaller_better()
 
+    def _set_output_bound(self, y_train: np.ndarray) -> None:
+        """Fixes the output bound from this fit's training targets (fit space) before the network is built.
+
+        A `TrainingRangeBound` under OutputBound.TRAINING_RANGE, else None. Called at the start of every `_fit_single` (the generic one and the LSTM's).
+        """
+        self._output_bound = TrainingRangeBound.from_targets(y_train) if self.output_bound is OutputBound.TRAINING_RANGE else None
+
     def _prepare_training(self) -> None:
         """Builds the network and its optimisers at the start of `_fit_single` (a staged fit overrides this to keep its network)."""
         self.build_model()
@@ -327,6 +336,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         if self.random_seed is not None:
             torch.manual_seed(self.random_seed)
             np.random.seed(self.random_seed)
+        self._set_output_bound(y_train)
         self._prepare_training()
         schedule = self._training_schedule()
 

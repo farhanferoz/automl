@@ -6,7 +6,7 @@ from typing import Any, ClassVar
 import torch
 import torch.nn as nn
 
-from automl_package.enums import ActivationFunction, ExplainerType, TaskType, UncertaintyMethod
+from automl_package.enums import ActivationFunction, ExplainerType, OutputBound, TaskType, UncertaintyMethod
 from automl_package.models.base_pytorch import PyTorchModelBase
 from automl_package.utils.losses import nll_loss
 from automl_package.utils.pytorch_utils import get_activation_function_map
@@ -24,9 +24,11 @@ class _PyTorchNNModule(nn.Module):
         is_regression: bool,
         uncertainty_method: UncertaintyMethod,
         activation: nn.Module,
+        output_bound: nn.Module | None = None,
     ) -> None:
         super().__init__()
         self.is_regression = is_regression
+        self.output_bound = output_bound  # a `TrainingRangeBound` on the last layer's output (OutputBound.TRAINING_RANGE), or None
         self.uncertainty_method = uncertainty_method
 
         layers = []
@@ -53,7 +55,8 @@ class _PyTorchNNModule(nn.Module):
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.layers(x)
+        out = self.layers(x)
+        return out if self.output_bound is None else self.output_bound(out)
 
 
 class PyTorchNeuralNetwork(PyTorchModelBase):
@@ -68,6 +71,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
     _scores_by_fit_term: ClassVar[bool] = True
     _supports_training_schedule: ClassVar[bool] = True  # trains through the generic `PyTorchModelBase._fit_single`, which applies the `TrainingSchedule`
     _supports_sample_weight: ClassVar[bool] = True  # its criterion is its fit term, so `_weighted_fit_loss` is its weighted training loss
+    _supports_output_bound: ClassVar[bool] = True  # the last layer's output is the prediction (refused below where it is not)
 
     _defaults: ClassVar[dict[str, Any]] = {"hidden_layers": 1, "hidden_size": 64, "activation": ActivationFunction.RELU}
 
@@ -77,6 +81,9 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
         for key, value in PyTorchNeuralNetwork._defaults.items():
             kwargs.setdefault(key, value)
         super().__init__(**kwargs)
+        if self.output_bound is OutputBound.TRAINING_RANGE and (not self.is_regression_model or self.uncertainty_method == UncertaintyMethod.PROBABILISTIC):
+            raise ValueError("output_bound=TRAINING_RANGE bounds a regression mean: the network's output is class scores or a (mean, log-variance) pair here; "
+                             "use a regression task with uncertainty_method other than PROBABILISTIC, or output_bound=NONE.")
 
     @property
     def name(self) -> str:
@@ -100,6 +107,7 @@ class PyTorchNeuralNetwork(PyTorchModelBase):
             is_regression=self.is_regression_model,
             uncertainty_method=self.uncertainty_method,
             activation=activation_module,
+            output_bound=self._output_bound if self.output_bound is OutputBound.TRAINING_RANGE else None,
         ).to(self.device)
 
         # Define criterion based on task type and uncertainty method

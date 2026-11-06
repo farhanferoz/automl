@@ -186,7 +186,6 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         super().__init__(**kwargs)
         self._input_stats: dict[str, np.ndarray] | None = None
         self._seen_series: np.ndarray | None = None  # bool (n_series,): which series have fit rows with an observed target; set by `_fit_single`
-        self._output_bound: TrainingRangeBound | None = None  # set by `_fit_single` under OutputBound.TRAINING_RANGE
 
     @property
     def name(self) -> str:
@@ -328,7 +327,7 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
             raise ValueError(f"Series indices must be in 0..{self.layout.n_series - 1}; the fit rows hold {series.min()}..{series.max()}.")
         trained = ~np.isnan(np.asarray(y_train, dtype=float).reshape(len(series), -1)).all(axis=1)  # a row with no observed target never trains its series' vector
         self._seen_series = np.isin(np.arange(self.layout.n_series), series[trained])
-        self._output_bound = TrainingRangeBound.from_targets(y_train) if self.output_bound is OutputBound.TRAINING_RANGE else None
+        self._set_output_bound(y_train)
         self.build_model()
         self._setup_regularization_parameters()
         self._setup_optimizers(self.model)

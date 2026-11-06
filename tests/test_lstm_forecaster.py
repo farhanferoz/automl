@@ -6,11 +6,12 @@ import numpy as np
 import pytest
 import torch
 
-from automl_package.enums import ForecastLoss, OutputBound, RnnBackend, TargetScaling
+from automl_package.enums import ForecastLoss, OutputBound, RnnBackend, TargetScaling, UncertaintyMethod
 from automl_package.models.common.output_bound import TrainingRangeBound
 from automl_package.models.common.unknown_category_embedding import UnknownCategoryEmbedding
 from automl_package.models.lstm_model import PyTorchLSTMForecaster, SequenceLayout
 from automl_package.models.neural_network import PyTorchNeuralNetwork
+from automl_package.models.pytorch_linear_regression import PyTorchLinearRegression
 from automl_package.utils.losses import poisson_deviance
 
 N_SERIES, N_STEPS, N_CHANNELS, N_DENSE, N_HORIZONS = 3, 8, 2, 3, 2
@@ -224,8 +225,28 @@ def test_output_bound_confines_the_output_and_is_saved(model: PyTorchLSTMForecas
     assert bound(torch.tensor([[2.0], [100.0], [-100.0]])).flatten().tolist() == pytest.approx([2.0, 4.0, 0.0], abs=1e-4)
     with pytest.raises(ValueError, match=r"column\(s\) \[1\].*zero-width"):
         TrainingRangeBound.from_targets(np.array([[1.0, 2.0], [3.0, 2.0], [2.0, np.nan]]))
-    with pytest.raises(NotImplementedError, match="PyTorchNeuralNetwork"):
-        PyTorchNeuralNetwork(output_bound=OutputBound.TRAINING_RANGE)
+    with pytest.raises(NotImplementedError, match="PyTorchLinearRegression"):
+        PyTorchLinearRegression(output_bound=OutputBound.TRAINING_RANGE)
+
+
+def test_plain_network_output_bound_confines_extreme_inputs() -> None:
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(400, 3)).astype(np.float32)
+    y = (2.0 * x[:, 0] + rng.normal(scale=0.1, size=400)).astype(np.float32)
+    # no target scaling: its rounding clip in `predict` would hide whether the network itself is bounded
+    common = {"n_epochs": 20, "early_stopping_rounds": None, "random_seed": 0, "batch_size": 64, "learning_rate": 1e-2, "target_scaling": TargetScaling.NONE}
+    wild = x * 1e3  # far outside the training inputs
+    free = PyTorchNeuralNetwork(**common)
+    free.fit(x, y)
+    bounded = PyTorchNeuralNetwork(**common, output_bound=OutputBound.TRAINING_RANGE)
+    bounded.fit(x, y)
+    assert np.abs(np.ravel(free.predict(wild))).max() > np.abs(y).max()  # unbounded, the network extrapolates past the targets
+    pred = np.ravel(bounded.predict(wild))
+    assert pred.min() >= y.min()
+    assert pred.max() <= y.max()
+    assert {"output_bound.centre", "output_bound.half_width"} <= set(bounded.model.state_dict())
+    with pytest.raises(ValueError, match="regression mean"):
+        PyTorchNeuralNetwork(output_bound=OutputBound.TRAINING_RANGE, uncertainty_method=UncertaintyMethod.PROBABILISTIC)
 
 
 def test_unknown_category_embedding_keeps_the_known_rows_and_maps_unseen_ones() -> None:
