@@ -146,6 +146,7 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
     _scores_by_fit_term: ClassVar[bool] = True
     _supports_output_bound: ClassVar[bool] = True  # the head's output is the prediction
     _supports_input_scaling: ClassVar[bool] = False  # it standardises its own sequence layout (`_compute_input_stats`); column 0 is a series index
+    _supports_training_schedule: ClassVar[bool] = True  # trains through its own `_fit_single`, which applies the `TrainingSchedule`
     _default_missing_inputs: ClassVar[MissingInputs] = MissingInputs.NATIVE  # missing dense values become the training mean inside the model
 
     _defaults: ClassVar[dict[str, Any]] = {
@@ -154,7 +155,7 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         "hidden_size": 64,
         "num_layers": 1,
         "embedding_dim": 8,
-        "grad_clip_norm": 1.0,
+        "grad_clip_norm": 1.0,  # kept from before the setting moved to PyTorchModelBase (default None there)
         "batch_size": 1024,
         "n_epochs": 100,
         "rnn_backend": RnnBackend.CUDNN,  # kernels of the LSTM layer on CUDA (enums.RnnBackend: cuDNN is very slow at some sizes on the GB10)
@@ -316,6 +317,7 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
         self.build_model()
         self._setup_regularization_parameters()
         self._setup_optimizers(self.model)
+        schedule = self._training_schedule()
 
         x_t = torch.tensor(x_train, device=self.device)
         self._check_offset(x_t)
@@ -340,8 +342,7 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
                 x_batch = x_t[batch]
                 loss = self._calculate_regularization_loss(self._fit_loss(self.model(x_batch), y_t[batch], offset=self._row_offset(x_batch)), self.model)
                 loss.backward()
-                if self.grad_clip_norm:
-                    nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
+                schedule.clip(self.model)
                 self.optimizer.step()
             if use_early_stopping:
                 history.append(float(self._fit_loss(self._predict_tensor(x_v), y_v, offset=self._row_offset(x_v)).item()))
@@ -349,6 +350,7 @@ class PyTorchLSTMForecaster(PyTorchModelBase):
                     best_state = snapshot_state(self.model)
                 if tracker.done:
                     break
+            schedule.end_epoch(history[-1] if use_early_stopping else None)
         if use_early_stopping:
             best_epoch = tracker.best_epoch
             logger.info(f"Best epoch {best_epoch + 1} of {final_epoch + 1} run")

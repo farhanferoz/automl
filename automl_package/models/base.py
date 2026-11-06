@@ -30,7 +30,7 @@ from automl_package.optimizers.optuna_optimizer import OptunaOptimizer
 from automl_package.utils.capacity_selection import cheapest_within_tolerance
 from automl_package.utils.checkpoint import stable_hash
 from automl_package.utils.cv import TimeSeriesSplit
-from automl_package.utils.data_handler import InputTransform, TargetScaler, create_train_val_split
+from automl_package.utils.data_handler import InputTransform, TargetScaler, check_time_gap, create_train_val_split
 from automl_package.utils.feature_selection import select_features_by_cumulative_importance
 from automl_package.utils.metrics import Metrics, calculate_performance_score
 from automl_package.utils.numerics import find_optimal_iterations
@@ -163,6 +163,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         target_scaling: TargetScaling | str | None = None,
         input_scaling: InputScaling | str | None = None,
         missing_inputs: MissingInputs | str | None = None,
+        time_gap: int = 0,
         **kwargs: Any,
     ) -> None:
         """Initializes the base model with given parameters.
@@ -187,9 +188,13 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         inputs once. None takes the family default (`_default_input_scaling`: STANDARD for the PyTorch networks and the linear models).
         ``missing_inputs`` (member, value or None): what a NaN input does: RAISE (default for networks and linear models), TRAINING_MEAN
         (filled with the training part's column mean), NATIVE (passed through; default for gradient-boosted trees and the LSTM).
+        ``time_gap`` (default 0): distinct timestamps left out between each fitted part and the held-out part after it, in the TIME_ORDERED
+        split `fit` and the search draw and in the time-ordered CV folds (`data_handler.create_train_val_split`, `cv.TimeSeriesSplit`);
+        needs ``split_strategy=TIME_ORDERED``. An explicit ``(x_val, y_val)`` is the caller's split and is used as given.
         """
         if validation_fraction is not None and cv_folds is not None:
             raise ValueError("validation_fraction and cv_folds cannot both be set.")
+        check_time_gap(time_gap, split_strategy)
         if not refit_on_train_val and (cv_folds is not None or feature_selection_threshold is not None):
             raise ValueError("refit_on_train_val=False keeps one fitted model on one validation split: it cannot be combined with cv_folds or feature_selection_threshold.")
 
@@ -202,6 +207,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         self.validation_fraction = validation_fraction
         self.test_fraction = test_fraction
         self.split_strategy = split_strategy
+        self.time_gap = time_gap
         self.cv_folds = cv_folds
         self.optimize_hyperparameters = optimize_hyperparameters
         self.n_trials = n_trials
@@ -256,6 +262,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                 "test_fraction": self.test_fraction,
                 "cv_folds": self.cv_folds,
                 "split_strategy": self.split_strategy,
+                "time_gap": self.time_gap,
                 "optimize_hyperparameters": self.optimize_hyperparameters,
                 "n_trials": self.n_trials,
                 "search_space_override": self.search_space_override,
@@ -681,6 +688,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
             split_strategy=self.split_strategy,
             timestamps=timestamps,
             random_state=getattr(self, "random_seed", None),
+            time_gap=self.time_gap,
         )
 
         x_train, y_train = x[self.train_indices], y[self.train_indices]
@@ -770,6 +778,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
                     split_strategy=self.split_strategy,
                     timestamps=timestamps,
                     random_state=getattr(self, "random_seed", None),
+                    time_gap=self.time_gap,
                 )
                 x_train, y_train = x[train_indices], y[train_indices]
                 x_val, y_val = x[val_indices], y[val_indices]
@@ -836,14 +845,20 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         if self.hpo_storage_dir is None:
             return {}
         settings = {k: v for k, v in self.get_params().items() if k not in HPO_IDENTITY_EXCLUDED}
-        if self.target_scaling is TargetScaling.NONE:
-            settings.pop("target_scaling")  # as before the setting existed: a search without scaling keeps its journal
-        if self.input_scaling is InputScaling.NONE:
-            settings.pop("input_scaling")  # likewise: no input scaling is the behaviour before the setting existed
-        if self.missing_inputs is not MissingInputs.TRAINING_MEAN:
-            settings.pop("missing_inputs")  # RAISE and NATIVE never change a fit on data without NaN
+        for key in self._settings_without_effect() & settings.keys():
+            settings.pop(key)  # as before the setting existed: a search that does not use it keeps its journal
         name = f"{type(self).__name__}-{stable_hash([settings, x, y, timestamps, explicit_split])[:HPO_HASH_LENGTH]}"
         return {"storage_path": Path(self.hpo_storage_dir) / f"{name}.journal", "study_name": name}
+
+    def _settings_without_effect(self) -> set[str]:
+        """Names of the settings whose current value runs the model as it ran before the setting existed; `_hpo_journal` leaves them out."""
+        off = {
+            "target_scaling": self.target_scaling is TargetScaling.NONE,
+            "input_scaling": self.input_scaling is InputScaling.NONE,
+            "missing_inputs": self.missing_inputs is not MissingInputs.TRAINING_MEAN,  # RAISE and NATIVE never change a fit on data without NaN
+            "time_gap": self.time_gap == 0,
+        }
+        return {name for name, is_off in off.items() if is_off}
 
     def _get_optimization_metric(self) -> Metric:
         """Gets the optimization metric for the model."""
@@ -992,7 +1007,7 @@ class BaseModel(abc.ABC, BinnedUncertaintyMixin):
         if self.split_strategy == DataSplitStrategy.TIME_ORDERED:
             if timestamps is None:
                 raise ValueError("timestamps must be provided for time_ordered split strategy.")
-            kf = TimeSeriesSplit(n_splits=self.cv_folds)
+            kf = TimeSeriesSplit(n_splits=self.cv_folds, gap=self.time_gap, timestamps=timestamps)
         elif self.split_strategy == DataSplitStrategy.RANDOM:
             kf = KFold(n_splits=self.cv_folds, shuffle=True, random_state=getattr(self, "random_seed", None))
         else:

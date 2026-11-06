@@ -85,6 +85,7 @@ class FlexibleWidthNN(PyTorchModelBase):
 
     _supports_target_scaling: ClassVar[bool] = False  # target_scaling=PER_OUTPUT refused: _predict_for_scoring bypasses predict; width is caller-given
     _supports_input_scaling: ClassVar[bool] = False  # input_scaling=STANDARD refused for the same reason: raw inputs could reach the network
+    _supports_training_schedule: ClassVar[bool] = True  # trains through the generic `PyTorchModelBase._fit_single`, which applies the `TrainingSchedule`
 
     _defaults: ClassVar[dict[str, Any]] = {
         "widths": (16, 32, 48, 64),

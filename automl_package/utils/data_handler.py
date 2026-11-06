@@ -9,6 +9,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from automl_package.enums import DataSplitStrategy, InputScaling, MissingInputs
+from automl_package.logger import logger
 
 if TYPE_CHECKING:
     from automl_package.models.base import BaseModel
@@ -273,10 +274,17 @@ def create_train_val_split(
     timestamps: np.ndarray | None,
     random_state: int | None,
     force_to_test_indices: np.ndarray | None = None,
+    time_gap: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Creates train, validation, and test splits and returns the indices."""
+    """Creates train, validation, and test splits and returns the indices.
+
+    ``time_gap`` (TIME_ORDERED only) leaves out the rows of the ``time_gap`` distinct timestamps that follow each fitted part: the validation
+    part starts after the gap that follows the training part, the test part after the gap that follows training + validation (the part a
+    refit is fitted on). Counted in distinct timestamps, so a panel (many series per date) gets a gap in time. The rows left out go nowhere.
+    """
     if timestamps is None and split_strategy != DataSplitStrategy.RANDOM:
         raise ValueError("timestamps cannot be None for non-random split strategies.")
+    check_time_gap(time_gap, split_strategy)
 
     if force_to_test_indices is not None:
         all_indices = np.arange(x.shape[0])
@@ -305,7 +313,7 @@ def create_train_val_split(
                 timestamps = pd.to_datetime(timestamps)
             except (ValueError, TypeError) as e:
                 raise ValueError("timestamps must be of type date, datetime or numeric for time_ordered split strategy.") from e
-        train_indices, val_indices, test_indices = _time_ordered_split(validation_fraction, test_fraction, timestamps[remaining_indices])
+        train_indices, val_indices, test_indices = _time_ordered_split(validation_fraction, test_fraction, timestamps[remaining_indices], time_gap)
     else:
         raise ValueError(f"Unknown split strategy: {split_strategy}")
 
@@ -357,8 +365,8 @@ def _distinct_dates_split(validation_fraction: float, test_fraction: float, time
     return train_indices, val_indices, test_indices
 
 
-def _time_ordered_split(validation_fraction: float, test_fraction: float, timestamps: np.ndarray | None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Performs a time-ordered split of the data."""
+def _time_ordered_split(validation_fraction: float, test_fraction: float, timestamps: np.ndarray | None, time_gap: int = 0) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Performs a time-ordered split of the data; ``time_gap`` as in `create_train_val_split`."""
     if timestamps is None:
         raise ValueError("timestamps must be provided for time_ordered split strategy.")
 
@@ -370,5 +378,41 @@ def _time_ordered_split(validation_fraction: float, test_fraction: float, timest
     train_indices = sorted_indices[:n_train]
     val_indices = sorted_indices[n_train : n_train + n_val]
     test_indices = sorted_indices[n_train + n_val :]
+    if time_gap:
+        timestamps = np.asarray(timestamps)
+        distinct = np.unique(timestamps)
+        val_indices = rows_after_gap(val_indices, timestamps, timestamps[train_indices].max(), distinct, time_gap, "validation")
+        test_indices = rows_after_gap(test_indices, timestamps, timestamps[np.concatenate([train_indices, val_indices])].max(), distinct, time_gap, "test")
 
     return train_indices, val_indices, test_indices
+
+
+def check_time_gap(time_gap: int, split_strategy: DataSplitStrategy) -> None:
+    """Raises ValueError for a gap that is negative, or that is asked of a split without a time order.
+
+    Raises:
+        ValueError: ``time_gap`` < 0, or > 0 under a split strategy other than TIME_ORDERED.
+    """
+    if time_gap < 0:
+        raise ValueError(f"time_gap counts the distinct timestamps left out between parts and cannot be negative, got {time_gap}.")
+    if time_gap and split_strategy != DataSplitStrategy.TIME_ORDERED:
+        raise ValueError(f"time_gap leaves out timestamps after a time-ordered training part: set split_strategy=TIME_ORDERED, or time_gap=0 (got {split_strategy}).")
+
+
+def rows_after_gap(rows: np.ndarray, timestamps: np.ndarray, last_fitted: object, distinct: np.ndarray, time_gap: int, part: str) -> np.ndarray:
+    """The rows of a later part whose timestamp comes after the ``time_gap`` distinct timestamps that follow ``last_fitted``.
+
+    ``distinct`` is the sorted distinct timestamps of the whole data; a row at or before ``last_fitted`` is left out too (a date the fitted
+    part and the later part share). ``part`` names the later part in the log line and the error.
+
+    Raises:
+        ValueError: the gap leaves a non-empty part with no rows.
+    """
+    if not len(rows):
+        return rows
+    following = distinct[distinct > last_fitted]
+    kept = rows[timestamps[rows] > following[time_gap - 1]] if len(following) >= time_gap else rows[:0]
+    if not len(kept):
+        raise ValueError(f"time_gap={time_gap} leaves the {part} part with no rows: lower time_gap, or give that part more rows (a larger fraction, fewer folds).")
+    logger.info(f"time_gap={time_gap}: {len(rows) - len(kept)} of {len(rows)} {part} rows left out after the last fitted timestamp {last_fitted}")
+    return kept

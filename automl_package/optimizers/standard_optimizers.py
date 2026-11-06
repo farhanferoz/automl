@@ -26,11 +26,14 @@ class AdamWrapper(OptimizerWrapper):
         batch_x: torch.Tensor,
         batch_y: torch.Tensor,
         forward_pass_kwargs: dict | None = None,
+        after_backward: Callable[[nn.Module], None] | None = None,
     ) -> None:
         """Performs a single optimization step for Adam."""
         optimizer.zero_grad()
         loss, _ = self._calculate_total_loss(model, loss_fn, regularization_fn, batch_x, batch_y, forward_pass_kwargs)
         loss.backward()
+        if after_backward is not None:
+            after_backward(model)
         optimizer.step()
 
 
@@ -51,8 +54,15 @@ class HessianFreeWrapper(OptimizerWrapper):
         batch_x: torch.Tensor,
         batch_y: torch.Tensor,
         forward_pass_kwargs: dict | None = None,
+        after_backward: Callable[[nn.Module], None] | None = None,
     ) -> None:
-        """Performs a single optimization step for Hessian-free."""
+        """Performs a single optimization step for Hessian-free (its own inner steps: there is no single backward pass to hook).
+
+        Raises:
+            ValueError: ``after_backward`` given.
+        """
+        if after_backward is not None:
+            raise ValueError("The Hessian-free optimizer takes no gradient clipping: leave grad_clip_norm unset, or use optimizer_type=ADAM.")
 
         def forward() -> tuple[torch.Tensor, torch.Tensor]:
             """The forward function required by the HessianFree optimizer."""

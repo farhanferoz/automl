@@ -13,13 +13,16 @@ import torch
 from sklearn.model_selection import train_test_split
 
 from automl_package.enums import (
+    DataSplitStrategy,
     DepthRegularization,
     ExplainerType,
     ForecastLoss,
     InputScaling,
     LayerSelectionMethod,
+    LRSchedule,
     MissingInputs,
     NClassesSelectionMethod,
+    OptimizerType,
     RegressionStrategy,
     TargetScaling,
     TaskType,
@@ -27,6 +30,7 @@ from automl_package.enums import (
 )
 from automl_package.explainers.feature_explainer import FeatureExplainer
 from automl_package.models.classifier_regression import ClassifierRegressionModel
+from automl_package.models.common.training import TrainingSchedule
 from automl_package.models.conformal import ConformalWrapper
 from automl_package.models.flexible_neural_network import FlexibleHiddenLayersNN
 from automl_package.models.independent_weights_flexible_neural_network import IndependentWeightsFlexibleNN
@@ -36,6 +40,8 @@ from automl_package.models.neural_network import PyTorchNeuralNetwork
 from automl_package.models.normal_equation_linear_regression import NormalEquationLinearRegression
 from automl_package.models.probabilistic_regression import ProbabilisticRegressionModel
 from automl_package.models.xgboost_model import XGBoostModel
+from automl_package.utils.cv import TimeSeriesSplit
+from automl_package.utils.data_handler import create_train_val_split
 from automl_package.utils.transforms import symexp, symlog
 
 # ----- Helpers ---------------------------------------------------------------
@@ -713,3 +719,103 @@ class TestInputSettings:
     def test_input_scaling_refusals_name_the_remedy(self, build) -> None:
         with pytest.raises(ValueError, match="input_scaling=NONE"):
             build()
+
+
+class TestTrainingDetails:
+    """The time gap between fitted and held-out parts (`time_gap`) and the networks' clipping / learning-rate schedule (`TrainingSchedule`)."""
+
+    def test_time_gap_leaves_out_timestamps_in_splits_and_folds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AUTOML_DEVICE", "cpu")
+        dates = np.repeat(np.arange(50), 4)  # a panel: 50 dates x 4 series
+        rows = np.zeros((200, 1))
+        train, val, test = create_train_val_split(rows, 0.2, 0.2, DataSplitStrategy.TIME_ORDERED, dates, None, time_gap=3)
+        assert (dates[train].max(), dates[val].min(), dates[val].max(), dates[test].min()) == (29, 33, 39, 43)  # 3 dates left out after each fitted part
+        _, val_no_gap, _ = create_train_val_split(rows, 0.2, 0.2, DataSplitStrategy.TIME_ORDERED, dates, None)
+        assert dates[val_no_gap].min() == 30  # no gap: as before the setting existed
+        shuffled = np.random.default_rng(0).permutation(dates)
+        for fold_train, fold_val in TimeSeriesSplit(2, gap=2, timestamps=shuffled).split(rows):
+            assert shuffled[fold_val].min() == shuffled[fold_train].max() + 3  # rows ordered by time, the gap counted in dates
+        assert [v[0] for _, v in TimeSeriesSplit(2, gap=1).split(rows)] == [81, 181]  # without timestamps the gap counts rows
+        folds = PyTorchNeuralNetwork(input_size=1, split_strategy=DataSplitStrategy.TIME_ORDERED, cv_folds=2, validation_fraction=None, time_gap=2).get_kfolds(shuffled)
+        assert all(shuffled[v].min() == shuffled[t].max() + 3 for t, v in folds.split(rows))  # the model's folds carry its gap and timestamps
+        with pytest.raises(ValueError, match="lower time_gap"):
+            create_train_val_split(rows, 0.2, 0.2, DataSplitStrategy.TIME_ORDERED, dates, None, time_gap=10)
+        with pytest.raises(ValueError, match="split_strategy=TIME_ORDERED"):
+            PyTorchNeuralNetwork(input_size=1, time_gap=1)
+        gaps: list[int] = []
+        recording = lambda *a, **kw: (gaps.append(kw["time_gap"]), create_train_val_split(*a, **kw))[1]  # noqa: E731
+        monkeypatch.setattr("automl_package.models.base.create_train_val_split", recording)
+        x = np.random.default_rng(1).normal(size=(200, 1)).astype(np.float32)
+        model = PyTorchNeuralNetwork(
+            input_size=1, n_epochs=2, split_strategy=DataSplitStrategy.TIME_ORDERED, time_gap=2, optimize_hyperparameters=True, n_trials=1,
+            calculate_feature_importance=False, random_seed=0,
+        )
+        model.fit(x, x[:, 0], timestamps=dates)
+        assert gaps == [2, 2]  # the outer split and the search's draw both leave the gap
+        assert dates[model.val_indices].min() == dates[model.train_indices].max() + 3
+
+    def test_schedule_and_clipping_in_both_training_loops(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AUTOML_DEVICE", "cpu")
+        seen: list[tuple[float, float | None]] = []
+        clips: list[float] = []
+        end_epoch, clip = TrainingSchedule.end_epoch, TrainingSchedule.clip
+        monkeypatch.setattr(TrainingSchedule, "end_epoch", lambda self, fit: (seen.append((self._optimizer.param_groups[0]["lr"], fit)), end_epoch(self, fit))[1])
+        monkeypatch.setattr(TrainingSchedule, "clip", lambda self, model: (clips.append(self.grad_clip_norm), clip(self, model))[1])
+        rng = np.random.default_rng(0)
+        x = rng.normal(size=(120, 2)).astype(np.float32)
+        y = x[:, 0] + 0.1 * rng.normal(size=120).astype(np.float32)
+        base_rate, n_epochs, warmup = 0.01, 6, 2
+        network = PyTorchNeuralNetwork(
+            input_size=2, n_epochs=n_epochs, batch_size=40, early_stopping_rounds=n_epochs, refit_on_train_val=False, learning_rate=base_rate,
+            lr_schedule="cosine", lr_warmup_epochs=warmup, grad_clip_norm=0.5, calculate_feature_importance=False, random_seed=0,
+        )
+        held_out: list[float] = []
+        network.epoch_callback = lambda epoch, model, val_loss: held_out.append(val_loss)
+        network.fit(x[:80], y[:80], x_val=x[80:], y_val=y[80:])
+        expected = [base_rate * (e + 1) / warmup if e < warmup else base_rate * 0.5 * (1 + np.cos(np.pi * (e - warmup) / (n_epochs - warmup))) for e in range(n_epochs)]
+        np.testing.assert_allclose([rate for rate, _ in seen], expected, rtol=1e-6)  # warmup, then cosine over the budget
+        assert [fit for _, fit in seen] == held_out  # each epoch's held-out fit term reached the schedule
+        assert clips == [0.5] * n_epochs * 2  # every step of the generic loop clipped (80 rows / 40 per batch)
+        seen.clear(), clips.clear()
+        layout = SequenceLayout(2, 4, 1)
+        panel = np.column_stack([rng.integers(0, 2, 100), rng.normal(size=(100, 4))]).astype(np.float32)
+        lstm = PyTorchLSTMForecaster(
+            layout=layout, output_size=1, window=4, hidden_size=8, embedding_dim=2, n_epochs=3, batch_size=50, early_stopping_rounds=3,
+            refit_on_train_val=False, lr_schedule="reduce_on_plateau", lr_schedule_patience=0, calculate_feature_importance=False, random_seed=0,
+        )
+        lstm.fit(panel[:80], panel[:80, -1:], x_val=panel[80:], y_val=panel[80:, -1:])
+        assert [fit for _, fit in seen] == [loss for _, loss in lstm.convergence_.trajectory] and len(seen) == 3  # every epoch's held-out fit term, handed over
+        assert clips == [1.0] * 3 * 2  # the LSTM keeps its default clipping, now through the shared helper
+
+    def test_plateau_rule_and_refusals_name_the_remedy(self) -> None:
+        layer = torch.nn.Linear(1, 1)
+        optimizer = torch.optim.SGD(layer.parameters(), lr=1.0)
+        schedule = TrainingSchedule(optimizer, grad_clip_norm=None, lr_schedule=LRSchedule.REDUCE_ON_PLATEAU, n_epochs=10, factor=0.5, patience=1, warmup_epochs=0)
+        for _ in range(3):
+            schedule.end_epoch(1.0)  # no new best after the first epoch
+        assert optimizer.param_groups[0]["lr"] == 0.5  # more than `patience` epochs without a new best: one reduction
+        with pytest.raises(ValueError, match="give it validation rows"):
+            schedule.end_epoch(None)
+        (layer(torch.ones(1, 1)) * 1e6).sum().backward()
+        TrainingSchedule(optimizer, grad_clip_norm=1.0, lr_schedule=LRSchedule.NONE, n_epochs=10, factor=0.5, patience=1, warmup_epochs=0).clip(layer)
+        assert torch.nn.utils.get_total_norm([p.grad for p in layer.parameters()]) <= 1.0 + 1e-6
+        refusals = [
+            (lambda: FlexibleHiddenLayersNN(input_size=1, grad_clip_norm=1.0), "loop of its own"),
+            (lambda: PyTorchNeuralNetwork(input_size=1, lr_schedule="reduce_on_plateau", early_stopping_rounds=5), "refit_on_train_val=False"),
+            (lambda: PyTorchNeuralNetwork(input_size=1, lr_schedule="cosine", optimizer_type=OptimizerType.HESSIAN_FREE), "optimizer_type=ADAM"),
+        ]
+        for build, remedy in refusals:
+            with pytest.raises(ValueError, match=remedy):
+                build()
+
+    def test_search_journal_ignores_settings_that_are_off(self, tmp_path) -> None:
+        x, y = np.zeros((10, 1)), np.zeros(10)
+
+        def journal(**settings: object) -> str:
+            return PyTorchNeuralNetwork(input_size=1, hpo_storage_dir=str(tmp_path), **settings)._hpo_journal(x, y, None, None)["study_name"]
+
+        assert journal() == journal(lr_schedule_factor=0.5, time_gap=0, grad_clip_norm=None)  # a factor without the plateau schedule changes nothing
+        assert journal() != journal(lr_schedule="cosine")
+        assert journal(lr_schedule="reduce_on_plateau", early_stopping_rounds=5, refit_on_train_val=False) != journal(
+            lr_schedule="reduce_on_plateau", early_stopping_rounds=5, refit_on_train_val=False, lr_schedule_factor=0.5
+        )

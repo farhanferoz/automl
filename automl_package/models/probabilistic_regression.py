@@ -93,6 +93,7 @@ class ProbabilisticRegressionModel(PyTorchModelBase, BoundaryLossMixin, MiddleCl
     _supports_input_scaling: ClassVar[bool] = False  # input_scaling=STANDARD refused: _predict_for_scoring bypasses predict, so raw inputs could reach the network
 
     _scores_by_fit_term: ClassVar[bool] = True
+    _supports_training_schedule: ClassVar[bool] = True  # the generic `PyTorchModelBase._fit_single` applies the `TrainingSchedule` (each TWO_STAGE stage its own)
 
     _defaults: ClassVar[dict[str, Any]] = {
         "input_size": None,

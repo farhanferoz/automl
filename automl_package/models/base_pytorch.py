@@ -9,11 +9,12 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from automl_package.enums import InputScaling, LearnedRegularizationType, OptimizerType, OutputBound, TargetScaling, TaskType, UncertaintyMethod
+from automl_package.enums import InputScaling, LearnedRegularizationType, LRSchedule, OptimizerType, OutputBound, TargetScaling, TaskType, UncertaintyMethod
 from automl_package.logger import logger
 from automl_package.models.base import BaseModel
 from automl_package.models.common.losses import calculate_combined_loss
 from automl_package.models.common.mixins import RegularizationMixin
+from automl_package.models.common.training import TrainingSchedule
 from automl_package.optimizers import get_optimizer_wrapper
 from automl_package.utils.convergence import ConvergenceResult, ConvergenceTracker, snapshot_state
 from automl_package.utils.numerics import ensure_proba_shape
@@ -38,6 +39,10 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
     # prediction itself). A class that does not declare True raises NotImplementedError when `OutputBound.TRAINING_RANGE` is requested.
     _supports_output_bound: ClassVar[bool] = False
 
+    # Whether this class's training loop applies `grad_clip_norm`, `lr_schedule` and `lr_warmup_epochs` (a `TrainingSchedule`). The generic
+    # `_fit_single` below and the LSTM's loop do; a class that trains in a loop of its own keeps False and refuses those settings.
+    _supports_training_schedule: ClassVar[bool] = False
+
     _defaults: ClassVar[dict[str, Any]] = {
         "input_size": None,
         "output_size": 1,
@@ -55,6 +60,11 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         "random_seed": None,
         "optimizer_type": OptimizerType.ADAM,
         "output_bound": OutputBound.NONE,  # OutputBound.TRAINING_RANGE confines the output to the range of the training targets (models/common/output_bound.py)
+        "grad_clip_norm": None,  # total gradient norm each step is clipped to (None or 0: no clipping); `TrainingSchedule`
+        "lr_schedule": LRSchedule.NONE,  # how the learning rate moves over the epochs (enums.LRSchedule)
+        "lr_schedule_factor": 0.1,  # REDUCE_ON_PLATEAU: the rate is multiplied by this (torch's default)
+        "lr_schedule_patience": 10,  # REDUCE_ON_PLATEAU: epochs without a new best held-out fit term before a reduction (torch's default)
+        "lr_warmup_epochs": 0,  # epochs of linear warmup to the base rate before the schedule
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -63,6 +73,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         for key, value in PyTorchModelBase._defaults.items():
             kwargs.setdefault(key, value)
         kwargs["output_bound"] = OutputBound(kwargs["output_bound"])  # a config may hand over the value or the member
+        kwargs["lr_schedule"] = LRSchedule(kwargs["lr_schedule"])
         if kwargs["output_bound"] is OutputBound.TRAINING_RANGE and not self._supports_output_bound:
             raise NotImplementedError(f"{type(self).__name__} does not apply output_bound=TRAINING_RANGE: its network output is not wired to a TrainingRangeBound.")
 
@@ -90,6 +101,60 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
         self._train_residual_std = 0.0
         self.optimizer_wrapper = get_optimizer_wrapper(self.optimizer_type)
         self._check_target_scaling()
+        self._check_training_schedule()
+
+    def _check_training_schedule(self) -> None:
+        """Refuses clipping or a learning-rate schedule that this class's training cannot apply.
+
+        Raises:
+            ValueError: a negative clipping norm or warmup; any of them set for a class with its own loop or for the Hessian-free optimizer;
+                REDUCE_ON_PLATEAU without a held-out fit term in every pass (early stopping and ``refit_on_train_val=False``), or a factor outside (0, 1).
+        """
+        if (self.grad_clip_norm or 0) < 0 or self.lr_warmup_epochs < 0:
+            raise ValueError(f"grad_clip_norm and lr_warmup_epochs cannot be negative, got {self.grad_clip_norm} and {self.lr_warmup_epochs}.")
+        if not (self.grad_clip_norm or self.lr_schedule is not LRSchedule.NONE or self.lr_warmup_epochs):
+            return
+        if not self._supports_training_schedule:
+            raise ValueError(
+                f"{type(self).__name__} trains in a loop of its own, which applies no gradient clipping or learning-rate schedule: "
+                "leave grad_clip_norm, lr_schedule and lr_warmup_epochs unset."
+            )
+        if OptimizerType(self.optimizer_type) is OptimizerType.HESSIAN_FREE:
+            raise ValueError(
+                "The Hessian-free optimizer takes no learning rate and no gradient clipping: "
+                "leave grad_clip_norm, lr_schedule and lr_warmup_epochs unset, or use optimizer_type=ADAM."
+            )
+        if self.lr_schedule is LRSchedule.REDUCE_ON_PLATEAU:
+            if self.early_stopping_rounds is None or self.refit_on_train_val:
+                raise ValueError(
+                    "lr_schedule=REDUCE_ON_PLATEAU reads the held-out fit term every epoch, which a refit on train + validation does not have: "
+                    "set early_stopping_rounds and refit_on_train_val=False, or use lr_schedule=COSINE."
+                )
+            if not 0 < self.lr_schedule_factor < 1:
+                raise ValueError(f"lr_schedule_factor multiplies the learning rate at a plateau and must be in (0, 1), got {self.lr_schedule_factor}.")
+
+    def _training_schedule(self) -> TrainingSchedule:
+        """The clipping and learning-rate schedule of one training pass, on the optimizer `_setup_optimizers` just built."""
+        return TrainingSchedule(
+            self.optimizer,
+            grad_clip_norm=self.grad_clip_norm,
+            lr_schedule=self.lr_schedule,
+            n_epochs=int(self.n_epochs),
+            factor=self.lr_schedule_factor,
+            patience=self.lr_schedule_patience,
+            warmup_epochs=self.lr_warmup_epochs,
+        )
+
+    def _settings_without_effect(self) -> set[str]:
+        """BaseModel's, plus the training-schedule settings while they are off (the plateau's factor and patience under any other schedule)."""
+        off = {
+            "grad_clip_norm": self.grad_clip_norm is None,
+            "lr_schedule": self.lr_schedule is LRSchedule.NONE,
+            "lr_schedule_factor": self.lr_schedule is not LRSchedule.REDUCE_ON_PLATEAU,
+            "lr_schedule_patience": self.lr_schedule is not LRSchedule.REDUCE_ON_PLATEAU,
+            "lr_warmup_epochs": self.lr_warmup_epochs == 0,
+        }
+        return super()._settings_without_effect() | {name for name, is_off in off.items() if is_off}
 
     @property
     @abstractmethod
@@ -247,6 +312,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
             torch.manual_seed(self.random_seed)
             np.random.seed(self.random_seed)
         self._prepare_training()
+        schedule = self._training_schedule()
 
         use_early_stopping = self.early_stopping_rounds is not None and forced_iterations is None
 
@@ -298,6 +364,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
                     batch_x=batch_x,
                     batch_y=batch_y,
                     forward_pass_kwargs=forward_pass_kwargs,
+                    after_backward=schedule.clip if schedule.clips else None,
                 )
 
                 if self.lambda_optimizer:
@@ -326,6 +393,7 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
             if use_early_stopping and x_val_tensor is not None and stop_now:
                 logger.info(f"Early stopping at epoch {best_epoch + 1}")
                 break
+            schedule.end_epoch(val_loss)
 
         if best_model_state and use_early_stopping:
             self.model.load_state_dict(best_model_state)
@@ -373,6 +441,11 @@ class PyTorchModelBase(BaseModel, RegularizationMixin, ABC):
                 "random_seed": self.random_seed,
                 "optimizer_type": self.optimizer_type,
                 "output_bound": self.output_bound,
+                "grad_clip_norm": self.grad_clip_norm,
+                "lr_schedule": self.lr_schedule,
+                "lr_schedule_factor": self.lr_schedule_factor,
+                "lr_schedule_patience": self.lr_schedule_patience,
+                "lr_warmup_epochs": self.lr_warmup_epochs,
             }
         )
         return params

@@ -396,3 +396,11 @@ class ComputeDevice(Enum):
     AUTO = "auto"  # the GPU when `get_device()` finds CUDA (honours AUTOML_DEVICE), else the CPU
     CPU = "cpu"
     GPU = "gpu"
+
+
+class LRSchedule(Enum):
+    """How a PyTorch network's learning rate moves over the epochs of one training pass (`PyTorchModelBase.lr_schedule`)."""
+
+    NONE = "none"  # constant (after any warmup)
+    REDUCE_ON_PLATEAU = "reduce_on_plateau"  # multiplied by `lr_schedule_factor` after `lr_schedule_patience` epochs without a new best held-out fit term
+    COSINE = "cosine"  # cosine decay towards 0 over the epoch budget `n_epochs` (after any warmup)

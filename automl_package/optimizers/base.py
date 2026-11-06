@@ -1,6 +1,7 @@
 """Base class for optimizer wrappers."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 
 import torch
 
@@ -37,6 +38,7 @@ class OptimizerWrapper(ABC):
         batch_x: torch.Tensor,
         batch_y: torch.Tensor,
         forward_pass_kwargs: dict | None = None,
+        after_backward: Callable[[torch.nn.Module], None] | None = None,
     ) -> None:
-        """Performs a single, complete optimization step."""
+        """Performs a single, complete optimization step; ``after_backward(model)`` runs between the backward pass and the step (gradient clipping)."""
         raise NotImplementedError

@@ -405,6 +405,7 @@ class ClassifierRegressionModel(BaseModel, MiddleClassPenaltyMixin):
                 split_strategy=self.split_strategy,
                 timestamps=timestamps,
                 random_state=getattr(self, "random_seed", None),
+                time_gap=self.time_gap,
             )
             x_train, y_train = x[train_indices], y[train_indices]
             x_val, y_val = x[val_indices], y[val_indices]

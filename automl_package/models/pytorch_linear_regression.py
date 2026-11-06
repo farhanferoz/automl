@@ -19,6 +19,7 @@ class PyTorchLinearRegression(PyTorchModelBase):
     """
 
     _scores_by_fit_term: ClassVar[bool] = True
+    _supports_training_schedule: ClassVar[bool] = True  # trains through the generic `PyTorchModelBase._fit_single`, which applies the `TrainingSchedule`
 
     def __init__(self, **kwargs: Any) -> None:
         """Initializes the PyTorchLinearRegression model.
